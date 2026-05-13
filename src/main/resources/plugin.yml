@@ -1,0 +1,40 @@
+name: LetsLearnEnglish
+version: ${project.version}
+main: com.letslearnenglish.minecraftplugin.LetsLearnEnglish
+api-version: "1.20"
+description: "Let's learn English! - A gamified English learning plugin for Minecraft"
+author: sqkl520
+website: https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English-
+
+softdepend:
+  - PlaceholderAPI
+  - Vault
+  - Citizens
+
+commands:
+  learnenglish:
+    description: "Main command to open the English learning menu"
+    aliases: [le, learn, english]
+    usage: /<command> [subcommand]
+  learnadmin:
+    description: "Admin command for plugin configuration and data management"
+    aliases: [lea, learnadmin]
+    usage: /<command> [subcommand]
+    permission: letslearnenglish.admin
+
+permissions:
+  letslearnenglish.use:
+    description: "Allows use of basic learning features"
+    default: true
+  letslearnenglish.admin:
+    description: "Allows use of admin features"
+    default: op
+  letslearnenglish.word.*:
+    description: "Allows use of all word learning features"
+    default: true
+  letslearnenglish.dialogue.*:
+    description: "Allows use of all dialogue practice features"
+    default: true
+  letslearnenglish.progress.*:
+    description: "Allows viewing all progress information"
+    default: true

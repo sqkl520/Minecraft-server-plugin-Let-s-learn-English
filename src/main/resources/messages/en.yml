@@ -1,0 +1,50 @@
+# ============================================================
+#  English Message File
+#  Supports PlaceholderAPI variables and color codes
+# ============================================================
+
+prefix: "&8[&bEnglish&8] &f"
+
+general:
+  no-permission: "{prefix}&cYou don't have permission to use this command!"
+  player-only: "{prefix}&cThis command can only be executed by players!"
+  reload-success: "{prefix}&aConfiguration reloaded successfully!"
+  data-saved: "{prefix}&aPlayer data saved!"
+  unknown-command: "{prefix}&cUnknown command. Use /le help for help."
+  error: "{prefix}&cError: {message}"
+
+word:
+  session-start: "{prefix}&aStarting new learning session! Difficulty: &e{difficulty}&a, Mode: &e{mode}"
+  session-end: "{prefix}&aLearning session complete! Accuracy: &e{accuracy}%"
+  correct: "{prefix}&aCorrect! &f(+{score} points)"
+  incorrect: "{prefix}&cIncorrect! The correct answer is: &e{answer}"
+  mastery-update: "{prefix}&aYour mastery of &e{word} &ahas improved to &e{mastery}%"
+  daily-limit-reached: "{prefix}&cYou've reached your daily learning limit! Come back tomorrow~"
+
+review:
+  notification: "{prefix}&6You have &e{count} &6words due for review! Type &e/le review &6to start"
+  complete: "{prefix}&aReview complete! Keep it up!"
+
+dialogue:
+  start: "{prefix}&aStarting dialogue: &e{scene}"
+  npc-greeting: "&e[{npc}]&f {text}"
+  grammar-hint: "{prefix}&6Grammar hint: &e{hint}"
+  complete: "{prefix}&aDialogue practice complete! Score: &e{score}"
+
+achievement:
+  unlocked: "{prefix}&6Achievement Unlocked: &e{name} &6- {description}"
+  progress: "{prefix}&7Achievement progress: &e{name} &7({current}/{target})"
+
+leaderboard:
+  header: "&6&l===== English Learning Leaderboard ====="
+  entry: "&e#{rank} &f{player} &7- &b{score} points"
+  footer: "&6&l======================================"
+
+progress:
+  view: "{prefix}&aViewing your learning progress..."
+
+admin:
+  export-start: "{prefix}&aStarting player data export..."
+  export-complete: "{prefix}&aData export complete! File: &e{file}"
+  player-reset: "{prefix}&aReset learning data for player &e{player}"
+  word-add: "{prefix}&aAdded word &e{word} &ato &e{difficulty} &aword bank"
