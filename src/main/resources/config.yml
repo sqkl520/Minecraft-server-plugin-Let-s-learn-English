@@ -1,0 +1,110 @@
+# ============================================================
+#  Let's Learn English! - Main Configuration File
+#  Minecraft English Learning Plugin
+# ============================================================
+
+config-version: 1
+
+# ============================================================
+#  General Settings
+# ============================================================
+general:
+  language: "zh"
+  debug: false
+  check-updates: true
+  auto-save-interval: 5
+
+# ============================================================
+#  Database Settings
+# ============================================================
+database:
+  type: "sqlite"
+  sqlite:
+    filename: "playerdata.db"
+  mysql:
+    host: "localhost"
+    port: 3306
+    database: "letslearnenglish"
+    username: "root"
+    password: ""
+    pool-size: 10
+    table-prefix: "lle_"
+
+# ============================================================
+#  Word Learning System Settings
+# ============================================================
+word-system:
+  enabled: true
+  daily-limit: 50
+  words-per-session: 10
+  review:
+    enabled: true
+    intervals: [1, 6, 24, 72, 168]
+    mastery-threshold: 0.85
+  modes:
+    spelling:
+      enabled: true
+      max-attempts: 3
+      case-sensitive: false
+    choice:
+      enabled: true
+      option-count: 4
+      time-limit: 30
+    fill-blank:
+      enabled: true
+      show-first-letter: true
+      max-attempts: 3
+
+# ============================================================
+#  Dialogue System Settings
+# ============================================================
+dialogue-system:
+  enabled: true
+  npc:
+    use-citizens: false
+    interaction-distance: 3.0
+    name-prefix: "&b[English] &f"
+  conversation:
+    grammar-check: true
+    adaptive-difficulty: true
+    history-size: 20
+    typing-timeout: 60
+
+# ============================================================
+#  Progress & Reward System Settings
+# ============================================================
+progress-system:
+  enabled: true
+  leaderboard:
+    enabled: true
+    display-count: 10
+    update-interval: 30
+  achievements:
+    enabled: true
+    config-file: "achievements.yml"
+  rewards:
+    enabled: true
+    types:
+      item:
+        enabled: true
+      command:
+        enabled: true
+      exp:
+        enabled: true
+      money:
+        enabled: false
+        vault-required: true
+
+# ============================================================
+#  GUI Settings
+# ============================================================
+gui:
+  main-menu-title: "&6&lLet's Learn English!"
+  menu-size: 27
+  custom-textures: false
+  sounds:
+    enabled: true
+    correct: "ENTITY_PLAYER_LEVELUP"
+    incorrect: "ENTITY_VILLAGER_NO"
+    complete: "UI_TOAST_CHALLENGE_COMPLETE"
+    menu-open: "BLOCK_NOTE_BLOCK_PLING"

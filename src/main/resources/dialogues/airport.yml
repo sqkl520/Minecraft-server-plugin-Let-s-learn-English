@@ -1,0 +1,71 @@
+# ============================================================
+#  Airport Check-in Dialogue Scene
+#  Difficulty: Intermediate
+# ============================================================
+
+scene:
+  id: "airport"
+  name: "Airport Check-in"
+  description: "Practice checking in at an airport"
+  difficulty: "intermediate"
+  npc:
+    name: "&eAgent &fSarah"
+    role: "Check-in Agent"
+    greeting: "Good morning! Welcome to International Airlines. Where are you flying today?"
+
+dialogue_tree:
+  start:
+    npc_text: "Good morning! May I see your passport and ticket, please?"
+    options:
+      - id: "give_docs"
+        text: "Here you are. I'm flying to London."
+        grammar_check:
+          expected_pattern: "(?i)(here|flying|to|passport|ticket)"
+        next_node: "luggage"
+      - id: "ask_question"
+        text: "Sure. Could you tell me the gate number?"
+        grammar_check:
+          expected_pattern: "(?i)(could|tell|gate|number)"
+        next_node: "gate_info"
+
+  luggage:
+    npc_text: "Thank you. Do you have any luggage to check in?"
+    options:
+      - id: "one_bag"
+        text: "Yes, I have one suitcase to check in."
+        grammar_check:
+          expected_pattern: "(?i)(yes|one|suitcase|check|bag)"
+        next_node: "seat"
+      - id: "carry_on"
+        text: "No, I only have this carry-on bag."
+        grammar_check:
+          expected_pattern: "(?i)(no|only|carry|on|bag)"
+        next_node: "seat"
+
+  gate_info:
+    npc_text: "Your gate is B12. Boarding starts at 2:30 PM."
+    options:
+      - id: "thanks_gate"
+        text: "Thank you for the information."
+        grammar_check:
+          expected_pattern: "(?i)(thank|information|thanks)"
+        next_node: "luggage"
+
+  seat:
+    npc_text: "Would you prefer a window seat or an aisle seat?"
+    options:
+      - id: "window"
+        text: "I'd prefer a window seat, please."
+        grammar_check:
+          expected_pattern: "(?i)(prefer|window|seat|please)"
+        next_node: "end"
+      - id: "aisle"
+        text: "An aisle seat would be great, thank you."
+        grammar_check:
+          expected_pattern: "(?i)(aisle|seat|great|thank)"
+        next_node: "end"
+
+  end:
+    npc_text: "Here's your boarding pass. Have a pleasant flight!"
+    options: []
+    is_end: true

@@ -1,0 +1,120 @@
+# ============================================================
+#  Beginner Word Bank
+#  Basic daily vocabulary for English beginners
+# ============================================================
+
+difficulty: "beginner"
+description: "Beginner English Word Bank - Basic Daily Vocabulary"
+
+words:
+  - english: "apple"
+    chinese: "苹果"
+    part_of_speech: "noun"
+    phonetic: "/ˈæp.əl/"
+    example_sentence: "I eat an apple every day."
+    synonyms:
+      - "fruit"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "book"
+    chinese: "书"
+    part_of_speech: "noun"
+    phonetic: "/bʊk/"
+    example_sentence: "She is reading a book."
+    synonyms:
+      - "volume"
+      - "tome"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "cat"
+    chinese: "猫"
+    part_of_speech: "noun"
+    phonetic: "/kæt/"
+    example_sentence: "The cat is sleeping on the sofa."
+    synonyms:
+      - "feline"
+      - "kitten"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "dog"
+    chinese: "狗"
+    part_of_speech: "noun"
+    phonetic: "/dɒɡ/"
+    example_sentence: "The dog is playing in the park."
+    synonyms:
+      - "canine"
+      - "puppy"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "eat"
+    chinese: "吃"
+    part_of_speech: "verb"
+    phonetic: "/iːt/"
+    example_sentence: "We eat dinner at 7 PM."
+    synonyms:
+      - "consume"
+      - "dine"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "friend"
+    chinese: "朋友"
+    part_of_speech: "noun"
+    phonetic: "/frend/"
+    example_sentence: "She is my best friend."
+    synonyms:
+      - "companion"
+      - "pal"
+    antonyms:
+      - "enemy"
+    difficulty_level: 1
+
+  - english: "happy"
+    chinese: "快乐的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈhæp.i/"
+    example_sentence: "I am very happy today."
+    synonyms:
+      - "glad"
+      - "joyful"
+    antonyms:
+      - "sad"
+      - "unhappy"
+    difficulty_level: 1
+
+  - english: "run"
+    chinese: "跑"
+    part_of_speech: "verb"
+    phonetic: "/rʌn/"
+    example_sentence: "He can run very fast."
+    synonyms:
+      - "sprint"
+      - "jog"
+    antonyms:
+      - "walk"
+    difficulty_level: 1
+
+  - english: "school"
+    chinese: "学校"
+    part_of_speech: "noun"
+    phonetic: "/skuːl/"
+    example_sentence: "I go to school every morning."
+    synonyms:
+      - "academy"
+      - "institution"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "water"
+    chinese: "水"
+    part_of_speech: "noun"
+    phonetic: "/ˈwɔː.tər/"
+    example_sentence: "Please give me a glass of water."
+    synonyms:
+      - "liquid"
+    antonyms: []
+    difficulty_level: 1

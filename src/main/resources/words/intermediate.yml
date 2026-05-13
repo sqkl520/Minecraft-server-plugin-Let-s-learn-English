@@ -1,0 +1,128 @@
+# ============================================================
+#  Intermediate Word Bank
+#  Common vocabulary for intermediate English learners
+# ============================================================
+
+difficulty: "intermediate"
+description: "Intermediate English Word Bank - Common Vocabulary"
+
+words:
+  - english: "adventure"
+    chinese: "冒险"
+    part_of_speech: "noun"
+    phonetic: "/ədˈven.tʃər/"
+    example_sentence: "They went on an exciting adventure in the mountains."
+    synonyms:
+      - "journey"
+      - "expedition"
+    antonyms: []
+    difficulty_level: 4
+
+  - english: "brilliant"
+    chinese: "杰出的；明亮的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈbrɪl.jənt/"
+    example_sentence: "She had a brilliant idea for the project."
+    synonyms:
+      - "excellent"
+      - "outstanding"
+    antonyms:
+      - "dull"
+      - "mediocre"
+    difficulty_level: 4
+
+  - english: "celebrate"
+    chinese: "庆祝"
+    part_of_speech: "verb"
+    phonetic: "/ˈsel.ə.breɪt/"
+    example_sentence: "We celebrate Christmas with our family every year."
+    synonyms:
+      - "commemorate"
+      - "honor"
+    antonyms: []
+    difficulty_level: 4
+
+  - english: "discover"
+    chinese: "发现"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈskʌv.ər/"
+    example_sentence: "Scientists discover new species every year."
+    synonyms:
+      - "find"
+      - "uncover"
+    antonyms:
+      - "hide"
+      - "conceal"
+    difficulty_level: 4
+
+  - english: "environment"
+    chinese: "环境"
+    part_of_speech: "noun"
+    phonetic: "/ɪnˈvaɪ.rən.mənt/"
+    example_sentence: "We should protect the environment for future generations."
+    synonyms:
+      - "surroundings"
+      - "nature"
+    antonyms: []
+    difficulty_level: 5
+
+  - english: "familiar"
+    chinese: "熟悉的"
+    part_of_speech: "adjective"
+    phonetic: "/fəˈmɪl.i.ər/"
+    example_sentence: "This song sounds familiar to me."
+    synonyms:
+      - "known"
+      - "recognizable"
+    antonyms:
+      - "unfamiliar"
+      - "strange"
+    difficulty_level: 4
+
+  - english: "generous"
+    chinese: "慷慨的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈdʒen.ər.əs/"
+    example_sentence: "He is very generous and always helps others."
+    synonyms:
+      - "charitable"
+      - "kind"
+    antonyms:
+      - "selfish"
+      - "stingy"
+    difficulty_level: 4
+
+  - english: "hesitate"
+    chinese: "犹豫"
+    part_of_speech: "verb"
+    phonetic: "/ˈhez.ɪ.teɪt/"
+    example_sentence: "Don't hesitate to ask if you need help."
+    synonyms:
+      - "pause"
+      - "waver"
+    antonyms:
+      - "decide"
+      - "proceed"
+    difficulty_level: 5
+
+  - english: "imagine"
+    chinese: "想象"
+    part_of_speech: "verb"
+    phonetic: "/ɪˈmædʒ.ɪn/"
+    example_sentence: "Can you imagine living on Mars?"
+    synonyms:
+      - "envision"
+      - "picture"
+    antonyms: []
+    difficulty_level: 4
+
+  - english: "journey"
+    chinese: "旅程"
+    part_of_speech: "noun"
+    phonetic: "/ˈdʒɜː.ni/"
+    example_sentence: "The journey from Beijing to Shanghai takes about 5 hours by train."
+    synonyms:
+      - "trip"
+      - "voyage"
+    antonyms: []
+    difficulty_level: 4
