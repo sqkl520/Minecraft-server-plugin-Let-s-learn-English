@@ -74,8 +74,8 @@ public class ReviewScheduler {
      * Notify a player to review words.
      */
     private void notifyPlayer(Player player, List<String> dueWords) {
-        String message = plugin.getMessageUtil().getMessage("review.notification",
-                "count", String.valueOf(dueWords.size()));
+        String message = plugin.getMessageUtil().getPlayerMessage(player,
+                "review.notification", "count", String.valueOf(dueWords.size()));
         player.sendMessage(message);
     }
 

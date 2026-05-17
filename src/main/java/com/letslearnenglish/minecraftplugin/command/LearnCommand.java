@@ -76,7 +76,8 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 sendHelpMessage(player);
                 break;
             default:
-                player.sendMessage(plugin.getMessageUtil().getMessage("general.unknown-command"));
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "general.unknown-command"));
                 break;
         }
 
@@ -95,8 +96,8 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             plugin.getWordManager().startSession(player, difficulty, mode);
             new WordLearningGUI(plugin).open(player, difficulty, mode);
         } catch (IllegalArgumentException e) {
-            player.sendMessage(plugin.getMessageUtil().getMessage("general.error",
-                    "message", e.getMessage()));
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "general.error", "message", e.getMessage()));
         }
     }
 
@@ -114,13 +115,12 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 .getReviewScheduler().getDueReviewWords(player.getUniqueId());
         int count = dueWords.size();
         if (count > 0) {
-            player.sendMessage(plugin.getMessageUtil().getMessage("review.notification",
-                    "count", String.valueOf(count)));
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "review.notification", "count", String.valueOf(count)));
             plugin.getWordManager().getReviewScheduler().checkAndNotifyReviews();
         } else {
-            player.sendMessage(plugin.getMessageUtil().getMessage("review.notification",
-                    "count", "0"));
-            player.sendMessage("You have no words to review right now!");
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "review.no-words"));
         }
     }
 
@@ -129,14 +129,14 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     }
 
     private void sendHelpMessage(Player player) {
-        player.sendMessage("§6===== Let's Learn English! Help =====");
-        player.sendMessage("§e/le menu §7- Open the main menu");
-        player.sendMessage("§e/le word [difficulty] [mode] §7- Start word learning");
-        player.sendMessage("§e/le dialogue [scene] §7- Start dialogue practice");
-        player.sendMessage("§e/le progress §7- View your progress");
-        player.sendMessage("§e/le review §7- Review words due for practice");
-        player.sendMessage("§e/le stats §7- View learning statistics");
-        player.sendMessage("§6======================================");
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.header"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.menu"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.word"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.dialogue"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.progress"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.review"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.stats"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.footer"));
     }
 
     @Override

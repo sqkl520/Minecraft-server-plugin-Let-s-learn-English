@@ -15,6 +15,14 @@ import com.letslearnenglish.minecraftplugin.listener.NPCInteractionListener;
 import com.letslearnenglish.minecraftplugin.listener.PlayerJoinListener;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import com.letslearnenglish.minecraftplugin.util.VersionAdapter;
+import java.io.File;
+import java.io.IOException;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /**
@@ -49,6 +57,8 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     private LetsLearnEnglishAPI api;
 
+    private final Map<UUID, String> playerLanguage = new ConcurrentHashMap<>();
+
     @Override
     public void onLoad() {
         instance = this;
@@ -63,6 +73,8 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
         this.configManager = new ConfigManager(this);
         this.configManager.loadAllConfigs();
+
+        loadPlayerLanguages();
 
         this.messageUtil = new MessageUtil(this, configManager);
 
@@ -96,6 +108,8 @@ public final class LetsLearnEnglish extends JavaPlugin {
     public void onDisable() {
         getLogger().info("Saving player data...");
 
+        savePlayerLanguages();
+
         if (playerDataStore != null) {
             getServer().getOnlinePlayers().forEach(p -> playerDataStore.savePlayerData(p.getUniqueId()));
         }
@@ -109,7 +123,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     private void registerListeners() {
         getServer().getPluginManager().registerEvents(new PlayerJoinListener(this), this);
-        getServer().getPluginManager().registerEvents(new GUIMenuListener(), this);
+        getServer().getPluginManager().registerEvents(new GUIMenuListener(this), this);
         getServer().getPluginManager().registerEvents(new NPCInteractionListener(this), this);
     }
 
@@ -187,5 +201,44 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     public LetsLearnEnglishAPI getAPI() {
         return api;
+    }
+
+    public String getPlayerLanguage(Player player) {
+        return playerLanguage.getOrDefault(player.getUniqueId(), "en");
+    }
+
+    public void setPlayerLanguage(Player player, String lang) {
+        playerLanguage.put(player.getUniqueId(), lang);
+        savePlayerLanguages();
+    }
+
+    private void loadPlayerLanguages() {
+        File langFile = new File(getDataFolder(), "player_lang.yml");
+        if (!langFile.exists()) {
+            return;
+        }
+        FileConfiguration langConfig = YamlConfiguration.loadConfiguration(langFile);
+        for (String key : langConfig.getKeys(false)) {
+            try {
+                UUID uuid = UUID.fromString(key);
+                playerLanguage.put(uuid, langConfig.getString(key, "en"));
+            } catch (IllegalArgumentException e) {
+                getLogger().warning("Invalid UUID in player_lang.yml: " + key);
+            }
+        }
+        getLogger().info("Loaded " + playerLanguage.size() + " player language preferences.");
+    }
+
+    private void savePlayerLanguages() {
+        File langFile = new File(getDataFolder(), "player_lang.yml");
+        FileConfiguration langConfig = new YamlConfiguration();
+        for (Map.Entry<UUID, String> entry : playerLanguage.entrySet()) {
+            langConfig.set(entry.getKey().toString(), entry.getValue());
+        }
+        try {
+            langConfig.save(langFile);
+        } catch (IOException e) {
+            getLogger().warning("Failed to save player language preferences: " + e.getMessage());
+        }
     }
 }

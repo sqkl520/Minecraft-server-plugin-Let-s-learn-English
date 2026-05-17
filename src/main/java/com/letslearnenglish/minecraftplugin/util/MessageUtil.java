@@ -3,7 +3,9 @@ package com.letslearnenglish.minecraftplugin.util;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import org.bukkit.ChatColor;
+import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.entity.Player;
 
 import java.util.Map;
 
@@ -85,5 +87,42 @@ public class MessageUtil {
     public String getRawMessage(String key) {
         FileConfiguration messageConfig = configManager.getMessageConfig();
         return messageConfig.getString(key, key);
+    }
+
+    public String getPlayerMessage(Player player, String key, String... placeholders) {
+        FileConfiguration messageConfig = configManager.getMessageConfig(
+                plugin.getPlayerLanguage(player));
+        return formatMessage(messageConfig, key, placeholders);
+    }
+
+    public String getSenderMessage(CommandSender sender, String key, String... placeholders) {
+        FileConfiguration messageConfig = (sender instanceof Player player)
+                ? configManager.getMessageConfig(plugin.getPlayerLanguage(player))
+                : configManager.getMessageConfig();
+        return formatMessage(messageConfig, key, placeholders);
+    }
+
+    private String formatMessage(FileConfiguration messageConfig, String key, String... placeholders) {
+        String prefix = messageConfig.getString("prefix", "&8[&bEnglish&8] &f");
+
+        String message = messageConfig.getString(key);
+        if (message == null) {
+            plugin.getLogger().warning("Missing message key: " + key);
+            return ChatColor.RED + "Missing message: " + key;
+        }
+
+        message = message.replace("{prefix}", prefix);
+
+        if (placeholders != null) {
+            if (placeholders.length % 2 != 0) {
+                plugin.getLogger().warning("Odd number of placeholder arguments for key: " + key
+                        + " (length=" + placeholders.length + ")");
+            }
+            for (int i = 0; i < placeholders.length - 1; i += 2) {
+                message = message.replace("{" + placeholders[i] + "}", placeholders[i + 1]);
+            }
+        }
+
+        return ChatColor.translateAlternateColorCodes('&', message);
     }
 }

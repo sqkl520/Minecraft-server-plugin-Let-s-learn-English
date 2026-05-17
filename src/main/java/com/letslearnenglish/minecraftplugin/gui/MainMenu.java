@@ -4,10 +4,13 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+
+import java.util.Collections;
 
 /**
  * Main Menu GUI
@@ -23,9 +26,6 @@ public class MainMenu {
         this.plugin = plugin;
     }
 
-    /**
-     * Open the main menu for a player.
-     */
     public void open(Player player) {
         String title = plugin.getConfigManager().getMainConfig()
                 .getString("gui.main-menu-title", "&6&lLet's Learn English!");
@@ -34,12 +34,31 @@ public class MainMenu {
 
         Inventory menu = Bukkit.createInventory(null, size, title);
 
-        menu.setItem(11, createMenuItem(Material.BOOK, "&aWord Learning",
-                "&7Practice vocabulary with various modes"));
-        menu.setItem(13, createMenuItem(Material.PAPER, "&bDialogue Practice",
-                "&7Practice English conversations"));
-        menu.setItem(15, createMenuItem(Material.DIAMOND, "&eProgress & Stats",
-                "&7View your learning progress"));
+        String lang = plugin.getPlayerLanguage(player);
+        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
+
+        String wordName = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("main-menu.word-learning", "&aWord Learning"));
+        String wordLore = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("main-menu.word-learning-lore", "&7Practice vocabulary with various modes"));
+        String dialogueName = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("main-menu.dialogue-practice", "&bDialogue Practice"));
+        String dialogueLore = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("main-menu.dialogue-practice-lore", "&7Practice English conversations"));
+        String progressName = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("main-menu.progress-stats", "&eProgress & Stats"));
+        String progressLore = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("main-menu.progress-stats-lore", "&7View your learning progress"));
+
+        menu.setItem(11, createMenuItem(Material.BOOK, wordName, wordLore));
+        menu.setItem(13, createMenuItem(Material.PAPER, dialogueName, dialogueLore));
+        menu.setItem(15, createMenuItem(Material.DIAMOND, progressName, progressLore));
+
+        String btnName = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("language.button", "&eSwitch Language"));
+        String btnLore = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("language.button-lore", "&7Click to switch"));
+        menu.setItem(18, createMenuItem(Material.RED_BED, btnName, btnLore));
 
         player.openInventory(menu);
     }
@@ -49,7 +68,7 @@ public class MainMenu {
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', name));
-            meta.setLore(java.util.Collections.singletonList(
+            meta.setLore(Collections.singletonList(
                     ChatColor.translateAlternateColorCodes('&', lore)));
             item.setItemMeta(meta);
         }
