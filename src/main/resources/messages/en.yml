@@ -24,6 +24,7 @@ word:
 review:
   notification: "{prefix}&6You have &e{count} &6words due for review! Type &e/le review &6to start"
   complete: "{prefix}&aReview complete! Keep it up!"
+  no-words: "{prefix}&aYou have no words to review right now!"
 
 dialogue:
   start: "{prefix}&aStarting dialogue: &e{scene}"
@@ -48,3 +49,90 @@ admin:
   export-complete: "{prefix}&aData export complete! File: &e{file}"
   player-reset: "{prefix}&aReset learning data for player &e{player}"
   word-add: "{prefix}&aAdded word &e{word} &ato &e{difficulty} &aword bank"
+  usage-reset: "Usage: /lea reset <player>"
+  reset-pending: "Player data reset for: {player} (feature pending)"
+  unknown-command: "Unknown subcommand. Use /lea help for help."
+
+language:
+  button: "&eSwitch to \u4e2d\u6587"
+  button-lore: "&7Click to switch interface to Chinese"
+  confirm-title: "&eConfirm Language Switch?"
+  confirm-item: "&c&lReally?"
+  confirm-lore: "&7Click again to confirm"
+  switched: "{prefix}&aLanguage switched to English!"
+
+help:
+  header: "&6===== Let's Learn English! Help ====="
+  menu: "&e/le menu &7- Open the main menu"
+  word: "&e/le word [difficulty] [mode] &7- Start word learning"
+  dialogue: "&e/le dialogue [scene] &7- Start dialogue practice"
+  progress: "&e/le progress &7- View your progress"
+  review: "&e/le review &7- Review words due for practice"
+  stats: "&e/le stats &7- View learning statistics"
+  footer: "&6======================================"
+
+admin-help:
+  header: "&6===== Let's Learn English! Admin ====="
+  reload: "&e/lea reload &7- Hot-reload all configs"
+  export: "&e/lea export &7- Export player data"
+  reset: "&e/lea reset <player> &7- Reset player data"
+  info: "&e/lea info &7- Show plugin info"
+  footer: "&6======================================"
+
+plugin-info:
+  header: "&6===== Let's Learn English! Info ====="
+  version: "&eVersion: &f{version}"
+  server-version: "&eServer Version: &f{server_version}"
+  version-supported: "&eVersion Supported: &f{supported}"
+  database: "&eDatabase: &f{db_type}"
+  footer: "&6======================================"
+
+gui:
+  main-menu-title: "&6&lLet's Learn English!"
+
+main-menu:
+  word-learning: "&aWord Learning"
+  word-learning-lore: "&7Practice vocabulary with various modes"
+  dialogue-practice: "&bDialogue Practice"
+  dialogue-practice-lore: "&7Practice English conversations"
+  progress-stats: "&eProgress & Stats"
+  progress-stats-lore: "&7View your learning progress"
+
+word-learning-gui:
+  title: "Word Learning - {difficulty}"
+  session-info: "Word Learning Session"
+  session-info-lore-difficulty: "Difficulty: {difficulty}"
+  session-info-lore-mode: "Mode: {mode}"
+  answer-hint: "Answer in chat!"
+  answer-hint-lore-1: "Type your answer in the chat window"
+  answer-hint-lore-2: "Follow the prompts to practice words"
+  close: "Close Inventory"
+  close-lore-1: "Close this window and watch"
+  close-lore-2: "the chat for word prompts"
+  started: "&aLearning session started! &7Difficulty: &e{difficulty} &7Mode: &e{mode}"
+  started-hint: "&7Type your answers in chat when prompted."
+
+dialogue-gui:
+  title: "Dialogue - {scene}"
+  practice-info: "Dialogue Practice"
+  practice-info-lore-scene: "Scene: {scene}"
+  practice-info-lore-hint: "Talk to the NPC to practice"
+  instructions: "Instructions"
+  instructions-lore-1: "1. Find the NPC for this scene"
+  instructions-lore-2: "2. Right-click the NPC to start"
+  instructions-lore-3: "3. Type your responses in chat"
+  close: "Close Inventory"
+  close-lore-1: "Close this window"
+  close-lore-2: "and find the dialogue NPC"
+  activated: "&aDialogue scene activated! &7Scene: &e{scene}"
+  activated-hint: "&7Find and talk to the NPC to begin the conversation."
+
+progress-gui:
+  title: "Learning Progress"
+  player-summary: "Here's your learning summary"
+  words-learned: "Words Learned"
+  sessions: "Sessions"
+  total-score: "Total Score"
+  current-streak: "Current Streak"
+  longest-streak: "Longest Streak"
+  days-suffix: " days"

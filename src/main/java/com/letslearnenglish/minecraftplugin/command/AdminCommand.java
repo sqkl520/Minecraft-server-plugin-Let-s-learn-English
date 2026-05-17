@@ -34,7 +34,7 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!sender.hasPermission("letslearnenglish.admin")) {
-            sender.sendMessage(plugin.getMessageUtil().getMessage("general.no-permission"));
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "general.no-permission"));
             return true;
         }
 
@@ -48,18 +48,20 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
         switch (subCommand) {
             case "reload":
                 plugin.getHotReloadManager().reloadAll();
-                sender.sendMessage(plugin.getMessageUtil().getMessage("general.reload-success"));
+                sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                        "general.reload-success"));
                 break;
             case "export":
                 String filePath = plugin.getDataExporter().exportAllData();
-                sender.sendMessage(plugin.getMessageUtil().getMessage("admin.export-complete",
-                        "file", filePath));
+                sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                        "admin.export-complete", "file", filePath));
                 break;
             case "reset":
                 if (args.length > 1) {
                     handleReset(sender, args[1]);
                 } else {
-                    sender.sendMessage("Usage: /lea reset <player>");
+                    sender.sendMessage(plugin.getMessageUtil()
+                            .getSenderMessage(sender, "admin.usage-reset"));
                 }
                 break;
             case "info":
@@ -69,7 +71,8 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                 sendHelpMessage(sender);
                 break;
             default:
-                sender.sendMessage("Unknown subcommand. Use /lea help for help.");
+                sender.sendMessage(plugin.getMessageUtil()
+                        .getSenderMessage(sender, "admin.unknown-command"));
                 break;
         }
 
@@ -77,26 +80,42 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleReset(CommandSender sender, String playerName) {
-        // TODO: Implement actual player data reset using AdminCommandHandler.resetPlayerData()
-        sender.sendMessage("Player data reset for: " + playerName + " (feature pending)");
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "admin.reset-pending", "player", playerName));
     }
 
     private void sendPluginInfo(CommandSender sender) {
-        sender.sendMessage("§6===== Let's Learn English! Info =====");
-        sender.sendMessage("§eVersion: §f" + plugin.getDescription().getVersion());
-        sender.sendMessage("§eServer Version: §f" + plugin.getVersionAdapter().getServerVersion());
-        sender.sendMessage("§eVersion Supported: §f" + plugin.getVersionAdapter().isVersionSupported());
-        sender.sendMessage("§eDatabase: §f" + plugin.getConfigManager().getMainConfig().getString("database.type"));
-        sender.sendMessage("§6======================================");
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "plugin-info.header"));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "plugin-info.version", "version",
+                plugin.getDescription().getVersion()));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "plugin-info.server-version", "server_version",
+                plugin.getVersionAdapter().getServerVersion()));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "plugin-info.version-supported", "supported",
+                String.valueOf(plugin.getVersionAdapter().isVersionSupported())));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "plugin-info.database", "db_type",
+                plugin.getConfigManager().getMainConfig().getString("database.type")));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "plugin-info.footer"));
     }
 
     private void sendHelpMessage(CommandSender sender) {
-        sender.sendMessage("§6===== Let's Learn English! Admin =====");
-        sender.sendMessage("§e/lea reload §7- Hot-reload all configs");
-        sender.sendMessage("§e/lea export §7- Export player data");
-        sender.sendMessage("§e/lea reset <player> §7- Reset player data");
-        sender.sendMessage("§e/lea info §7- Show plugin info");
-        sender.sendMessage("§6======================================");
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "admin-help.header"));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "admin-help.reload"));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "admin-help.export"));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "admin-help.reset"));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "admin-help.info"));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "admin-help.footer"));
     }
 
     @Override

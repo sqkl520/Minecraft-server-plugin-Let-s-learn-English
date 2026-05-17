@@ -24,6 +24,7 @@ word:
 review:
   notification: "{prefix}&6你有 &e{count} &6个单词需要复习！输入 &e/le review &6开始复习"
   complete: "{prefix}&a复习完成！继续保持！"
+  no-words: "{prefix}&a你当前没有需要复习的单词！"
 
 dialogue:
   start: "{prefix}&a开始情景对话: &e{scene}"
@@ -48,3 +49,90 @@ admin:
   export-complete: "{prefix}&a数据导出完成！文件: &e{file}"
   player-reset: "{prefix}&a已重置玩家 &e{player} &a的学习数据"
   word-add: "{prefix}&a已添加单词 &e{word} &a到 &e{difficulty} &a单词库"
+  usage-reset: "用法: /lea reset <玩家名>"
+  reset-pending: "已请求重置玩家 {player} 的数据 (功能开发中)"
+  unknown-command: "未知子命令。输入 /lea help 查看帮助。"
+
+language:
+  button: "&e切换到 English"
+  button-lore: "&7点击切换界面语言为英语"
+  confirm-title: "&e确认切换语言？"
+  confirm-item: "&c&l真的吗？"
+  confirm-lore: "&7再次点击确认切换"
+  switched: "{prefix}&a语言已切换为中文！"
+
+help:
+  header: "&6===== 英语学习 帮助 ====="
+  menu: "&e/le menu &7- 打开主菜单"
+  word: "&e/le word [难度] [模式] &7- 开始单词学习"
+  dialogue: "&e/le dialogue [场景] &7- 开始情景对话"
+  progress: "&e/le progress &7- 查看学习进度"
+  review: "&e/le review &7- 复习待复习单词"
+  stats: "&e/le stats &7- 查看学习统计"
+  footer: "&6======================================"
+
+admin-help:
+  header: "&6===== 英语学习 管理 ====="
+  reload: "&e/lea reload &7- 热重载所有配置"
+  export: "&e/lea export &7- 导出玩家数据"
+  reset: "&e/lea reset <玩家名> &7- 重置玩家数据"
+  info: "&e/lea info &7- 查看插件信息"
+  footer: "&6======================================"
+
+plugin-info:
+  header: "&6===== 英语学习 信息 ====="
+  version: "&e版本: &f{version}"
+  server-version: "&e服务端版本: &f{server_version}"
+  version-supported: "&e版本兼容性: &f{supported}"
+  database: "&e数据库: &f{db_type}"
+  footer: "&6======================================"
+
+gui:
+  main-menu-title: "&6&lLet's Learn English!"
+
+main-menu:
+  word-learning: "&a单词学习"
+  word-learning-lore: "&7多种模式练习词汇"
+  dialogue-practice: "&b对话练习"
+  dialogue-practice-lore: "&7练习英语对话"
+  progress-stats: "&e进度与统计"
+  progress-stats-lore: "&7查看你的学习进度"
+
+word-learning-gui:
+  title: "单词学习 - {difficulty}"
+  session-info: "单词学习会话"
+  session-info-lore-difficulty: "难度: {difficulty}"
+  session-info-lore-mode: "模式: {mode}"
+  answer-hint: "在聊天中回答！"
+  answer-hint-lore-1: "在聊天窗口中输入你的答案"
+  answer-hint-lore-2: "按照提示来练习单词"
+  close: "关闭界面"
+  close-lore-1: "关闭此窗口，留意"
+  close-lore-2: "聊天中的单词提示"
+  started: "&a学习会话已开始！&7难度: &e{difficulty} &7模式: &e{mode}"
+  started-hint: "&7在聊天中输入你的答案。"
+
+dialogue-gui:
+  title: "情景对话 - {scene}"
+  practice-info: "对话练习"
+  practice-info-lore-scene: "场景: {scene}"
+  practice-info-lore-hint: "与NPC交谈来进行练习"
+  instructions: "操作说明"
+  instructions-lore-1: "1. 找到对应场景的NPC"
+  instructions-lore-2: "2. 右键点击NPC开始对话"
+  instructions-lore-3: "3. 在聊天中输入你的回答"
+  close: "关闭界面"
+  close-lore-1: "关闭此窗口"
+  close-lore-2: "然后去寻找对话NPC"
+  activated: "&a情景对话已激活！&7场景: &e{scene}"
+  activated-hint: "&7寻找NPC并与之对话以开始练习。"
+
+progress-gui:
+  title: "学习进度"
+  player-summary: "以下是你的学习摘要"
+  words-learned: "已学单词"
+  sessions: "学习次数"
+  total-score: "总分"
+  current-streak: "当前连续"
+  longest-streak: "最长连续"
+  days-suffix: " 天"

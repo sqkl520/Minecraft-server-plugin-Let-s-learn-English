@@ -28,6 +28,8 @@ public class ConfigManager {
     private FileConfiguration mainConfig;
     private FileConfiguration achievementConfig;
     private FileConfiguration messageConfig;
+    private FileConfiguration messageConfigZh;
+    private FileConfiguration messageConfigEn;
 
     public ConfigManager(LetsLearnEnglish plugin) {
         this.plugin = plugin;
@@ -40,9 +42,6 @@ public class ConfigManager {
 
         achievementConfig = loadConfig("achievements.yml");
 
-        String language = mainConfig.getString("general.language", "zh");
-        messageConfig = loadConfig("messages/" + language + ".yml");
-
         createDirectoryIfNotExists("words");
         createDirectoryIfNotExists("dialogues");
 
@@ -54,6 +53,12 @@ public class ConfigManager {
         saveResourceIfNotExists("dialogues/shopping.yml");
         saveResourceIfNotExists("messages/en.yml");
         saveResourceIfNotExists("messages/zh.yml");
+
+        messageConfigZh = loadConfig("messages/zh.yml");
+        messageConfigEn = loadConfig("messages/en.yml");
+
+        String language = mainConfig.getString("general.language", "en");
+        messageConfig = "zh".equals(language) ? messageConfigZh : messageConfigEn;
 
         plugin.getLogger().info("All configuration files loaded.");
     }
@@ -120,5 +125,9 @@ public class ConfigManager {
 
     public FileConfiguration getMessageConfig() {
         return messageConfig;
+    }
+
+    public FileConfiguration getMessageConfig(String lang) {
+        return "zh".equals(lang) ? messageConfigZh : messageConfigEn;
     }
 }

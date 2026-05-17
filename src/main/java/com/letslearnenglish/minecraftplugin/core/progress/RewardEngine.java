@@ -50,7 +50,8 @@ public class RewardEngine {
      * Give a reward for unlocking an achievement.
      */
     public void giveAchievementReward(Player player, Achievement achievement) {
-        String message = plugin.getMessageUtil().getMessage("achievement.unlocked",
+        String message = plugin.getMessageUtil().getPlayerMessage(player,
+                "achievement.unlocked",
                 "name", achievement.getName(),
                 "description", achievement.getDescription());
         if (message != null && !message.isEmpty()) {
