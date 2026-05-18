@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RewardEngine.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.core.progress</a> &gt; <span class="el_source">RewardEngine.java</span></div><h1>RewardEngine.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.core.progress;
+
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import org.bukkit.entity.Player;
+
+/**
+ * Reward Engine
+ *
+ * Handles distributing rewards to players for completing learning activities.
+ * Supports multiple reward types: items, commands, experience, and money (via Vault).
+ */
+public class RewardEngine {
+
+    private final LetsLearnEnglish plugin;
+
+<span class="nc" id="L16">    public RewardEngine(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L17">        this.plugin = plugin;</span>
+<span class="nc" id="L18">    }</span>
+
+    /**
+     * Give a reward to a player for completing a learning session.
+     *
+     * @param player      the player to reward
+     * @param score       the score achieved
+     * @param accuracy    the accuracy rate (0.0 - 1.0)
+     */
+    public void giveSessionReward(Player player, int score, double accuracy) {
+<span class="nc" id="L28">        if (!plugin.getConfigManager().getMainConfig()</span>
+<span class="nc bnc" id="L29" title="All 2 branches missed.">                .getBoolean(&quot;progress-system.rewards.enabled&quot;, true)) {</span>
+<span class="nc" id="L30">            return;</span>
+        }
+
+<span class="nc" id="L33">        giveExpReward(player, score);</span>
+<span class="nc" id="L34">    }</span>
+
+    /**
+     * Give experience points as a reward.
+     */
+    private void giveExpReward(Player player, int score) {
+<span class="nc" id="L40">        if (!plugin.getConfigManager().getMainConfig()</span>
+<span class="nc bnc" id="L41" title="All 2 branches missed.">                .getBoolean(&quot;progress-system.rewards.types.exp.enabled&quot;, true)) {</span>
+<span class="nc" id="L42">            return;</span>
+        }
+
+<span class="nc" id="L45">        int expAmount = Math.max(1, score / 2);</span>
+<span class="nc" id="L46">        player.giveExp(expAmount);</span>
+<span class="nc" id="L47">    }</span>
+
+    /**
+     * Give a reward for unlocking an achievement.
+     */
+    public void giveAchievementReward(Player player, Achievement achievement) {
+<span class="nc" id="L53">        String message = plugin.getMessageUtil().getPlayerMessage(player,</span>
+                &quot;achievement.unlocked&quot;,
+<span class="nc" id="L55">                &quot;name&quot;, achievement.getName(),</span>
+<span class="nc" id="L56">                &quot;description&quot;, achievement.getDescription());</span>
+<span class="nc bnc" id="L57" title="All 4 branches missed.">        if (message != null &amp;&amp; !message.isEmpty()) {</span>
+<span class="nc" id="L58">            player.sendMessage(message);</span>
+        }
+<span class="nc" id="L60">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

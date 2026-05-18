@@ -1,0 +1,89 @@
+# ============================================================
+#  Achievement Configuration
+#  Define all unlockable achievements and their conditions
+# ============================================================
+
+achievements:
+  first_word:
+    name: "First Steps"
+    description: "Learn your first English word"
+    category: "word"
+    target: 1
+    reward:
+      type: "exp"
+      amount: 50
+
+  word_collector_10:
+    name: "Word Collector"
+    description: "Learn 10 English words"
+    category: "word"
+    target: 10
+    reward:
+      type: "exp"
+      amount: 100
+
+  word_master_50:
+    name: "Word Master"
+    description: "Learn 50 English words"
+    category: "word"
+    target: 50
+    reward:
+      type: "item"
+      item: "DIAMOND"
+      amount: 1
+
+  word_expert_100:
+    name: "Word Expert"
+    description: "Learn 100 English words"
+    category: "word"
+    target: 100
+    reward:
+      type: "item"
+      item: "DIAMOND"
+      amount: 3
+
+  first_dialogue:
+    name: "Conversation Starter"
+    description: "Complete your first dialogue practice"
+    category: "dialogue"
+    target: 1
+    reward:
+      type: "exp"
+      amount: 50
+
+  dialogue_master:
+    name: "Fluent Speaker"
+    description: "Complete 10 dialogue practices"
+    category: "dialogue"
+    target: 10
+    reward:
+      type: "exp"
+      amount: 200
+
+  streak_3:
+    name: "Consistent Learner"
+    description: "Maintain a 3-day learning streak"
+    category: "streak"
+    target: 3
+    reward:
+      type: "exp"
+      amount: 100
+
+  streak_7:
+    name: "Weekly Warrior"
+    description: "Maintain a 7-day learning streak"
+    category: "streak"
+    target: 7
+    reward:
+      type: "item"
+      item: "EMERALD"
+      amount: 1
+
+  perfect_score:
+    name: "Perfect Score"
+    description: "Get 100% accuracy in a learning session"
+    category: "special"
+    target: 1
+    reward:
+      type: "exp"
+      amount: 300

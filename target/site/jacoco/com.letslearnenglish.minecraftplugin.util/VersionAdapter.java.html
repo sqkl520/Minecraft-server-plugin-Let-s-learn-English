@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>VersionAdapter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.util</a> &gt; <span class="el_source">VersionAdapter.java</span></div><h1>VersionAdapter.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.util;
+
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import org.bukkit.Material;
+import org.bukkit.Sound;
+import org.bukkit.entity.Player;
+
+/**
+ * Version Adapter
+ *
+ * Handles API differences between different Minecraft versions.
+ * Isolates version-specific code to ensure the plugin runs correctly
+ * across multiple server versions.
+ *
+ * Supported version range: 1.18.x - 1.21.x
+ */
+public class VersionAdapter {
+
+    private final LetsLearnEnglish plugin;
+    private final String serverVersion;
+    private final int majorVersion;
+    private final int minorVersion;
+
+<span class="nc" id="L24">    public VersionAdapter(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L25">        this.plugin = plugin;</span>
+<span class="nc" id="L26">        this.serverVersion = plugin.getServer().getMinecraftVersion();</span>
+
+<span class="nc" id="L28">        int parsedMajor = 20;</span>
+<span class="nc" id="L29">        int parsedMinor = 0;</span>
+        try {
+<span class="nc" id="L31">            String[] parts = serverVersion.split(&quot;\\.&quot;);</span>
+<span class="nc bnc" id="L32" title="All 2 branches missed.">            parsedMajor = parts.length &gt; 1 ? Integer.parseInt(parts[1]) : 20;</span>
+<span class="nc bnc" id="L33" title="All 2 branches missed.">            parsedMinor = parts.length &gt; 2 ? Integer.parseInt(parts[2].replaceAll(&quot;[^0-9].*$&quot;, &quot;&quot;)) : 0;</span>
+<span class="nc" id="L34">        } catch (NumberFormatException e) {</span>
+<span class="nc" id="L35">            plugin.getLogger().warning(&quot;Failed to parse server version: &quot; + serverVersion</span>
+                    + &quot;. Using defaults (major=20, minor=0).&quot;);
+<span class="nc" id="L37">        }</span>
+<span class="nc" id="L38">        this.majorVersion = parsedMajor;</span>
+<span class="nc" id="L39">        this.minorVersion = parsedMinor;</span>
+<span class="nc" id="L40">    }</span>
+
+    /**
+     * Get a cross-version compatible Material.
+     * Handles name changes after the 1.13+ flattening.
+     */
+    public Material getMaterial(String modernName, String legacyName) {
+        try {
+<span class="nc" id="L48">            return Material.valueOf(modernName);</span>
+<span class="nc" id="L49">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L50">            plugin.getLogger().warning(&quot;Material not found: &quot; + modernName</span>
+                    + &quot;, falling back to: &quot; + legacyName);
+<span class="nc" id="L52">            return Material.valueOf(legacyName);</span>
+        }
+    }
+
+    /**
+     * Get a cross-version compatible Sound.
+     */
+    public Sound getSound(String modernName, String legacyName) {
+        try {
+<span class="nc" id="L61">            return Sound.valueOf(modernName);</span>
+<span class="nc" id="L62">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L63">            return Sound.valueOf(legacyName);</span>
+        }
+    }
+
+    /**
+     * Play a sound to a player (cross-version compatible).
+     */
+    public void playSound(Player player, Sound sound, float volume, float pitch) {
+<span class="nc" id="L71">        player.playSound(player.getLocation(), sound, volume, pitch);</span>
+<span class="nc" id="L72">    }</span>
+
+    /**
+     * Get the server major version number.
+     */
+    public int getMajorVersion() {
+<span class="nc" id="L78">        return majorVersion;</span>
+    }
+
+    /**
+     * Get the server minor version number.
+     */
+    public int getMinorVersion() {
+<span class="nc" id="L85">        return minorVersion;</span>
+    }
+
+    /**
+     * Get the full version string.
+     */
+    public String getServerVersion() {
+<span class="nc" id="L92">        return serverVersion;</span>
+    }
+
+    /**
+     * Check if the current server version is supported.
+     */
+    public boolean isVersionSupported() {
+<span class="nc bnc" id="L99" title="All 4 branches missed.">        return majorVersion &gt;= 18 &amp;&amp; majorVersion &lt;= 21;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

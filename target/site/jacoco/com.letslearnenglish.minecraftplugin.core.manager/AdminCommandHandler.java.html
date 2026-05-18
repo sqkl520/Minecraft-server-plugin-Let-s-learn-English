@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AdminCommandHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.core.manager</a> &gt; <span class="el_source">AdminCommandHandler.java</span></div><h1>AdminCommandHandler.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.core.manager;
+
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.word.Word;
+import com.letslearnenglish.minecraftplugin.core.word.WordBank;
+import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
+import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+
+import org.bukkit.Bukkit;
+import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.entity.Player;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.logging.Level;
+
+public class AdminCommandHandler {
+
+    private final LetsLearnEnglish plugin;
+
+<span class="nc" id="L30">    public AdminCommandHandler(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L31">        this.plugin = plugin;</span>
+<span class="nc" id="L32">    }</span>
+
+    public void resetPlayerData(String playerName) {
+<span class="nc" id="L35">        plugin.getLogger().info(&quot;Admin: Resetting data for player: &quot; + playerName);</span>
+
+<span class="nc" id="L37">        UUID playerId = resolvePlayerUUID(playerName);</span>
+<span class="nc bnc" id="L38" title="All 2 branches missed.">        if (playerId == null) {</span>
+<span class="nc" id="L39">            plugin.getLogger().warning(&quot;Admin: Player not found: &quot; + playerName);</span>
+<span class="nc" id="L40">            return;</span>
+        }
+
+<span class="nc" id="L43">        PlayerDataStore dataStore = plugin.getPlayerDataStore();</span>
+<span class="nc" id="L44">        dataStore.unloadPlayerData(playerId);</span>
+
+<span class="nc" id="L46">        String tablePrefix = plugin.getDatabaseManager().getTablePrefix();</span>
+<span class="nc" id="L47">        try (Connection conn = plugin.getDatabaseManager().getConnection()) {</span>
+<span class="nc" id="L48">            String[] tables = {&quot;player_data&quot;, &quot;word_progress&quot;, &quot;achievements&quot;, &quot;learning_log&quot;};</span>
+<span class="nc bnc" id="L49" title="All 2 branches missed.">            for (String table : tables) {</span>
+<span class="nc" id="L50">                try (PreparedStatement stmt = conn.prepareStatement(</span>
+                        &quot;DELETE FROM &quot; + tablePrefix + table + &quot; WHERE uuid = ?&quot;)) {
+<span class="nc" id="L52">                    stmt.setString(1, playerId.toString());</span>
+<span class="nc" id="L53">                    stmt.executeUpdate();</span>
+                }
+            }
+<span class="nc" id="L56">        } catch (SQLException e) {</span>
+<span class="nc" id="L57">            plugin.getLogger().log(Level.SEVERE,</span>
+                    &quot;Failed to reset player data: &quot; + playerName, e);
+<span class="nc" id="L59">            return;</span>
+<span class="nc" id="L60">        }</span>
+
+<span class="nc" id="L62">        plugin.getLogger().info(&quot;Admin: Player data reset complete for: &quot; + playerName);</span>
+<span class="nc" id="L63">    }</span>
+
+    private UUID resolvePlayerUUID(String playerName) {
+<span class="nc" id="L66">        Player target = Bukkit.getPlayer(playerName);</span>
+<span class="nc bnc" id="L67" title="All 2 branches missed.">        if (target != null) {</span>
+<span class="nc" id="L68">            return target.getUniqueId();</span>
+        }
+
+<span class="nc" id="L71">        String tablePrefix = plugin.getDatabaseManager().getTablePrefix();</span>
+<span class="nc" id="L72">        String sql = &quot;SELECT uuid FROM &quot; + tablePrefix</span>
+                + &quot;player_data WHERE player_name = ?&quot;;
+<span class="nc" id="L74">        try (Connection conn = plugin.getDatabaseManager().getConnection();</span>
+<span class="nc" id="L75">             PreparedStatement stmt = conn.prepareStatement(sql)) {</span>
+<span class="nc" id="L76">            stmt.setString(1, playerName);</span>
+<span class="nc" id="L77">            try (ResultSet rs = stmt.executeQuery()) {</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">                if (rs.next()) {</span>
+<span class="nc" id="L79">                    return UUID.fromString(rs.getString(&quot;uuid&quot;));</span>
+                }
+<span class="nc bnc" id="L81" title="All 2 branches missed.">            }</span>
+<span class="nc bnc" id="L82" title="All 4 branches missed.">        } catch (SQLException | IllegalArgumentException e) {</span>
+<span class="nc" id="L83">            plugin.getLogger().log(Level.WARNING,</span>
+                    &quot;Failed to lookup player UUID: &quot; + playerName, e);
+<span class="nc" id="L85">        }</span>
+<span class="nc" id="L86">        return null;</span>
+    }
+
+    public void addWord(String difficulty, String english, String chinese) {
+<span class="nc" id="L90">        plugin.getLogger().info(&quot;Admin: Adding word '&quot; + english + &quot;' to &quot; + difficulty);</span>
+
+<span class="nc" id="L92">        WordManagerImpl wordManager = plugin.getWordManager();</span>
+<span class="nc" id="L93">        WordBank bank = wordManager.getWordBank(difficulty);</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">        if (bank == null) {</span>
+<span class="nc" id="L95">            plugin.getLogger().warning(&quot;Admin: Unknown difficulty level: &quot; + difficulty);</span>
+<span class="nc" id="L96">            return;</span>
+        }
+
+<span class="nc" id="L99">        Word word = new Word(english, chinese, null, null, null,</span>
+<span class="nc" id="L100">                Collections.emptyList(), Collections.emptyList(), difficulty, 1);</span>
+<span class="nc" id="L101">        bank.addWord(word);</span>
+
+<span class="nc" id="L103">        saveWordBankToYaml(difficulty, bank);</span>
+<span class="nc" id="L104">        plugin.getLogger().info(&quot;Admin: Word '&quot; + english</span>
+                + &quot;' added successfully to &quot; + difficulty);
+<span class="nc" id="L106">    }</span>
+
+    public void removeWord(String difficulty, String english) {
+<span class="nc" id="L109">        plugin.getLogger().info(&quot;Admin: Removing word '&quot; + english</span>
+                + &quot;' from &quot; + difficulty);
+
+<span class="nc" id="L112">        WordManagerImpl wordManager = plugin.getWordManager();</span>
+<span class="nc" id="L113">        WordBank bank = wordManager.getWordBank(difficulty);</span>
+<span class="nc bnc" id="L114" title="All 2 branches missed.">        if (bank == null) {</span>
+<span class="nc" id="L115">            plugin.getLogger().warning(&quot;Admin: Unknown difficulty level: &quot; + difficulty);</span>
+<span class="nc" id="L116">            return;</span>
+        }
+
+<span class="nc" id="L119">        boolean removed = bank.removeWord(english);</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">        if (!removed) {</span>
+<span class="nc" id="L121">            plugin.getLogger().warning(&quot;Admin: Word '&quot; + english</span>
+                    + &quot;' not found in &quot; + difficulty);
+<span class="nc" id="L123">            return;</span>
+        }
+
+<span class="nc" id="L126">        saveWordBankToYaml(difficulty, bank);</span>
+<span class="nc" id="L127">        plugin.getLogger().info(&quot;Admin: Word '&quot; + english</span>
+                + &quot;' removed successfully from &quot; + difficulty);
+<span class="nc" id="L129">    }</span>
+
+    private void saveWordBankToYaml(String difficulty, WordBank bank) {
+<span class="nc" id="L132">        FileConfiguration config = new YamlConfiguration();</span>
+<span class="nc" id="L133">        config.set(&quot;description&quot;, bank.getDescription());</span>
+
+<span class="nc" id="L135">        List&lt;Map&lt;String, Object&gt;&gt; wordList = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">        for (Word w : bank.getAllWords()) {</span>
+<span class="nc" id="L137">            Map&lt;String, Object&gt; wordData = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L138">            wordData.put(&quot;english&quot;, w.getEnglish());</span>
+<span class="nc" id="L139">            wordData.put(&quot;chinese&quot;, w.getChinese());</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">            if (w.getPartOfSpeech() != null) {</span>
+<span class="nc" id="L141">                wordData.put(&quot;part_of_speech&quot;, w.getPartOfSpeech());</span>
+            }
+<span class="nc bnc" id="L143" title="All 2 branches missed.">            if (w.getPhonetic() != null) {</span>
+<span class="nc" id="L144">                wordData.put(&quot;phonetic&quot;, w.getPhonetic());</span>
+            }
+<span class="nc bnc" id="L146" title="All 2 branches missed.">            if (w.getExampleSentence() != null) {</span>
+<span class="nc" id="L147">                wordData.put(&quot;example_sentence&quot;, w.getExampleSentence());</span>
+            }
+<span class="nc bnc" id="L149" title="All 2 branches missed.">            if (!w.getSynonyms().isEmpty()) {</span>
+<span class="nc" id="L150">                wordData.put(&quot;synonyms&quot;, w.getSynonyms());</span>
+            }
+<span class="nc bnc" id="L152" title="All 2 branches missed.">            if (!w.getAntonyms().isEmpty()) {</span>
+<span class="nc" id="L153">                wordData.put(&quot;antonyms&quot;, w.getAntonyms());</span>
+            }
+<span class="nc" id="L155">            wordData.put(&quot;difficulty_level&quot;, w.getDifficultyLevel());</span>
+<span class="nc" id="L156">            wordList.add(wordData);</span>
+<span class="nc" id="L157">        }</span>
+<span class="nc" id="L158">        config.set(&quot;words&quot;, wordList);</span>
+
+<span class="nc" id="L160">        plugin.getConfigManager().saveConfig(config, &quot;words/&quot; + difficulty + &quot;.yml&quot;);</span>
+<span class="nc" id="L161">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

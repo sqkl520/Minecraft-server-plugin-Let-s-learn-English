@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WordManagerImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.core.word</a> &gt; <span class="el_source">WordManagerImpl.java</span></div><h1>WordManagerImpl.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.core.word;
+
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.config.ConfigManager;
+import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.entity.Player;
+
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Word Manager Implementation
+ *
+ * Responsible for:
+ * - Word bank loading and management
+ * - Multiple learning mode scheduling
+ * - Player word mastery tracking
+ * - Spaced repetition review scheduling
+ */
+public class WordManagerImpl {
+
+<span class="nc" id="L23">    private static final Set&lt;String&gt; VALID_MODES = Set.of(&quot;spelling&quot;, &quot;choice&quot;, &quot;fill_blank&quot;);</span>
+
+    private final LetsLearnEnglish plugin;
+    private final ConfigManager configManager;
+    private final PlayerDataStore playerDataStore;
+    private final ReviewScheduler reviewScheduler;
+
+    private final Map&lt;String, WordBank&gt; wordBanks;
+    private final Map&lt;UUID, LearningSession&gt; activeSessions;
+
+    public WordManagerImpl(LetsLearnEnglish plugin, ConfigManager configManager,
+<span class="nc" id="L34">                           PlayerDataStore playerDataStore) {</span>
+<span class="nc" id="L35">        this.plugin = plugin;</span>
+<span class="nc" id="L36">        this.configManager = configManager;</span>
+<span class="nc" id="L37">        this.playerDataStore = playerDataStore;</span>
+<span class="nc" id="L38">        this.reviewScheduler = new ReviewScheduler(plugin, this, playerDataStore);</span>
+<span class="nc" id="L39">        this.wordBanks = new ConcurrentHashMap&lt;&gt;();</span>
+<span class="nc" id="L40">        this.activeSessions = new ConcurrentHashMap&lt;&gt;();</span>
+
+<span class="nc" id="L42">        loadAllWordBanks();</span>
+<span class="nc" id="L43">    }</span>
+
+    public void loadAllWordBanks() {
+<span class="nc" id="L46">        wordBanks.clear();</span>
+<span class="nc" id="L47">        String[] difficulties = {&quot;beginner&quot;, &quot;intermediate&quot;, &quot;advanced&quot;};</span>
+
+<span class="nc bnc" id="L49" title="All 2 branches missed.">        for (String difficulty : difficulties) {</span>
+<span class="nc" id="L50">            FileConfiguration config = configManager.loadWordBank(difficulty);</span>
+<span class="nc" id="L51">            WordBank bank = new WordBank(difficulty, config);</span>
+<span class="nc" id="L52">            wordBanks.put(difficulty, bank);</span>
+<span class="nc" id="L53">            plugin.getLogger().info(&quot;Loaded word bank: &quot; + difficulty</span>
+<span class="nc" id="L54">                    + &quot; (&quot; + bank.getWordCount() + &quot; words)&quot;);</span>
+        }
+<span class="nc" id="L56">    }</span>
+
+    /**
+     * Start a new learning session for a player.
+     *
+     * @param player     the player
+     * @param difficulty difficulty level
+     * @param mode       learning mode (spelling/choice/fill_blank)
+     * @return the learning session
+     */
+    public LearningSession startSession(Player player, String difficulty, String mode) {
+<span class="nc" id="L67">        WordBank bank = wordBanks.get(difficulty);</span>
+<span class="nc bnc" id="L68" title="All 2 branches missed.">        if (bank == null) {</span>
+<span class="nc" id="L69">            throw new IllegalArgumentException(&quot;Unknown difficulty level: &quot; + difficulty);</span>
+        }
+
+<span class="nc bnc" id="L72" title="All 2 branches missed.">        if (!VALID_MODES.contains(mode)) {</span>
+<span class="nc" id="L73">            throw new IllegalArgumentException(&quot;Unknown learning mode: &quot; + mode</span>
+                    + &quot;. Valid modes: &quot; + VALID_MODES);
+        }
+
+<span class="nc" id="L77">        Set&lt;String&gt; masteredWords = playerDataStore.getMasteredWords(player.getUniqueId());</span>
+<span class="nc" id="L78">        List&lt;Word&gt; sessionWords = bank.selectWordsForSession(</span>
+<span class="nc" id="L79">                configManager.getMainConfig().getInt(&quot;word-system.words-per-session&quot;, 10),</span>
+                masteredWords
+        );
+
+<span class="nc bnc" id="L83" title="All 2 branches missed.">        if (sessionWords.isEmpty()) {</span>
+<span class="nc" id="L84">            throw new IllegalStateException(&quot;No words available for session in difficulty: &quot; + difficulty);</span>
+        }
+
+<span class="nc" id="L87">        LearningSession session = new LearningSession(player.getUniqueId(), difficulty, mode, sessionWords);</span>
+<span class="nc" id="L88">        activeSessions.put(player.getUniqueId(), session);</span>
+<span class="nc" id="L89">        return session;</span>
+    }
+
+    /**
+     * End a player's learning session.
+     */
+    public void endSession(UUID playerId) {
+<span class="nc" id="L96">        LearningSession session = activeSessions.remove(playerId);</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        if (session != null) {</span>
+<span class="nc" id="L98">            playerDataStore.updateWordProgress(playerId, session.getResults());</span>
+        }
+<span class="nc" id="L100">    }</span>
+
+    /**
+     * Get a player's active learning session.
+     */
+    public LearningSession getSession(UUID playerId) {
+<span class="nc" id="L106">        return activeSessions.get(playerId);</span>
+    }
+
+    /**
+     * Get a player's mastery level for a specific word (0.0 ~ 1.0).
+     */
+    public double getWordMastery(UUID playerId, String word) {
+<span class="nc" id="L113">        return playerDataStore.getWordMastery(playerId, word);</span>
+    }
+
+    /**
+     * Get the word bank for a specific difficulty.
+     */
+    public WordBank getWordBank(String difficulty) {
+<span class="nc" id="L120">        return wordBanks.get(difficulty);</span>
+    }
+
+    /**
+     * Get all available difficulty levels.
+     */
+    public Set&lt;String&gt; getAvailableDifficulties() {
+<span class="nc" id="L127">        return Collections.unmodifiableSet(wordBanks.keySet());</span>
+    }
+
+    public ReviewScheduler getReviewScheduler() {
+<span class="nc" id="L131">        return reviewScheduler;</span>
+    }
+
+    public PlayerDataStore getPlayerDataStore() {
+<span class="nc" id="L135">        return playerDataStore;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

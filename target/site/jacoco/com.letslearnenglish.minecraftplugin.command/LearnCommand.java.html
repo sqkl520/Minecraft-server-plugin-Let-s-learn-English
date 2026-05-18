@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LearnCommand.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.command</a> &gt; <span class="el_source">LearnCommand.java</span></div><h1>LearnCommand.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.command;
+
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.gui.DialogueGUI;
+import com.letslearnenglish.minecraftplugin.gui.MainMenu;
+import com.letslearnenglish.minecraftplugin.gui.ProgressGUI;
+import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabCompleter;
+import org.bukkit.entity.Player;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * Learn Command - Main player command for English learning.
+ *
+ * Subcommands:
+ * - /le menu        Open the main learning menu
+ * - /le word        Start word learning
+ * - /le dialogue    Start dialogue practice
+ * - /le progress    View learning progress
+ * - /le review      Start review session
+ * - /le stats       View learning statistics
+ * - /le help        Show help message
+ */
+public class LearnCommand implements CommandExecutor, TabCompleter {
+
+    private final LetsLearnEnglish plugin;
+
+<span class="nc" id="L34">    private static final List&lt;String&gt; SUBCOMMANDS = Arrays.asList(</span>
+            &quot;menu&quot;, &quot;word&quot;, &quot;dialogue&quot;, &quot;progress&quot;, &quot;review&quot;, &quot;stats&quot;, &quot;help&quot;
+    );
+
+<span class="nc" id="L38">    public LearnCommand(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L39">        this.plugin = plugin;</span>
+<span class="nc" id="L40">    }</span>
+
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+<span class="nc bnc" id="L44" title="All 2 branches missed.">        if (!(sender instanceof Player player)) {</span>
+<span class="nc" id="L45">            sender.sendMessage(plugin.getMessageUtil().getMessage(&quot;general.player-only&quot;));</span>
+<span class="nc" id="L46">            return true;</span>
+        }
+
+<span class="nc bnc" id="L49" title="All 2 branches missed.">        if (args.length == 0) {</span>
+<span class="nc" id="L50">            openMainMenu(player);</span>
+<span class="nc" id="L51">            return true;</span>
+        }
+
+<span class="nc" id="L54">        String subCommand = args[0].toLowerCase();</span>
+
+<span class="nc bnc" id="L56" title="All 8 branches missed.">        switch (subCommand) {</span>
+            case &quot;menu&quot;:
+<span class="nc" id="L58">                openMainMenu(player);</span>
+<span class="nc" id="L59">                break;</span>
+            case &quot;word&quot;:
+<span class="nc" id="L61">                handleWordCommand(player, args);</span>
+<span class="nc" id="L62">                break;</span>
+            case &quot;dialogue&quot;:
+<span class="nc" id="L64">                handleDialogueCommand(player, args);</span>
+<span class="nc" id="L65">                break;</span>
+            case &quot;progress&quot;:
+<span class="nc" id="L67">                handleProgressCommand(player);</span>
+<span class="nc" id="L68">                break;</span>
+            case &quot;review&quot;:
+<span class="nc" id="L70">                handleReviewCommand(player);</span>
+<span class="nc" id="L71">                break;</span>
+            case &quot;stats&quot;:
+<span class="nc" id="L73">                handleStatsCommand(player);</span>
+<span class="nc" id="L74">                break;</span>
+            case &quot;help&quot;:
+<span class="nc" id="L76">                sendHelpMessage(player);</span>
+<span class="nc" id="L77">                break;</span>
+            default:
+<span class="nc" id="L79">                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,</span>
+                        &quot;general.unknown-command&quot;));
+                break;
+        }
+
+<span class="nc" id="L84">        return true;</span>
+    }
+
+    private void openMainMenu(Player player) {
+<span class="nc" id="L88">        new MainMenu(plugin).open(player);</span>
+<span class="nc" id="L89">    }</span>
+
+    private void handleWordCommand(Player player, String[] args) {
+<span class="nc bnc" id="L92" title="All 2 branches missed.">        String difficulty = args.length &gt; 1 ? args[1] : &quot;beginner&quot;;</span>
+<span class="nc bnc" id="L93" title="All 2 branches missed.">        String mode = args.length &gt; 2 ? args[2] : &quot;choice&quot;;</span>
+
+        try {
+<span class="nc" id="L96">            plugin.getWordLearningManager().startQuiz(player, difficulty, mode);</span>
+<span class="nc" id="L97">            new WordLearningGUI(plugin).openWithMessage(player, difficulty, mode);</span>
+<span class="nc" id="L98">            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,</span>
+                    &quot;word.session-start&quot;, &quot;difficulty&quot;, difficulty, &quot;mode&quot;, mode));
+<span class="nc" id="L100">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L101">            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,</span>
+<span class="nc" id="L102">                    &quot;general.error&quot;, &quot;message&quot;, e.getMessage()));</span>
+<span class="nc" id="L103">        }</span>
+<span class="nc" id="L104">    }</span>
+
+    private void handleDialogueCommand(Player player, String[] args) {
+<span class="nc bnc" id="L107" title="All 2 branches missed.">        String scene = args.length &gt; 1 ? args[1] : &quot;restaurant&quot;;</span>
+<span class="nc" id="L108">        new DialogueGUI(plugin).open(player, scene);</span>
+<span class="nc" id="L109">    }</span>
+
+    private void handleProgressCommand(Player player) {
+<span class="nc" id="L112">        new ProgressGUI(plugin).open(player);</span>
+<span class="nc" id="L113">    }</span>
+
+    private void handleReviewCommand(Player player) {
+<span class="nc" id="L116">        java.util.List&lt;String&gt; dueWords = plugin.getWordManager()</span>
+<span class="nc" id="L117">                .getReviewScheduler().getDueReviewWords(player.getUniqueId());</span>
+<span class="nc" id="L118">        int count = dueWords.size();</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">        if (count &gt; 0) {</span>
+<span class="nc" id="L120">            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,</span>
+<span class="nc" id="L121">                    &quot;review.notification&quot;, &quot;count&quot;, String.valueOf(count)));</span>
+<span class="nc" id="L122">            plugin.getWordManager().getReviewScheduler().checkAndNotifyReviews();</span>
+        } else {
+<span class="nc" id="L124">            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,</span>
+                    &quot;review.no-words&quot;));
+        }
+<span class="nc" id="L127">    }</span>
+
+    private void handleStatsCommand(Player player) {
+<span class="nc" id="L130">        new ProgressGUI(plugin).open(player);</span>
+<span class="nc" id="L131">    }</span>
+
+    private void sendHelpMessage(Player player) {
+<span class="nc" id="L134">        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, &quot;help.header&quot;));</span>
+<span class="nc" id="L135">        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, &quot;help.menu&quot;));</span>
+<span class="nc" id="L136">        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, &quot;help.word&quot;));</span>
+<span class="nc" id="L137">        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, &quot;help.dialogue&quot;));</span>
+<span class="nc" id="L138">        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, &quot;help.progress&quot;));</span>
+<span class="nc" id="L139">        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, &quot;help.review&quot;));</span>
+<span class="nc" id="L140">        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, &quot;help.stats&quot;));</span>
+<span class="nc" id="L141">        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, &quot;help.footer&quot;));</span>
+<span class="nc" id="L142">    }</span>
+
+    @Override
+    public List&lt;String&gt; onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+<span class="nc" id="L146">        List&lt;String&gt; completions = new ArrayList&lt;&gt;();</span>
+
+<span class="nc bnc" id="L148" title="All 2 branches missed.">        if (args.length == 1) {</span>
+<span class="nc bnc" id="L149" title="All 2 branches missed.">            for (String sub : SUBCOMMANDS) {</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">                if (sub.startsWith(args[0].toLowerCase())) {</span>
+<span class="nc" id="L151">                    completions.add(sub);</span>
+                }
+<span class="nc" id="L153">            }</span>
+<span class="nc bnc" id="L154" title="All 4 branches missed.">        } else if (args.length == 2 &amp;&amp; &quot;word&quot;.equalsIgnoreCase(args[0])) {</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">            for (String diff : plugin.getWordManager().getAvailableDifficulties()) {</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">                if (diff.startsWith(args[1].toLowerCase())) {</span>
+<span class="nc" id="L157">                    completions.add(diff);</span>
+                }
+<span class="nc" id="L159">            }</span>
+<span class="nc bnc" id="L160" title="All 4 branches missed.">        } else if (args.length == 3 &amp;&amp; &quot;word&quot;.equalsIgnoreCase(args[0])) {</span>
+<span class="nc bnc" id="L161" title="All 2 branches missed.">            for (String mode : Arrays.asList(&quot;spelling&quot;, &quot;choice&quot;, &quot;fill_blank&quot;)) {</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">                if (mode.startsWith(args[2].toLowerCase())) {</span>
+<span class="nc" id="L163">                    completions.add(mode);</span>
+                }
+<span class="nc" id="L165">            }</span>
+        }
+
+<span class="nc" id="L168">        return completions;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

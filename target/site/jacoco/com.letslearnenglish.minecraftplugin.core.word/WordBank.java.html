@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WordBank.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.core.word</a> &gt; <span class="el_source">WordBank.java</span></div><h1>WordBank.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.core.word;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import org.bukkit.configuration.file.FileConfiguration;
+
+public class WordBank {
+
+    private final String difficulty;
+    private final String description;
+    private final List&lt;Word&gt; words;
+    private final Random random;
+
+    private volatile Set&lt;String&gt; cachedMasteredKey;
+    private volatile List&lt;Word&gt; cachedUnmastered;
+    private volatile List&lt;Word&gt; cachedMastered;
+
+<span class="nc" id="L24">    public WordBank(String difficulty, FileConfiguration config) {</span>
+<span class="nc" id="L25">        this.difficulty = difficulty;</span>
+<span class="nc" id="L26">        this.description = config.getString(&quot;description&quot;, &quot;&quot;);</span>
+<span class="nc" id="L27">        this.words = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L28">        this.random = new Random();</span>
+
+<span class="nc" id="L30">        loadWords(config);</span>
+<span class="nc" id="L31">    }</span>
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    private void loadWords(FileConfiguration config) {
+<span class="nc" id="L35">        List&lt;?&gt; rawList = config.getList(&quot;words&quot;);</span>
+<span class="nc bnc" id="L36" title="All 2 branches missed.">        if (rawList == null) {</span>
+<span class="nc" id="L37">            return;</span>
+        }
+
+<span class="nc bnc" id="L40" title="All 2 branches missed.">        for (Object item : rawList) {</span>
+<span class="nc bnc" id="L41" title="All 2 branches missed.">            if (!(item instanceof Map)) {</span>
+<span class="nc" id="L42">                continue;</span>
+            }
+<span class="nc" id="L44">            Map&lt;String, Object&gt; wordData = (Map&lt;String, Object&gt;) item;</span>
+<span class="nc" id="L45">            String english = (String) wordData.get(&quot;english&quot;);</span>
+<span class="nc" id="L46">            String chinese = (String) wordData.get(&quot;chinese&quot;);</span>
+<span class="nc" id="L47">            String partOfSpeech = (String) wordData.get(&quot;part_of_speech&quot;);</span>
+<span class="nc" id="L48">            String phonetic = (String) wordData.get(&quot;phonetic&quot;);</span>
+<span class="nc" id="L49">            String exampleSentence = (String) wordData.get(&quot;example_sentence&quot;);</span>
+
+<span class="nc" id="L51">            List&lt;String&gt; synonyms = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L52">            Object synObj = wordData.get(&quot;synonyms&quot;);</span>
+<span class="nc bnc" id="L53" title="All 2 branches missed.">            if (synObj instanceof List) {</span>
+<span class="nc bnc" id="L54" title="All 2 branches missed.">                for (Object s : (List&lt;?&gt;) synObj) {</span>
+<span class="nc bnc" id="L55" title="All 2 branches missed.">                    if (s instanceof String str) synonyms.add(str);</span>
+<span class="nc" id="L56">                }</span>
+            }
+
+<span class="nc" id="L59">            List&lt;String&gt; antonyms = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L60">            Object antObj = wordData.get(&quot;antonyms&quot;);</span>
+<span class="nc bnc" id="L61" title="All 2 branches missed.">            if (antObj instanceof List) {</span>
+<span class="nc bnc" id="L62" title="All 2 branches missed.">                for (Object a : (List&lt;?&gt;) antObj) {</span>
+<span class="nc bnc" id="L63" title="All 2 branches missed.">                    if (a instanceof String str) antonyms.add(str);</span>
+<span class="nc" id="L64">                }</span>
+            }
+
+<span class="nc bnc" id="L67" title="All 2 branches missed.">            int difficultyLevel = wordData.containsKey(&quot;difficulty_level&quot;)</span>
+<span class="nc" id="L68">                    ? ((Number) wordData.get(&quot;difficulty_level&quot;)).intValue() : 1;</span>
+
+<span class="nc" id="L70">            Word word = new Word(english, chinese, partOfSpeech, phonetic,</span>
+                    exampleSentence, synonyms, antonyms, difficulty, difficultyLevel);
+<span class="nc" id="L72">            words.add(word);</span>
+<span class="nc" id="L73">        }</span>
+<span class="nc" id="L74">    }</span>
+
+    public List&lt;Word&gt; selectWordsForSession(int count, Set&lt;String&gt; masteredWords) {
+        List&lt;Word&gt; unmastered;
+        List&lt;Word&gt; mastered;
+
+<span class="nc bnc" id="L80" title="All 8 branches missed.">        if (cachedMasteredKey != null &amp;&amp; cachedMasteredKey.equals(masteredWords)</span>
+                &amp;&amp; cachedUnmastered != null &amp;&amp; cachedMastered != null) {
+<span class="nc" id="L82">            unmastered = cachedUnmastered;</span>
+<span class="nc" id="L83">            mastered = cachedMastered;</span>
+        } else {
+<span class="nc" id="L85">            unmastered = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L86">            mastered = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L87" title="All 2 branches missed.">            for (Word w : words) {</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">                if (masteredWords.contains(w.getEnglish().toLowerCase())) {</span>
+<span class="nc" id="L89">                    mastered.add(w);</span>
+                } else {
+<span class="nc" id="L91">                    unmastered.add(w);</span>
+                }
+<span class="nc" id="L93">            }</span>
+<span class="nc" id="L94">            cachedUnmastered = unmastered;</span>
+<span class="nc" id="L95">            cachedMastered = mastered;</span>
+<span class="nc" id="L96">            cachedMasteredKey = masteredWords;</span>
+        }
+
+<span class="nc" id="L99">        List&lt;Word&gt; selected = new ArrayList&lt;&gt;();</span>
+
+<span class="nc bnc" id="L101" title="All 2 branches missed.">        if (unmastered.size() &gt;= count) {</span>
+<span class="nc" id="L102">            Collections.shuffle(unmastered, random);</span>
+<span class="nc" id="L103">            selected.addAll(unmastered.subList(0, count));</span>
+        } else {
+<span class="nc" id="L105">            selected.addAll(unmastered);</span>
+
+<span class="nc" id="L107">            Collections.shuffle(mastered, random);</span>
+
+<span class="nc" id="L109">            int remaining = count - selected.size();</span>
+<span class="nc" id="L110">            int toAdd = Math.min(remaining, mastered.size());</span>
+<span class="nc" id="L111">            selected.addAll(mastered.subList(0, toAdd));</span>
+        }
+
+<span class="nc" id="L114">        Collections.shuffle(selected, random);</span>
+<span class="nc" id="L115">        return selected;</span>
+    }
+
+    public Word getWord(String english) {
+<span class="nc" id="L119">        return words.stream()</span>
+<span class="nc" id="L120">                .filter(w -&gt; w.getEnglish().equalsIgnoreCase(english))</span>
+<span class="nc" id="L121">                .findFirst()</span>
+<span class="nc" id="L122">                .orElse(null);</span>
+    }
+
+    public List&lt;Word&gt; getRandomWords(int count, Word exclude) {
+<span class="nc" id="L126">        List&lt;Word&gt; pool = words.stream()</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">                .filter(w -&gt; !w.equals(exclude))</span>
+<span class="nc" id="L128">                .collect(Collectors.toList());</span>
+<span class="nc" id="L129">        Collections.shuffle(pool, random);</span>
+<span class="nc" id="L130">        return pool.subList(0, Math.min(count, pool.size()));</span>
+    }
+
+    public void addWord(Word word) {
+<span class="nc" id="L134">        words.add(word);</span>
+<span class="nc" id="L135">        invalidateCache();</span>
+<span class="nc" id="L136">    }</span>
+
+    public boolean removeWord(String english) {
+<span class="nc" id="L139">        boolean removed = words.removeIf(w -&gt; w.getEnglish().equalsIgnoreCase(english));</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">        if (removed) {</span>
+<span class="nc" id="L141">            invalidateCache();</span>
+        }
+<span class="nc" id="L143">        return removed;</span>
+    }
+
+    private void invalidateCache() {
+<span class="nc" id="L147">        cachedMasteredKey = null;</span>
+<span class="nc" id="L148">        cachedUnmastered = null;</span>
+<span class="nc" id="L149">        cachedMastered = null;</span>
+<span class="nc" id="L150">    }</span>
+
+    public String getDifficulty() {
+<span class="nc" id="L153">        return difficulty;</span>
+    }
+
+    public String getDescription() {
+<span class="nc" id="L157">        return description;</span>
+    }
+
+    public int getWordCount() {
+<span class="nc" id="L161">        return words.size();</span>
+    }
+
+    public List&lt;Word&gt; getAllWords() {
+<span class="nc" id="L165">        return Collections.unmodifiableList(words);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

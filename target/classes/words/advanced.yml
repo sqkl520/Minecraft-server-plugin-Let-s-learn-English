@@ -1,0 +1,136 @@
+# ============================================================
+#  Advanced Word Bank
+#  Advanced vocabulary for proficient English learners
+# ============================================================
+
+difficulty: "advanced"
+description: "Advanced English Word Bank - Advanced Vocabulary"
+
+words:
+  - english: "ambiguous"
+    chinese: "模棱两可的"
+    part_of_speech: "adjective"
+    phonetic: "/æmˈbɪɡ.ju.əs/"
+    example_sentence: "The contract contains several ambiguous clauses."
+    synonyms:
+      - "vague"
+      - "unclear"
+    antonyms:
+      - "clear"
+      - "definite"
+    difficulty_level: 8
+
+  - english: "benevolent"
+    chinese: "仁慈的；慈善的"
+    part_of_speech: "adjective"
+    phonetic: "/bəˈnev.əl.ənt/"
+    example_sentence: "The benevolent donor gave millions to charity."
+    synonyms:
+      - "kind"
+      - "generous"
+    antonyms:
+      - "malevolent"
+      - "cruel"
+    difficulty_level: 8
+
+  - english: "comprehensive"
+    chinese: "全面的；综合的"
+    part_of_speech: "adjective"
+    phonetic: "/ˌkɒm.prɪˈhen.sɪv/"
+    example_sentence: "We need a comprehensive review of the system."
+    synonyms:
+      - "thorough"
+      - "complete"
+    antonyms:
+      - "limited"
+      - "superficial"
+    difficulty_level: 7
+
+  - english: "deteriorate"
+    chinese: "恶化"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈtɪə.ri.ə.reɪt/"
+    example_sentence: "His health began to deteriorate rapidly."
+    synonyms:
+      - "worsen"
+      - "decline"
+    antonyms:
+      - "improve"
+      - "recover"
+    difficulty_level: 8
+
+  - english: "elaborate"
+    chinese: "精心制作的；详细阐述"
+    part_of_speech: "adjective/verb"
+    phonetic: "/ɪˈlæb.ər.ət/"
+    example_sentence: "Could you elaborate on your proposal?"
+    synonyms:
+      - "detailed"
+      - "complex"
+    antonyms:
+      - "simple"
+      - "brief"
+    difficulty_level: 7
+
+  - english: "fluctuate"
+    chinese: "波动"
+    part_of_speech: "verb"
+    phonetic: "/ˈflʌk.tʃu.eɪt/"
+    example_sentence: "Stock prices fluctuate throughout the day."
+    synonyms:
+      - "vary"
+      - "oscillate"
+    antonyms:
+      - "stabilize"
+      - "steady"
+    difficulty_level: 8
+
+  - english: "hypothetical"
+    chinese: "假设的"
+    part_of_speech: "adjective"
+    phonetic: "/ˌhaɪ.pəˈθet.ɪ.kəl/"
+    example_sentence: "Let's consider a hypothetical situation."
+    synonyms:
+      - "theoretical"
+      - "speculative"
+    antonyms:
+      - "actual"
+      - "real"
+    difficulty_level: 8
+
+  - english: "inevitable"
+    chinese: "不可避免的"
+    part_of_speech: "adjective"
+    phonetic: "/ɪˈnev.ɪ.tə.bəl/"
+    example_sentence: "Change is inevitable in life."
+    synonyms:
+      - "unavoidable"
+      - "certain"
+    antonyms:
+      - "avoidable"
+      - "preventable"
+    difficulty_level: 7
+
+  - english: "meticulous"
+    chinese: "一丝不苟的"
+    part_of_speech: "adjective"
+    phonetic: "/məˈtɪk.jə.ləs/"
+    example_sentence: "She is meticulous about her work."
+    synonyms:
+      - "careful"
+      - "precise"
+    antonyms:
+      - "careless"
+      - "sloppy"
+    difficulty_level: 8
+
+  - english: "phenomenon"
+    chinese: "现象"
+    part_of_speech: "noun"
+    phonetic: "/fɪˈnɒm.ɪ.nən/"
+    example_sentence: "Global warming is a complex phenomenon."
+    synonyms:
+      - "occurrence"
+      - "event"
+    antonyms: []
+    difficulty_level: 7

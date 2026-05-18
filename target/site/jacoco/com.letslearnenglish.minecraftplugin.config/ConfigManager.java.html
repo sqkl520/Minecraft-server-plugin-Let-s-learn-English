@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ConfigManager.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.config</a> &gt; <span class="el_source">ConfigManager.java</span></div><h1>ConfigManager.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.config;
+
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.logging.Level;
+
+/**
+ * Configuration Manager - handles loading, saving, and hot-reloading of all config files.
+ *
+ * Managed configuration files:
+ * - config.yml         Main configuration
+ * - achievements.yml   Achievement configuration
+ * - words/*.yml        Word bank files
+ * - dialogues/*.yml    Dialogue scene files
+ * - messages/*.yml     Multi-language message files
+ */
+public class ConfigManager {
+
+    private static final int MESSAGE_CONFIG_VERSION = 3;
+
+    private final LetsLearnEnglish plugin;
+    private final Map&lt;String, FileConfiguration&gt; configCache;
+
+    private FileConfiguration mainConfig;
+    private FileConfiguration achievementConfig;
+    private FileConfiguration messageConfig;
+    private FileConfiguration messageConfigZh;
+    private FileConfiguration messageConfigEn;
+
+<span class="nc" id="L36">    public ConfigManager(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L37">        this.plugin = plugin;</span>
+<span class="nc" id="L38">        this.configCache = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L39">    }</span>
+
+    public void loadAllConfigs() {
+<span class="nc" id="L42">        configCache.clear();</span>
+<span class="nc" id="L43">        plugin.saveDefaultConfig();</span>
+<span class="nc" id="L44">        mainConfig = plugin.getConfig();</span>
+
+<span class="nc" id="L46">        achievementConfig = loadConfig(&quot;achievements.yml&quot;);</span>
+
+<span class="nc" id="L48">        createDirectoryIfNotExists(&quot;words&quot;);</span>
+<span class="nc" id="L49">        createDirectoryIfNotExists(&quot;dialogues&quot;);</span>
+
+<span class="nc" id="L51">        saveResourceIfNotExists(&quot;words/beginner.yml&quot;);</span>
+<span class="nc" id="L52">        saveResourceIfNotExists(&quot;words/intermediate.yml&quot;);</span>
+<span class="nc" id="L53">        saveResourceIfNotExists(&quot;words/advanced.yml&quot;);</span>
+<span class="nc" id="L54">        saveResourceIfNotExists(&quot;dialogues/restaurant.yml&quot;);</span>
+<span class="nc" id="L55">        saveResourceIfNotExists(&quot;dialogues/airport.yml&quot;);</span>
+<span class="nc" id="L56">        saveResourceIfNotExists(&quot;dialogues/shopping.yml&quot;);</span>
+
+<span class="nc" id="L58">        messageConfigZh = loadMessageConfig(&quot;messages/zh.yml&quot;);</span>
+<span class="nc" id="L59">        messageConfigEn = loadMessageConfig(&quot;messages/en.yml&quot;);</span>
+
+<span class="nc" id="L61">        String language = mainConfig.getString(&quot;general.language&quot;, &quot;en&quot;);</span>
+<span class="nc bnc" id="L62" title="All 2 branches missed.">        messageConfig = &quot;zh&quot;.equals(language) ? messageConfigZh : messageConfigEn;</span>
+
+<span class="nc" id="L64">        plugin.getLogger().info(&quot;All configuration files loaded.&quot;);</span>
+<span class="nc" id="L65">    }</span>
+
+    public void reloadAllConfigs() {
+<span class="nc" id="L68">        configCache.clear();</span>
+<span class="nc" id="L69">        plugin.reloadConfig();</span>
+<span class="nc" id="L70">        loadAllConfigs();</span>
+<span class="nc" id="L71">        plugin.getLogger().info(&quot;All configuration files hot-reloaded.&quot;);</span>
+<span class="nc" id="L72">    }</span>
+
+    public FileConfiguration loadConfig(String path) {
+<span class="nc bnc" id="L75" title="All 2 branches missed.">        if (configCache.containsKey(path)) {</span>
+<span class="nc" id="L76">            return configCache.get(path);</span>
+        }
+
+<span class="nc" id="L79">        File file = new File(plugin.getDataFolder(), path);</span>
+<span class="nc bnc" id="L80" title="All 2 branches missed.">        if (!file.exists()) {</span>
+<span class="nc" id="L81">            plugin.saveResource(path, false);</span>
+        }
+
+<span class="nc" id="L84">        FileConfiguration config = YamlConfiguration.loadConfiguration(file);</span>
+<span class="nc" id="L85">        configCache.put(path, config);</span>
+<span class="nc" id="L86">        return config;</span>
+    }
+
+    public FileConfiguration loadMessageConfig(String path) {
+<span class="nc" id="L90">        File file = new File(plugin.getDataFolder(), path);</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">        if (!file.exists()) {</span>
+<span class="nc" id="L92">            plugin.saveResource(path, false);</span>
+        } else {
+<span class="nc" id="L94">            FileConfiguration existing = YamlConfiguration.loadConfiguration(file);</span>
+<span class="nc" id="L95">            int version = existing.getInt(&quot;config-version&quot;, 0);</span>
+<span class="nc bnc" id="L96" title="All 2 branches missed.">            if (version &lt; MESSAGE_CONFIG_VERSION) {</span>
+<span class="nc" id="L97">                plugin.getLogger().info(&quot;Updating &quot; + path</span>
+                        + &quot; (v&quot; + version + &quot; -&gt; v&quot; + MESSAGE_CONFIG_VERSION + &quot;)&quot;);
+<span class="nc" id="L99">                plugin.saveResource(path, true);</span>
+            }
+        }
+<span class="nc" id="L102">        FileConfiguration config = YamlConfiguration.loadConfiguration(</span>
+<span class="nc" id="L103">                new File(plugin.getDataFolder(), path));</span>
+<span class="nc" id="L104">        configCache.put(path, config);</span>
+<span class="nc" id="L105">        return config;</span>
+    }
+
+    public void saveConfig(FileConfiguration config, String path) {
+        try {
+<span class="nc" id="L110">            config.save(new File(plugin.getDataFolder(), path));</span>
+<span class="nc" id="L111">        } catch (IOException e) {</span>
+<span class="nc" id="L112">            plugin.getLogger().log(Level.SEVERE, &quot;Failed to save config file: &quot; + path, e);</span>
+<span class="nc" id="L113">        }</span>
+<span class="nc" id="L114">    }</span>
+
+    public FileConfiguration loadWordBank(String difficulty) {
+<span class="nc" id="L117">        return loadConfig(&quot;words/&quot; + difficulty + &quot;.yml&quot;);</span>
+    }
+
+    public FileConfiguration loadDialogueScene(String sceneName) {
+<span class="nc" id="L121">        return loadConfig(&quot;dialogues/&quot; + sceneName + &quot;.yml&quot;);</span>
+    }
+
+    private void createDirectoryIfNotExists(String dirName) {
+<span class="nc" id="L125">        File dir = new File(plugin.getDataFolder(), dirName);</span>
+<span class="nc bnc" id="L126" title="All 2 branches missed.">        if (!dir.exists()) {</span>
+<span class="nc" id="L127">            dir.mkdirs();</span>
+        }
+<span class="nc" id="L129">    }</span>
+
+    private void saveResourceIfNotExists(String resourcePath) {
+<span class="nc" id="L132">        File file = new File(plugin.getDataFolder(), resourcePath);</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">        if (!file.exists()) {</span>
+<span class="nc" id="L134">            plugin.saveResource(resourcePath, false);</span>
+        }
+<span class="nc" id="L136">    }</span>
+
+    public FileConfiguration getMainConfig() {
+<span class="nc" id="L139">        return mainConfig;</span>
+    }
+
+    public FileConfiguration getAchievementConfig() {
+<span class="nc" id="L143">        return achievementConfig;</span>
+    }
+
+    public FileConfiguration getMessageConfig() {
+<span class="nc" id="L147">        return messageConfig;</span>
+    }
+
+    public FileConfiguration getMessageConfig(String lang) {
+<span class="nc bnc" id="L151" title="All 2 branches missed.">        return &quot;zh&quot;.equals(lang) ? messageConfigZh : messageConfigEn;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

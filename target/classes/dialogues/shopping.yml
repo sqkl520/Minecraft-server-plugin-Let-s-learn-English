@@ -1,0 +1,85 @@
+# ============================================================
+#  Shopping Dialogue Scene
+#  Difficulty: Beginner
+# ============================================================
+
+scene:
+  id: "shopping"
+  name: "Shopping for Clothes"
+  description: "Practice shopping for clothes at a store"
+  difficulty: "beginner"
+  npc:
+    name: "&eClerk &fEmma"
+    role: "Store Clerk"
+    greeting: "Hello! Welcome to our store. Can I help you find something?"
+
+dialogue_tree:
+  start:
+    npc_text: "Hi there! Are you looking for anything specific today?"
+    options:
+      - id: "looking_shirt"
+        text: "Yes, I'm looking for a blue shirt."
+        grammar_check:
+          expected_pattern: "(?i)(looking|for|blue|shirt)"
+        next_node: "size"
+      - id: "just_browsing"
+        text: "No thanks, I'm just browsing."
+        grammar_check:
+          expected_pattern: "(?i)(just|browsing|looking|around)"
+        next_node: "offer_help"
+
+  size:
+    npc_text: "What size do you need?"
+    options:
+      - id: "medium"
+        text: "Medium, please."
+        grammar_check:
+          expected_pattern: "(?i)(medium|small|large|please)"
+        next_node: "try_on"
+      - id: "not_sure"
+        text: "I'm not sure. Can I try it on?"
+        grammar_check:
+          expected_pattern: "(?i)(not sure|try|on|can i)"
+        next_node: "fitting_room"
+
+  offer_help:
+    npc_text: "No problem! Let me know if you need any help."
+    options:
+      - id: "change_mind"
+        text: "Actually, do you have any jackets?"
+        grammar_check:
+          expected_pattern: "(?i)(actually|have|jacket|do you)"
+        next_node: "size"
+
+  try_on:
+    npc_text: "Here's a medium blue shirt. Would you like to try it on?"
+    options:
+      - id: "yes_try"
+        text: "Yes, where are the fitting rooms?"
+        grammar_check:
+          expected_pattern: "(?i)(yes|where|fitting|room)"
+        next_node: "fitting_room"
+      - id: "buy_direct"
+        text: "It looks good. I'll take it."
+        grammar_check:
+          expected_pattern: "(?i)(looks|good|take|buy)"
+        next_node: "end"
+
+  fitting_room:
+    npc_text: "The fitting rooms are right over there. Take your time!"
+    options:
+      - id: "fits_well"
+        text: "It fits perfectly. I'll buy it."
+        grammar_check:
+          expected_pattern: "(?i)(fits|perfectly|buy|take)"
+        next_node: "end"
+      - id: "too_small"
+        text: "It's a bit small. Do you have a large?"
+        grammar_check:
+          expected_pattern: "(?i)(small|large|have|do you)"
+        next_node: "end"
+
+  end:
+    npc_text: "Great! That will be $25. Cash or card?"
+    options: []
+    is_end: true
