@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SoundManager.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.core</a> &gt; <span class="el_source">SoundManager.java</span></div><h1>SoundManager.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.core;
+
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.listener.GUIMenuListener;
+import com.letslearnenglish.minecraftplugin.util.VersionAdapter;
+import org.bukkit.Sound;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryOpenEvent;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class SoundManager implements Listener {
+
+    private final LetsLearnEnglish plugin;
+    private final VersionAdapter versionAdapter;
+<span class="nc" id="L21">    private final Map&lt;String, Sound&gt; soundCache = new HashMap&lt;&gt;();</span>
+    private boolean enabled;
+
+<span class="nc" id="L24">    public SoundManager(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L25">        this.plugin = plugin;</span>
+<span class="nc" id="L26">        this.versionAdapter = plugin.getVersionAdapter();</span>
+<span class="nc" id="L27">        reloadSoundCache();</span>
+<span class="nc" id="L28">    }</span>
+
+    public void reloadSoundCache() {
+<span class="nc" id="L31">        soundCache.clear();</span>
+<span class="nc" id="L32">        FileConfiguration config = plugin.getConfigManager().getMainConfig();</span>
+<span class="nc" id="L33">        this.enabled = config.getBoolean(&quot;gui.sounds.enabled&quot;, true);</span>
+<span class="nc bnc" id="L34" title="All 2 branches missed.">        if (!enabled) {</span>
+<span class="nc" id="L35">            return;</span>
+        }
+<span class="nc" id="L37">        cacheSound(config, &quot;correct&quot;, &quot;ENTITY_PLAYER_LEVELUP&quot;);</span>
+<span class="nc" id="L38">        cacheSound(config, &quot;incorrect&quot;, &quot;ENTITY_VILLAGER_NO&quot;);</span>
+<span class="nc" id="L39">        cacheSound(config, &quot;complete&quot;, &quot;UI_TOAST_CHALLENGE_COMPLETE&quot;);</span>
+<span class="nc" id="L40">        cacheSound(config, &quot;menu-open&quot;, &quot;BLOCK_NOTE_BLOCK_PLING&quot;);</span>
+<span class="nc" id="L41">        cacheSound(config, &quot;menu-click&quot;, &quot;BLOCK_NOTE_BLOCK_HAT&quot;);</span>
+<span class="nc" id="L42">    }</span>
+
+    private void cacheSound(FileConfiguration config, String key, String defaultSound) {
+<span class="nc" id="L45">        String soundName = config.getString(&quot;gui.sounds.&quot; + key, defaultSound);</span>
+        try {
+<span class="nc" id="L47">            Sound sound = Sound.valueOf(soundName);</span>
+<span class="nc" id="L48">            soundCache.put(key, sound);</span>
+<span class="nc" id="L49">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L50">            plugin.getLogger().warning(&quot;Invalid sound name for '&quot; + key + &quot;': &quot; + soundName);</span>
+            try {
+<span class="nc" id="L52">                Sound fallback = Sound.valueOf(defaultSound);</span>
+<span class="nc" id="L53">                soundCache.put(key, fallback);</span>
+<span class="nc" id="L54">                plugin.getLogger().info(&quot;Using default sound '&quot; + defaultSound + &quot;' for '&quot; + key + &quot;'&quot;);</span>
+<span class="nc" id="L55">            } catch (IllegalArgumentException ex) {</span>
+<span class="nc" id="L56">                plugin.getLogger().warning(&quot;Default sound also invalid for '&quot; + key + &quot;': &quot; + defaultSound);</span>
+<span class="nc" id="L57">            }</span>
+<span class="nc" id="L58">        }</span>
+<span class="nc" id="L59">    }</span>
+
+    @EventHandler
+    public void onInventoryOpen(InventoryOpenEvent event) {
+<span class="nc bnc" id="L63" title="All 2 branches missed.">        if (!enabled) return;</span>
+<span class="nc bnc" id="L64" title="All 2 branches missed.">        if (!(event.getPlayer() instanceof Player)) return;</span>
+<span class="nc bnc" id="L65" title="All 2 branches missed.">        if (!GUIMenuListener.isPluginGUI(event.getView().getTitle())) return;</span>
+<span class="nc" id="L66">        playSound((Player) event.getPlayer(), &quot;menu-open&quot;);</span>
+<span class="nc" id="L67">    }</span>
+
+    @EventHandler
+    public void onInventoryClick(InventoryClickEvent event) {
+<span class="nc bnc" id="L71" title="All 2 branches missed.">        if (!enabled) return;</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">        if (!(event.getWhoClicked() instanceof Player)) return;</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">        if (!GUIMenuListener.isPluginGUI(event.getView().getTitle())) return;</span>
+<span class="nc" id="L74">        playSound((Player) event.getWhoClicked(), &quot;menu-click&quot;);</span>
+<span class="nc" id="L75">    }</span>
+
+    public static void playSound(Player player, String configKey) {
+<span class="nc" id="L78">        LetsLearnEnglish instance = LetsLearnEnglish.getInstance();</span>
+<span class="nc bnc" id="L79" title="All 2 branches missed.">        if (instance == null) return;</span>
+<span class="nc" id="L80">        SoundManager manager = instance.getSoundManager();</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">        if (manager == null) return;</span>
+<span class="nc bnc" id="L82" title="All 2 branches missed.">        if (!manager.enabled) return;</span>
+
+<span class="nc" id="L84">        Sound sound = manager.soundCache.get(configKey);</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">        if (sound == null) return;</span>
+
+<span class="nc" id="L87">        manager.versionAdapter.playSound(player, sound, 1.0f, 1.0f);</span>
+<span class="nc" id="L88">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

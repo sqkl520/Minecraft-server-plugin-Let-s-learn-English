@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DialogueScene.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.core.dialogue</a> &gt; <span class="el_source">DialogueScene.java</span></div><h1>DialogueScene.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.core.dialogue;
+
+import com.letslearnenglish.minecraftplugin.core.dialogue.DialogueNode.DialogueOption;
+import org.bukkit.configuration.file.FileConfiguration;
+
+import java.util.*;
+
+/**
+ * Dialogue Scene - represents a complete dialogue scenario.
+ *
+ * Loaded from YAML configuration, contains the full dialogue tree
+ * with NPC lines and player response options.
+ */
+public class DialogueScene {
+
+    private final String id;
+    private final String name;
+    private final String description;
+    private final String difficulty;
+    private final NPC npc;
+    private final Map&lt;String, DialogueNode&gt; nodes;
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+<span class="nc" id="L24">    public DialogueScene(FileConfiguration config) {</span>
+<span class="nc" id="L25">        this.id = config.getString(&quot;scene.id&quot;, &quot;unknown&quot;);</span>
+<span class="nc" id="L26">        this.name = config.getString(&quot;scene.name&quot;, &quot;Unknown Scene&quot;);</span>
+<span class="nc" id="L27">        this.description = config.getString(&quot;scene.description&quot;, &quot;&quot;);</span>
+<span class="nc" id="L28">        this.difficulty = config.getString(&quot;scene.difficulty&quot;, &quot;beginner&quot;);</span>
+
+<span class="nc" id="L30">        String npcName = config.getString(&quot;scene.npc.name&quot;, &quot;NPC&quot;);</span>
+<span class="nc" id="L31">        String npcRole = config.getString(&quot;scene.npc.role&quot;, &quot;&quot;);</span>
+<span class="nc" id="L32">        String npcGreeting = config.getString(&quot;scene.npc.greeting&quot;, &quot;Hello!&quot;);</span>
+<span class="nc" id="L33">        this.npc = new NPC(npcName, npcRole, npcGreeting);</span>
+
+<span class="nc" id="L35">        this.nodes = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L36">        loadNodes(config);</span>
+<span class="nc" id="L37">    }</span>
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    private void loadNodes(FileConfiguration config) {
+<span class="nc" id="L41">        org.bukkit.configuration.ConfigurationSection section = config.getConfigurationSection(&quot;dialogue_tree&quot;);</span>
+<span class="nc bnc" id="L42" title="All 2 branches missed.">        if (section == null) {</span>
+<span class="nc" id="L43">            return;</span>
+        }
+
+<span class="nc bnc" id="L46" title="All 2 branches missed.">        for (String nodeId : section.getKeys(false)) {</span>
+<span class="nc" id="L47">            String path = &quot;dialogue_tree.&quot; + nodeId;</span>
+<span class="nc" id="L48">            String npcText = config.getString(path + &quot;.npc_text&quot;, &quot;&quot;);</span>
+<span class="nc" id="L49">            boolean isEnd = config.getBoolean(path + &quot;.is_end&quot;, false);</span>
+
+<span class="nc" id="L51">            List&lt;DialogueOption&gt; options = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L52">            List&lt;?&gt; rawList = config.getList(path + &quot;.options&quot;);</span>
+
+<span class="nc bnc" id="L54" title="All 2 branches missed.">            if (rawList != null) {</span>
+<span class="nc bnc" id="L55" title="All 2 branches missed.">                for (Object item : rawList) {</span>
+<span class="nc bnc" id="L56" title="All 2 branches missed.">                    if (item instanceof Map) {</span>
+                        @SuppressWarnings(&quot;unchecked&quot;)
+<span class="nc" id="L58">                        Map&lt;String, Object&gt; optData = (Map&lt;String, Object&gt;) item;</span>
+<span class="nc" id="L59">                        String optId = (String) optData.get(&quot;id&quot;);</span>
+<span class="nc" id="L60">                        String optText = (String) optData.get(&quot;text&quot;);</span>
+<span class="nc" id="L61">                        String nextNode = (String) optData.get(&quot;next_node&quot;);</span>
+<span class="nc" id="L62">                        options.add(new DialogueOption(optId, optText, nextNode));</span>
+                    }
+<span class="nc" id="L64">                }</span>
+            }
+
+<span class="nc" id="L67">            nodes.put(nodeId, new DialogueNode(nodeId, npcText, options, isEnd));</span>
+<span class="nc" id="L68">        }</span>
+<span class="nc" id="L69">    }</span>
+
+    public DialogueNode getStartNode() {
+<span class="nc" id="L72">        return nodes.get(&quot;start&quot;);</span>
+    }
+
+    public DialogueNode getNode(String nodeId) {
+<span class="nc" id="L76">        return nodes.get(nodeId);</span>
+    }
+
+    public String getId() {
+<span class="nc" id="L80">        return id;</span>
+    }
+
+    public String getName() {
+<span class="nc" id="L84">        return name;</span>
+    }
+
+    public String getDescription() {
+<span class="nc" id="L88">        return description;</span>
+    }
+
+    public String getDifficulty() {
+<span class="nc" id="L92">        return difficulty;</span>
+    }
+
+    public NPC getNpc() {
+<span class="nc" id="L96">        return npc;</span>
+    }
+
+    public Map&lt;String, DialogueNode&gt; getNodes() {
+<span class="nc" id="L100">        return Collections.unmodifiableMap(nodes);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

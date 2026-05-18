@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Word.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.core.word</a> &gt; <span class="el_source">Word.java</span></div><h1>Word.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.core.word;
+
+import java.util.List;
+
+/**
+ * Word entity class
+ *
+ * Represents a single word entry in the word bank, containing all
+ * learning-related information for the word.
+ */
+public class Word {
+
+    private final String english;
+    private final String chinese;
+    private final String partOfSpeech;
+    private final String phonetic;
+    private final String exampleSentence;
+    private final List&lt;String&gt; synonyms;
+    private final List&lt;String&gt; antonyms;
+    private final String difficulty;
+    private final int difficultyLevel;
+
+    public Word(String english, String chinese, String partOfSpeech, String phonetic,
+                String exampleSentence, List&lt;String&gt; synonyms, List&lt;String&gt; antonyms,
+<span class="fc" id="L25">                String difficulty, int difficultyLevel) {</span>
+<span class="fc" id="L26">        this.english = english;</span>
+<span class="fc" id="L27">        this.chinese = chinese;</span>
+<span class="fc" id="L28">        this.partOfSpeech = partOfSpeech;</span>
+<span class="fc" id="L29">        this.phonetic = phonetic;</span>
+<span class="fc" id="L30">        this.exampleSentence = exampleSentence;</span>
+<span class="fc bfc" id="L31" title="All 2 branches covered.">        this.synonyms = synonyms != null ? synonyms : List.of();</span>
+<span class="fc bfc" id="L32" title="All 2 branches covered.">        this.antonyms = antonyms != null ? antonyms : List.of();</span>
+<span class="fc" id="L33">        this.difficulty = difficulty;</span>
+<span class="fc" id="L34">        this.difficultyLevel = difficultyLevel;</span>
+<span class="fc" id="L35">    }</span>
+
+    public String getEnglish() {
+<span class="fc" id="L38">        return english;</span>
+    }
+
+    public String getChinese() {
+<span class="fc" id="L42">        return chinese;</span>
+    }
+
+    public String getPartOfSpeech() {
+<span class="fc" id="L46">        return partOfSpeech;</span>
+    }
+
+    public String getPhonetic() {
+<span class="fc" id="L50">        return phonetic;</span>
+    }
+
+    public String getExampleSentence() {
+<span class="fc" id="L54">        return exampleSentence;</span>
+    }
+
+    public List&lt;String&gt; getSynonyms() {
+<span class="fc" id="L58">        return synonyms;</span>
+    }
+
+    public List&lt;String&gt; getAntonyms() {
+<span class="fc" id="L62">        return antonyms;</span>
+    }
+
+    public String getDifficulty() {
+<span class="fc" id="L66">        return difficulty;</span>
+    }
+
+    public int getDifficultyLevel() {
+<span class="fc" id="L70">        return difficultyLevel;</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="fc" id="L75">        return &quot;Word{english='&quot; + english + &quot;', chinese='&quot; + chinese + &quot;'}&quot;;</span>
+    }
+
+    @Override
+    public boolean equals(Object o) {
+<span class="pc bpc" id="L80" title="1 of 2 branches missed.">        if (this == o) return true;</span>
+<span class="pc bpc" id="L81" title="1 of 2 branches missed.">        if (!(o instanceof Word word)) return false;</span>
+<span class="fc" id="L82">        return english.equalsIgnoreCase(word.english);</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="fc" id="L87">        return english.toLowerCase().hashCode();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

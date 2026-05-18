@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WordLearningGUI.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.gui</a> &gt; <span class="el_source">WordLearningGUI.java</span></div><h1>WordLearningGUI.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.gui;
+
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.word.Word;
+import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
+import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.Material;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+
+import java.util.Arrays;
+
+public class WordLearningGUI {
+
+    private final LetsLearnEnglish plugin;
+
+<span class="nc" id="L21">    public WordLearningGUI(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L22">        this.plugin = plugin;</span>
+<span class="nc" id="L23">    }</span>
+
+    public void open(Player player, String difficulty, String mode) {
+<span class="nc" id="L26">        String lang = plugin.getPlayerLanguage(player);</span>
+<span class="nc" id="L27">        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);</span>
+
+<span class="nc" id="L29">        String title = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L30">                messages.getString(&quot;word-learning-gui.title&quot;, &quot;Word Learning - {difficulty}&quot;)</span>
+<span class="nc" id="L31">                        .replace(&quot;{difficulty}&quot;, difficulty));</span>
+
+<span class="nc" id="L33">        Inventory inv = Bukkit.createInventory(null, 27, title);</span>
+<span class="nc" id="L34">        buildInventory(inv, player);</span>
+<span class="nc" id="L35">        player.openInventory(inv);</span>
+<span class="nc" id="L36">    }</span>
+
+    public void openWithMessage(Player player, String difficulty, String mode) {
+<span class="nc" id="L39">        open(player, difficulty, mode);</span>
+<span class="nc" id="L40">        String lang = plugin.getPlayerLanguage(player);</span>
+<span class="nc" id="L41">        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);</span>
+<span class="nc" id="L42">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L43">                messages.getString(&quot;word-learning-gui.started-hint&quot;,</span>
+                        &quot;&amp;7Close the GUI and type the English word in chat.&quot;)));
+<span class="nc" id="L45">    }</span>
+
+    private void buildInventory(Inventory inv, Player player) {
+<span class="nc" id="L48">        inv.clear();</span>
+
+<span class="nc" id="L50">        String lang = plugin.getPlayerLanguage(player);</span>
+<span class="nc" id="L51">        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);</span>
+
+<span class="nc" id="L53">        WordLearningManager wlManager = plugin.getWordLearningManager();</span>
+<span class="nc" id="L54">        WordLearningManager.QuizState state = wlManager.getQuizState(player.getUniqueId());</span>
+<span class="nc bnc" id="L55" title="All 2 branches missed.">        if (state == null) return;</span>
+
+<span class="nc" id="L57">        Word currentWord = state.session.getCurrentWord();</span>
+<span class="nc" id="L58">        int current = state.session.getCurrentIndex();</span>
+<span class="nc" id="L59">        int total = state.session.getTotalWords();</span>
+<span class="nc" id="L60">        int combo = state.consecutiveCorrect;</span>
+<span class="nc" id="L61">        int score = state.session.getScore();</span>
+<span class="nc" id="L62">        double multiplier = wlManager.getComboMultiplier(combo);</span>
+
+<span class="nc bnc" id="L64" title="All 2 branches missed.">        if (currentWord != null) {</span>
+<span class="nc" id="L65">            String wordLabel = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L66">                    messages.getString(&quot;word-learning-gui.current-word&quot;,</span>
+                            &quot;&amp;eCurrent Word: &amp;f{chinese}&quot;)
+<span class="nc" id="L68">                            .replace(&quot;{chinese}&quot;, currentWord.getChinese()));</span>
+<span class="nc" id="L69">            String viewLore = ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;7&quot; +</span>
+<span class="nc" id="L70">                    messages.getString(&quot;word-learning-gui.current-word-lore-1&quot;,</span>
+                            &quot;Close the GUI and type the English word&quot;));
+
+<span class="nc" id="L73">            inv.setItem(13, createItem(Material.BOOK, wordLabel, viewLore));</span>
+        }
+
+<span class="nc" id="L76">        String progressLabel = ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;a&quot; +</span>
+<span class="nc" id="L77">                messages.getString(&quot;word-learning-gui.progress&quot;,</span>
+                        &quot;Progress: {current}/{total}&quot;)
+<span class="nc" id="L79">                        .replace(&quot;{current}&quot;, String.valueOf(current))</span>
+<span class="nc" id="L80">                        .replace(&quot;{total}&quot;, String.valueOf(total)));</span>
+<span class="nc" id="L81">        String scoreLore = ChatColor.translateAlternateColorCodes('&amp;',</span>
+                &quot;&amp;7Score: &amp;e&quot; + score);
+
+<span class="nc" id="L84">        inv.setItem(4, createItem(Material.CLOCK, progressLabel, scoreLore));</span>
+
+<span class="nc" id="L86">        String comboLabel = getComboLabel(combo, multiplier, messages);</span>
+<span class="nc" id="L87">        inv.setItem(10, createItem(Material.BLAZE_ROD, comboLabel));</span>
+
+<span class="nc" id="L89">        String stopLabel = ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;c&quot; +</span>
+<span class="nc" id="L90">                messages.getString(&quot;word-learning-gui.stop-button&quot;, &quot;Stop Session&quot;));</span>
+<span class="nc" id="L91">        String stopLore = ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;7&quot; +</span>
+<span class="nc" id="L92">                messages.getString(&quot;word-learning-gui.stop-lore&quot;, &quot;End the current learning session&quot;));</span>
+
+<span class="nc" id="L94">        inv.setItem(16, createItem(Material.BARRIER, stopLabel, stopLore));</span>
+
+<span class="nc" id="L96">        String startLabel = ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;a&quot; +</span>
+<span class="nc" id="L97">                messages.getString(&quot;word-learning-gui.answer-hint&quot;, &quot;Start Answering&quot;));</span>
+<span class="nc" id="L98">        String startLore = ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;7&quot; +</span>
+<span class="nc" id="L99">                messages.getString(&quot;word-learning-gui.answer-hint-lore-1&quot;,</span>
+                        &quot;Close the GUI and start answering&quot;));
+
+<span class="nc" id="L102">        inv.setItem(22, createItem(Material.LIME_DYE, startLabel, startLore));</span>
+<span class="nc" id="L103">    }</span>
+
+    private String getComboLabel(int combo, double multiplier, FileConfiguration messages) {
+<span class="nc bnc" id="L106" title="All 2 branches missed.">        if (combo &lt;= 0) {</span>
+<span class="nc" id="L107">            return ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;7&quot; +</span>
+<span class="nc" id="L108">                    messages.getString(&quot;word-learning-gui.combo-none&quot;, &quot;No streak&quot;));</span>
+        }
+<span class="nc" id="L110">        String comboText = messages.getString(&quot;word-learning-gui.combo-active&quot;,</span>
+                &quot;Streak: {count} ({multiplier}x)&quot;)
+<span class="nc" id="L112">                .replace(&quot;{count}&quot;, String.valueOf(combo))</span>
+<span class="nc" id="L113">                .replace(&quot;{multiplier}&quot;, String.valueOf(multiplier));</span>
+<span class="nc" id="L114">        return ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;6&amp;l&quot; + comboText);</span>
+    }
+
+    private ItemStack createItem(Material material, String name, String... lore) {
+<span class="nc" id="L118">        ItemStack item = new ItemStack(material);</span>
+<span class="nc" id="L119">        ItemMeta meta = item.getItemMeta();</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">        if (meta != null) {</span>
+<span class="nc" id="L121">            meta.setDisplayName(name);</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">            if (lore.length &gt; 0) {</span>
+<span class="nc" id="L123">                meta.setLore(Arrays.asList(lore));</span>
+            }
+<span class="nc" id="L125">            item.setItemMeta(meta);</span>
+        }
+<span class="nc" id="L127">        return item;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

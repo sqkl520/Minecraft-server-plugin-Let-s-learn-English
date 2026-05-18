@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DialogueManagerImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.core.dialogue</a> &gt; <span class="el_source">DialogueManagerImpl.java</span></div><h1>DialogueManagerImpl.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.core.dialogue;
+
+import com.letslearnenglish.minecraftplugin.config.ConfigManager;
+import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+
+/**
+ * Dialogue Manager Implementation
+ *
+ * Manages scenario-based dialogue practice sessions.
+ * Handles dialogue tree traversal, NPC interactions, and grammar checking.
+ */
+public class DialogueManagerImpl {
+
+    private final ConfigManager configManager;
+    private final GrammarChecker grammarChecker;
+
+    public DialogueManagerImpl(ConfigManager configManager,
+<span class="nc" id="L18">                               PlayerDataStore playerDataStore) {</span>
+<span class="nc" id="L19">        this.configManager = configManager;</span>
+<span class="nc" id="L20">        this.grammarChecker = new GrammarChecker();</span>
+<span class="nc" id="L21">    }</span>
+
+    /**
+     * Load a dialogue scene by name.
+     */
+    public DialogueScene loadScene(String sceneName) {
+<span class="nc" id="L27">        return new DialogueScene(configManager.loadDialogueScene(sceneName));</span>
+    }
+
+    /**
+     * Get the grammar checker instance (cached singleton).
+     */
+    public GrammarChecker getGrammarChecker() {
+<span class="nc" id="L34">        return grammarChecker;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

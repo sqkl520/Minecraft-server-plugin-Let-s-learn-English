@@ -1,0 +1,356 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WordLearningManager.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.core.word</a> &gt; <span class="el_source">WordLearningManager.java</span></div><h1>WordLearningManager.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.core.word;
+
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
+import org.bukkit.ChatColor;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitTask;
+
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+public class WordLearningManager {
+
+    private static final int BASE_SCORE = 10;
+    private static final int INCORRECT_PENALTY = 2;
+<span class="nc" id="L19">    private static final int[] COMBO_THRESHOLDS = {0, 3, 5, 7, 10};</span>
+<span class="nc" id="L20">    private static final double[] COMBO_MULTIPLIERS = {1.0, 1.5, 2.0, 2.5, 3.0};</span>
+
+    private final LetsLearnEnglish plugin;
+    private final WordManagerImpl wordManager;
+<span class="nc" id="L24">    private final Map&lt;UUID, QuizState&gt; quizStates = new ConcurrentHashMap&lt;&gt;();</span>
+
+<span class="nc" id="L26">    public WordLearningManager(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L27">        this.plugin = plugin;</span>
+<span class="nc" id="L28">        this.wordManager = plugin.getWordManager();</span>
+<span class="nc" id="L29">    }</span>
+
+    public LearningSession startQuiz(Player player, String difficulty, String mode) {
+<span class="nc" id="L32">        LearningSession session = wordManager.startSession(player, difficulty, mode);</span>
+<span class="nc" id="L33">        int timeout = plugin.getConfigManager().getMainConfig().getInt(&quot;word-system.answer-timeout&quot;, 30);</span>
+<span class="nc" id="L34">        quizStates.put(player.getUniqueId(), new QuizState(session, difficulty, mode, timeout));</span>
+<span class="nc" id="L35">        return session;</span>
+    }
+
+    public boolean hasActiveQuiz(UUID playerId) {
+<span class="nc" id="L39">        return quizStates.containsKey(playerId);</span>
+    }
+
+    public QuizState getQuizState(UUID playerId) {
+<span class="nc" id="L43">        return quizStates.get(playerId);</span>
+    }
+
+    public Word getCurrentWord(UUID playerId) {
+<span class="nc" id="L47">        QuizState state = quizStates.get(playerId);</span>
+<span class="nc bnc" id="L48" title="All 2 branches missed.">        if (state == null) return null;</span>
+<span class="nc" id="L49">        return state.session.getCurrentWord();</span>
+    }
+
+    public AnswerResult submitAnswer(Player player, String answer) {
+<span class="nc" id="L53">        UUID id = player.getUniqueId();</span>
+<span class="nc" id="L54">        QuizState state = quizStates.get(id);</span>
+<span class="nc bnc" id="L55" title="All 2 branches missed.">        if (state == null) return null;</span>
+
+<span class="nc bnc" id="L57" title="All 2 branches missed.">        if (!state.submitting.compareAndSet(false, true)) {</span>
+<span class="nc" id="L58">            return null;</span>
+        }
+
+        try {
+<span class="nc" id="L62">            cancelAnswerTimer(player);</span>
+
+<span class="nc" id="L64">            LearningSession session = state.session;</span>
+<span class="nc" id="L65">            Word currentWord = session.getCurrentWord();</span>
+<span class="nc bnc" id="L66" title="All 2 branches missed.">            if (currentWord == null) return null;</span>
+
+<span class="nc" id="L68">            boolean correct = currentWord.getEnglish().equalsIgnoreCase(answer.trim());</span>
+<span class="nc" id="L69">            String correctAnswer = currentWord.getEnglish();</span>
+
+            int comboScore;
+<span class="nc bnc" id="L72" title="All 2 branches missed.">            if (correct) {</span>
+<span class="nc" id="L73">                state.consecutiveCorrect++;</span>
+<span class="nc" id="L74">                double multiplier = getComboMultiplier(state.consecutiveCorrect);</span>
+<span class="nc" id="L75">                comboScore = (int) Math.round(BASE_SCORE * multiplier);</span>
+<span class="nc" id="L76">                session.addScore(comboScore);</span>
+<span class="nc" id="L77">                session.recordCorrect();</span>
+<span class="nc" id="L78">            } else {</span>
+<span class="nc" id="L79">                state.consecutiveCorrect = 0;</span>
+<span class="nc" id="L80">                comboScore = -INCORRECT_PENALTY;</span>
+<span class="nc" id="L81">                session.addScore(-INCORRECT_PENALTY);</span>
+<span class="nc" id="L82">                session.recordIncorrect();</span>
+            }
+
+<span class="nc" id="L85">            return buildResult(id, state, correct, correctAnswer, comboScore,</span>
+<span class="nc" id="L86">                    state.consecutiveCorrect, getComboMultiplier(state.consecutiveCorrect));</span>
+        } finally {
+<span class="nc" id="L88">            state.submitting.set(false);</span>
+        }
+    }
+
+    public AnswerResult handleTimeout(Player player) {
+<span class="nc" id="L93">        UUID id = player.getUniqueId();</span>
+<span class="nc" id="L94">        QuizState state = quizStates.get(id);</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">        if (state == null) return null;</span>
+
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        if (!state.submitting.compareAndSet(false, true)) {</span>
+<span class="nc" id="L98">            return null;</span>
+        }
+
+        try {
+<span class="nc" id="L102">            cancelAnswerTimer(player);</span>
+
+<span class="nc" id="L104">            LearningSession session = state.session;</span>
+<span class="nc" id="L105">            Word currentWord = session.getCurrentWord();</span>
+<span class="nc bnc" id="L106" title="All 2 branches missed.">            if (currentWord == null) return null;</span>
+
+<span class="nc" id="L108">            state.consecutiveCorrect = 0;</span>
+<span class="nc" id="L109">            session.addScore(-INCORRECT_PENALTY);</span>
+<span class="nc" id="L110">            session.recordIncorrect();</span>
+
+<span class="nc" id="L112">            return buildResult(id, state, false, currentWord.getEnglish(),</span>
+                    -INCORRECT_PENALTY, 0, 1.0);
+        } finally {
+<span class="nc" id="L115">            state.submitting.set(false);</span>
+        }
+    }
+
+    private AnswerResult buildResult(UUID id, QuizState state, boolean correct,
+                                      String correctAnswer, int comboScore,
+                                      int consecutiveCorrect, double comboMultiplier) {
+<span class="nc" id="L122">        LearningSession session = state.session;</span>
+<span class="nc" id="L123">        boolean completed = session.isCompleted();</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">        if (completed) {</span>
+<span class="nc" id="L125">            wordManager.endSession(id);</span>
+<span class="nc" id="L126">            quizStates.remove(id);</span>
+        }
+<span class="nc" id="L128">        return new AnswerResult(correct, correctAnswer,</span>
+<span class="nc" id="L129">                session.getCurrentIndex(), session.getTotalWords(),</span>
+<span class="nc" id="L130">                session.getTotalCorrect(), session.getTotalIncorrect(),</span>
+<span class="nc" id="L131">                completed, session.getAccuracy(), session.getScore(),</span>
+                comboScore, consecutiveCorrect, comboMultiplier);
+    }
+
+    public void startAnswerTimer(Player player) {
+<span class="nc" id="L136">        UUID id = player.getUniqueId();</span>
+<span class="nc" id="L137">        QuizState state = quizStates.get(id);</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        if (state == null) return;</span>
+
+<span class="nc" id="L140">        cancelAnswerTimer(player);</span>
+
+<span class="nc" id="L142">        state.isAnswering = true;</span>
+<span class="nc" id="L143">        state.cancelled = false;</span>
+<span class="nc" id="L144">        int[] remaining = {state.answerTimeout};</span>
+
+<span class="nc" id="L146">        BukkitTask task = plugin.getServer().getScheduler().runTaskTimer(plugin, () -&gt; {</span>
+<span class="nc bnc" id="L147" title="All 2 branches missed.">            if (state.cancelled) {</span>
+<span class="nc" id="L148">                return;</span>
+            }
+
+<span class="nc bnc" id="L151" title="All 2 branches missed.">            if (!player.isOnline()) {</span>
+<span class="nc" id="L152">                cancelAnswerTimer(player);</span>
+<span class="nc" id="L153">                return;</span>
+            }
+
+<span class="nc" id="L156">            remaining[0]--;</span>
+
+<span class="nc bnc" id="L158" title="All 2 branches missed.">            if (remaining[0] &lt;= 0) {</span>
+<span class="nc" id="L159">                AnswerResult timeoutResult = handleTimeout(player);</span>
+<span class="nc bnc" id="L160" title="All 2 branches missed.">                if (timeoutResult != null) {</span>
+<span class="nc" id="L161">                    String lang = plugin.getPlayerLanguage(player);</span>
+<span class="nc" id="L162">                    FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);</span>
+<span class="nc" id="L163">                    String timeUpMsg = messages.getString(&quot;word-learning-gui.time-up&quot;,</span>
+                            &quot;&amp;c\u23f1 Time's up! Correct answer: &amp;e{answer}&quot;)
+<span class="nc" id="L165">                            .replace(&quot;{answer}&quot;, timeoutResult.correctAnswer);</span>
+<span class="nc" id="L166">                    player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;', timeUpMsg));</span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">                    if (timeoutResult.sessionComplete) {</span>
+<span class="nc" id="L168">                        showSessionComplete(player, timeoutResult);</span>
+                    } else {
+<span class="nc" id="L170">                        new WordLearningGUI(plugin).openWithMessage(player, state.difficulty, state.mode);</span>
+                    }
+                }
+<span class="nc bnc" id="L173" title="All 2 branches missed.">            } else if (remaining[0] &lt;= 5) {</span>
+<span class="nc" id="L174">                String lang = plugin.getPlayerLanguage(player);</span>
+<span class="nc" id="L175">                FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);</span>
+<span class="nc" id="L176">                String urgentMsg = messages.getString(&quot;word-learning-gui.countdown-urgent&quot;,</span>
+                        &quot;&amp;c\u23f3 {seconds}s remaining!&quot;)
+<span class="nc" id="L178">                        .replace(&quot;{seconds}&quot;, String.valueOf(remaining[0]));</span>
+<span class="nc" id="L179">                player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;', urgentMsg));</span>
+<span class="nc" id="L180">            } else {</span>
+<span class="nc" id="L181">                String lang = plugin.getPlayerLanguage(player);</span>
+<span class="nc" id="L182">                FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);</span>
+<span class="nc" id="L183">                String countdownMsg = messages.getString(&quot;word-learning-gui.countdown&quot;,</span>
+                        &quot;&amp;e\u23f3 {seconds}s remaining...&quot;)
+<span class="nc" id="L185">                        .replace(&quot;{seconds}&quot;, String.valueOf(remaining[0]));</span>
+<span class="nc" id="L186">                player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;', countdownMsg));</span>
+            }
+<span class="nc" id="L188">        }, 20L, 20L);</span>
+
+<span class="nc" id="L190">        state.answerTaskId = task.getTaskId();</span>
+<span class="nc" id="L191">    }</span>
+
+    public void cancelAnswerTimer(Player player) {
+<span class="nc" id="L194">        UUID id = player.getUniqueId();</span>
+<span class="nc" id="L195">        QuizState state = quizStates.get(id);</span>
+<span class="nc bnc" id="L196" title="All 2 branches missed.">        if (state == null) return;</span>
+
+<span class="nc" id="L198">        state.cancelled = true;</span>
+
+<span class="nc bnc" id="L200" title="All 2 branches missed.">        if (state.answerTaskId != -1) {</span>
+<span class="nc" id="L201">            plugin.getServer().getScheduler().cancelTask(state.answerTaskId);</span>
+<span class="nc" id="L202">            state.answerTaskId = -1;</span>
+        }
+<span class="nc" id="L204">        state.isAnswering = false;</span>
+<span class="nc" id="L205">    }</span>
+
+    public boolean isAnswering(UUID playerId) {
+<span class="nc" id="L208">        QuizState state = quizStates.get(playerId);</span>
+<span class="nc bnc" id="L209" title="All 4 branches missed.">        return state != null &amp;&amp; state.isAnswering;</span>
+    }
+
+    public int getAnswerTimeout() {
+<span class="nc" id="L213">        return plugin.getConfigManager().getMainConfig().getInt(&quot;word-system.answer-timeout&quot;, 30);</span>
+    }
+
+    public void stopQuiz(Player player) {
+<span class="nc" id="L217">        UUID id = player.getUniqueId();</span>
+<span class="nc" id="L218">        QuizState state = quizStates.get(id);</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">        if (state == null) return;</span>
+
+<span class="nc" id="L221">        cancelAnswerTimer(player);</span>
+<span class="nc" id="L222">        wordManager.endSession(id);</span>
+<span class="nc" id="L223">        quizStates.remove(id);</span>
+
+<span class="nc" id="L225">        int score = state.session.getScore();</span>
+<span class="nc" id="L226">        int correct = state.session.getTotalCorrect();</span>
+<span class="nc" id="L227">        int total = state.session.getTotalWords();</span>
+
+<span class="nc" id="L229">        String lang = plugin.getPlayerLanguage(player);</span>
+<span class="nc" id="L230">        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);</span>
+<span class="nc" id="L231">        String stoppedMsg = messages.getString(&quot;word-learning-gui.session-stopped&quot;,</span>
+                &quot;&amp;aSession stopped! &amp;7Correct: &amp;e{correct}&amp;7/&amp;e{total} &amp;7Score: &amp;e{score}&quot;)
+<span class="nc" id="L233">                .replace(&quot;{correct}&quot;, String.valueOf(correct))</span>
+<span class="nc" id="L234">                .replace(&quot;{total}&quot;, String.valueOf(total))</span>
+<span class="nc" id="L235">                .replace(&quot;{score}&quot;, String.valueOf(score));</span>
+<span class="nc" id="L236">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;', stoppedMsg));</span>
+<span class="nc" id="L237">    }</span>
+
+    public void endQuiz(UUID playerId) {
+<span class="nc" id="L240">        QuizState state = quizStates.get(playerId);</span>
+<span class="nc bnc" id="L241" title="All 4 branches missed.">        if (state != null &amp;&amp; state.answerTaskId != -1) {</span>
+<span class="nc" id="L242">            plugin.getServer().getScheduler().cancelTask(state.answerTaskId);</span>
+        }
+<span class="nc" id="L244">        quizStates.remove(playerId);</span>
+<span class="nc" id="L245">        wordManager.endSession(playerId);</span>
+<span class="nc" id="L246">    }</span>
+
+    public void clearAllSessions() {
+<span class="nc bnc" id="L249" title="All 2 branches missed.">        for (UUID playerId : quizStates.keySet()) {</span>
+<span class="nc" id="L250">            QuizState state = quizStates.get(playerId);</span>
+<span class="nc bnc" id="L251" title="All 4 branches missed.">            if (state != null &amp;&amp; state.answerTaskId != -1) {</span>
+<span class="nc" id="L252">                plugin.getServer().getScheduler().cancelTask(state.answerTaskId);</span>
+            }
+<span class="nc" id="L254">            wordManager.endSession(playerId);</span>
+<span class="nc" id="L255">        }</span>
+<span class="nc" id="L256">        quizStates.clear();</span>
+<span class="nc" id="L257">    }</span>
+
+    public double getComboMultiplier(int consecutiveCorrect) {
+<span class="nc bnc" id="L260" title="All 2 branches missed.">        if (consecutiveCorrect &lt;= 0) return 1.0;</span>
+<span class="nc bnc" id="L261" title="All 2 branches missed.">        for (int i = COMBO_THRESHOLDS.length - 1; i &gt;= 0; i--) {</span>
+<span class="nc bnc" id="L262" title="All 2 branches missed.">            if (consecutiveCorrect &gt;= COMBO_THRESHOLDS[i]) {</span>
+<span class="nc" id="L263">                return COMBO_MULTIPLIERS[i];</span>
+            }
+        }
+<span class="nc" id="L266">        return 1.0;</span>
+    }
+
+    public int getConsecutiveCorrect(UUID playerId) {
+<span class="nc" id="L270">        QuizState state = quizStates.get(playerId);</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">        if (state == null) return 0;</span>
+<span class="nc" id="L272">        return state.consecutiveCorrect;</span>
+    }
+
+    public String getDifficulty(UUID playerId) {
+<span class="nc" id="L276">        QuizState state = quizStates.get(playerId);</span>
+<span class="nc bnc" id="L277" title="All 2 branches missed.">        if (state == null) return &quot;beginner&quot;;</span>
+<span class="nc" id="L278">        return state.difficulty;</span>
+    }
+
+    public String getMode(UUID playerId) {
+<span class="nc" id="L282">        QuizState state = quizStates.get(playerId);</span>
+<span class="nc bnc" id="L283" title="All 2 branches missed.">        if (state == null) return &quot;choice&quot;;</span>
+<span class="nc" id="L284">        return state.mode;</span>
+    }
+
+    public void showSessionComplete(Player player, AnswerResult result) {
+<span class="nc" id="L288">        String lang = plugin.getPlayerLanguage(player);</span>
+<span class="nc" id="L289">        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);</span>
+<span class="nc" id="L290">        String msg = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L291">                messages.getString(&quot;word-learning-gui.session-complete&quot;,</span>
+                        &quot;&amp;6\u2605 &amp;aSession complete! &amp;7Correct: &amp;e{correct}&amp;7/&amp;e{total} &amp;7Accuracy: &amp;e{accuracy}% &amp;7Score: &amp;e{score}&quot;)
+<span class="nc" id="L293">                        .replace(&quot;{correct}&quot;, String.valueOf(result.correctCount))</span>
+<span class="nc" id="L294">                        .replace(&quot;{total}&quot;, String.valueOf(result.totalWords))</span>
+<span class="nc" id="L295">                        .replace(&quot;{accuracy}&quot;, String.format(&quot;%.1f&quot;, result.accuracy * 100))</span>
+<span class="nc" id="L296">                        .replace(&quot;{score}&quot;, String.valueOf(result.score)));</span>
+<span class="nc" id="L297">        player.sendMessage(msg);</span>
+<span class="nc" id="L298">    }</span>
+
+    public static class QuizState {
+        public final LearningSession session;
+        public final String difficulty;
+        public final String mode;
+        public int answerTaskId;
+        public int answerTimeout;
+        public boolean isAnswering;
+        public volatile boolean cancelled;
+<span class="nc" id="L308">        public final AtomicBoolean submitting = new AtomicBoolean(false);</span>
+        public int consecutiveCorrect;
+
+<span class="nc" id="L311">        public QuizState(LearningSession session, String difficulty, String mode, int answerTimeout) {</span>
+<span class="nc" id="L312">            this.session = session;</span>
+<span class="nc" id="L313">            this.difficulty = difficulty;</span>
+<span class="nc" id="L314">            this.mode = mode;</span>
+<span class="nc" id="L315">            this.answerTaskId = -1;</span>
+<span class="nc" id="L316">            this.answerTimeout = answerTimeout;</span>
+<span class="nc" id="L317">            this.isAnswering = false;</span>
+<span class="nc" id="L318">            this.cancelled = false;</span>
+<span class="nc" id="L319">            this.consecutiveCorrect = 0;</span>
+<span class="nc" id="L320">        }</span>
+    }
+
+    public static class AnswerResult {
+        public final boolean correct;
+        public final String correctAnswer;
+        public final int currentIndex;
+        public final int totalWords;
+        public final int correctCount;
+        public final int incorrectCount;
+        public final boolean sessionComplete;
+        public final double accuracy;
+        public final int score;
+        public final int comboScore;
+        public final int consecutiveCorrect;
+        public final double comboMultiplier;
+
+        public AnswerResult(boolean correct, String correctAnswer, int currentIndex,
+                            int totalWords, int correctCount, int incorrectCount,
+                            boolean sessionComplete, double accuracy,
+<span class="nc" id="L340">                            int score, int comboScore, int consecutiveCorrect, double comboMultiplier) {</span>
+<span class="nc" id="L341">            this.correct = correct;</span>
+<span class="nc" id="L342">            this.correctAnswer = correctAnswer;</span>
+<span class="nc" id="L343">            this.currentIndex = currentIndex;</span>
+<span class="nc" id="L344">            this.totalWords = totalWords;</span>
+<span class="nc" id="L345">            this.correctCount = correctCount;</span>
+<span class="nc" id="L346">            this.incorrectCount = incorrectCount;</span>
+<span class="nc" id="L347">            this.sessionComplete = sessionComplete;</span>
+<span class="nc" id="L348">            this.accuracy = accuracy;</span>
+<span class="nc" id="L349">            this.score = score;</span>
+<span class="nc" id="L350">            this.comboScore = comboScore;</span>
+<span class="nc" id="L351">            this.consecutiveCorrect = consecutiveCorrect;</span>
+<span class="nc" id="L352">            this.comboMultiplier = comboMultiplier;</span>
+<span class="nc" id="L353">        }</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

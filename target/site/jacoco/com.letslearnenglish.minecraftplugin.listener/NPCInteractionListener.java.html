@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>NPCInteractionListener.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.listener</a> &gt; <span class="el_source">NPCInteractionListener.java</span></div><h1>NPCInteractionListener.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.listener;
+
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerInteractEntityEvent;
+
+/**
+ * NPC Interaction Listener
+ *
+ * Handles player interactions with NPCs for dialogue practice.
+ * Supports both Citizens plugin NPCs and custom entity-based NPCs.
+ */
+public class NPCInteractionListener implements Listener {
+
+    private final LetsLearnEnglish plugin;
+
+<span class="nc" id="L18">    public NPCInteractionListener(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L19">        this.plugin = plugin;</span>
+<span class="nc" id="L20">    }</span>
+
+    @EventHandler
+    public void onEntityInteract(PlayerInteractEntityEvent event) {
+<span class="nc" id="L24">        String npcName = event.getRightClicked().getName();</span>
+<span class="nc bnc" id="L25" title="All 2 branches missed.">        if (npcName == null) {</span>
+<span class="nc" id="L26">            return;</span>
+        }
+
+<span class="nc" id="L29">        String npcPrefix = plugin.getConfigManager().getMainConfig()</span>
+<span class="nc" id="L30">                .getString(&quot;dialogue-system.npc.name-prefix&quot;, &quot;&amp;b[English] &amp;f&quot;);</span>
+<span class="nc bnc" id="L31" title="All 2 branches missed.">        if (npcPrefix == null) {</span>
+<span class="nc" id="L32">            return;</span>
+        }
+
+<span class="nc" id="L35">        String strippedPrefix = npcPrefix.replaceAll(&quot;&amp;[0-9a-fk-or]&quot;, &quot;&quot;).trim();</span>
+<span class="nc" id="L36">        String strippedNpcName = npcName.replaceAll(&quot;&amp;[0-9a-fk-or]&quot;, &quot;&quot;);</span>
+<span class="nc bnc" id="L37" title="All 2 branches missed.">        if (!strippedNpcName.contains(strippedPrefix)) {</span>
+<span class="nc" id="L38">            return;</span>
+        }
+
+<span class="nc" id="L41">        event.setCancelled(true);</span>
+<span class="nc" id="L42">        plugin.getLogger().info(&quot;Player &quot; + event.getPlayer().getName()</span>
+                + &quot; interacted with English NPC: &quot; + npcName);
+<span class="nc" id="L44">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

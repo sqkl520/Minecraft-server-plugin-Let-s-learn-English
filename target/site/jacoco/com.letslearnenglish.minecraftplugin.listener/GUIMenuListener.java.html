@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GUIMenuListener.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.listener</a> &gt; <span class="el_source">GUIMenuListener.java</span></div><h1>GUIMenuListener.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.listener;
+
+import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
+
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.core.word.Word;
+import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
+import com.letslearnenglish.minecraftplugin.gui.ConfirmationGUI;
+import com.letslearnenglish.minecraftplugin.gui.MainMenu;
+
+public class GUIMenuListener implements Listener {
+
+    private final LetsLearnEnglish plugin;
+
+<span class="nc" id="L23">    public GUIMenuListener(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L24">        this.plugin = plugin;</span>
+<span class="nc" id="L25">    }</span>
+
+    public static boolean isPluginGUI(String title) {
+<span class="nc bnc" id="L28" title="All 2 branches missed.">        if (title == null) return false;</span>
+<span class="nc bnc" id="L29" title="All 2 branches missed.">        return title.contains(&quot;Let's Learn English&quot;)</span>
+<span class="nc bnc" id="L30" title="All 2 branches missed.">                || title.contains(&quot;一起学英语&quot;)</span>
+<span class="nc bnc" id="L31" title="All 2 branches missed.">                || ConfirmationGUI.isConfirmGUI(title)</span>
+<span class="nc bnc" id="L32" title="All 2 branches missed.">                || title.contains(&quot;Word Learning&quot;)</span>
+<span class="nc bnc" id="L33" title="All 2 branches missed.">                || title.contains(&quot;单词学习&quot;)</span>
+<span class="nc bnc" id="L34" title="All 2 branches missed.">                || title.contains(&quot;Dialogue&quot;)</span>
+<span class="nc bnc" id="L35" title="All 2 branches missed.">                || title.contains(&quot;情景对话&quot;)</span>
+<span class="nc bnc" id="L36" title="All 2 branches missed.">                || title.contains(&quot;Learning Progress&quot;)</span>
+<span class="nc bnc" id="L37" title="All 2 branches missed.">                || title.contains(&quot;学习进度&quot;);</span>
+    }
+
+    @EventHandler
+    public void onInventoryClose(InventoryCloseEvent event) {
+<span class="nc" id="L42">        String title = event.getView().getTitle();</span>
+
+<span class="nc bnc" id="L44" title="All 4 branches missed.">        if (!title.contains(&quot;Word Learning&quot;) &amp;&amp; !title.contains(&quot;单词学习&quot;)) {</span>
+<span class="nc" id="L45">            return;</span>
+        }
+
+<span class="nc bnc" id="L48" title="All 2 branches missed.">        if (!(event.getPlayer() instanceof Player player)) {</span>
+<span class="nc" id="L49">            return;</span>
+        }
+
+<span class="nc" id="L52">        WordLearningManager wlManager = plugin.getWordLearningManager();</span>
+
+<span class="nc bnc" id="L54" title="All 2 branches missed.">        if (!wlManager.hasActiveQuiz(player.getUniqueId())) {</span>
+<span class="nc" id="L55">            return;</span>
+        }
+
+<span class="nc bnc" id="L58" title="All 2 branches missed.">        if (wlManager.isAnswering(player.getUniqueId())) {</span>
+<span class="nc" id="L59">            return;</span>
+        }
+
+<span class="nc" id="L62">        startAnswerForCurrentWord(player, wlManager);</span>
+<span class="nc" id="L63">    }</span>
+
+    @EventHandler
+    public void onInventoryClick(InventoryClickEvent event) {
+<span class="nc" id="L67">        String title = event.getView().getTitle();</span>
+
+<span class="nc bnc" id="L69" title="All 2 branches missed.">        if (!isPluginGUI(title)) {</span>
+<span class="nc" id="L70">            return;</span>
+        }
+
+<span class="nc" id="L73">        event.setCancelled(true);</span>
+
+<span class="nc bnc" id="L75" title="All 2 branches missed.">        if (event.getCurrentItem() == null) {</span>
+<span class="nc" id="L76">            return;</span>
+        }
+
+<span class="nc bnc" id="L79" title="All 2 branches missed.">        if (!(event.getWhoClicked() instanceof Player player)) {</span>
+<span class="nc" id="L80">            return;</span>
+        }
+
+<span class="nc" id="L83">        int slot = event.getSlot();</span>
+
+<span class="nc bnc" id="L85" title="All 4 branches missed.">        if (title.contains(&quot;Let's Learn English&quot;) || title.contains(&quot;一起学英语&quot;)) {</span>
+<span class="nc" id="L86">            handleMainMenu(player, slot);</span>
+<span class="nc bnc" id="L87" title="All 2 branches missed.">        } else if (ConfirmationGUI.isConfirmGUI(title)) {</span>
+<span class="nc" id="L88">            handleConfirmGUI(player, slot);</span>
+<span class="nc bnc" id="L89" title="All 4 branches missed.">        } else if (title.contains(&quot;Word Learning&quot;) || title.contains(&quot;单词学习&quot;)) {</span>
+<span class="nc" id="L90">            handleWordLearningGUI(player, slot);</span>
+<span class="nc bnc" id="L91" title="All 4 branches missed.">        } else if (title.contains(&quot;Dialogue&quot;) || title.contains(&quot;情景对话&quot;)) {</span>
+<span class="nc" id="L92">            handleDialogueGUI(player, slot);</span>
+        }
+<span class="nc" id="L94">    }</span>
+
+    private void startAnswerForCurrentWord(Player player, WordLearningManager wlManager) {
+<span class="nc" id="L97">        Word currentWord = wlManager.getCurrentWord(player.getUniqueId());</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">        if (currentWord == null) return;</span>
+
+<span class="nc" id="L100">        String lang = plugin.getPlayerLanguage(player);</span>
+<span class="nc" id="L101">        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);</span>
+<span class="nc" id="L102">        int timeout = wlManager.getAnswerTimeout();</span>
+
+<span class="nc" id="L104">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L105">                messages.getString(&quot;word-learning-gui.answer-prompt&quot;,</span>
+                        &quot;&amp;eSpell: &amp;f{chinese} &amp;7({seconds}s)&quot;)
+<span class="nc" id="L107">                        .replace(&quot;{chinese}&quot;, currentWord.getChinese())</span>
+<span class="nc" id="L108">                        .replace(&quot;{seconds}&quot;, String.valueOf(timeout))));</span>
+
+<span class="nc" id="L110">        wlManager.startAnswerTimer(player);</span>
+<span class="nc" id="L111">    }</span>
+
+    private void handleMainMenu(Player player, int slot) {
+<span class="nc bnc" id="L114" title="All 5 branches missed.">        switch (slot) {</span>
+            case 11 -&gt; {
+<span class="nc" id="L116">                SoundManager.playSound(player, &quot;menu-click&quot;);</span>
+<span class="nc" id="L117">                player.performCommand(&quot;le word&quot;);</span>
+<span class="nc" id="L118">            }</span>
+            case 13 -&gt; {
+<span class="nc" id="L120">                SoundManager.playSound(player, &quot;menu-click&quot;);</span>
+<span class="nc" id="L121">                player.performCommand(&quot;le dialogue&quot;);</span>
+<span class="nc" id="L122">            }</span>
+            case 15 -&gt; {
+<span class="nc" id="L124">                SoundManager.playSound(player, &quot;menu-click&quot;);</span>
+<span class="nc" id="L125">                player.performCommand(&quot;le progress&quot;);</span>
+<span class="nc" id="L126">            }</span>
+            case 18 -&gt; {
+<span class="nc" id="L128">                SoundManager.playSound(player, &quot;menu-click&quot;);</span>
+<span class="nc" id="L129">                handleLanguageSwitch(player);</span>
+<span class="nc" id="L130">            }</span>
+            default -&gt; {}
+        }
+<span class="nc" id="L133">    }</span>
+
+    private void handleLanguageSwitch(Player player) {
+<span class="nc" id="L136">        String currentLang = plugin.getPlayerLanguage(player);</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">        String targetLang = &quot;zh&quot;.equals(currentLang) ? &quot;en&quot; : &quot;zh&quot;;</span>
+<span class="nc" id="L138">        ConfirmationGUI confirm = new ConfirmationGUI(plugin, targetLang);</span>
+<span class="nc" id="L139">        confirm.open(player);</span>
+<span class="nc" id="L140">    }</span>
+
+    private void handleConfirmGUI(Player player, int slot) {
+<span class="nc bnc" id="L143" title="All 2 branches missed.">        if (slot != 13) {</span>
+<span class="nc" id="L144">            return;</span>
+        }
+
+<span class="nc" id="L147">        int stage = ConfirmationGUI.getStage(player);</span>
+
+<span class="nc bnc" id="L149" title="All 2 branches missed.">        if (stage == 1) {</span>
+<span class="nc" id="L150">            String currentLang = plugin.getPlayerLanguage(player);</span>
+<span class="nc bnc" id="L151" title="All 2 branches missed.">            String targetLang = &quot;zh&quot;.equals(currentLang) ? &quot;en&quot; : &quot;zh&quot;;</span>
+<span class="nc" id="L152">            Bukkit.getScheduler().runTaskLater(plugin, () -&gt; {</span>
+<span class="nc" id="L153">                ConfirmationGUI confirm = new ConfirmationGUI(plugin, targetLang);</span>
+<span class="nc" id="L154">                confirm.openSecond(player);</span>
+<span class="nc" id="L155">            }, 2L);</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">        } else if (stage == 2) {</span>
+<span class="nc" id="L157">            String currentLang = plugin.getPlayerLanguage(player);</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">            String targetLang = &quot;zh&quot;.equals(currentLang) ? &quot;en&quot; : &quot;zh&quot;;</span>
+<span class="nc" id="L159">            ConfirmationGUI confirm = new ConfirmationGUI(plugin, targetLang);</span>
+<span class="nc" id="L160">            confirm.applySwitch(player);</span>
+<span class="nc" id="L161">            Bukkit.getScheduler().runTaskLater(plugin, () -&gt; {</span>
+<span class="nc" id="L162">                new MainMenu(plugin).open(player);</span>
+<span class="nc" id="L163">            }, 2L);</span>
+        }
+<span class="nc" id="L165">    }</span>
+
+    private void handleWordLearningGUI(Player player, int slot) {
+<span class="nc" id="L168">        WordLearningManager wlManager = plugin.getWordLearningManager();</span>
+
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        if (slot == 16) {</span>
+<span class="nc" id="L171">            SoundManager.playSound(player, &quot;menu-click&quot;);</span>
+<span class="nc" id="L172">            handleStopSession(player, wlManager);</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">        } else if (slot == 22) {</span>
+<span class="nc" id="L174">            SoundManager.playSound(player, &quot;menu-click&quot;);</span>
+<span class="nc" id="L175">            startAnswerForCurrentWord(player, wlManager);</span>
+<span class="nc" id="L176">            player.closeInventory();</span>
+        }
+<span class="nc" id="L178">    }</span>
+
+    private void handleStopSession(Player player, WordLearningManager wlManager) {
+<span class="nc" id="L181">        String lang = plugin.getPlayerLanguage(player);</span>
+<span class="nc" id="L182">        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);</span>
+
+<span class="nc" id="L184">        wlManager.stopQuiz(player);</span>
+<span class="nc" id="L185">        player.closeInventory();</span>
+
+<span class="nc" id="L187">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L188">                messages.getString(&quot;word-learning-gui.session-ended&quot;,</span>
+                        &quot;&amp;aLearning session ended!&quot;)));
+<span class="nc" id="L190">    }</span>
+
+    private void handleDialogueGUI(Player player, int slot) {
+<span class="nc bnc" id="L193" title="All 2 branches missed.">        if (slot == 22) {</span>
+<span class="nc" id="L194">            player.closeInventory();</span>
+        }
+<span class="nc" id="L196">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

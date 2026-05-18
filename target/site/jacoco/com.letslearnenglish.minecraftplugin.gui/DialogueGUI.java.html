@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DialogueGUI.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.gui</a> &gt; <span class="el_source">DialogueGUI.java</span></div><h1>DialogueGUI.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.gui;
+
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.Material;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+
+import java.util.Arrays;
+
+public class DialogueGUI {
+
+    private final LetsLearnEnglish plugin;
+
+<span class="nc" id="L19">    public DialogueGUI(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L20">        this.plugin = plugin;</span>
+<span class="nc" id="L21">    }</span>
+
+    public void open(Player player, String sceneName) {
+<span class="nc" id="L24">        String lang = plugin.getPlayerLanguage(player);</span>
+<span class="nc" id="L25">        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);</span>
+
+<span class="nc" id="L27">        String title = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L28">                messages.getString(&quot;dialogue-gui.title&quot;, &quot;Dialogue - {scene}&quot;)</span>
+<span class="nc" id="L29">                        .replace(&quot;{scene}&quot;, sceneName));</span>
+
+<span class="nc" id="L31">        Inventory inv = Bukkit.createInventory(null, 27, title);</span>
+
+<span class="nc" id="L33">        inv.setItem(4, createItem(Material.PAPER,</span>
+<span class="nc" id="L34">                messages.getString(&quot;dialogue-gui.practice-info&quot;),</span>
+<span class="nc" id="L35">                messages.getString(&quot;dialogue-gui.practice-info-lore-scene&quot;,</span>
+<span class="nc" id="L36">                        &quot;Scene: {scene}&quot;).replace(&quot;{scene}&quot;, sceneName),</span>
+<span class="nc" id="L37">                messages.getString(&quot;dialogue-gui.practice-info-lore-hint&quot;)));</span>
+
+<span class="nc" id="L39">        inv.setItem(13, createItem(Material.BOOK,</span>
+<span class="nc" id="L40">                messages.getString(&quot;dialogue-gui.instructions&quot;),</span>
+<span class="nc" id="L41">                messages.getString(&quot;dialogue-gui.instructions-lore-1&quot;),</span>
+<span class="nc" id="L42">                messages.getString(&quot;dialogue-gui.instructions-lore-2&quot;),</span>
+<span class="nc" id="L43">                messages.getString(&quot;dialogue-gui.instructions-lore-3&quot;)));</span>
+
+<span class="nc" id="L45">        inv.setItem(22, createItem(Material.BARRIER,</span>
+<span class="nc" id="L46">                messages.getString(&quot;dialogue-gui.close&quot;),</span>
+<span class="nc" id="L47">                messages.getString(&quot;dialogue-gui.close-lore-1&quot;),</span>
+<span class="nc" id="L48">                messages.getString(&quot;dialogue-gui.close-lore-2&quot;)));</span>
+
+<span class="nc" id="L50">        player.openInventory(inv);</span>
+
+<span class="nc" id="L52">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L53">                messages.getString(&quot;dialogue-gui.activated&quot;,</span>
+                        &quot;&amp;aDialogue scene activated!&quot;)
+<span class="nc" id="L55">                        .replace(&quot;{scene}&quot;, sceneName)));</span>
+<span class="nc" id="L56">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L57">                messages.getString(&quot;dialogue-gui.activated-hint&quot;)));</span>
+<span class="nc" id="L58">    }</span>
+
+    private ItemStack createItem(Material material, String name, String... lore) {
+<span class="nc" id="L61">        ItemStack item = new ItemStack(material);</span>
+<span class="nc" id="L62">        ItemMeta meta = item.getItemMeta();</span>
+<span class="nc bnc" id="L63" title="All 2 branches missed.">        if (meta != null) {</span>
+<span class="nc" id="L64">            meta.setDisplayName(ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;6&quot; + name));</span>
+<span class="nc" id="L65">            meta.setLore(Arrays.stream(lore)</span>
+<span class="nc" id="L66">                    .map(l -&gt; ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;7&quot; + l))</span>
+<span class="nc" id="L67">                    .toList());</span>
+<span class="nc" id="L68">            item.setItemMeta(meta);</span>
+        }
+<span class="nc" id="L70">        return item;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

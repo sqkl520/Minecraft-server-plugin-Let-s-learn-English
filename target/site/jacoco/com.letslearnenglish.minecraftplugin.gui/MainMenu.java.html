@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MainMenu.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.gui</a> &gt; <span class="el_source">MainMenu.java</span></div><h1>MainMenu.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.gui;
+
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.Material;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+
+import java.util.Collections;
+
+/**
+ * Main Menu GUI
+ *
+ * The primary menu interface for the English learning plugin.
+ * Provides access to all learning modules.
+ */
+public class MainMenu {
+
+    private final LetsLearnEnglish plugin;
+
+<span class="nc" id="L26">    public MainMenu(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L27">        this.plugin = plugin;</span>
+<span class="nc" id="L28">    }</span>
+
+    public void open(Player player) {
+<span class="nc" id="L31">        String lang = plugin.getPlayerLanguage(player);</span>
+<span class="nc" id="L32">        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);</span>
+
+<span class="nc" id="L34">        String title = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L35">                messages.getString(&quot;gui.main-menu-title&quot;, &quot;&amp;6&amp;lLet's Learn English!&quot;));</span>
+<span class="nc" id="L36">        int size = plugin.getConfigManager().getMainConfig().getInt(&quot;gui.menu-size&quot;, 27);</span>
+
+<span class="nc" id="L38">        Inventory menu = Bukkit.createInventory(null, size, title);</span>
+
+<span class="nc" id="L40">        String wordName = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L41">                messages.getString(&quot;main-menu.word-learning&quot;, &quot;&amp;aWord Learning&quot;));</span>
+<span class="nc" id="L42">        String wordLore = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L43">                messages.getString(&quot;main-menu.word-learning-lore&quot;, &quot;&amp;7Practice vocabulary with various modes&quot;));</span>
+<span class="nc" id="L44">        String dialogueName = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L45">                messages.getString(&quot;main-menu.dialogue-practice&quot;, &quot;&amp;bDialogue Practice&quot;));</span>
+<span class="nc" id="L46">        String dialogueLore = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L47">                messages.getString(&quot;main-menu.dialogue-practice-lore&quot;, &quot;&amp;7Practice English conversations&quot;));</span>
+<span class="nc" id="L48">        String progressName = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L49">                messages.getString(&quot;main-menu.progress-stats&quot;, &quot;&amp;eProgress &amp; Stats&quot;));</span>
+<span class="nc" id="L50">        String progressLore = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L51">                messages.getString(&quot;main-menu.progress-stats-lore&quot;, &quot;&amp;7View your learning progress&quot;));</span>
+
+<span class="nc" id="L53">        menu.setItem(11, createMenuItem(Material.BOOK, wordName, wordLore));</span>
+<span class="nc" id="L54">        menu.setItem(13, createMenuItem(Material.PAPER, dialogueName, dialogueLore));</span>
+<span class="nc" id="L55">        menu.setItem(15, createMenuItem(Material.DIAMOND, progressName, progressLore));</span>
+
+<span class="nc" id="L57">        String btnName = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L58">                messages.getString(&quot;language.button&quot;, &quot;&amp;eSwitch Language&quot;));</span>
+<span class="nc" id="L59">        String btnLore = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L60">                messages.getString(&quot;language.button-lore&quot;, &quot;&amp;7Click to switch&quot;));</span>
+<span class="nc" id="L61">        menu.setItem(18, createMenuItem(Material.RED_BED, btnName, btnLore));</span>
+
+<span class="nc" id="L63">        SoundManager.playSound(player, &quot;menu-open&quot;);</span>
+<span class="nc" id="L64">        player.openInventory(menu);</span>
+<span class="nc" id="L65">    }</span>
+
+    private ItemStack createMenuItem(Material material, String name, String lore) {
+<span class="nc" id="L68">        ItemStack item = new ItemStack(material);</span>
+<span class="nc" id="L69">        ItemMeta meta = item.getItemMeta();</span>
+<span class="nc bnc" id="L70" title="All 2 branches missed.">        if (meta != null) {</span>
+<span class="nc" id="L71">            meta.setDisplayName(ChatColor.translateAlternateColorCodes('&amp;', name));</span>
+<span class="nc" id="L72">            meta.setLore(Collections.singletonList(</span>
+<span class="nc" id="L73">                    ChatColor.translateAlternateColorCodes('&amp;', lore)));</span>
+<span class="nc" id="L74">            item.setItemMeta(meta);</span>
+        }
+<span class="nc" id="L76">        return item;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

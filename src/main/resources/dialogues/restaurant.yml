@@ -1,0 +1,81 @@
+# ============================================================
+#  Restaurant Ordering Dialogue Scene
+#  Difficulty: Beginner
+# ============================================================
+
+scene:
+  id: "restaurant"
+  name: "Restaurant Ordering"
+  description: "Practice ordering food at a restaurant"
+  difficulty: "beginner"
+  npc:
+    name: "&eWaiter &fTom"
+    role: "Waiter"
+    greeting: "Welcome to our restaurant! How can I help you today?"
+
+dialogue_tree:
+  start:
+    npc_text: "Good evening! Welcome to our restaurant. Would you like to see the menu?"
+    options:
+      - id: "yes_menu"
+        text: "Yes, please. I'd like to see the menu."
+        grammar_check:
+          expected_pattern: "(?i)(yes|sure|please).*menu"
+        next_node: "order_drink"
+      - id: "no_recommend"
+        text: "No thanks. What do you recommend?"
+        grammar_check:
+          expected_pattern: "(?i)(what|recommend|suggest)"
+        next_node: "recommendation"
+      - id: "ready_order"
+        text: "I'm ready to order."
+        grammar_check:
+          expected_pattern: "(?i)(ready|order|would like)"
+        next_node: "take_order"
+
+  order_drink:
+    npc_text: "Here's the menu. Would you like something to drink first?"
+    options:
+      - id: "water"
+        text: "I'd like a glass of water, please."
+        grammar_check:
+          expected_pattern: "(?i)(i('d| would) like|water|please)"
+        next_node: "take_order"
+      - id: "juice"
+        text: "Do you have orange juice?"
+        grammar_check:
+          expected_pattern: "(?i)(do you have|orange juice|juice)"
+        next_node: "take_order"
+
+  recommendation:
+    npc_text: "Our chef's special today is grilled salmon with vegetables. It's very popular!"
+    options:
+      - id: "accept_recommend"
+        text: "That sounds great! I'll have that."
+        grammar_check:
+          expected_pattern: "(?i)(sounds|great|good|have|take)"
+        next_node: "end"
+      - id: "decline_recommend"
+        text: "I don't like fish. Can I have chicken instead?"
+        grammar_check:
+          expected_pattern: "(?i)(don't like|instead|chicken|can i)"
+        next_node: "take_order"
+
+  take_order:
+    npc_text: "What would you like to order for your main course?"
+    options:
+      - id: "order_steak"
+        text: "I'd like a steak, medium rare, please."
+        grammar_check:
+          expected_pattern: "(?i)(steak|medium|rare|please)"
+        next_node: "end"
+      - id: "order_pasta"
+        text: "Can I have the pasta with tomato sauce?"
+        grammar_check:
+          expected_pattern: "(?i)(pasta|tomato|sauce|can i)"
+        next_node: "end"
+
+  end:
+    npc_text: "Excellent choice! Your order will be ready shortly. Enjoy your meal!"
+    options: []
+    is_end: true
