@@ -1,110 +1,241 @@
 # ============================================================
-#  Let's Learn English! - Main Configuration File
-#  Minecraft English Learning Plugin
+#  Let's Learn English! - 主配置文件 (Main Configuration)
+#  Minecraft 英语学习插件 v1.1.0
+# ============================================================
+#
+#  说明：
+#  - 修改此文件后，输入 /lea reload 即可热重载，无需重启服务器
+#  - 所有时间单位均为分钟（除特别标注外）
+#  - 颜色代码使用 & 符号（如 &a 表示绿色）
+#  - 布尔值使用 true / false
+#
 # ============================================================
 
-config-version: 1
+config-version: 2
 
 # ============================================================
-#  General Settings
+#  通用设置 (General Settings)
 # ============================================================
 general:
+  # 插件默认界面语言：zh(中文) / en(英文)
+  # 玩家可在主菜单中自行切换语言，此设置仅影响新玩家的默认语言
   language: "zh"
+
+  # 调试模式：开启后会在控制台输出详细日志
+  # 建议仅在排查问题时开启，正常运行请关闭以节省性能
   debug: false
+
+  # 启动时联网检查版本更新
+  # 关闭后不会连接 GitHub API，适合无网络的内网服务器
   check-updates: true
+
+  # 自动保存间隔（分钟），玩家数据自动保存至数据库
+  # 范围：1 - 60，默认 5 分钟
+  # 设置过短会增加数据库写入压力，过长则存在数据丢失风险
   auto-save-interval: 5
 
+  # 数据备份策略
+  # interval: 备份间隔（分钟），0 表示禁用自动备份
+  # max-backups: 保留的备份数量上限，超出后自动删除最旧的备份
+  backup:
+    enabled: true
+    interval: 1440
+    max-backups: 7
+
 # ============================================================
-#  Database Settings
+#  消息前缀 (Message Prefix)
+# ============================================================
+#  所有通过插件发送的聊天消息都会自动添加前缀
+#  支持颜色代码（& 符号）
+prefix:
+  zh: "&8[&b英语学习&8] &f"
+  en: "&8[&bEnglish&8] &f"
+
+# ============================================================
+#  数据库设置 (Database Settings)
 # ============================================================
 database:
+  # 数据库类型：sqlite(本地文件) / mysql(远程数据库)
+  # SQLite 无需额外配置，适合小型服务器
+  # MySQL 适合多服互通数据或大型服务器
   type: "sqlite"
+
+  # --- SQLite 配置 ---
   sqlite:
     filename: "playerdata.db"
+
+  # --- MySQL 配置（仅 type 为 mysql 时生效）---
   mysql:
     host: "localhost"
     port: 3306
     database: "letslearnenglish"
     username: "root"
     password: ""
+    # MySQL 连接池大小，建议 5-20
     pool-size: 10
+    # 数据库表名前缀，用于区分不同插件
     table-prefix: "lle_"
 
 # ============================================================
-#  Word Learning System Settings
+#  单词学习系统 (Word Learning System)
 # ============================================================
 word-system:
+  # 是否启用单词学习模块
   enabled: true
+
+  # 每日学习上限（个单词），0 表示不限制
+  # 防止玩家过度学习，保护游戏节奏
   daily-limit: 50
+
+  # 每个学习会话的单词数量
+  # 范围：5 - 30，默认 10
   words-per-session: 10
+
+  # 答题超时时间（秒），玩家关闭GUI后在聊天栏答题的时间限制
+  # 超时后自动判定为错误并进入下一个单词
+  # 范围：10 - 120，默认 30
+  answer-timeout: 30
+
+  # --- 复习系统（艾宾浩斯遗忘曲线）---
   review:
+    # 是否启用间隔复习提醒
     enabled: true
+    # 复习间隔（小时）：1h, 6h, 24h, 72h, 168h(7天)
     intervals: [1, 6, 24, 72, 168]
+    # 掌握阈值：单词掌握度达到此值后排除出复习计划
+    # 范围：0.0 - 1.0，默认 0.85
     mastery-threshold: 0.85
+
+  # --- 学习模式配置 ---
   modes:
+    # 拼写模式：看中文含义，输入英文单词
     spelling:
       enabled: true
       max-attempts: 3
-      case-sensitive: false
+      case-sensitive: false          # 是否区分大小写
+
+    # 选择题模式：看中文含义，从选项中选出正确答案
     choice:
       enabled: true
-      option-count: 4
-      time-limit: 30
+      option-count: 4                # 选项数量
+      time-limit: 30                 # 答题时限（秒），0 不限制
+
+    # 填空模式：看英文句子，填入缺少的单词
     fill-blank:
       enabled: true
-      show-first-letter: true
+      show-first-letter: true        # 是否显示首字母提示
       max-attempts: 3
 
 # ============================================================
-#  Dialogue System Settings
+#  情景对话系统 (Dialogue System)
 # ============================================================
 dialogue-system:
+  # 是否启用情景对话模块
   enabled: true
+
+  # --- NPC 设置 ---
   npc:
+    # 是否使用 Citizens 插件（需单独安装 Citizens 插件）
     use-citizens: false
+    # 玩家与 NPC 的交互距离（格）
     interaction-distance: 3.0
+    # NPC 名称前缀（颜色代码使用 & 符号）
     name-prefix: "&b[English] &f"
+
+  # --- 对话设置 ---
   conversation:
+    # 是否启用语法检查
     grammar-check: true
+    # 是否根据玩家水平自适应调整难度
     adaptive-difficulty: true
+    # 对话历史记录大小（条）
     history-size: 20
+    # 打字等待超时时间（秒），超时后对话自动结束
     typing-timeout: 60
 
 # ============================================================
-#  Progress & Reward System Settings
+#  进度与奖励系统 (Progress & Reward System)
 # ============================================================
 progress-system:
+  # 是否启用进度追踪模块
   enabled: true
+
+  # --- 排行榜 ---
   leaderboard:
     enabled: true
+    # 排行榜显示人数
     display-count: 10
+    # 排行榜刷新间隔（秒）
     update-interval: 30
+
+  # --- 成就系统 ---
   achievements:
     enabled: true
     config-file: "achievements.yml"
+
+  # --- 奖励类型 ---
   rewards:
     enabled: true
     types:
+      # 物品奖励
       item:
         enabled: true
+      # 指令奖励（允许执行自定义指令作为奖励）
       command:
         enabled: true
+      # 经验值奖励
       exp:
         enabled: true
+      # 经济奖励（需要 Vault 插件）
       money:
         enabled: false
         vault-required: true
 
 # ============================================================
-#  GUI Settings
+#  GUI 界面设置 (GUI Settings)
 # ============================================================
 gui:
+  # 主菜单标题（颜色代码使用 & 符号）
   main-menu-title: "&6&lLet's Learn English!"
+  # 菜单大小：9 / 18 / 27 / 36 / 45 / 54
   menu-size: 27
+  # 是否使用自定义材质（需要额外的资源包）
   custom-textures: false
+
+  # --- 音效设置 ---
+  # enabled: 是否启用 GUI 操作音效
+  # 音效名称参考 Minecraft 官方音效列表
   sounds:
     enabled: true
-    correct: "ENTITY_PLAYER_LEVELUP"
-    incorrect: "ENTITY_VILLAGER_NO"
-    complete: "UI_TOAST_CHALLENGE_COMPLETE"
-    menu-open: "BLOCK_NOTE_BLOCK_PLING"
+    correct: "ENTITY_PLAYER_LEVELUP"           # 回答正确音效
+    incorrect: "ENTITY_VILLAGER_NO"            # 回答错误音效
+    complete: "UI_TOAST_CHALLENGE_COMPLETE"    # 学习完成音效
+    menu-open: "BLOCK_NOTE_BLOCK_PLING"        # 菜单打开音效
+    menu-click: "BLOCK_NOTE_BLOCK_HAT"         # 菜单点击音效
+
+# ============================================================
+#  每日学习提醒 (Daily Study Reminder)
+# ============================================================
+daily-reminder:
+  # 是否启用每日学习提醒
+  enabled: true
+  # 玩家进服时是否发送学习提醒
+  # 开启后，玩家每次进入服务器都会收到一条鼓励学习消息
+  on-join: true
+  # 提醒时间（24小时制的小时数），可设置多个时间点
+  # 例如 [9, 14, 20] 表示早9点、下午2点、晚8点各提醒一次
+  reminder-hours: [9, 14, 20]
+  # 提醒消息（可使用 {prefix} 和 {player} 占位符）
+  message: "{prefix}&6是时候学英语了！输入 &e/le menu &6开始学习吧！"
+
+# ============================================================
+#  难度等级设置 (Difficulty Settings)
+# ============================================================
+difficulty-settings:
+  # 可用的难度等级列表
+  available: ["beginner", "intermediate", "advanced"]
+  # 各难度等级的显示名称
+  display-names:
+    beginner: "初级"
+    intermediate: "中级"
+    advanced: "高级"

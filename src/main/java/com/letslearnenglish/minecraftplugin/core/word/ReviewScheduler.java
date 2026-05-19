@@ -6,34 +6,36 @@ import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Spaced Repetition Review Scheduler
- *
- * Based on the Ebbinghaus forgetting curve principle, reminds players
- * to review words at key time intervals.
- * Review intervals: 1h, 6h, 24h, 72h, 168h (7 days)
- */
 public class ReviewScheduler {
+
+    private static final long CACHE_TTL_MS = TimeUnit.SECONDS.toMillis(30);
 
     private final LetsLearnEnglish plugin;
     private final WordManagerImpl wordManager;
     private final PlayerDataStore playerDataStore;
-    private final List<Integer> reviewIntervals;
+    private final int reviewIntervalsSize;
+    private final long[] reviewIntervalsMs;
+
+    private final Map<UUID, CacheEntry> dueWordCache = new ConcurrentHashMap<>();
 
     public ReviewScheduler(LetsLearnEnglish plugin, WordManagerImpl wordManager,
                            PlayerDataStore playerDataStore) {
         this.plugin = plugin;
         this.wordManager = wordManager;
         this.playerDataStore = playerDataStore;
-        this.reviewIntervals = plugin.getConfigManager().getMainConfig()
+
+        List<Integer> intervals = plugin.getConfigManager().getMainConfig()
                 .getIntegerList("word-system.review.intervals");
+        this.reviewIntervalsSize = intervals.size();
+        this.reviewIntervalsMs = new long[reviewIntervalsSize];
+        for (int i = 0; i < reviewIntervalsSize; i++) {
+            reviewIntervalsMs[i] = TimeUnit.HOURS.toMillis(intervals.get(i));
+        }
     }
 
-    /**
-     * Check and notify players who have words due for review.
-     */
     public void checkAndNotifyReviews() {
         for (Player player : Bukkit.getOnlinePlayers()) {
             List<String> dueWords = getDueReviewWords(player.getUniqueId());
@@ -43,46 +45,55 @@ public class ReviewScheduler {
         }
     }
 
-    /**
-     * Get the list of words due for review for a player.
-     */
     public List<String> getDueReviewWords(UUID playerId) {
-        List<String> dueWords = new ArrayList<>();
+        long now = System.currentTimeMillis();
+
+        CacheEntry cached = dueWordCache.get(playerId);
+        if (cached != null && (now - cached.timestamp) < CACHE_TTL_MS) {
+            return cached.words;
+        }
+
         Map<String, Long> lastReviewTimes = playerDataStore.getLastReviewTimes(playerId);
         Map<String, Integer> reviewCounts = playerDataStore.getReviewCounts(playerId);
-        long now = System.currentTimeMillis();
+        List<String> dueWords = new ArrayList<>();
 
         for (Map.Entry<String, Long> entry : lastReviewTimes.entrySet()) {
             String word = entry.getKey();
             long lastReview = entry.getValue();
-            int reviewCount = reviewCounts.getOrDefault(word, 0);
+            Integer reviewCount = reviewCounts.get(word);
 
-            if (reviewCount >= reviewIntervals.size()) {
+            if (reviewCount == null || reviewCount >= reviewIntervalsSize) {
                 continue;
             }
 
-            long nextReviewTime = lastReview + TimeUnit.HOURS.toMillis(reviewIntervals.get(reviewCount));
+            long nextReviewTime = lastReview + reviewIntervalsMs[reviewCount];
             if (now >= nextReviewTime) {
                 dueWords.add(word);
             }
         }
 
+        dueWordCache.put(playerId, new CacheEntry(dueWords, now));
         return dueWords;
     }
 
-    /**
-     * Notify a player to review words.
-     */
     private void notifyPlayer(Player player, List<String> dueWords) {
         String message = plugin.getMessageUtil().getPlayerMessage(player,
                 "review.notification", "count", String.valueOf(dueWords.size()));
         player.sendMessage(message);
     }
 
-    /**
-     * Record a completed review.
-     */
     public void recordReview(UUID playerId, String word) {
         playerDataStore.recordReview(playerId, word);
+        dueWordCache.remove(playerId);
+    }
+
+    private static class CacheEntry {
+        final List<String> words;
+        final long timestamp;
+
+        CacheEntry(List<String> words, long timestamp) {
+            this.words = words;
+            this.timestamp = timestamp;
+        }
     }
 }

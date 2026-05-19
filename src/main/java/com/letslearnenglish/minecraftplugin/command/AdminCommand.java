@@ -5,6 +5,7 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
+import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -24,7 +25,7 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
     private final LetsLearnEnglish plugin;
 
     private static final List<String> SUBCOMMANDS = Arrays.asList(
-            "reload", "export", "reset", "info", "help"
+            "reload", "export", "reset", "info", "help", "ignore-update"
     );
 
     public AdminCommand(LetsLearnEnglish plugin) {
@@ -70,6 +71,9 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
             case "help":
                 sendHelpMessage(sender);
                 break;
+            case "ignore-update":
+                handleIgnoreUpdate(sender);
+                break;
             default:
                 sender.sendMessage(plugin.getMessageUtil()
                         .getSenderMessage(sender, "admin.unknown-command"));
@@ -82,6 +86,14 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
     private void handleReset(CommandSender sender, String playerName) {
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "admin.reset-pending", "player", playerName));
+    }
+
+    private void handleIgnoreUpdate(CommandSender sender) {
+        if (sender instanceof Player player) {
+            plugin.getUpdateChecker().dismiss(player);
+        } else {
+            sender.sendMessage("This command can only be used by a player.");
+        }
     }
 
     private void sendPluginInfo(CommandSender sender) {

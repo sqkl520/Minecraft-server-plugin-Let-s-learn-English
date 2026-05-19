@@ -22,6 +22,8 @@ import java.util.logging.Level;
  */
 public class ConfigManager {
 
+    private static final int MESSAGE_CONFIG_VERSION = 4;
+
     private final LetsLearnEnglish plugin;
     private final Map<String, FileConfiguration> configCache;
 
@@ -37,6 +39,7 @@ public class ConfigManager {
     }
 
     public void loadAllConfigs() {
+        configCache.clear();
         plugin.saveDefaultConfig();
         mainConfig = plugin.getConfig();
 
@@ -51,11 +54,9 @@ public class ConfigManager {
         saveResourceIfNotExists("dialogues/restaurant.yml");
         saveResourceIfNotExists("dialogues/airport.yml");
         saveResourceIfNotExists("dialogues/shopping.yml");
-        saveResourceIfNotExists("messages/en.yml");
-        saveResourceIfNotExists("messages/zh.yml");
 
-        messageConfigZh = loadConfig("messages/zh.yml");
-        messageConfigEn = loadConfig("messages/en.yml");
+        messageConfigZh = loadMessageConfig("messages/zh.yml");
+        messageConfigEn = loadMessageConfig("messages/en.yml");
 
         String language = mainConfig.getString("general.language", "en");
         messageConfig = "zh".equals(language) ? messageConfigZh : messageConfigEn;
@@ -81,6 +82,25 @@ public class ConfigManager {
         }
 
         FileConfiguration config = YamlConfiguration.loadConfiguration(file);
+        configCache.put(path, config);
+        return config;
+    }
+
+    public FileConfiguration loadMessageConfig(String path) {
+        File file = new File(plugin.getDataFolder(), path);
+        if (!file.exists()) {
+            plugin.saveResource(path, false);
+        } else {
+            FileConfiguration existing = YamlConfiguration.loadConfiguration(file);
+            int version = existing.getInt("config-version", 0);
+            if (version < MESSAGE_CONFIG_VERSION) {
+                plugin.getLogger().info("Updating " + path
+                        + " (v" + version + " -> v" + MESSAGE_CONFIG_VERSION + ")");
+                plugin.saveResource(path, true);
+            }
+        }
+        FileConfiguration config = YamlConfiguration.loadConfiguration(
+                new File(plugin.getDataFolder(), path));
         configCache.put(path, config);
         return config;
     }

@@ -4,6 +4,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -24,6 +25,7 @@ import com.letslearnenglish.minecraftplugin.core.word.LearningSession;
  * - Session state tracking
  *
  * Uses an in-memory cache with database persistence.
+ * All cache operations are thread-safe via ConcurrentHashMap.
  */
 public class PlayerDataStore {
 
@@ -37,6 +39,7 @@ public class PlayerDataStore {
     private final Map<UUID, Map<String, Integer>> incorrectCountCache;
     private final Map<UUID, PlayerStats> playerStatsCache;
     private final Set<UUID> activeSessionPlayers;
+    private final Map<UUID, Set<String>> masteredWordsCache;
 
     public PlayerDataStore(LetsLearnEnglish plugin, DatabaseManager databaseManager) {
         this.plugin = plugin;
@@ -48,6 +51,7 @@ public class PlayerDataStore {
         this.incorrectCountCache = new ConcurrentHashMap<>();
         this.playerStatsCache = new ConcurrentHashMap<>();
         this.activeSessionPlayers = ConcurrentHashMap.newKeySet();
+        this.masteredWordsCache = new ConcurrentHashMap<>();
     }
 
     /**
@@ -59,31 +63,32 @@ public class PlayerDataStore {
                 + tablePrefix + "word_progress WHERE uuid = ?";
 
         try (Connection conn = databaseManager.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setString(1, playerId.toString());
 
-            Map<String, Double> masteryMap = new ConcurrentHashMap<>();
-            Map<String, Long> reviewTimeMap = new ConcurrentHashMap<>();
-            Map<String, Integer> reviewCountMap = new ConcurrentHashMap<>();
-            Map<String, Integer> correctMap = new ConcurrentHashMap<>();
-            Map<String, Integer> incorrectMap = new ConcurrentHashMap<>();
+            try (ResultSet rs = stmt.executeQuery()) {
+                Map<String, Double> masteryMap = new ConcurrentHashMap<>();
+                Map<String, Long> reviewTimeMap = new ConcurrentHashMap<>();
+                Map<String, Integer> reviewCountMap = new ConcurrentHashMap<>();
+                Map<String, Integer> correctMap = new ConcurrentHashMap<>();
+                Map<String, Integer> incorrectMap = new ConcurrentHashMap<>();
 
-            while (rs.next()) {
-                String word = rs.getString("word");
-                masteryMap.put(word, rs.getDouble("mastery"));
-                reviewTimeMap.put(word, rs.getLong("last_review_time"));
-                reviewCountMap.put(word, rs.getInt("review_count"));
-                correctMap.put(word, rs.getInt("correct_count"));
-                incorrectMap.put(word, rs.getInt("incorrect_count"));
+                while (rs.next()) {
+                    String word = rs.getString("word");
+                    masteryMap.put(word, rs.getDouble("mastery"));
+                    reviewTimeMap.put(word, rs.getLong("last_review_time"));
+                    reviewCountMap.put(word, rs.getInt("review_count"));
+                    correctMap.put(word, rs.getInt("correct_count"));
+                    incorrectMap.put(word, rs.getInt("incorrect_count"));
+                }
+
+                wordMasteryCache.put(playerId, masteryMap);
+                lastReviewTimeCache.put(playerId, reviewTimeMap);
+                reviewCountCache.put(playerId, reviewCountMap);
+                correctCountCache.put(playerId, correctMap);
+                incorrectCountCache.put(playerId, incorrectMap);
             }
-
-            wordMasteryCache.put(playerId, masteryMap);
-            lastReviewTimeCache.put(playerId, reviewTimeMap);
-            reviewCountCache.put(playerId, reviewCountMap);
-            correctCountCache.put(playerId, correctMap);
-            incorrectCountCache.put(playerId, incorrectMap);
 
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load player data: " + playerId, e);
@@ -93,10 +98,14 @@ public class PlayerDataStore {
             correctCountCache.putIfAbsent(playerId, new ConcurrentHashMap<>());
             incorrectCountCache.putIfAbsent(playerId, new ConcurrentHashMap<>());
         }
+
+        masteredWordsCache.remove(playerId);
     }
 
     /**
      * Save a player's data from cache to the database.
+     * Uses UPSERT (INSERT OR REPLACE for SQLite, INSERT...ON DUPLICATE KEY UPDATE for MySQL)
+     * in a single transaction to eliminate the DELETE+INSERT double-operation.
      */
     public void savePlayerData(UUID playerId) {
         Map<String, Double> masteryMap = wordMasteryCache.get(playerId);
@@ -105,67 +114,28 @@ public class PlayerDataStore {
         }
 
         String tablePrefix = databaseManager.getTablePrefix();
-
-        String deleteSql = "DELETE FROM " + tablePrefix
-                + "word_progress WHERE uuid = ? AND word = ?";
-        String insertSql = "INSERT INTO " + tablePrefix
-                + "word_progress (uuid, word, mastery, correct_count, incorrect_count, last_review_time, review_count) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?)";
+        String upsertSql = buildUpsertSql(tablePrefix);
 
         try (Connection conn = databaseManager.getConnection()) {
             conn.setAutoCommit(false);
 
-            try (PreparedStatement deleteStmt = conn.prepareStatement(deleteSql);
-                 PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+            try (PreparedStatement upsertStmt = conn.prepareStatement(upsertSql)) {
 
                 for (Map.Entry<String, Double> entry : masteryMap.entrySet()) {
                     String word = entry.getKey();
 
-                    deleteStmt.setString(1, playerId.toString());
-                    deleteStmt.setString(2, word);
-                    deleteStmt.addBatch();
+                    upsertStmt.setString(1, playerId.toString());
+                    upsertStmt.setString(2, word);
+                    upsertStmt.setDouble(3, entry.getValue());
+                    upsertStmt.setInt(4, getIntValue(correctCountCache.get(playerId), word));
+                    upsertStmt.setInt(5, getIntValue(incorrectCountCache.get(playerId), word));
+                    upsertStmt.setLong(6, getLongValue(lastReviewTimeCache.get(playerId), word));
+                    upsertStmt.setInt(7, getIntValue(reviewCountCache.get(playerId), word));
 
-                    insertStmt.setString(1, playerId.toString());
-                    insertStmt.setString(2, word);
-                    insertStmt.setDouble(3, entry.getValue());
-
-                    Map<String, Integer> correctMap = correctCountCache.get(playerId);
-                    int correctCount = 0;
-                    if (correctMap != null) {
-                        Integer val = correctMap.get(word);
-                        if (val != null) correctCount = val;
-                    }
-                    insertStmt.setInt(4, correctCount);
-
-                    Map<String, Integer> incorrectMap = incorrectCountCache.get(playerId);
-                    int incorrectCount = 0;
-                    if (incorrectMap != null) {
-                        Integer val = incorrectMap.get(word);
-                        if (val != null) incorrectCount = val;
-                    }
-                    insertStmt.setInt(5, incorrectCount);
-
-                    Map<String, Long> reviewTimes = lastReviewTimeCache.get(playerId);
-                    long reviewTime = 0L;
-                    if (reviewTimes != null) {
-                        Long val = reviewTimes.get(word);
-                        if (val != null) reviewTime = val;
-                    }
-                    insertStmt.setLong(6, reviewTime);
-
-                    Map<String, Integer> reviewCounts = reviewCountCache.get(playerId);
-                    int reviewCount = 0;
-                    if (reviewCounts != null) {
-                        Integer val = reviewCounts.get(word);
-                        if (val != null) reviewCount = val;
-                    }
-                    insertStmt.setInt(7, reviewCount);
-
-                    insertStmt.addBatch();
+                    upsertStmt.addBatch();
                 }
 
-                deleteStmt.executeBatch();
-                insertStmt.executeBatch();
+                upsertStmt.executeBatch();
                 conn.commit();
             } catch (SQLException e) {
                 conn.rollback();
@@ -178,10 +148,43 @@ public class PlayerDataStore {
         }
     }
 
+    private String buildUpsertSql(String tablePrefix) {
+        if (databaseManager.isSQLite()) {
+            return "INSERT OR REPLACE INTO " + tablePrefix
+                    + "word_progress (uuid, word, mastery, correct_count, incorrect_count, last_review_time, review_count) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?)";
+        } else {
+            return "INSERT INTO " + tablePrefix
+                    + "word_progress (uuid, word, mastery, correct_count, incorrect_count, last_review_time, review_count) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                    + "ON DUPLICATE KEY UPDATE mastery=VALUES(mastery), correct_count=VALUES(correct_count), "
+                    + "incorrect_count=VALUES(incorrect_count), last_review_time=VALUES(last_review_time), "
+                    + "review_count=VALUES(review_count)";
+        }
+    }
+
+    private int getIntValue(Map<String, Integer> map, String key) {
+        if (map == null) return 0;
+        Integer val = map.get(key);
+        return val != null ? val : 0;
+    }
+
+    private long getLongValue(Map<String, Long> map, String key) {
+        if (map == null) return 0L;
+        Long val = map.get(key);
+        return val != null ? val : 0L;
+    }
+
     /**
      * Get the set of words a player has mastered.
+     * Results are cached and invalidated automatically when mastery data changes.
      */
     public Set<String> getMasteredWords(UUID playerId) {
+        Set<String> cached = masteredWordsCache.get(playerId);
+        if (cached != null) {
+            return cached;
+        }
+
         Map<String, Double> masteryMap = wordMasteryCache.get(playerId);
         if (masteryMap == null) {
             loadPlayerData(playerId);
@@ -199,25 +202,29 @@ public class PlayerDataStore {
                 }
             }
         }
-        return mastered;
+
+        Set<String> unmodifiable = Collections.unmodifiableSet(mastered);
+        masteredWordsCache.put(playerId, unmodifiable);
+        return unmodifiable;
     }
 
     /**
      * Get a player's mastery level for a specific word.
+     * Uses computeIfAbsent to avoid redundant loadPlayerData calls across threads.
      */
     public double getWordMastery(UUID playerId, String word) {
-        Map<String, Double> masteryMap = wordMasteryCache.get(playerId);
-        if (masteryMap == null) {
-            loadPlayerData(playerId);
-            masteryMap = wordMasteryCache.get(playerId);
-        }
-        if (masteryMap == null) return 0.0;
+        Map<String, Double> masteryMap = wordMasteryCache.computeIfAbsent(playerId, k -> {
+            loadPlayerData(k);
+            return wordMasteryCache.getOrDefault(k, new ConcurrentHashMap<>());
+        });
+
         Double val = masteryMap.get(word.toLowerCase());
         return val != null ? val : 0.0;
     }
 
     /**
      * Update word progress after a learning session.
+     * Invalidates the mastered words cache for the player.
      */
     public void updateWordProgress(UUID playerId, Map<String, LearningSession.WordResult> results) {
         Map<String, Double> masteryMap = wordMasteryCache.computeIfAbsent(
@@ -252,6 +259,8 @@ public class PlayerDataStore {
 
             masteryMap.put(word, newMastery);
         }
+
+        masteredWordsCache.remove(playerId);
 
         updatePlayerStats(playerId, sessionCorrect, sessionIncorrect);
     }
@@ -322,6 +331,22 @@ public class PlayerDataStore {
         incorrectCountCache.remove(playerId);
         playerStatsCache.remove(playerId);
         activeSessionPlayers.remove(playerId);
+        masteredWordsCache.remove(playerId);
+    }
+
+    /**
+     * Clear all in-memory caches.
+     * Called during /lea reload to ensure fresh data from disk.
+     */
+    public void clearCache() {
+        wordMasteryCache.clear();
+        lastReviewTimeCache.clear();
+        reviewCountCache.clear();
+        correctCountCache.clear();
+        incorrectCountCache.clear();
+        playerStatsCache.clear();
+        activeSessionPlayers.clear();
+        masteredWordsCache.clear();
     }
 
     /**

@@ -3,6 +3,8 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
+config-version: 4
+
 prefix: "&8[&b英语学习&8] &f"
 
 general:
@@ -88,7 +90,7 @@ plugin-info:
   footer: "&6======================================"
 
 gui:
-  main-menu-title: "&6&lLet's Learn English!"
+  main-menu-title: "&6&l一起学英语！"
 
 main-menu:
   word-learning: "&a单词学习"
@@ -100,17 +102,30 @@ main-menu:
 
 word-learning-gui:
   title: "单词学习 - {difficulty}"
-  session-info: "单词学习会话"
-  session-info-lore-difficulty: "难度: {difficulty}"
-  session-info-lore-mode: "模式: {mode}"
-  answer-hint: "在聊天中回答！"
-  answer-hint-lore-1: "在聊天窗口中输入你的答案"
-  answer-hint-lore-2: "按照提示来练习单词"
-  close: "关闭界面"
-  close-lore-1: "关闭此窗口，留意"
-  close-lore-2: "聊天中的单词提示"
-  started: "&a学习会话已开始！&7难度: &e{difficulty} &7模式: &e{mode}"
-  started-hint: "&7在聊天中输入你的答案。"
+  answer-hint: "开始答题"
+  answer-hint-lore-1: "关闭界面并开始答题"
+  answer-hint-lore-2: ""
+  started-hint: "&7请在聊天中输入对应的英文单词。"
+  current-word: "&e当前单词: &f{chinese}"
+  current-word-lore-1: "关闭此界面后，在聊天栏输入英文"
+  current-word-lore-2: ""
+  progress: "进度: {current}/{total}"
+  score-lore: "&7分数: &e{score}"
+  session-complete: "&6★ &a学习会话完成！ &7正确: &e{correct}&7/&e{total} &7正确率: &e{accuracy}% &7分数: &e{score}"
+  session-stopped: "&a会话已停止！ &7正确: &e{correct}&7/&e{total} &7分数: &e{score}"
+  answer-broadcast: "&7{player} &7回答了: &f{answer}"
+  session-ended: "&a学习会话已结束！"
+  answer-prompt: "&e请拼写: &f{chinese} &7(剩余时间: {seconds}秒)"
+  timeout: "&c⏱ 时间到！正确答案: &e{answer}"
+  countdown-urgent: "&c⏳ {seconds}秒剩余！"
+  countdown-normal: "&e⏳ {seconds}秒剩余..."
+  correct: "&a✔ 正确！&7(+&e{score}&7){combo}"
+  incorrect: "&c✘ 错误！正确答案: &e{answer}"
+  combo-message: "&6✨ {count}连击！({multiplier}x)"
+  combo-none: "暂无连胜"
+  combo-active: "连胜: {count}次 ({multiplier}x)"
+  stop-button: "停止当前回合"
+  stop-lore: "结束当前学习回合并结算分数"
 
 dialogue-gui:
   title: "情景对话 - {scene}"

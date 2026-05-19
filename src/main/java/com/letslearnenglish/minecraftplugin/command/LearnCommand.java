@@ -93,8 +93,10 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         String mode = args.length > 2 ? args[2] : "choice";
 
         try {
-            plugin.getWordManager().startSession(player, difficulty, mode);
-            new WordLearningGUI(plugin).open(player, difficulty, mode);
+            plugin.getWordLearningManager().startQuiz(player, difficulty, mode);
+            new WordLearningGUI(plugin).openWithMessage(player, difficulty, mode);
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "word.session-start", "difficulty", difficulty, "mode", mode));
         } catch (IllegalArgumentException e) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "general.error", "message", e.getMessage()));

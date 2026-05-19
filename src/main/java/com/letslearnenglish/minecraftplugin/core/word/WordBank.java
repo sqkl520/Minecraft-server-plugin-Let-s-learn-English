@@ -10,18 +10,16 @@ import java.util.stream.Collectors;
 
 import org.bukkit.configuration.file.FileConfiguration;
 
-/**
- * Word Bank - manages a collection of words for a specific difficulty level.
- *
- * Loads words from YAML configuration and provides methods for
- * selecting words for learning sessions.
- */
 public class WordBank {
 
     private final String difficulty;
     private final String description;
     private final List<Word> words;
     private final Random random;
+
+    private volatile Set<String> cachedMasteredKey;
+    private volatile List<Word> cachedUnmastered;
+    private volatile List<Word> cachedMastered;
 
     public WordBank(String difficulty, FileConfiguration config) {
         this.difficulty = difficulty;
@@ -75,17 +73,28 @@ public class WordBank {
         }
     }
 
-    /**
-     * Select words for a learning session, prioritizing unmastered words.
-     *
-     * @param count         number of words to select
-     * @param masteredWords set of words the player has already mastered
-     * @return list of selected words
-     */
     public List<Word> selectWordsForSession(int count, Set<String> masteredWords) {
-        List<Word> unmastered = words.stream()
-                .filter(w -> !masteredWords.contains(w.getEnglish().toLowerCase()))
-                .collect(Collectors.toList());
+        List<Word> unmastered;
+        List<Word> mastered;
+
+        if (cachedMasteredKey != null && cachedMasteredKey.equals(masteredWords)
+                && cachedUnmastered != null && cachedMastered != null) {
+            unmastered = cachedUnmastered;
+            mastered = cachedMastered;
+        } else {
+            unmastered = new ArrayList<>();
+            mastered = new ArrayList<>();
+            for (Word w : words) {
+                if (masteredWords.contains(w.getEnglish().toLowerCase())) {
+                    mastered.add(w);
+                } else {
+                    unmastered.add(w);
+                }
+            }
+            cachedUnmastered = unmastered;
+            cachedMastered = mastered;
+            cachedMasteredKey = masteredWords;
+        }
 
         List<Word> selected = new ArrayList<>();
 
@@ -95,9 +104,6 @@ public class WordBank {
         } else {
             selected.addAll(unmastered);
 
-            List<Word> mastered = words.stream()
-                    .filter(w -> masteredWords.contains(w.getEnglish().toLowerCase()))
-                    .collect(Collectors.toList());
             Collections.shuffle(mastered, random);
 
             int remaining = count - selected.size();
@@ -109,9 +115,6 @@ public class WordBank {
         return selected;
     }
 
-    /**
-     * Get a word by its English text.
-     */
     public Word getWord(String english) {
         return words.stream()
                 .filter(w -> w.getEnglish().equalsIgnoreCase(english))
@@ -119,15 +122,31 @@ public class WordBank {
                 .orElse(null);
     }
 
-    /**
-     * Get random words for generating multiple-choice options.
-     */
     public List<Word> getRandomWords(int count, Word exclude) {
         List<Word> pool = words.stream()
                 .filter(w -> !w.equals(exclude))
                 .collect(Collectors.toList());
         Collections.shuffle(pool, random);
         return pool.subList(0, Math.min(count, pool.size()));
+    }
+
+    public void addWord(Word word) {
+        words.add(word);
+        invalidateCache();
+    }
+
+    public boolean removeWord(String english) {
+        boolean removed = words.removeIf(w -> w.getEnglish().equalsIgnoreCase(english));
+        if (removed) {
+            invalidateCache();
+        }
+        return removed;
+    }
+
+    private void invalidateCache() {
+        cachedMasteredKey = null;
+        cachedUnmastered = null;
+        cachedMastered = null;
     }
 
     public String getDifficulty() {

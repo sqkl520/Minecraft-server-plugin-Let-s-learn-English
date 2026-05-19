@@ -170,7 +170,7 @@ public class DatabaseManager {
         }
     }
 
-    private boolean isSQLite() {
+public boolean isSQLite() {
         return isSQLite;
     }
 

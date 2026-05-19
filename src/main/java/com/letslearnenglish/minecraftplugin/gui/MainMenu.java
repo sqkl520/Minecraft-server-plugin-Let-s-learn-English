@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -27,15 +28,14 @@ public class MainMenu {
     }
 
     public void open(Player player) {
-        String title = plugin.getConfigManager().getMainConfig()
-                .getString("gui.main-menu-title", "&6&lLet's Learn English!");
-        title = ChatColor.translateAlternateColorCodes('&', title);
+        String lang = plugin.getPlayerLanguage(player);
+        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
+
+        String title = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("gui.main-menu-title", "&6&lLet's Learn English!"));
         int size = plugin.getConfigManager().getMainConfig().getInt("gui.menu-size", 27);
 
         Inventory menu = Bukkit.createInventory(null, size, title);
-
-        String lang = plugin.getPlayerLanguage(player);
-        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
         String wordName = ChatColor.translateAlternateColorCodes('&',
                 messages.getString("main-menu.word-learning", "&aWord Learning"));
@@ -60,6 +60,7 @@ public class MainMenu {
                 messages.getString("language.button-lore", "&7Click to switch"));
         menu.setItem(18, createMenuItem(Material.RED_BED, btnName, btnLore));
 
+        SoundManager.playSound(player, "menu-open");
         player.openInventory(menu);
     }
 

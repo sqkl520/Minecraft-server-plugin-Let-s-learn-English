@@ -26,6 +26,7 @@ public class LearningSession {
     private int currentIndex;
     private int totalCorrect;
     private int totalIncorrect;
+    private int totalScore;
     private final long startTime;
     private boolean completed;
 
@@ -38,6 +39,7 @@ public class LearningSession {
         this.currentIndex = 0;
         this.totalCorrect = 0;
         this.totalIncorrect = 0;
+        this.totalScore = 0;
         this.startTime = System.currentTimeMillis();
         this.completed = false;
 
@@ -111,7 +113,11 @@ public class LearningSession {
      * Get the score for this session.
      */
     public int getScore() {
-        return totalCorrect * 10 - totalIncorrect * 2;
+        return totalScore;
+    }
+
+    public void addScore(int points) {
+        this.totalScore += points;
     }
 
     /**

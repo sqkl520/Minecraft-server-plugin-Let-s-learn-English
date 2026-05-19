@@ -86,9 +86,7 @@ public class ConfirmationGUI {
         confirmStages.remove(player.getUniqueId());
         plugin.setPlayerLanguage(player, targetLang);
 
-        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(targetLang);
-        String switcMsg = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("language.switched", "&aLanguage switched!"));
+        String switcMsg = plugin.getMessageUtil().getPlayerMessage(player, "language.switched");
         player.sendMessage(switcMsg);
     }
 
