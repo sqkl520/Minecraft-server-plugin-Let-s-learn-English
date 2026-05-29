@@ -47,6 +47,14 @@ public class DialogueGUI {
                 messages.getString("dialogue-gui.close-lore-1"),
                 messages.getString("dialogue-gui.close-lore-2")));
 
+        // 回到主菜单按钮 — slot 8 (右上角)
+        String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
+                messages.getString("gui.back-button", "Back to Menu"));
+        String backLore = ChatColor.translateAlternateColorCodes('&', "&7" +
+                messages.getString("gui.back-lore",
+                        "Return to the main menu"));
+        inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE, backLabel, backLore));
+
         player.openInventory(inv);
 
         player.sendMessage(ChatColor.translateAlternateColorCodes('&',

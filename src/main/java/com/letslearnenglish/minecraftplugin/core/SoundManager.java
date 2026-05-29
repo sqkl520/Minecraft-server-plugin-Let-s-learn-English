@@ -69,6 +69,7 @@ public class SoundManager implements Listener {
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         if (!enabled) return;
+        if (event.getCurrentItem() == null) return;
         if (!(event.getWhoClicked() instanceof Player)) return;
         if (!GUIMenuListener.isPluginGUI(event.getView().getTitle())) return;
         playSound((Player) event.getWhoClicked(), "menu-click");

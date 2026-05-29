@@ -5,6 +5,8 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 
+import java.util.regex.Pattern;
+
 /**
  * NPC Interaction Listener
  *
@@ -12,6 +14,8 @@ import org.bukkit.event.player.PlayerInteractEntityEvent;
  * Supports both Citizens plugin NPCs and custom entity-based NPCs.
  */
 public class NPCInteractionListener implements Listener {
+
+    private static final Pattern COLOR_CODE = Pattern.compile("&[0-9a-fk-or]");
 
     private final LetsLearnEnglish plugin;
 
@@ -32,14 +36,12 @@ public class NPCInteractionListener implements Listener {
             return;
         }
 
-        String strippedPrefix = npcPrefix.replaceAll("&[0-9a-fk-or]", "").trim();
-        String strippedNpcName = npcName.replaceAll("&[0-9a-fk-or]", "");
+        String strippedPrefix = COLOR_CODE.matcher(npcPrefix).replaceAll("").trim();
+        String strippedNpcName = COLOR_CODE.matcher(npcName).replaceAll("");
         if (!strippedNpcName.contains(strippedPrefix)) {
             return;
         }
 
         event.setCancelled(true);
-        plugin.getLogger().info("Player " + event.getPlayer().getName()
-                + " interacted with English NPC: " + npcName);
     }
 }

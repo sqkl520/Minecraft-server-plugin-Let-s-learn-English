@@ -1,0 +1,59 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ---------------< com.letslearnenglish:LetsLearnEnglish >----------------
+[INFO] Building Let's Learn English! 1.0.6-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ LetsLearnEnglish ---
+[INFO] Deleting d:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\target
+[INFO] 
+[INFO] --- jacoco:0.8.11:prepare-agent (default) @ LetsLearnEnglish ---
+[INFO] argLine set to "-javaagent:C:\\Users\\Administrator\\.m2\\repository\\org\\jacoco\\org.jacoco.agent\\0.8.11\\org.jacoco.agent-0.8.11-runtime.jar=destfile=d:\\Server\\MCServers\\Server plugin\\Let's learn English!\\Minecraft-server-plugin-Let-s-learn-English--1\\target\\jacoco.exec"
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ LetsLearnEnglish ---
+[INFO] Copying 11 resources from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ LetsLearnEnglish ---
+[INFO] Changes detected - recompiling the module! :source
+[INFO] Compiling 39 source files with javac [debug target 17] to target\classes
+[INFO] 由于在类路径中发现了一个或多个处理程序，因此启用了
+  批注处理。未来发行版的 javac 可能会禁用批注处理，
+  除非至少按名称指定了一个处理程序 (-processor)，
+  或指定了搜索路径 (--processor-path, --processor-module-path)，
+  或显式启用了批注处理 (-proc:only, -proc:full)。
+  可使用 -Xlint:-options 隐藏此消息。
+  可使用 -proc:none 禁用批注处理。
+[INFO] /d:/Server/MCServers/Server plugin/Let's learn English!/Minecraft-server-plugin-Let-s-learn-English--1/src/main/java/com/letslearnenglish/minecraftplugin/LetsLearnEnglish.java: 某些输入文件使用或覆盖了已过时的 API。
+[INFO] /d:/Server/MCServers/Server plugin/Let's learn English!/Minecraft-server-plugin-Let-s-learn-English--1/src/main/java/com/letslearnenglish/minecraftplugin/LetsLearnEnglish.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+[INFO] -------------------------------------------------------------
+[WARNING] COMPILATION WARNING : 
+[INFO] -------------------------------------------------------------
+[WARNING] 未与 -source 17 一起设置系统模块路径
+[INFO] 1 warning
+[INFO] -------------------------------------------------------------
+[INFO] -------------------------------------------------------------
+[ERROR] COMPILATION ERROR : 
+[INFO] -------------------------------------------------------------
+[ERROR] /d:/Server/MCServers/Server plugin/Let's learn English!/Minecraft-server-plugin-Let-s-learn-English--1/src/main/java/com/letslearnenglish/minecraftplugin/listener/GUIMenuListener.java:[62,9] 找不到符号
+  符号:   类 UUID
+  位置: 类 com.letslearnenglish.minecraftplugin.listener.GUIMenuListener
+[INFO] 1 error
+[INFO] -------------------------------------------------------------
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  13.946 s
+[INFO] Finished at: 2026-05-28T23:46:22+08:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.11.0:compile (default-compile) on project LetsLearnEnglish: Compilation failure
+[ERROR] /d:/Server/MCServers/Server plugin/Let's learn English!/Minecraft-server-plugin-Let-s-learn-English--1/src/main/java/com/letslearnenglish/minecraftplugin/listener/GUIMenuListener.java:[62,9] 找不到符号
+[ERROR]   符号:   类 UUID
+[ERROR]   位置: 类 com.letslearnenglish.minecraftplugin.listener.GUIMenuListener
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException

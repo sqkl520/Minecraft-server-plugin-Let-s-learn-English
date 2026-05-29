@@ -5,6 +5,7 @@ com\letslearnenglish\minecraftplugin\util\VersionAdapter.class
 com\letslearnenglish\minecraftplugin\core\dialogue\GrammarChecker.class
 com\letslearnenglish\minecraftplugin\core\dialogue\NPC.class
 com\letslearnenglish\minecraftplugin\core\progress\RewardEngine.class
+com\letslearnenglish\minecraftplugin\gui\EnglishSquareGUI.class
 com\letslearnenglish\minecraftplugin\listener\NPCInteractionListener.class
 com\letslearnenglish\minecraftplugin\listener\ChatAnswerListener.class
 com\letslearnenglish\minecraftplugin\api\LetsLearnEnglishAPI.class
@@ -20,13 +21,17 @@ com\letslearnenglish\minecraftplugin\gui\ProgressGUI.class
 com\letslearnenglish\minecraftplugin\core\SoundManager.class
 com\letslearnenglish\minecraftplugin\command\AdminCommand.class
 com\letslearnenglish\minecraftplugin\core\manager\DataExporter.class
+com\letslearnenglish\minecraftplugin\core\achievement\Achievement.class
 com\letslearnenglish\minecraftplugin\LetsLearnEnglish.class
 com\letslearnenglish\minecraftplugin\gui\ConfirmationGUI.class
 com\letslearnenglish\minecraftplugin\gui\DialogueGUI.class
+com\letslearnenglish\minecraftplugin\core\achievement\AchievementManager.class
 com\letslearnenglish\minecraftplugin\core\dialogue\DialogueScene.class
+com\letslearnenglish\minecraftplugin\gui\ProfileGUI.class
 com\letslearnenglish\minecraftplugin\core\word\WordLearningManager$QuizState.class
 com\letslearnenglish\minecraftplugin\listener\GUIMenuListener.class
 com\letslearnenglish\minecraftplugin\core\manager\AdminCommandHandler.class
+com\letslearnenglish\minecraftplugin\data\PlayerDataStore$ProfileSettings.class
 com\letslearnenglish\minecraftplugin\core\dialogue\DialogueNode.class
 com\letslearnenglish\minecraftplugin\command\LearnCommand.class
 com\letslearnenglish\minecraftplugin\core\word\WordLearningManager.class

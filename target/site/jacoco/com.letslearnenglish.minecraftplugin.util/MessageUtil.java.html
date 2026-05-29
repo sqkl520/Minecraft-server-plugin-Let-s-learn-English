@@ -14,116 +14,138 @@ import java.util.Map;
  *
  * Handles multi-language message retrieval with placeholder replacement.
  * Supports color codes using the '&amp;' symbol.
+ * The prefix is read from config.yml (prefix.zh / prefix.en),
+ * falling back to the language file's prefix key.
  */
 public class MessageUtil {
+
+    private static final String DEFAULT_PREFIX = &quot;&amp;8[&amp;bEnglish&amp;8] &amp;f&quot;;
 
     private final LetsLearnEnglish plugin;
     private final ConfigManager configManager;
 
-<span class="nc" id="L23">    public MessageUtil(LetsLearnEnglish plugin, ConfigManager configManager) {</span>
-<span class="nc" id="L24">        this.plugin = plugin;</span>
-<span class="nc" id="L25">        this.configManager = configManager;</span>
-<span class="nc" id="L26">    }</span>
+<span class="nc" id="L27">    public MessageUtil(LetsLearnEnglish plugin, ConfigManager configManager) {</span>
+<span class="nc" id="L28">        this.plugin = plugin;</span>
+<span class="nc" id="L29">        this.configManager = configManager;</span>
+<span class="nc" id="L30">    }</span>
+
+    private String resolvePrefix(FileConfiguration messageConfig, String lang) {
+<span class="nc" id="L33">        FileConfiguration mainConfig = configManager.getMainConfig();</span>
+<span class="nc bnc" id="L34" title="All 2 branches missed.">        if (mainConfig != null) {</span>
+<span class="nc" id="L35">            String prefix = mainConfig.getString(&quot;prefix.&quot; + lang);</span>
+<span class="nc bnc" id="L36" title="All 4 branches missed.">            if (prefix != null &amp;&amp; !prefix.isEmpty()) {</span>
+<span class="nc" id="L37">                return prefix;</span>
+            }
+        }
+<span class="nc" id="L40">        return messageConfig.getString(&quot;prefix&quot;, DEFAULT_PREFIX);</span>
+    }
 
     /**
      * Get a message by key path with placeholder replacements.
+     * Uses the server's default language for prefix resolution.
      *
      * @param key          the message key (e.g., &quot;word.correct&quot;)
      * @param placeholders key-value pairs for placeholder replacement
      * @return the formatted message string
      */
     public String getMessage(String key, String... placeholders) {
-<span class="nc" id="L36">        FileConfiguration messageConfig = configManager.getMessageConfig();</span>
-<span class="nc" id="L37">        String prefix = messageConfig.getString(&quot;prefix&quot;, &quot;&amp;8[&amp;bEnglish&amp;8] &amp;f&quot;);</span>
+<span class="nc" id="L52">        FileConfiguration messageConfig = configManager.getMessageConfig();</span>
+<span class="nc bnc" id="L53" title="All 2 branches missed.">        String defaultLang = configManager.getMainConfig() != null</span>
+<span class="nc" id="L54">                ? configManager.getMainConfig().getString(&quot;general.language&quot;, &quot;en&quot;) : &quot;en&quot;;</span>
+<span class="nc" id="L55">        String prefix = resolvePrefix(messageConfig, defaultLang);</span>
 
-<span class="nc" id="L39">        String message = messageConfig.getString(key);</span>
-<span class="nc bnc" id="L40" title="All 2 branches missed.">        if (message == null) {</span>
-<span class="nc" id="L41">            plugin.getLogger().warning(&quot;Missing message key: &quot; + key);</span>
-<span class="nc" id="L42">            return ChatColor.RED + &quot;Missing message: &quot; + key;</span>
+<span class="nc" id="L57">        String message = messageConfig.getString(key);</span>
+<span class="nc bnc" id="L58" title="All 2 branches missed.">        if (message == null) {</span>
+<span class="nc" id="L59">            plugin.getLogger().warning(&quot;Missing message key: &quot; + key);</span>
+<span class="nc" id="L60">            return ChatColor.RED + &quot;Missing message: &quot; + key;</span>
         }
 
-<span class="nc" id="L45">        message = message.replace(&quot;{prefix}&quot;, prefix);</span>
+<span class="nc" id="L63">        message = message.replace(&quot;{prefix}&quot;, prefix);</span>
 
-<span class="nc bnc" id="L47" title="All 2 branches missed.">        if (placeholders != null) {</span>
-<span class="nc bnc" id="L48" title="All 2 branches missed.">            if (placeholders.length % 2 != 0) {</span>
-<span class="nc" id="L49">                plugin.getLogger().warning(&quot;Odd number of placeholder arguments for key: &quot; + key</span>
+<span class="nc bnc" id="L65" title="All 2 branches missed.">        if (placeholders != null) {</span>
+<span class="nc bnc" id="L66" title="All 2 branches missed.">            if (placeholders.length % 2 != 0) {</span>
+<span class="nc" id="L67">                plugin.getLogger().warning(&quot;Odd number of placeholder arguments for key: &quot; + key</span>
                         + &quot; (length=&quot; + placeholders.length + &quot;)&quot;);
             }
-<span class="nc bnc" id="L52" title="All 2 branches missed.">            for (int i = 0; i &lt; placeholders.length - 1; i += 2) {</span>
-<span class="nc" id="L53">                message = message.replace(&quot;{&quot; + placeholders[i] + &quot;}&quot;, placeholders[i + 1]);</span>
+<span class="nc bnc" id="L70" title="All 2 branches missed.">            for (int i = 0; i &lt; placeholders.length - 1; i += 2) {</span>
+<span class="nc" id="L71">                message = message.replace(&quot;{&quot; + placeholders[i] + &quot;}&quot;, placeholders[i + 1]);</span>
             }
         }
 
-<span class="nc" id="L57">        return ChatColor.translateAlternateColorCodes('&amp;', message);</span>
+<span class="nc" id="L75">        return ChatColor.translateAlternateColorCodes('&amp;', message);</span>
     }
 
     /**
      * Get a message by key path with a map of placeholders.
      */
     public String getMessage(String key, Map&lt;String, String&gt; placeholders) {
-<span class="nc" id="L64">        FileConfiguration messageConfig = configManager.getMessageConfig();</span>
-<span class="nc" id="L65">        String prefix = messageConfig.getString(&quot;prefix&quot;, &quot;&amp;8[&amp;bEnglish&amp;8] &amp;f&quot;);</span>
+<span class="nc" id="L82">        FileConfiguration messageConfig = configManager.getMessageConfig();</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">        String defaultLang = configManager.getMainConfig() != null</span>
+<span class="nc" id="L84">                ? configManager.getMainConfig().getString(&quot;general.language&quot;, &quot;en&quot;) : &quot;en&quot;;</span>
+<span class="nc" id="L85">        String prefix = resolvePrefix(messageConfig, defaultLang);</span>
 
-<span class="nc" id="L67">        String message = messageConfig.getString(key);</span>
-<span class="nc bnc" id="L68" title="All 2 branches missed.">        if (message == null) {</span>
-<span class="nc" id="L69">            plugin.getLogger().warning(&quot;Missing message key: &quot; + key);</span>
-<span class="nc" id="L70">            return ChatColor.RED + &quot;Missing message: &quot; + key;</span>
+<span class="nc" id="L87">        String message = messageConfig.getString(key);</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">        if (message == null) {</span>
+<span class="nc" id="L89">            plugin.getLogger().warning(&quot;Missing message key: &quot; + key);</span>
+<span class="nc" id="L90">            return ChatColor.RED + &quot;Missing message: &quot; + key;</span>
         }
 
-<span class="nc" id="L73">        message = message.replace(&quot;{prefix}&quot;, prefix);</span>
+<span class="nc" id="L93">        message = message.replace(&quot;{prefix}&quot;, prefix);</span>
 
-<span class="nc bnc" id="L75" title="All 2 branches missed.">        if (placeholders != null) {</span>
-<span class="nc bnc" id="L76" title="All 2 branches missed.">            for (Map.Entry&lt;String, String&gt; entry : placeholders.entrySet()) {</span>
-<span class="nc" id="L77">                message = message.replace(&quot;{&quot; + entry.getKey() + &quot;}&quot;, entry.getValue());</span>
-<span class="nc" id="L78">            }</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">        if (placeholders != null) {</span>
+<span class="nc bnc" id="L96" title="All 2 branches missed.">            for (Map.Entry&lt;String, String&gt; entry : placeholders.entrySet()) {</span>
+<span class="nc" id="L97">                message = message.replace(&quot;{&quot; + entry.getKey() + &quot;}&quot;, entry.getValue());</span>
+<span class="nc" id="L98">            }</span>
         }
 
-<span class="nc" id="L81">        return ChatColor.translateAlternateColorCodes('&amp;', message);</span>
+<span class="nc" id="L101">        return ChatColor.translateAlternateColorCodes('&amp;', message);</span>
     }
 
     /**
      * Get a raw message without prefix or color processing.
      */
     public String getRawMessage(String key) {
-<span class="nc" id="L88">        FileConfiguration messageConfig = configManager.getMessageConfig();</span>
-<span class="nc" id="L89">        return messageConfig.getString(key, key);</span>
+<span class="nc" id="L108">        FileConfiguration messageConfig = configManager.getMessageConfig();</span>
+<span class="nc" id="L109">        return messageConfig.getString(key, key);</span>
     }
 
     public String getPlayerMessage(Player player, String key, String... placeholders) {
-<span class="nc" id="L93">        FileConfiguration messageConfig = configManager.getMessageConfig(</span>
-<span class="nc" id="L94">                plugin.getPlayerLanguage(player));</span>
-<span class="nc" id="L95">        return formatMessage(messageConfig, key, placeholders);</span>
+<span class="nc" id="L113">        String lang = plugin.getPlayerLanguage(player);</span>
+<span class="nc" id="L114">        FileConfiguration messageConfig = configManager.getMessageConfig(lang);</span>
+<span class="nc" id="L115">        return formatMessage(messageConfig, lang, key, placeholders);</span>
     }
 
     public String getSenderMessage(CommandSender sender, String key, String... placeholders) {
-<span class="nc bnc" id="L99" title="All 2 branches missed.">        FileConfiguration messageConfig = (sender instanceof Player player)</span>
-<span class="nc" id="L100">                ? configManager.getMessageConfig(plugin.getPlayerLanguage(player))</span>
-<span class="nc" id="L101">                : configManager.getMessageConfig();</span>
-<span class="nc" id="L102">        return formatMessage(messageConfig, key, placeholders);</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">        String lang = (sender instanceof Player player)</span>
+<span class="nc" id="L120">                ? plugin.getPlayerLanguage(player)</span>
+<span class="nc" id="L121">                : &quot;en&quot;;</span>
+<span class="nc" id="L122">        FileConfiguration messageConfig = configManager.getMessageConfig(lang);</span>
+<span class="nc" id="L123">        return formatMessage(messageConfig, lang, key, placeholders);</span>
     }
 
-    private String formatMessage(FileConfiguration messageConfig, String key, String... placeholders) {
-<span class="nc" id="L106">        String prefix = messageConfig.getString(&quot;prefix&quot;, &quot;&amp;8[&amp;bEnglish&amp;8] &amp;f&quot;);</span>
+    private String formatMessage(FileConfiguration messageConfig, String lang,
+                                  String key, String... placeholders) {
+<span class="nc" id="L128">        String prefix = resolvePrefix(messageConfig, lang);</span>
 
-<span class="nc" id="L108">        String message = messageConfig.getString(key);</span>
-<span class="nc bnc" id="L109" title="All 2 branches missed.">        if (message == null) {</span>
-<span class="nc" id="L110">            plugin.getLogger().warning(&quot;Missing message key: &quot; + key);</span>
-<span class="nc" id="L111">            return ChatColor.RED + &quot;Missing message: &quot; + key;</span>
+<span class="nc" id="L130">        String message = messageConfig.getString(key);</span>
+<span class="nc bnc" id="L131" title="All 2 branches missed.">        if (message == null) {</span>
+<span class="nc" id="L132">            plugin.getLogger().warning(&quot;Missing message key: &quot; + key);</span>
+<span class="nc" id="L133">            return ChatColor.RED + &quot;Missing message: &quot; + key;</span>
         }
 
-<span class="nc" id="L114">        message = message.replace(&quot;{prefix}&quot;, prefix);</span>
+<span class="nc" id="L136">        message = message.replace(&quot;{prefix}&quot;, prefix);</span>
 
-<span class="nc bnc" id="L116" title="All 2 branches missed.">        if (placeholders != null) {</span>
-<span class="nc bnc" id="L117" title="All 2 branches missed.">            if (placeholders.length % 2 != 0) {</span>
-<span class="nc" id="L118">                plugin.getLogger().warning(&quot;Odd number of placeholder arguments for key: &quot; + key</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        if (placeholders != null) {</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">            if (placeholders.length % 2 != 0) {</span>
+<span class="nc" id="L140">                plugin.getLogger().warning(&quot;Odd number of placeholder arguments for key: &quot; + key</span>
                         + &quot; (length=&quot; + placeholders.length + &quot;)&quot;);
             }
-<span class="nc bnc" id="L121" title="All 2 branches missed.">            for (int i = 0; i &lt; placeholders.length - 1; i += 2) {</span>
-<span class="nc" id="L122">                message = message.replace(&quot;{&quot; + placeholders[i] + &quot;}&quot;, placeholders[i + 1]);</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">            for (int i = 0; i &lt; placeholders.length - 1; i += 2) {</span>
+<span class="nc" id="L144">                message = message.replace(&quot;{&quot; + placeholders[i] + &quot;}&quot;, placeholders[i + 1]);</span>
             }
         }
 
-<span class="nc" id="L126">        return ChatColor.translateAlternateColorCodes('&amp;', message);</span>
+<span class="nc" id="L148">        return ChatColor.translateAlternateColorCodes('&amp;', message);</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

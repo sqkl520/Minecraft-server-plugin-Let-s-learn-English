@@ -6,6 +6,7 @@ import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 
+import java.io.File;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -29,6 +30,7 @@ public class WordManagerImpl {
 
     private final Map<String, WordBank> wordBanks;
     private final Map<UUID, LearningSession> activeSessions;
+    private final Map<String, Word> globalWordIndex;
 
     public WordManagerImpl(LetsLearnEnglish plugin, ConfigManager configManager,
                            PlayerDataStore playerDataStore) {
@@ -38,19 +40,36 @@ public class WordManagerImpl {
         this.reviewScheduler = new ReviewScheduler(plugin, this, playerDataStore);
         this.wordBanks = new ConcurrentHashMap<>();
         this.activeSessions = new ConcurrentHashMap<>();
+        this.globalWordIndex = new HashMap<>();
 
         loadAllWordBanks();
     }
 
     public void loadAllWordBanks() {
         wordBanks.clear();
-        String[] difficulties = {"beginner", "intermediate", "advanced"};
+        globalWordIndex.clear();
 
-        for (String difficulty : difficulties) {
-            FileConfiguration config = configManager.loadWordBank(difficulty);
-            WordBank bank = new WordBank(difficulty, config);
-            wordBanks.put(difficulty, bank);
-            plugin.getLogger().info("Loaded word bank: " + difficulty
+        File wordsDir = new File(plugin.getDataFolder(), "words");
+        if (!wordsDir.exists() || !wordsDir.isDirectory()) {
+            plugin.getLogger().warning("Words directory not found: " + wordsDir.getAbsolutePath());
+            return;
+        }
+
+        File[] yamlFiles = wordsDir.listFiles((dir, name) -> name.endsWith(".yml"));
+        if (yamlFiles == null || yamlFiles.length == 0) {
+            plugin.getLogger().warning("No .yml word bank files found in words directory.");
+            return;
+        }
+
+        for (File file : yamlFiles) {
+            String name = file.getName().replace(".yml", "");
+            FileConfiguration config = configManager.loadWordBank(name);
+            WordBank bank = new WordBank(name, config);
+            wordBanks.put(name, bank);
+            for (Word w : bank.getAllWords()) {
+                globalWordIndex.put(w.getEnglish().toLowerCase(), w);
+            }
+            plugin.getLogger().info("Loaded word bank: " + name
                     + " (" + bank.getWordCount() + " words)");
         }
     }
@@ -96,6 +115,12 @@ public class WordManagerImpl {
         LearningSession session = activeSessions.remove(playerId);
         if (session != null) {
             playerDataStore.updateWordProgress(playerId, session.getResults());
+
+            if ("review".equals(session.getMode())) {
+                for (LearningSession.WordResult result : session.getResults().values()) {
+                    reviewScheduler.recordReview(playerId, result.getWord().getEnglish());
+                }
+            }
         }
     }
 
@@ -129,6 +154,41 @@ public class WordManagerImpl {
 
     public ReviewScheduler getReviewScheduler() {
         return reviewScheduler;
+    }
+
+    /**
+     * Start a review session using words that are due for review.
+     *
+     * @param player the player
+     * @return the review session, or null if no words are due
+     */
+    public LearningSession startReviewSession(Player player) {
+        List<String> dueWords = reviewScheduler.getDueReviewWords(player.getUniqueId());
+        if (dueWords.isEmpty()) {
+            return null;
+        }
+
+        List<Word> reviewWords = new ArrayList<>(Math.min(dueWords.size(),
+                configManager.getMainConfig().getInt("word-system.words-per-session", 10)));
+        for (String english : dueWords) {
+            Word word = globalWordIndex.get(english.toLowerCase());
+            if (word != null) {
+                reviewWords.add(word);
+            }
+        }
+
+        if (reviewWords.isEmpty()) {
+            return null;
+        }
+
+        int limit = configManager.getMainConfig().getInt("word-system.words-per-session", 10);
+        if (reviewWords.size() > limit) {
+            reviewWords = reviewWords.subList(0, limit);
+        }
+
+        LearningSession session = new LearningSession(player.getUniqueId(), "review", "review", reviewWords);
+        activeSessions.put(player.getUniqueId(), session);
+        return session;
     }
 
     public PlayerDataStore getPlayerDataStore() {

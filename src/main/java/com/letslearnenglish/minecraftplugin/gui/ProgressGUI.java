@@ -58,6 +58,14 @@ public class ProgressGUI {
                 progress.getLongestStreak()
                         + messages.getString("progress-gui.days-suffix", " days")));
 
+        // 回到主菜单按钮 — slot 8 (右上角)
+        String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
+                messages.getString("gui.back-button", "Back to Menu"));
+        String backLore = ChatColor.translateAlternateColorCodes('&', "&7" +
+                messages.getString("gui.back-lore",
+                        "Return to the main menu"));
+        inv.setItem(8, createInfoItem(Material.RED_STAINED_GLASS_PANE, backLabel, backLore));
+
         player.openInventory(inv);
     }
 

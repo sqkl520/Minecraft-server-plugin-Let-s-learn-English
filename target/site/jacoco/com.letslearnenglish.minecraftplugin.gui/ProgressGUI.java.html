@@ -58,31 +58,39 @@ public class ProgressGUI {
 <span class="nc" id="L58">                progress.getLongestStreak()</span>
 <span class="nc" id="L59">                        + messages.getString(&quot;progress-gui.days-suffix&quot;, &quot; days&quot;)));</span>
 
-<span class="nc" id="L61">        player.openInventory(inv);</span>
-<span class="nc" id="L62">    }</span>
+        // 回到主菜单按钮 — slot 8 (右上角)
+<span class="nc" id="L62">        String backLabel = ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;e&quot; +</span>
+<span class="nc" id="L63">                messages.getString(&quot;gui.back-button&quot;, &quot;Back to Menu&quot;));</span>
+<span class="nc" id="L64">        String backLore = ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;7&quot; +</span>
+<span class="nc" id="L65">                messages.getString(&quot;gui.back-lore&quot;,</span>
+                        &quot;Return to the main menu&quot;));
+<span class="nc" id="L67">        inv.setItem(8, createInfoItem(Material.RED_STAINED_GLASS_PANE, backLabel, backLore));</span>
+
+<span class="nc" id="L69">        player.openInventory(inv);</span>
+<span class="nc" id="L70">    }</span>
 
     private ItemStack createStatItem(Material material, String label, String value) {
-<span class="nc" id="L65">        ItemStack item = new ItemStack(material);</span>
-<span class="nc" id="L66">        ItemMeta meta = item.getItemMeta();</span>
-<span class="nc bnc" id="L67" title="All 2 branches missed.">        if (meta != null) {</span>
-<span class="nc" id="L68">            meta.setDisplayName(ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;e&quot; + label));</span>
-<span class="nc" id="L69">            meta.setLore(Arrays.asList(</span>
-<span class="nc" id="L70">                    ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;f&quot; + value)));</span>
-<span class="nc" id="L71">            item.setItemMeta(meta);</span>
+<span class="nc" id="L73">        ItemStack item = new ItemStack(material);</span>
+<span class="nc" id="L74">        ItemMeta meta = item.getItemMeta();</span>
+<span class="nc bnc" id="L75" title="All 2 branches missed.">        if (meta != null) {</span>
+<span class="nc" id="L76">            meta.setDisplayName(ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;e&quot; + label));</span>
+<span class="nc" id="L77">            meta.setLore(Arrays.asList(</span>
+<span class="nc" id="L78">                    ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;f&quot; + value)));</span>
+<span class="nc" id="L79">            item.setItemMeta(meta);</span>
         }
-<span class="nc" id="L73">        return item;</span>
+<span class="nc" id="L81">        return item;</span>
     }
 
     private ItemStack createInfoItem(Material material, String name, String lore) {
-<span class="nc" id="L77">        ItemStack item = new ItemStack(material);</span>
-<span class="nc" id="L78">        ItemMeta meta = item.getItemMeta();</span>
-<span class="nc bnc" id="L79" title="All 2 branches missed.">        if (meta != null) {</span>
-<span class="nc" id="L80">            meta.setDisplayName(ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;6&quot; + name));</span>
-<span class="nc" id="L81">            meta.setLore(Arrays.asList(</span>
-<span class="nc" id="L82">                    ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;7&quot; + lore)));</span>
-<span class="nc" id="L83">            item.setItemMeta(meta);</span>
+<span class="nc" id="L85">        ItemStack item = new ItemStack(material);</span>
+<span class="nc" id="L86">        ItemMeta meta = item.getItemMeta();</span>
+<span class="nc bnc" id="L87" title="All 2 branches missed.">        if (meta != null) {</span>
+<span class="nc" id="L88">            meta.setDisplayName(ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;6&quot; + name));</span>
+<span class="nc" id="L89">            meta.setLore(Arrays.asList(</span>
+<span class="nc" id="L90">                    ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;7&quot; + lore)));</span>
+<span class="nc" id="L91">            item.setItemMeta(meta);</span>
         }
-<span class="nc" id="L85">        return item;</span>
+<span class="nc" id="L93">        return item;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

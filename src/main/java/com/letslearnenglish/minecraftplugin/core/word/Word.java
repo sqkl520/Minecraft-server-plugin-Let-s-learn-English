@@ -19,10 +19,18 @@ public class Word {
     private final List<String> antonyms;
     private final String difficulty;
     private final int difficultyLevel;
+    private final double reward; // 0 means use global default from config
 
     public Word(String english, String chinese, String partOfSpeech, String phonetic,
                 String exampleSentence, List<String> synonyms, List<String> antonyms,
                 String difficulty, int difficultyLevel) {
+        this(english, chinese, partOfSpeech, phonetic, exampleSentence,
+                synonyms, antonyms, difficulty, difficultyLevel, 0.0);
+    }
+
+    public Word(String english, String chinese, String partOfSpeech, String phonetic,
+                String exampleSentence, List<String> synonyms, List<String> antonyms,
+                String difficulty, int difficultyLevel, double reward) {
         this.english = english;
         this.chinese = chinese;
         this.partOfSpeech = partOfSpeech;
@@ -32,6 +40,7 @@ public class Word {
         this.antonyms = antonyms != null ? antonyms : List.of();
         this.difficulty = difficulty;
         this.difficultyLevel = difficultyLevel;
+        this.reward = reward;
     }
 
     public String getEnglish() {
@@ -68,6 +77,14 @@ public class Word {
 
     public int getDifficultyLevel() {
         return difficultyLevel;
+    }
+
+    /**
+     * Get the custom reward amount for this word.
+     * Returns 0 if no custom reward is set (fall back to global config).
+     */
+    public double getReward() {
+        return reward;
     }
 
     @Override
