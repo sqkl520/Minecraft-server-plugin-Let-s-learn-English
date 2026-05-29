@@ -69,22 +69,23 @@ public class SoundManager implements Listener {
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
 <span class="nc bnc" id="L71" title="All 2 branches missed.">        if (!enabled) return;</span>
-<span class="nc bnc" id="L72" title="All 2 branches missed.">        if (!(event.getWhoClicked() instanceof Player)) return;</span>
-<span class="nc bnc" id="L73" title="All 2 branches missed.">        if (!GUIMenuListener.isPluginGUI(event.getView().getTitle())) return;</span>
-<span class="nc" id="L74">        playSound((Player) event.getWhoClicked(), &quot;menu-click&quot;);</span>
-<span class="nc" id="L75">    }</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">        if (event.getCurrentItem() == null) return;</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">        if (!(event.getWhoClicked() instanceof Player)) return;</span>
+<span class="nc bnc" id="L74" title="All 2 branches missed.">        if (!GUIMenuListener.isPluginGUI(event.getView().getTitle())) return;</span>
+<span class="nc" id="L75">        playSound((Player) event.getWhoClicked(), &quot;menu-click&quot;);</span>
+<span class="nc" id="L76">    }</span>
 
     public static void playSound(Player player, String configKey) {
-<span class="nc" id="L78">        LetsLearnEnglish instance = LetsLearnEnglish.getInstance();</span>
-<span class="nc bnc" id="L79" title="All 2 branches missed.">        if (instance == null) return;</span>
-<span class="nc" id="L80">        SoundManager manager = instance.getSoundManager();</span>
-<span class="nc bnc" id="L81" title="All 2 branches missed.">        if (manager == null) return;</span>
-<span class="nc bnc" id="L82" title="All 2 branches missed.">        if (!manager.enabled) return;</span>
+<span class="nc" id="L79">        LetsLearnEnglish instance = LetsLearnEnglish.getInstance();</span>
+<span class="nc bnc" id="L80" title="All 2 branches missed.">        if (instance == null) return;</span>
+<span class="nc" id="L81">        SoundManager manager = instance.getSoundManager();</span>
+<span class="nc bnc" id="L82" title="All 2 branches missed.">        if (manager == null) return;</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">        if (!manager.enabled) return;</span>
 
-<span class="nc" id="L84">        Sound sound = manager.soundCache.get(configKey);</span>
-<span class="nc bnc" id="L85" title="All 2 branches missed.">        if (sound == null) return;</span>
+<span class="nc" id="L85">        Sound sound = manager.soundCache.get(configKey);</span>
+<span class="nc bnc" id="L86" title="All 2 branches missed.">        if (sound == null) return;</span>
 
-<span class="nc" id="L87">        manager.versionAdapter.playSound(player, sound, 1.0f, 1.0f);</span>
-<span class="nc" id="L88">    }</span>
+<span class="nc" id="L88">        manager.versionAdapter.playSound(player, sound, 1.0f, 1.0f);</span>
+<span class="nc" id="L89">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

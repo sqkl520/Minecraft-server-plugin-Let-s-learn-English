@@ -47,27 +47,35 @@ public class DialogueGUI {
 <span class="nc" id="L47">                messages.getString(&quot;dialogue-gui.close-lore-1&quot;),</span>
 <span class="nc" id="L48">                messages.getString(&quot;dialogue-gui.close-lore-2&quot;)));</span>
 
-<span class="nc" id="L50">        player.openInventory(inv);</span>
+        // 回到主菜单按钮 — slot 8 (右上角)
+<span class="nc" id="L51">        String backLabel = ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;e&quot; +</span>
+<span class="nc" id="L52">                messages.getString(&quot;gui.back-button&quot;, &quot;Back to Menu&quot;));</span>
+<span class="nc" id="L53">        String backLore = ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;7&quot; +</span>
+<span class="nc" id="L54">                messages.getString(&quot;gui.back-lore&quot;,</span>
+                        &quot;Return to the main menu&quot;));
+<span class="nc" id="L56">        inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE, backLabel, backLore));</span>
 
-<span class="nc" id="L52">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc" id="L53">                messages.getString(&quot;dialogue-gui.activated&quot;,</span>
+<span class="nc" id="L58">        player.openInventory(inv);</span>
+
+<span class="nc" id="L60">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L61">                messages.getString(&quot;dialogue-gui.activated&quot;,</span>
                         &quot;&amp;aDialogue scene activated!&quot;)
-<span class="nc" id="L55">                        .replace(&quot;{scene}&quot;, sceneName)));</span>
-<span class="nc" id="L56">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc" id="L57">                messages.getString(&quot;dialogue-gui.activated-hint&quot;)));</span>
-<span class="nc" id="L58">    }</span>
+<span class="nc" id="L63">                        .replace(&quot;{scene}&quot;, sceneName)));</span>
+<span class="nc" id="L64">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L65">                messages.getString(&quot;dialogue-gui.activated-hint&quot;)));</span>
+<span class="nc" id="L66">    }</span>
 
     private ItemStack createItem(Material material, String name, String... lore) {
-<span class="nc" id="L61">        ItemStack item = new ItemStack(material);</span>
-<span class="nc" id="L62">        ItemMeta meta = item.getItemMeta();</span>
-<span class="nc bnc" id="L63" title="All 2 branches missed.">        if (meta != null) {</span>
-<span class="nc" id="L64">            meta.setDisplayName(ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;6&quot; + name));</span>
-<span class="nc" id="L65">            meta.setLore(Arrays.stream(lore)</span>
-<span class="nc" id="L66">                    .map(l -&gt; ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;7&quot; + l))</span>
-<span class="nc" id="L67">                    .toList());</span>
-<span class="nc" id="L68">            item.setItemMeta(meta);</span>
+<span class="nc" id="L69">        ItemStack item = new ItemStack(material);</span>
+<span class="nc" id="L70">        ItemMeta meta = item.getItemMeta();</span>
+<span class="nc bnc" id="L71" title="All 2 branches missed.">        if (meta != null) {</span>
+<span class="nc" id="L72">            meta.setDisplayName(ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;6&quot; + name));</span>
+<span class="nc" id="L73">            meta.setLore(Arrays.stream(lore)</span>
+<span class="nc" id="L74">                    .map(l -&gt; ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;7&quot; + l))</span>
+<span class="nc" id="L75">                    .toList());</span>
+<span class="nc" id="L76">            item.setItemMeta(meta);</span>
         }
-<span class="nc" id="L70">        return item;</span>
+<span class="nc" id="L78">        return item;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

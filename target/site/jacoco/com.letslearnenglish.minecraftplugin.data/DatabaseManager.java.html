@@ -127,55 +127,109 @@ public class DatabaseManager {
                         &quot;  ended_at BIGINT&quot; +
                         &quot;)&quot;
         );
-<span class="nc" id="L130">    }</span>
+
+<span class="nc" id="L131">        executeUpdate(</span>
+                &quot;CREATE TABLE IF NOT EXISTS &quot; + tablePrefix + &quot;player_profiles (&quot; +
+                        &quot;  uuid VARCHAR(36) PRIMARY KEY,&quot; +
+                        &quot;  age INT DEFAULT 0,&quot; +
+                        &quot;  show_answers BOOLEAN DEFAULT 1,&quot; +
+                        &quot;  show_results BOOLEAN DEFAULT 1,&quot; +
+                        &quot;  show_in_square BOOLEAN DEFAULT 1&quot; +
+                        &quot;)&quot;
+        );
+<span class="nc" id="L140">    }</span>
 
     /**
      * Get the database connection.
+     * If the connection is closed, silently reconnect without re-logging.
      */
     public Connection getConnection() {
         try {
-<span class="nc bnc" id="L137" title="All 4 branches missed.">            if (connection == null || connection.isClosed()) {</span>
-<span class="nc" id="L138">                initialize();</span>
+<span class="nc bnc" id="L148" title="All 4 branches missed.">            if (connection == null || connection.isClosed()) {</span>
+<span class="nc" id="L149">                reconnect();</span>
             }
-<span class="nc" id="L140">        } catch (SQLException e) {</span>
-<span class="nc" id="L141">            plugin.getLogger().log(Level.SEVERE, &quot;Database connection check failed&quot;, e);</span>
-<span class="nc" id="L142">            throw new RuntimeException(&quot;Failed to get database connection&quot;, e);</span>
-<span class="nc" id="L143">        }</span>
-<span class="nc bnc" id="L144" title="All 2 branches missed.">        if (connection == null) {</span>
-<span class="nc" id="L145">            throw new RuntimeException(&quot;Database connection is null after initialization&quot;);</span>
+<span class="nc" id="L151">        } catch (SQLException e) {</span>
+<span class="nc" id="L152">            plugin.getLogger().log(Level.SEVERE, &quot;Database connection check failed&quot;, e);</span>
+<span class="nc" id="L153">            throw new RuntimeException(&quot;Failed to get database connection&quot;, e);</span>
+<span class="nc" id="L154">        }</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">        if (connection == null) {</span>
+<span class="nc" id="L156">            throw new RuntimeException(&quot;Database connection is null after initialization&quot;);</span>
         }
-<span class="nc" id="L147">        return connection;</span>
+<span class="nc" id="L158">        return connection;</span>
+    }
+
+    /**
+     * Reconnect the database silently (no table creation, no log spam).
+     */
+    private void reconnect() throws SQLException {
+<span class="nc" id="L165">        FileConfiguration config = configManager.getMainConfig();</span>
+<span class="nc bnc" id="L166" title="All 2 branches missed.">        if (isSQLite) {</span>
+<span class="nc" id="L167">            File dbFile = new File(plugin.getDataFolder(),</span>
+<span class="nc" id="L168">                    config.getString(&quot;database.sqlite.filename&quot;, &quot;playerdata.db&quot;));</span>
+<span class="nc" id="L169">            connection = DriverManager.getConnection(&quot;jdbc:sqlite:&quot; + dbFile.getAbsolutePath());</span>
+<span class="nc" id="L170">        } else {</span>
+<span class="nc" id="L171">            String host = config.getString(&quot;database.mysql.host&quot;, &quot;localhost&quot;);</span>
+<span class="nc" id="L172">            int port = config.getInt(&quot;database.mysql.port&quot;, 3306);</span>
+<span class="nc" id="L173">            String database = config.getString(&quot;database.mysql.database&quot;, &quot;letslearnenglish&quot;);</span>
+<span class="nc" id="L174">            String username = config.getString(&quot;database.mysql.username&quot;, &quot;root&quot;);</span>
+<span class="nc" id="L175">            String password = config.getString(&quot;database.mysql.password&quot;, &quot;&quot;);</span>
+
+<span class="nc" id="L177">            String url = &quot;jdbc:mysql://&quot; + host + &quot;:&quot; + port + &quot;/&quot; + database</span>
+                    + &quot;?useSSL=false&amp;allowPublicKeyRetrieval=true&amp;autoReconnect=true&quot;;
+<span class="nc" id="L179">            connection = DriverManager.getConnection(url, username, password);</span>
+        }
+<span class="nc" id="L181">    }</span>
+
+    /**
+     * Create a new temporary connection for async operations.
+     * Caller is responsible for closing the returned connection.
+     */
+    public Connection createAsyncConnection() throws SQLException {
+<span class="nc" id="L188">        FileConfiguration config = configManager.getMainConfig();</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">        if (isSQLite) {</span>
+<span class="nc" id="L190">            File dbFile = new File(plugin.getDataFolder(),</span>
+<span class="nc" id="L191">                    config.getString(&quot;database.sqlite.filename&quot;, &quot;playerdata.db&quot;));</span>
+<span class="nc" id="L192">            return DriverManager.getConnection(&quot;jdbc:sqlite:&quot; + dbFile.getAbsolutePath());</span>
+        }
+<span class="nc" id="L194">        String host = config.getString(&quot;database.mysql.host&quot;, &quot;localhost&quot;);</span>
+<span class="nc" id="L195">        int port = config.getInt(&quot;database.mysql.port&quot;, 3306);</span>
+<span class="nc" id="L196">        String database = config.getString(&quot;database.mysql.database&quot;, &quot;letslearnenglish&quot;);</span>
+<span class="nc" id="L197">        String username = config.getString(&quot;database.mysql.username&quot;, &quot;root&quot;);</span>
+<span class="nc" id="L198">        String password = config.getString(&quot;database.mysql.password&quot;, &quot;&quot;);</span>
+<span class="nc" id="L199">        String url = &quot;jdbc:mysql://&quot; + host + &quot;:&quot; + port + &quot;/&quot; + database</span>
+                + &quot;?useSSL=false&amp;allowPublicKeyRetrieval=true&amp;autoReconnect=true&quot;;
+<span class="nc" id="L201">        return DriverManager.getConnection(url, username, password);</span>
     }
 
     /**
      * Execute an update statement.
      */
     public void executeUpdate(String sql) throws SQLException {
-<span class="nc" id="L154">        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {</span>
-<span class="nc" id="L155">            stmt.executeUpdate();</span>
+<span class="nc" id="L208">        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {</span>
+<span class="nc" id="L209">            stmt.executeUpdate();</span>
         }
-<span class="nc" id="L157">    }</span>
+<span class="nc" id="L211">    }</span>
 
     /**
      * Shutdown the database connection.
      */
     public void shutdown() {
         try {
-<span class="nc bnc" id="L164" title="All 4 branches missed.">            if (connection != null &amp;&amp; !connection.isClosed()) {</span>
-<span class="nc" id="L165">                connection.close();</span>
-<span class="nc" id="L166">                plugin.getLogger().info(&quot;Database connection closed.&quot;);</span>
+<span class="nc bnc" id="L218" title="All 4 branches missed.">            if (connection != null &amp;&amp; !connection.isClosed()) {</span>
+<span class="nc" id="L219">                connection.close();</span>
+<span class="nc" id="L220">                plugin.getLogger().info(&quot;Database connection closed.&quot;);</span>
             }
-<span class="nc" id="L168">        } catch (SQLException e) {</span>
-<span class="nc" id="L169">            plugin.getLogger().log(Level.WARNING, &quot;Error closing database connection&quot;, e);</span>
-<span class="nc" id="L170">        }</span>
-<span class="nc" id="L171">    }</span>
+<span class="nc" id="L222">        } catch (SQLException e) {</span>
+<span class="nc" id="L223">            plugin.getLogger().log(Level.WARNING, &quot;Error closing database connection&quot;, e);</span>
+<span class="nc" id="L224">        }</span>
+<span class="nc" id="L225">    }</span>
 
-    public boolean isSQLite() {
-<span class="nc" id="L174">        return isSQLite;</span>
+public boolean isSQLite() {
+<span class="nc" id="L228">        return isSQLite;</span>
     }
 
     public String getTablePrefix() {
-<span class="nc" id="L178">        return tablePrefix;</span>
+<span class="nc" id="L232">        return tablePrefix;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

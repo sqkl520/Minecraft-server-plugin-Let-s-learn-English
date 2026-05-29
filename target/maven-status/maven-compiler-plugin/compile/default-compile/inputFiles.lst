@@ -3,6 +3,7 @@ D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-L
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\manager\AdminCommandHandler.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\word\LearningSession.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\gui\WordLearningGUI.java
+D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\gui\ProfileGUI.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\util\VersionAdapter.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\manager\HotReloadManager.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\UpdateChecker.java
@@ -11,12 +12,14 @@ D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-L
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\gui\MainMenu.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\progress\PlayerProgress.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\progress\RewardEngine.java
+D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\achievement\Achievement.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\dialogue\DialogueManagerImpl.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\dialogue\GrammarChecker.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\data\DatabaseManager.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\progress\ProgressManagerImpl.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\listener\GUIMenuListener.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\progress\Achievement.java
+D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\achievement\AchievementManager.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\dialogue\NPC.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\data\PlayerDataStore.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\word\ReviewScheduler.java
@@ -29,6 +32,7 @@ D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-L
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\listener\ChatAnswerListener.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\gui\DialogueGUI.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\manager\DataExporter.java
+D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\gui\EnglishSquareGUI.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\command\AdminCommand.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\api\LetsLearnEnglishAPI.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\listener\PlayerJoinListener.java

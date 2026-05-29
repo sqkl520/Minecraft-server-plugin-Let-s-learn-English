@@ -1,16 +1,18 @@
 package com.letslearnenglish.minecraftplugin.core.word;
 
-import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
-import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
 
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.progress.RewardEngine;
+import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
 
 public class WordLearningManager {
 
@@ -29,9 +31,29 @@ public class WordLearningManager {
     }
 
     public LearningSession startQuiz(Player player, String difficulty, String mode) {
+        cancelAnswerTimer(player);
+        quizStates.remove(player.getUniqueId());
         LearningSession session = wordManager.startSession(player, difficulty, mode);
         int timeout = plugin.getConfigManager().getMainConfig().getInt("word-system.answer-timeout", 30);
         quizStates.put(player.getUniqueId(), new QuizState(session, difficulty, mode, timeout));
+        return session;
+    }
+
+    /**
+     * Start a review quiz using words that are due for spaced-repetition review.
+     *
+     * @param player the player
+     * @return the review session, or null if no words are due for review
+     */
+    public LearningSession startReviewQuiz(Player player) {
+        cancelAnswerTimer(player);
+        quizStates.remove(player.getUniqueId());
+        LearningSession session = wordManager.startReviewSession(player);
+        if (session == null) return null;
+        int timeout = plugin.getConfigManager().getMainConfig().getInt("word-system.answer-timeout", 30);
+        QuizState state = new QuizState(session, "review", "review", timeout);
+        state.isReviewMode = true;
+        quizStates.put(player.getUniqueId(), state);
         return session;
     }
 
@@ -71,15 +93,30 @@ public class WordLearningManager {
             int comboScore;
             if (correct) {
                 state.consecutiveCorrect++;
+                if (state.consecutiveCorrect > state.maxComboReached) {
+                    state.maxComboReached = state.consecutiveCorrect;
+                }
                 double multiplier = getComboMultiplier(state.consecutiveCorrect);
                 comboScore = (int) Math.round(BASE_SCORE * multiplier);
                 session.addScore(comboScore);
                 session.recordCorrect();
+
+                RewardEngine rewards = plugin.getProgressManager().getRewardEngine();
+                if (state.isReviewMode) {
+                    rewards.giveMoneyForReviewCorrect(player, multiplier, currentWord);
+                } else {
+                    rewards.giveMoneyForCorrectAnswer(player, multiplier, currentWord);
+                }
             } else {
                 state.consecutiveCorrect = 0;
                 comboScore = -INCORRECT_PENALTY;
                 session.addScore(-INCORRECT_PENALTY);
                 session.recordIncorrect();
+
+                if (state.isReviewMode) {
+                    plugin.getProgressManager().getRewardEngine()
+                            .giveMoneyForReviewIncorrect(player);
+                }
             }
 
             return buildResult(id, state, correct, correctAnswer, comboScore,
@@ -108,6 +145,11 @@ public class WordLearningManager {
             state.consecutiveCorrect = 0;
             session.addScore(-INCORRECT_PENALTY);
             session.recordIncorrect();
+
+            if (state.isReviewMode) {
+                plugin.getProgressManager().getRewardEngine()
+                        .giveMoneyForReviewIncorrect(player);
+            }
 
             return buildResult(id, state, false, currentWord.getEnglish(),
                     -INCORRECT_PENALTY, 0, 1.0);
@@ -155,15 +197,15 @@ public class WordLearningManager {
 
             remaining[0]--;
 
+            FileConfiguration messages = getMessages(player);
+
             if (remaining[0] <= 0) {
                 AnswerResult timeoutResult = handleTimeout(player);
                 if (timeoutResult != null) {
-                    String lang = plugin.getPlayerLanguage(player);
-                    FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
-                    String timeUpMsg = messages.getString("word-learning-gui.time-up",
-                            "&c\u23f1 Time's up! Correct answer: &e{answer}")
-                            .replace("{answer}", timeoutResult.correctAnswer);
-                    player.sendMessage(ChatColor.translateAlternateColorCodes('&', timeUpMsg));
+                    player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                            messages.getString("word-learning-gui.timeout",
+                                    "&c\u23f1 Time's up! Correct answer: &e{answer}")
+                                    .replace("{answer}", timeoutResult.correctAnswer)));
                     if (timeoutResult.sessionComplete) {
                         showSessionComplete(player, timeoutResult);
                     } else {
@@ -171,19 +213,15 @@ public class WordLearningManager {
                     }
                 }
             } else if (remaining[0] <= 5) {
-                String lang = plugin.getPlayerLanguage(player);
-                FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
-                String urgentMsg = messages.getString("word-learning-gui.countdown-urgent",
-                        "&c\u23f3 {seconds}s remaining!")
-                        .replace("{seconds}", String.valueOf(remaining[0]));
-                player.sendMessage(ChatColor.translateAlternateColorCodes('&', urgentMsg));
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                        messages.getString("word-learning-gui.countdown-urgent",
+                                "&c\u23f3 {seconds}s remaining!")
+                                .replace("{seconds}", String.valueOf(remaining[0]))));
             } else {
-                String lang = plugin.getPlayerLanguage(player);
-                FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
-                String countdownMsg = messages.getString("word-learning-gui.countdown",
-                        "&e\u23f3 {seconds}s remaining...")
-                        .replace("{seconds}", String.valueOf(remaining[0]));
-                player.sendMessage(ChatColor.translateAlternateColorCodes('&', countdownMsg));
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                        messages.getString("word-learning-gui.countdown-normal",
+                                "&e\u23f3 {seconds}s remaining...")
+                                .replace("{seconds}", String.valueOf(remaining[0]))));
             }
         }, 20L, 20L);
 
@@ -220,20 +258,24 @@ public class WordLearningManager {
 
         cancelAnswerTimer(player);
         wordManager.endSession(id);
+
+        int maxComboReached = state.maxComboReached;
         quizStates.remove(id);
 
         int score = state.session.getScore();
         int correct = state.session.getTotalCorrect();
         int total = state.session.getTotalWords();
 
-        String lang = plugin.getPlayerLanguage(player);
-        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
-        String stoppedMsg = messages.getString("word-learning-gui.session-stopped",
-                "&aSession stopped! &7Correct: &e{correct}&7/&e{total} &7Score: &e{score}")
-                .replace("{correct}", String.valueOf(correct))
-                .replace("{total}", String.valueOf(total))
-                .replace("{score}", String.valueOf(score));
-        player.sendMessage(ChatColor.translateAlternateColorCodes('&', stoppedMsg));
+        FileConfiguration messages = getMessages(player);
+        player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                messages.getString("word-learning-gui.session-stopped",
+                        "&aSession stopped! &7Correct: &e{correct}&7/&e{total} &7Score: &e{score}")
+                        .replace("{correct}", String.valueOf(correct))
+                        .replace("{total}", String.valueOf(total))
+                        .replace("{score}", String.valueOf(score))));
+
+        plugin.getProgressManager().getRewardEngine()
+                .giveSessionCompleteMoneyReward(player, maxComboReached);
     }
 
     public void endQuiz(UUID playerId) {
@@ -285,8 +327,7 @@ public class WordLearningManager {
     }
 
     public void showSessionComplete(Player player, AnswerResult result) {
-        String lang = plugin.getPlayerLanguage(player);
-        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
+        FileConfiguration messages = getMessages(player);
         String msg = ChatColor.translateAlternateColorCodes('&',
                 messages.getString("word-learning-gui.session-complete",
                         "&6\u2605 &aSession complete! &7Correct: &e{correct}&7/&e{total} &7Accuracy: &e{accuracy}% &7Score: &e{score}")
@@ -295,6 +336,16 @@ public class WordLearningManager {
                         .replace("{accuracy}", String.format("%.1f", result.accuracy * 100))
                         .replace("{score}", String.valueOf(result.score)));
         player.sendMessage(msg);
+
+        QuizState state = quizStates.get(player.getUniqueId());
+        if (state != null) {
+            plugin.getProgressManager().getRewardEngine()
+                    .giveSessionCompleteMoneyReward(player, state.maxComboReached);
+        }
+    }
+
+    private FileConfiguration getMessages(Player player) {
+        return plugin.getConfigManager().getMessageConfig(plugin.getPlayerLanguage(player));
     }
 
     public static class QuizState {
@@ -307,6 +358,8 @@ public class WordLearningManager {
         public volatile boolean cancelled;
         public final AtomicBoolean submitting = new AtomicBoolean(false);
         public int consecutiveCorrect;
+        public int maxComboReached;
+        public boolean isReviewMode;
 
         public QuizState(LearningSession session, String difficulty, String mode, int answerTimeout) {
             this.session = session;

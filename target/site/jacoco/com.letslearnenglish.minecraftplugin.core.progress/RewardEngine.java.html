@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RewardEngine.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.core.progress</a> &gt; <span class="el_source">RewardEngine.java</span></div><h1>RewardEngine.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.core.progress;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.word.Word;
+import net.milkbowl.vault.economy.Economy;
+import net.milkbowl.vault.economy.EconomyResponse;
 import org.bukkit.entity.Player;
 
 /**
@@ -13,9 +16,169 @@ public class RewardEngine {
 
     private final LetsLearnEnglish plugin;
 
-<span class="nc" id="L16">    public RewardEngine(LetsLearnEnglish plugin) {</span>
-<span class="nc" id="L17">        this.plugin = plugin;</span>
-<span class="nc" id="L18">    }</span>
+<span class="nc" id="L19">    public RewardEngine(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L20">        this.plugin = plugin;</span>
+<span class="nc" id="L21">    }</span>
+
+    private Economy getEconomy() {
+<span class="nc" id="L24">        return plugin.getEconomy();</span>
+    }
+
+    private boolean isMoneyEnabled() {
+<span class="nc" id="L28">        return plugin.getConfigManager().getMainConfig()</span>
+<span class="nc" id="L29">                .getBoolean(&quot;progress-system.rewards.types.money.enabled&quot;, false);</span>
+    }
+
+    /**
+     * Give a money reward for a single correct answer.
+     * Called when player answers a word correctly.
+     * If the word has a custom reward (&amp;gt;0), use it directly (no combo multiplier).
+     * Otherwise fall back to global config base-amount × combo multiplier.
+     *
+     * @param player            the player to reward
+     * @param comboMultiplier   current combo multiplier (1.0x - 3.0x)
+     * @param word              the word that was answered correctly
+     */
+    public void giveMoneyForCorrectAnswer(Player player, double comboMultiplier, Word word) {
+<span class="nc" id="L43">        Economy eco = getEconomy();</span>
+<span class="nc bnc" id="L44" title="All 4 branches missed.">        if (eco == null || !isMoneyEnabled()) return;</span>
+
+        double amount;
+<span class="nc bnc" id="L47" title="All 4 branches missed.">        if (word != null &amp;&amp; word.getReward() &gt; 0) {</span>
+            // Word has custom reward, use it directly
+<span class="nc" id="L49">            amount = word.getReward();</span>
+        } else {
+<span class="nc" id="L51">            double baseAmount = plugin.getConfigManager().getMainConfig()</span>
+<span class="nc" id="L52">                    .getDouble(&quot;progress-system.rewards.types.money.base-amount&quot;, 10.0);</span>
+<span class="nc" id="L53">            boolean comboBonus = plugin.getConfigManager().getMainConfig()</span>
+<span class="nc" id="L54">                    .getBoolean(&quot;progress-system.rewards.types.money.combo-bonus&quot;, true);</span>
+<span class="nc bnc" id="L55" title="All 2 branches missed.">            amount = comboBonus ? Math.round(baseAmount * comboMultiplier * 100.0) / 100.0 : baseAmount;</span>
+        }
+
+<span class="nc" id="L58">        EconomyResponse response = eco.depositPlayer(player, amount);</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">        if (response.transactionSuccess()) {</span>
+<span class="nc" id="L60">            String msg = plugin.getMessageUtil().getPlayerMessage(player,</span>
+                    &quot;progress.money-reward&quot;,
+<span class="nc" id="L62">                    &quot;amount&quot;, eco.format(amount));</span>
+<span class="nc bnc" id="L63" title="All 4 branches missed.">            if (msg != null &amp;&amp; !msg.isEmpty()) {</span>
+<span class="nc" id="L64">                player.sendMessage(msg);</span>
+            }
+<span class="nc" id="L66">        } else {</span>
+<span class="nc" id="L67">            plugin.getLogger().warning(&quot;Failed to deposit money for &quot;</span>
+<span class="nc" id="L68">                    + player.getName() + &quot;: &quot; + response.errorMessage);</span>
+        }
+<span class="nc" id="L70">    }</span>
+
+    /**
+     * Give money reward on session completion.
+     * Awards session-complete-bonus and optional max-combo-bonus.
+     *
+     * @param player           the player to reward
+     * @param maxComboReached  the highest consecutive correct count in the session
+     */
+    public void giveSessionCompleteMoneyReward(Player player, int maxComboReached) {
+<span class="nc" id="L80">        Economy eco = getEconomy();</span>
+<span class="nc bnc" id="L81" title="All 4 branches missed.">        if (eco == null || !isMoneyEnabled()) return;</span>
+
+<span class="nc" id="L83">        double sessionBonus = plugin.getConfigManager().getMainConfig()</span>
+<span class="nc" id="L84">                .getDouble(&quot;progress-system.rewards.types.money.session-complete-bonus&quot;, 50.0);</span>
+<span class="nc" id="L85">        double maxComboBonus = plugin.getConfigManager().getMainConfig()</span>
+<span class="nc" id="L86">                .getDouble(&quot;progress-system.rewards.types.money.max-combo-bonus&quot;, 25.0);</span>
+
+<span class="nc" id="L88">        double totalAmount = sessionBonus;</span>
+<span class="nc bnc" id="L89" title="All 2 branches missed.">        if (maxComboReached &gt;= 5) {</span>
+<span class="nc" id="L90">            totalAmount += maxComboBonus;</span>
+        }
+
+<span class="nc" id="L93">        EconomyResponse response = eco.depositPlayer(player, totalAmount);</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">        if (response.transactionSuccess()) {</span>
+<span class="nc" id="L95">            String msg = plugin.getMessageUtil().getPlayerMessage(player,</span>
+                    &quot;progress.money-session-bonus&quot;,
+<span class="nc" id="L97">                    &quot;amount&quot;, eco.format(totalAmount));</span>
+<span class="nc bnc" id="L98" title="All 4 branches missed.">            if (msg != null &amp;&amp; !msg.isEmpty()) {</span>
+<span class="nc" id="L99">                player.sendMessage(msg);</span>
+            }
+<span class="nc" id="L101">        } else {</span>
+<span class="nc" id="L102">            plugin.getLogger().warning(&quot;Failed to deposit session bonus for &quot;</span>
+<span class="nc" id="L103">                    + player.getName() + &quot;: &quot; + response.errorMessage);</span>
+        }
+<span class="nc" id="L105">    }</span>
+
+    /**
+     * Give a money reward for a correct answer during review mode.
+     * If the word has a custom reward (&amp;gt;0), use it directly.
+     * Otherwise uses a separate review multiplier to differentiate from learning rewards.
+     *
+     * @param player            the player to reward
+     * @param comboMultiplier   current combo multiplier (1.0x - 3.0x)
+     * @param word              the word that was answered correctly
+     */
+    public void giveMoneyForReviewCorrect(Player player, double comboMultiplier, Word word) {
+<span class="nc" id="L117">        Economy eco = getEconomy();</span>
+<span class="nc bnc" id="L118" title="All 4 branches missed.">        if (eco == null || !isMoneyEnabled()) return;</span>
+
+        double amount;
+<span class="nc bnc" id="L121" title="All 4 branches missed.">        if (word != null &amp;&amp; word.getReward() &gt; 0) {</span>
+            // Word has custom reward, use it directly
+<span class="nc" id="L123">            amount = word.getReward();</span>
+        } else {
+<span class="nc" id="L125">            double baseAmount = plugin.getConfigManager().getMainConfig()</span>
+<span class="nc" id="L126">                    .getDouble(&quot;progress-system.rewards.types.money.base-amount&quot;, 10.0);</span>
+<span class="nc" id="L127">            double reviewMultiplier = plugin.getConfigManager().getMainConfig()</span>
+<span class="nc" id="L128">                    .getDouble(&quot;progress-system.rewards.types.money.review-multiplier&quot;, 0.5);</span>
+<span class="nc" id="L129">            boolean comboBonus = plugin.getConfigManager().getMainConfig()</span>
+<span class="nc" id="L130">                    .getBoolean(&quot;progress-system.rewards.types.money.combo-bonus&quot;, true);</span>
+
+<span class="nc" id="L132">            amount = baseAmount * reviewMultiplier;</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">            if (comboBonus) {</span>
+<span class="nc" id="L134">                amount = Math.round(amount * comboMultiplier * 100.0) / 100.0;</span>
+            }
+        }
+
+<span class="nc" id="L138">        EconomyResponse response = eco.depositPlayer(player, amount);</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        if (response.transactionSuccess()) {</span>
+<span class="nc" id="L140">            String msg = plugin.getMessageUtil().getPlayerMessage(player,</span>
+                    &quot;progress.money-review-reward&quot;,
+<span class="nc" id="L142">                    &quot;amount&quot;, eco.format(amount));</span>
+<span class="nc bnc" id="L143" title="All 4 branches missed.">            if (msg != null &amp;&amp; !msg.isEmpty()) {</span>
+<span class="nc" id="L144">                player.sendMessage(msg);</span>
+            }
+<span class="nc" id="L146">        } else {</span>
+<span class="nc" id="L147">            plugin.getLogger().warning(&quot;Failed to deposit review money for &quot;</span>
+<span class="nc" id="L148">                    + player.getName() + &quot;: &quot; + response.errorMessage);</span>
+        }
+<span class="nc" id="L150">    }</span>
+
+    /**
+     * Deduct money from a player for an incorrect answer during review mode.
+     * Only applies if review-penalty is enabled in config.
+     *
+     * @param player the player to penalize
+     */
+    public void giveMoneyForReviewIncorrect(Player player) {
+<span class="nc" id="L159">        Economy eco = getEconomy();</span>
+<span class="nc bnc" id="L160" title="All 4 branches missed.">        if (eco == null || !isMoneyEnabled()) return;</span>
+
+<span class="nc" id="L162">        boolean penaltyEnabled = plugin.getConfigManager().getMainConfig()</span>
+<span class="nc" id="L163">                .getBoolean(&quot;progress-system.rewards.types.money.review-penalty&quot;, false);</span>
+<span class="nc bnc" id="L164" title="All 2 branches missed.">        if (!penaltyEnabled) return;</span>
+
+<span class="nc" id="L166">        double penaltyAmount = plugin.getConfigManager().getMainConfig()</span>
+<span class="nc" id="L167">                .getDouble(&quot;progress-system.rewards.types.money.review-penalty-amount&quot;, 5.0);</span>
+
+<span class="nc" id="L169">        EconomyResponse response = eco.withdrawPlayer(player, penaltyAmount);</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        if (response.transactionSuccess()) {</span>
+<span class="nc" id="L171">            String msg = plugin.getMessageUtil().getPlayerMessage(player,</span>
+                    &quot;progress.money-review-penalty&quot;,
+<span class="nc" id="L173">                    &quot;amount&quot;, eco.format(penaltyAmount));</span>
+<span class="nc bnc" id="L174" title="All 4 branches missed.">            if (msg != null &amp;&amp; !msg.isEmpty()) {</span>
+<span class="nc" id="L175">                player.sendMessage(msg);</span>
+            }
+<span class="nc" id="L177">        } else {</span>
+<span class="nc" id="L178">            plugin.getLogger().warning(&quot;Failed to withdraw penalty money for &quot;</span>
+<span class="nc" id="L179">                    + player.getName() + &quot;: &quot; + response.errorMessage);</span>
+        }
+<span class="nc" id="L181">    }</span>
 
     /**
      * Give a reward to a player for completing a learning session.
@@ -25,38 +188,38 @@ public class RewardEngine {
      * @param accuracy    the accuracy rate (0.0 - 1.0)
      */
     public void giveSessionReward(Player player, int score, double accuracy) {
-<span class="nc" id="L28">        if (!plugin.getConfigManager().getMainConfig()</span>
-<span class="nc bnc" id="L29" title="All 2 branches missed.">                .getBoolean(&quot;progress-system.rewards.enabled&quot;, true)) {</span>
-<span class="nc" id="L30">            return;</span>
+<span class="nc" id="L191">        if (!plugin.getConfigManager().getMainConfig()</span>
+<span class="nc bnc" id="L192" title="All 2 branches missed.">                .getBoolean(&quot;progress-system.rewards.enabled&quot;, true)) {</span>
+<span class="nc" id="L193">            return;</span>
         }
 
-<span class="nc" id="L33">        giveExpReward(player, score);</span>
-<span class="nc" id="L34">    }</span>
+<span class="nc" id="L196">        giveExpReward(player, score);</span>
+<span class="nc" id="L197">    }</span>
 
     /**
      * Give experience points as a reward.
      */
     private void giveExpReward(Player player, int score) {
-<span class="nc" id="L40">        if (!plugin.getConfigManager().getMainConfig()</span>
-<span class="nc bnc" id="L41" title="All 2 branches missed.">                .getBoolean(&quot;progress-system.rewards.types.exp.enabled&quot;, true)) {</span>
-<span class="nc" id="L42">            return;</span>
+<span class="nc" id="L203">        if (!plugin.getConfigManager().getMainConfig()</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">                .getBoolean(&quot;progress-system.rewards.types.exp.enabled&quot;, true)) {</span>
+<span class="nc" id="L205">            return;</span>
         }
 
-<span class="nc" id="L45">        int expAmount = Math.max(1, score / 2);</span>
-<span class="nc" id="L46">        player.giveExp(expAmount);</span>
-<span class="nc" id="L47">    }</span>
+<span class="nc" id="L208">        int expAmount = Math.max(1, score / 2);</span>
+<span class="nc" id="L209">        player.giveExp(expAmount);</span>
+<span class="nc" id="L210">    }</span>
 
     /**
      * Give a reward for unlocking an achievement.
      */
     public void giveAchievementReward(Player player, Achievement achievement) {
-<span class="nc" id="L53">        String message = plugin.getMessageUtil().getPlayerMessage(player,</span>
+<span class="nc" id="L216">        String message = plugin.getMessageUtil().getPlayerMessage(player,</span>
                 &quot;achievement.unlocked&quot;,
-<span class="nc" id="L55">                &quot;name&quot;, achievement.getName(),</span>
-<span class="nc" id="L56">                &quot;description&quot;, achievement.getDescription());</span>
-<span class="nc bnc" id="L57" title="All 4 branches missed.">        if (message != null &amp;&amp; !message.isEmpty()) {</span>
-<span class="nc" id="L58">            player.sendMessage(message);</span>
+<span class="nc" id="L218">                &quot;name&quot;, achievement.getName(),</span>
+<span class="nc" id="L219">                &quot;description&quot;, achievement.getDescription());</span>
+<span class="nc bnc" id="L220" title="All 4 branches missed.">        if (message != null &amp;&amp; !message.isEmpty()) {</span>
+<span class="nc" id="L221">            player.sendMessage(message);</span>
         }
-<span class="nc" id="L60">    }</span>
+<span class="nc" id="L223">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

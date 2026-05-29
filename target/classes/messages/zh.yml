@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 3
+config-version: 7
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -16,7 +16,8 @@ general:
   error: "{prefix}&c错误: {message}"
 
 word:
-  session-start: "{prefix}&a开始新的学习会话！难度: &e{difficulty}&a, 模式: &e{mode}"
+  session-start: "{prefix}&a准备开始新的学习会话！难度: &e{difficulty}&a, 模式: &e{mode}"
+  session-ready: "{prefix}&a开始！"
   session-end: "{prefix}&a学习会话结束！正确率: &e{accuracy}%"
   correct: "{prefix}&a正确！&f(+{score} 分)"
   incorrect: "{prefix}&c错误！正确答案是: &e{answer}"
@@ -68,9 +69,11 @@ help:
   menu: "&e/le menu &7- 打开主菜单"
   word: "&e/le word [难度] [模式] &7- 开始单词学习"
   dialogue: "&e/le dialogue [场景] &7- 开始情景对话"
-  progress: "&e/le progress &7- 查看学习进度"
+  progress: "&e/le progress &7- 查看个人主页"
   review: "&e/le review &7- 复习待复习单词"
-  stats: "&e/le stats &7- 查看学习统计"
+  stats: "&e/le stats &7- 查看个人主页"
+  profile: "&e/le profile [玩家名] &7- 查看个人主页"
+  square: "&e/le square &7- 打开英语广场"
   footer: "&6======================================"
 
 admin-help:
@@ -91,14 +94,23 @@ plugin-info:
 
 gui:
   main-menu-title: "&6&l一起学英语！"
+  back-button: "回到主菜单"
+  back-lore: "返回主菜单"
 
 main-menu:
   word-learning: "&a单词学习"
   word-learning-lore: "&7多种模式练习词汇"
   dialogue-practice: "&b对话练习"
   dialogue-practice-lore: "&7练习英语对话"
-  progress-stats: "&e进度与统计"
-  progress-stats-lore: "&7查看你的学习进度"
+  progress-stats: "&e个人主页"
+  progress-stats-lore: "&7查看你的个人主页"
+  square: "&d英语广场"
+  square-lore: "&7浏览其他学习者的主页"
+
+review:
+  no-words: "&a当前没有需要复习的单词！"
+  notification: "&e你有 &c{count} &e个单词需要复习！使用 &b/le review &e开始复习"
+  start: "&a复习会话已开始！&7共 &e{count} &7个单词"
 
 word-learning-gui:
   title: "单词学习 - {difficulty}"
@@ -110,21 +122,22 @@ word-learning-gui:
   current-word-lore-1: "关闭此界面后，在聊天栏输入英文"
   current-word-lore-2: ""
   progress: "进度: {current}/{total}"
+  score-lore: "&7分数: &e{score}"
   session-complete: "&6★ &a学习会话完成！ &7正确: &e{correct}&7/&e{total} &7正确率: &e{accuracy}% &7分数: &e{score}"
+  session-stopped: "&a会话已停止！ &7正确: &e{correct}&7/&e{total} &7分数: &e{score}"
   answer-broadcast: "&7{player} &7回答了: &f{answer}"
   session-ended: "&a学习会话已结束！"
   answer-prompt: "&e请拼写: &f{chinese} &7(剩余时间: {seconds}秒)"
+  timeout: "&c⏱ 时间到！正确答案: &e{answer}"
+  countdown-urgent: "&c⏳ {seconds}秒剩余！"
+  countdown-normal: "&e⏳ {seconds}秒剩余..."
+  correct: "&a✔ 正确！&7(+&e{score}&7){combo}"
+  incorrect: "&c✘ 错误！正确答案: &e{answer}"
+  combo-message: "&6✨ {count}连击！({multiplier}x)"
   combo-none: "暂无连胜"
   combo-active: "连胜: {count}次 ({multiplier}x)"
   stop-button: "停止当前回合"
   stop-lore: "结束当前学习回合并结算分数"
-  time-up: "&c⏱ 时间到！ 正确答案: &e{answer}"
-  countdown-urgent: "&c⏳ 还剩 {seconds} 秒！"
-  countdown: "&e⏳ 还剩 {seconds} 秒..."
-  correct-answer: "&a✔ 正确！ &7(+&e{score}&7)"
-  correct-answer-combo: "&a✔ 正确！ &7(+&e{score}&7) &6✨ {combo}x 连击！ ({multiplier}x)"
-  wrong-answer: "&c✖ 错误！ 答案是: &e{answer}"
-  session-stopped: "&a会话已停止！ &7正确: &e{correct}&7/&e{total} &7分数: &e{score}"
 
 dialogue-gui:
   title: "情景对话 - {scene}"
@@ -141,6 +154,12 @@ dialogue-gui:
   activated: "&a情景对话已激活！&7场景: &e{scene}"
   activated-hint: "&7寻找NPC并与之对话以开始练习。"
 
+progress:
+  money-reward: "&6+ {amount} 金币！"
+  money-session-bonus: "&6+ {amount} 会话完成奖励！"
+  money-review-reward: "&6+ {amount} 复习奖励！"
+  money-review-penalty: "&c- {amount} 答错扣款！"
+
 progress-gui:
   title: "学习进度"
   player-summary: "以下是你的学习摘要"
@@ -150,3 +169,17 @@ progress-gui:
   current-streak: "当前连续"
   longest-streak: "最长连续"
   days-suffix: " 天"
+
+square:
+  title: "&6&l英语广场"
+  next-page: "&e下一页 →"
+  prev-page: "&e← 上一页"
+  hidden-title: "&b&k??? &r&b??? &k???"
+  hidden-lore: "&7对方正在乱扔隐身喷溅药水..."
+
+profile:
+  title: "&6&l个人主页"
+  viewing-title: "&6&l{name} 的主页"
+  age: "&e年龄: &f{age}岁"
+  settings-button: "&e设置"
+  settings-title: "&6隐私设置"

@@ -24,15 +24,20 @@ public class HotReloadManager {
     public void reloadAll() {
 <span class="nc" id="L25">        configManager.reloadAllConfigs();</span>
 <span class="nc" id="L26">        plugin.getWordManager().loadAllWordBanks();</span>
-<span class="nc" id="L27">        plugin.getLogger().info(&quot;All configurations hot-reloaded successfully.&quot;);</span>
-<span class="nc" id="L28">    }</span>
+<span class="nc" id="L27">        plugin.getPlayerDataStore().clearCache();</span>
+<span class="nc" id="L28">        plugin.getPlayerDataStore().clearProfileCache();</span>
+<span class="nc bnc" id="L29" title="All 2 branches missed.">        if (plugin.getAchievementManager() != null) {</span>
+<span class="nc" id="L30">            plugin.getAchievementManager().clearCache();</span>
+        }
+<span class="nc" id="L32">        plugin.getLogger().info(&quot;All configurations hot-reloaded successfully.&quot;);</span>
+<span class="nc" id="L33">    }</span>
 
     /**
      * Reload only the word banks.
      */
     public void reloadWordBanks() {
-<span class="nc" id="L34">        plugin.getWordManager().loadAllWordBanks();</span>
-<span class="nc" id="L35">        plugin.getLogger().info(&quot;Word banks hot-reloaded.&quot;);</span>
-<span class="nc" id="L36">    }</span>
+<span class="nc" id="L39">        plugin.getWordManager().loadAllWordBanks();</span>
+<span class="nc" id="L40">        plugin.getLogger().info(&quot;Word banks hot-reloaded.&quot;);</span>
+<span class="nc" id="L41">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

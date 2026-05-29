@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 3
+config-version: 7
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -16,7 +16,8 @@ general:
   error: "{prefix}&cError: {message}"
 
 word:
-  session-start: "{prefix}&aStarting new learning session! Difficulty: &e{difficulty}&a, Mode: &e{mode}"
+  session-start: "{prefix}&aGet ready for a new learning session! Difficulty: &e{difficulty}&a, Mode: &e{mode}"
+  session-ready: "{prefix}&aGo!"
   session-end: "{prefix}&aLearning session complete! Accuracy: &e{accuracy}%"
   correct: "{prefix}&aCorrect! &f(+{score} points)"
   incorrect: "{prefix}&cIncorrect! The correct answer is: &e{answer}"
@@ -68,9 +69,11 @@ help:
   menu: "&e/le menu &7- Open the main menu"
   word: "&e/le word [difficulty] [mode] &7- Start word learning"
   dialogue: "&e/le dialogue [scene] &7- Start dialogue practice"
-  progress: "&e/le progress &7- View your progress"
+  progress: "&e/le progress &7- View your profile"
   review: "&e/le review &7- Review words due for practice"
-  stats: "&e/le stats &7- View learning statistics"
+  stats: "&e/le stats &7- View your profile"
+  profile: "&e/le profile [player] &7- View personal profile"
+  square: "&e/le square &7- Open English Square"
   footer: "&6======================================"
 
 admin-help:
@@ -91,14 +94,23 @@ plugin-info:
 
 gui:
   main-menu-title: "&6&lLet's Learn English!"
+  back-button: "Back to Menu"
+  back-lore: "Return to the main menu"
 
 main-menu:
   word-learning: "&aWord Learning"
   word-learning-lore: "&7Practice vocabulary with various modes"
   dialogue-practice: "&bDialogue Practice"
   dialogue-practice-lore: "&7Practice English conversations"
-  progress-stats: "&eProgress & Stats"
-  progress-stats-lore: "&7View your learning progress"
+  progress-stats: "&eProfile"
+  progress-stats-lore: "&7View your personal profile"
+  square: "&dEnglish Square"
+  square-lore: "&7Browse other learners' profiles"
+
+review:
+  no-words: "&aNo words due for review right now!"
+  notification: "&eYou have &c{count} &ewords to review! Use &b/le review &eto start"
+  start: "&aReview session started! &7{count} &7words"
 
 word-learning-gui:
   title: "Word Learning - {difficulty}"
@@ -110,21 +122,22 @@ word-learning-gui:
   current-word-lore-1: "Close this GUI and type the English in chat"
   current-word-lore-2: ""
   progress: "Progress: {current}/{total}"
+  score-lore: "&7Score: &e{score}"
   session-complete: "&6★ &aSession complete! &7Correct: &e{correct}&7/&e{total} &7Accuracy: &e{accuracy}% &7Score: &e{score}"
+  session-stopped: "&aSession stopped! &7Correct: &e{correct}&7/&e{total} &7Score: &e{score}"
   answer-broadcast: "&7{player} &7answered: &f{answer}"
   session-ended: "&aLearning session ended!"
   answer-prompt: "&eSpell: &f{chinese} &7(Time left: {seconds}s)"
+  timeout: "&c⏱ Time's up! Correct answer: &e{answer}"
+  countdown-urgent: "&c⏳ {seconds}s remaining!"
+  countdown-normal: "&e⏳ {seconds}s remaining..."
+  correct: "&a✔ Correct! &7(+&e{score}&7){combo}"
+  incorrect: "&c✘ Wrong! Answer: &e{answer}"
+  combo-message: "&6✨ {count}x combo! ({multiplier}x)"
   combo-none: "No streak"
   combo-active: "Streak: {count} ({multiplier}x)"
   stop-button: "Stop Session"
   stop-lore: "End the current learning session"
-  time-up: "&c⏱ Time's up! Correct answer: &e{answer}"
-  countdown-urgent: "&c⏳ {seconds}s remaining!"
-  countdown: "&e⏳ {seconds}s remaining..."
-  correct-answer: "&a✔ Correct! &7(+&e{score}&7)"
-  correct-answer-combo: "&a✔ Correct! &7(+&e{score}&7) &6✨ {combo}x combo! ({multiplier}x)"
-  wrong-answer: "&c✖ Wrong! Answer: &e{answer}"
-  session-stopped: "&aSession stopped! &7Correct: &e{correct}&7/&e{total} &7Score: &e{score}"
 
 dialogue-gui:
   title: "Dialogue - {scene}"
@@ -141,6 +154,12 @@ dialogue-gui:
   activated: "&aDialogue scene activated! &7Scene: &e{scene}"
   activated-hint: "&7Find and talk to the NPC to begin the conversation."
 
+progress:
+  money-reward: "&6+ {amount} coins"
+  money-session-bonus: "&6+ {amount} session completion bonus!"
+  money-review-reward: "&6+ {amount} review reward!"
+  money-review-penalty: "&c- {amount} penalty!"
+
 progress-gui:
   title: "Learning Progress"
   player-summary: "Here's your learning summary"
@@ -150,3 +169,17 @@ progress-gui:
   current-streak: "Current Streak"
   longest-streak: "Longest Streak"
   days-suffix: " days"
+
+square:
+  title: "&6&lEnglish Square"
+  next-page: "&eNext Page →"
+  prev-page: "&e← Previous Page"
+  hidden-title: "&b&k??? &r&b??? &k???"
+  hidden-lore: "&7The player is throwing invisibility splash potions everywhere..."
+
+profile:
+  title: "&6&lPersonal Profile"
+  viewing-title: "&6&l{name}'s Profile"
+  age: "&eAge: &f{age} years old"
+  settings-button: "&eSettings"
+  settings-title: "&6Privacy Settings"

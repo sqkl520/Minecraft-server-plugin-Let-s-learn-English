@@ -5,6 +5,8 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 
+import java.util.regex.Pattern;
+
 /**
  * NPC Interaction Listener
  *
@@ -13,34 +15,34 @@ import org.bukkit.event.player.PlayerInteractEntityEvent;
  */
 public class NPCInteractionListener implements Listener {
 
+<span class="nc" id="L18">    private static final Pattern COLOR_CODE = Pattern.compile(&quot;&amp;[0-9a-fk-or]&quot;);</span>
+
     private final LetsLearnEnglish plugin;
 
-<span class="nc" id="L18">    public NPCInteractionListener(LetsLearnEnglish plugin) {</span>
-<span class="nc" id="L19">        this.plugin = plugin;</span>
-<span class="nc" id="L20">    }</span>
+<span class="nc" id="L22">    public NPCInteractionListener(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L23">        this.plugin = plugin;</span>
+<span class="nc" id="L24">    }</span>
 
     @EventHandler
     public void onEntityInteract(PlayerInteractEntityEvent event) {
-<span class="nc" id="L24">        String npcName = event.getRightClicked().getName();</span>
-<span class="nc bnc" id="L25" title="All 2 branches missed.">        if (npcName == null) {</span>
-<span class="nc" id="L26">            return;</span>
+<span class="nc" id="L28">        String npcName = event.getRightClicked().getName();</span>
+<span class="nc bnc" id="L29" title="All 2 branches missed.">        if (npcName == null) {</span>
+<span class="nc" id="L30">            return;</span>
         }
 
-<span class="nc" id="L29">        String npcPrefix = plugin.getConfigManager().getMainConfig()</span>
-<span class="nc" id="L30">                .getString(&quot;dialogue-system.npc.name-prefix&quot;, &quot;&amp;b[English] &amp;f&quot;);</span>
-<span class="nc bnc" id="L31" title="All 2 branches missed.">        if (npcPrefix == null) {</span>
-<span class="nc" id="L32">            return;</span>
+<span class="nc" id="L33">        String npcPrefix = plugin.getConfigManager().getMainConfig()</span>
+<span class="nc" id="L34">                .getString(&quot;dialogue-system.npc.name-prefix&quot;, &quot;&amp;b[English] &amp;f&quot;);</span>
+<span class="nc bnc" id="L35" title="All 2 branches missed.">        if (npcPrefix == null) {</span>
+<span class="nc" id="L36">            return;</span>
         }
 
-<span class="nc" id="L35">        String strippedPrefix = npcPrefix.replaceAll(&quot;&amp;[0-9a-fk-or]&quot;, &quot;&quot;).trim();</span>
-<span class="nc" id="L36">        String strippedNpcName = npcName.replaceAll(&quot;&amp;[0-9a-fk-or]&quot;, &quot;&quot;);</span>
-<span class="nc bnc" id="L37" title="All 2 branches missed.">        if (!strippedNpcName.contains(strippedPrefix)) {</span>
-<span class="nc" id="L38">            return;</span>
+<span class="nc" id="L39">        String strippedPrefix = COLOR_CODE.matcher(npcPrefix).replaceAll(&quot;&quot;).trim();</span>
+<span class="nc" id="L40">        String strippedNpcName = COLOR_CODE.matcher(npcName).replaceAll(&quot;&quot;);</span>
+<span class="nc bnc" id="L41" title="All 2 branches missed.">        if (!strippedNpcName.contains(strippedPrefix)) {</span>
+<span class="nc" id="L42">            return;</span>
         }
 
-<span class="nc" id="L41">        event.setCancelled(true);</span>
-<span class="nc" id="L42">        plugin.getLogger().info(&quot;Player &quot; + event.getPlayer().getName()</span>
-                + &quot; interacted with English NPC: &quot; + npcName);
-<span class="nc" id="L44">    }</span>
+<span class="nc" id="L45">        event.setCancelled(true);</span>
+<span class="nc" id="L46">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

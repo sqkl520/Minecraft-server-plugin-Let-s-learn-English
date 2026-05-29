@@ -24,6 +24,11 @@ public class HotReloadManager {
     public void reloadAll() {
         configManager.reloadAllConfigs();
         plugin.getWordManager().loadAllWordBanks();
+        plugin.getPlayerDataStore().clearCache();
+        plugin.getPlayerDataStore().clearProfileCache();
+        if (plugin.getAchievementManager() != null) {
+            plugin.getAchievementManager().clearCache();
+        }
         plugin.getLogger().info("All configurations hot-reloaded successfully.");
     }
 

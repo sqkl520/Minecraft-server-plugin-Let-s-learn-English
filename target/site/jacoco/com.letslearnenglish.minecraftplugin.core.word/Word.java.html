@@ -19,72 +19,89 @@ public class Word {
     private final List&lt;String&gt; antonyms;
     private final String difficulty;
     private final int difficultyLevel;
+    private final double reward; // 0 means use global default from config
 
     public Word(String english, String chinese, String partOfSpeech, String phonetic,
                 String exampleSentence, List&lt;String&gt; synonyms, List&lt;String&gt; antonyms,
-<span class="fc" id="L25">                String difficulty, int difficultyLevel) {</span>
-<span class="fc" id="L26">        this.english = english;</span>
-<span class="fc" id="L27">        this.chinese = chinese;</span>
-<span class="fc" id="L28">        this.partOfSpeech = partOfSpeech;</span>
-<span class="fc" id="L29">        this.phonetic = phonetic;</span>
-<span class="fc" id="L30">        this.exampleSentence = exampleSentence;</span>
-<span class="fc bfc" id="L31" title="All 2 branches covered.">        this.synonyms = synonyms != null ? synonyms : List.of();</span>
-<span class="fc bfc" id="L32" title="All 2 branches covered.">        this.antonyms = antonyms != null ? antonyms : List.of();</span>
-<span class="fc" id="L33">        this.difficulty = difficulty;</span>
-<span class="fc" id="L34">        this.difficultyLevel = difficultyLevel;</span>
-<span class="fc" id="L35">    }</span>
+                String difficulty, int difficultyLevel) {
+<span class="fc" id="L27">        this(english, chinese, partOfSpeech, phonetic, exampleSentence,</span>
+                synonyms, antonyms, difficulty, difficultyLevel, 0.0);
+<span class="fc" id="L29">    }</span>
+
+    public Word(String english, String chinese, String partOfSpeech, String phonetic,
+                String exampleSentence, List&lt;String&gt; synonyms, List&lt;String&gt; antonyms,
+<span class="fc" id="L33">                String difficulty, int difficultyLevel, double reward) {</span>
+<span class="fc" id="L34">        this.english = english;</span>
+<span class="fc" id="L35">        this.chinese = chinese;</span>
+<span class="fc" id="L36">        this.partOfSpeech = partOfSpeech;</span>
+<span class="fc" id="L37">        this.phonetic = phonetic;</span>
+<span class="fc" id="L38">        this.exampleSentence = exampleSentence;</span>
+<span class="fc bfc" id="L39" title="All 2 branches covered.">        this.synonyms = synonyms != null ? synonyms : List.of();</span>
+<span class="fc bfc" id="L40" title="All 2 branches covered.">        this.antonyms = antonyms != null ? antonyms : List.of();</span>
+<span class="fc" id="L41">        this.difficulty = difficulty;</span>
+<span class="fc" id="L42">        this.difficultyLevel = difficultyLevel;</span>
+<span class="fc" id="L43">        this.reward = reward;</span>
+<span class="fc" id="L44">    }</span>
 
     public String getEnglish() {
-<span class="fc" id="L38">        return english;</span>
+<span class="fc" id="L47">        return english;</span>
     }
 
     public String getChinese() {
-<span class="fc" id="L42">        return chinese;</span>
+<span class="fc" id="L51">        return chinese;</span>
     }
 
     public String getPartOfSpeech() {
-<span class="fc" id="L46">        return partOfSpeech;</span>
+<span class="fc" id="L55">        return partOfSpeech;</span>
     }
 
     public String getPhonetic() {
-<span class="fc" id="L50">        return phonetic;</span>
+<span class="fc" id="L59">        return phonetic;</span>
     }
 
     public String getExampleSentence() {
-<span class="fc" id="L54">        return exampleSentence;</span>
+<span class="fc" id="L63">        return exampleSentence;</span>
     }
 
     public List&lt;String&gt; getSynonyms() {
-<span class="fc" id="L58">        return synonyms;</span>
+<span class="fc" id="L67">        return synonyms;</span>
     }
 
     public List&lt;String&gt; getAntonyms() {
-<span class="fc" id="L62">        return antonyms;</span>
+<span class="fc" id="L71">        return antonyms;</span>
     }
 
     public String getDifficulty() {
-<span class="fc" id="L66">        return difficulty;</span>
+<span class="fc" id="L75">        return difficulty;</span>
     }
 
     public int getDifficultyLevel() {
-<span class="fc" id="L70">        return difficultyLevel;</span>
+<span class="fc" id="L79">        return difficultyLevel;</span>
+    }
+
+    /**
+     * Get the custom reward amount for this word.
+     * Returns 0 if no custom reward is set (fall back to global config).
+     */
+    public double getReward() {
+<span class="nc" id="L87">        return reward;</span>
     }
 
     @Override
     public String toString() {
-<span class="fc" id="L75">        return &quot;Word{english='&quot; + english + &quot;', chinese='&quot; + chinese + &quot;'}&quot;;</span>
+<span class="fc" id="L92">        return &quot;Word{english='&quot; + english + &quot;', chinese='&quot; + chinese + &quot;'}&quot;;</span>
     }
 
     @Override
     public boolean equals(Object o) {
-<span class="pc bpc" id="L80" title="1 of 2 branches missed.">        if (this == o) return true;</span>
-<span class="pc bpc" id="L81" title="1 of 2 branches missed.">        if (!(o instanceof Word word)) return false;</span>
-<span class="fc" id="L82">        return english.equalsIgnoreCase(word.english);</span>
+<span class="pc bpc" id="L97" title="1 of 2 branches missed.">        if (this == o) return true;</span>
+<span class="pc bpc" id="L98" title="1 of 2 branches missed.">        if (!(o instanceof Word word)) return false;</span>
+<span class="fc" id="L99">        return english.equalsIgnoreCase(word.english);</span>
     }
 
     @Override
     public int hashCode() {
-<span class="fc" id="L87">        return english.toLowerCase().hashCode();</span>
+<span class="fc" id="L104">        return english.toLowerCase().hashCode();</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

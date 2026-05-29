@@ -46,34 +46,40 @@ public class MainMenu {
 <span class="nc" id="L46">        String dialogueLore = ChatColor.translateAlternateColorCodes('&amp;',</span>
 <span class="nc" id="L47">                messages.getString(&quot;main-menu.dialogue-practice-lore&quot;, &quot;&amp;7Practice English conversations&quot;));</span>
 <span class="nc" id="L48">        String progressName = ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc" id="L49">                messages.getString(&quot;main-menu.progress-stats&quot;, &quot;&amp;eProgress &amp; Stats&quot;));</span>
+<span class="nc" id="L49">                messages.getString(&quot;main-menu.progress-stats&quot;, &quot;&amp;eProfile&quot;));</span>
 <span class="nc" id="L50">        String progressLore = ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc" id="L51">                messages.getString(&quot;main-menu.progress-stats-lore&quot;, &quot;&amp;7View your learning progress&quot;));</span>
+<span class="nc" id="L51">                messages.getString(&quot;main-menu.progress-stats-lore&quot;, &quot;&amp;7View your personal profile&quot;));</span>
 
-<span class="nc" id="L53">        menu.setItem(11, createMenuItem(Material.BOOK, wordName, wordLore));</span>
-<span class="nc" id="L54">        menu.setItem(13, createMenuItem(Material.PAPER, dialogueName, dialogueLore));</span>
-<span class="nc" id="L55">        menu.setItem(15, createMenuItem(Material.DIAMOND, progressName, progressLore));</span>
+<span class="nc" id="L53">        String squareName = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L54">                messages.getString(&quot;main-menu.square&quot;, &quot;&amp;dEnglish Square&quot;));</span>
+<span class="nc" id="L55">        String squareLore = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L56">                messages.getString(&quot;main-menu.square-lore&quot;, &quot;&amp;7Browse other learners&quot;));</span>
 
-<span class="nc" id="L57">        String btnName = ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc" id="L58">                messages.getString(&quot;language.button&quot;, &quot;&amp;eSwitch Language&quot;));</span>
-<span class="nc" id="L59">        String btnLore = ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc" id="L60">                messages.getString(&quot;language.button-lore&quot;, &quot;&amp;7Click to switch&quot;));</span>
-<span class="nc" id="L61">        menu.setItem(18, createMenuItem(Material.RED_BED, btnName, btnLore));</span>
+<span class="nc" id="L58">        menu.setItem(11, createMenuItem(Material.BOOK, wordName, wordLore));</span>
+<span class="nc" id="L59">        menu.setItem(13, createMenuItem(Material.PAPER, dialogueName, dialogueLore));</span>
+<span class="nc" id="L60">        menu.setItem(15, createMenuItem(Material.DIAMOND, progressName, progressLore));</span>
+<span class="nc" id="L61">        menu.setItem(17, createMenuItem(Material.PLAYER_HEAD, squareName, squareLore));</span>
 
-<span class="nc" id="L63">        SoundManager.playSound(player, &quot;menu-open&quot;);</span>
-<span class="nc" id="L64">        player.openInventory(menu);</span>
-<span class="nc" id="L65">    }</span>
+<span class="nc" id="L63">        String btnName = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L64">                messages.getString(&quot;language.button&quot;, &quot;&amp;eSwitch Language&quot;));</span>
+<span class="nc" id="L65">        String btnLore = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L66">                messages.getString(&quot;language.button-lore&quot;, &quot;&amp;7Click to switch&quot;));</span>
+<span class="nc" id="L67">        menu.setItem(18, createMenuItem(Material.RED_BED, btnName, btnLore));</span>
+
+<span class="nc" id="L69">        SoundManager.playSound(player, &quot;menu-open&quot;);</span>
+<span class="nc" id="L70">        player.openInventory(menu);</span>
+<span class="nc" id="L71">    }</span>
 
     private ItemStack createMenuItem(Material material, String name, String lore) {
-<span class="nc" id="L68">        ItemStack item = new ItemStack(material);</span>
-<span class="nc" id="L69">        ItemMeta meta = item.getItemMeta();</span>
-<span class="nc bnc" id="L70" title="All 2 branches missed.">        if (meta != null) {</span>
-<span class="nc" id="L71">            meta.setDisplayName(ChatColor.translateAlternateColorCodes('&amp;', name));</span>
-<span class="nc" id="L72">            meta.setLore(Collections.singletonList(</span>
-<span class="nc" id="L73">                    ChatColor.translateAlternateColorCodes('&amp;', lore)));</span>
-<span class="nc" id="L74">            item.setItemMeta(meta);</span>
+<span class="nc" id="L74">        ItemStack item = new ItemStack(material);</span>
+<span class="nc" id="L75">        ItemMeta meta = item.getItemMeta();</span>
+<span class="nc bnc" id="L76" title="All 2 branches missed.">        if (meta != null) {</span>
+<span class="nc" id="L77">            meta.setDisplayName(ChatColor.translateAlternateColorCodes('&amp;', name));</span>
+<span class="nc" id="L78">            meta.setLore(Collections.singletonList(</span>
+<span class="nc" id="L79">                    ChatColor.translateAlternateColorCodes('&amp;', lore)));</span>
+<span class="nc" id="L80">            item.setItemMeta(meta);</span>
         }
-<span class="nc" id="L76">        return item;</span>
+<span class="nc" id="L82">        return item;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>
