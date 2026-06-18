@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ProxyMessenger.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.core</a> &gt; <span class="el_source">ProxyMessenger.java</span></div><h1>ProxyMessenger.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.core;
+
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
+import org.bukkit.plugin.messaging.PluginMessageListener;
+
+import java.util.UUID;
+import java.util.logging.Level;
+
+/**
+ * Proxy Messenger — Velocity / BungeeCord 跨服通信
+ *
+ * 通过 BungeeCord 插件消息通道实现：
+ * - 跨服公告广播
+ * - 成就解锁全服通知
+ * - 全局消息下发
+ *
+ * Velocity 向下兼容 BungeeCord 的 PluginMessage 协议，
+ * 因此本类可同时兼容 Velocity 和 BungeeCord 代理。
+ */
+public class ProxyMessenger implements PluginMessageListener {
+
+    public static final String CHANNEL = &quot;BungeeCord&quot;;
+
+    private final LetsLearnEnglish plugin;
+    private volatile boolean registered;
+
+<span class="nc" id="L32">    public ProxyMessenger(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L33">        this.plugin = plugin;</span>
+<span class="nc" id="L34">    }</span>
+
+    /**
+     * 注册插件消息通道。
+     * 如果当前没有在线玩家（即无代理连接），静默跳过不做任何操作，
+     * 避免在单服测试环境输出无意义报错。
+     */
+    public void register() {
+<span class="nc bnc" id="L42" title="All 2 branches missed.">        if (registered) return;</span>
+        try {
+<span class="nc" id="L44">            Bukkit.getMessenger().registerOutgoingPluginChannel(plugin, CHANNEL);</span>
+<span class="nc" id="L45">            Bukkit.getMessenger().registerIncomingPluginChannel(plugin, CHANNEL, this);</span>
+<span class="nc" id="L46">            registered = true;</span>
+<span class="nc" id="L47">            plugin.getLogger().info(&quot;Proxy messaging channel registered (Velocity/BungeeCord compatible).&quot;);</span>
+<span class="nc" id="L48">        } catch (Exception e) {</span>
+<span class="nc" id="L49">            plugin.getLogger().log(Level.WARNING, &quot;Failed to register proxy messaging channel — running in standalone mode.&quot;, e);</span>
+<span class="nc" id="L50">        }</span>
+<span class="nc" id="L51">    }</span>
+
+    public void unregister() {
+<span class="nc bnc" id="L54" title="All 2 branches missed.">        if (!registered) return;</span>
+        try {
+<span class="nc" id="L56">            Bukkit.getMessenger().unregisterOutgoingPluginChannel(plugin, CHANNEL);</span>
+<span class="nc" id="L57">            Bukkit.getMessenger().unregisterIncomingPluginChannel(plugin, CHANNEL, this);</span>
+<span class="nc" id="L58">        } catch (Exception ignored) {</span>
+            // channel may already be unregistered during plugin disable
+<span class="nc" id="L60">        }</span>
+<span class="nc" id="L61">        registered = false;</span>
+<span class="nc" id="L62">    }</span>
+
+    // ============================================================
+    //  发送方法
+    // ============================================================
+
+    /**
+     * 向全服发送公告消息（转发到代理，代理广播给所有子服）。
+     */
+    public void sendGlobalMessage(String message) {
+<span class="nc" id="L72">        sendForward(&quot;ALL&quot;, &quot;GlobalMessage&quot;, message);</span>
+<span class="nc" id="L73">    }</span>
+
+    /**
+     * 向全服发送成就解锁公告。
+     */
+    public void sendAchievementBroadcast(String playerName, UUID playerId, String achievementName) {
+<span class="nc" id="L79">        String payload = playerName + &quot;|&quot; + playerId + &quot;|&quot; + achievementName;</span>
+<span class="nc" id="L80">        sendForward(&quot;ALL&quot;, &quot;AchievementUnlock&quot;, payload);</span>
+<span class="nc" id="L81">    }</span>
+
+    /**
+     * 向指定子服发送消息。
+     *
+     * @param targetServer 目标子服名，&quot;ALL&quot; 表示全部子服
+     * @param subChannel   子通道标识
+     * @param data         载荷数据
+     */
+    private void sendForward(String targetServer, String subChannel, String data) {
+<span class="nc bnc" id="L91" title="All 2 branches missed.">        if (!registered) return;</span>
+
+        // 需要至少一个在线玩家作为&quot;信使&quot;来发送 PluginMessage
+<span class="nc" id="L94">        Player messenger = getAnyOnlinePlayer();</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">        if (messenger == null) {</span>
+<span class="nc" id="L96">            plugin.getLogger().fine(&quot;No online player available to send proxy message, skipping.&quot;);</span>
+<span class="nc" id="L97">            return;</span>
+        }
+
+<span class="nc" id="L100">        ByteArrayDataOutput out = ByteStreams.newDataOutput();</span>
+<span class="nc" id="L101">        out.writeUTF(&quot;Forward&quot;);       // BungeeCord 子通道: Forward</span>
+<span class="nc" id="L102">        out.writeUTF(targetServer);    // 目标服务器名或 &quot;ALL&quot;</span>
+<span class="nc" id="L103">        out.writeUTF(subChannel);      // 自定义子通道</span>
+
+        // 写入载荷
+<span class="nc" id="L106">        ByteArrayDataOutput payloadOut = ByteStreams.newDataOutput();</span>
+<span class="nc" id="L107">        payloadOut.writeUTF(data);</span>
+<span class="nc" id="L108">        byte[] payloadBytes = payloadOut.toByteArray();</span>
+
+<span class="nc" id="L110">        out.writeShort(payloadBytes.length);</span>
+<span class="nc" id="L111">        out.write(payloadBytes);</span>
+
+<span class="nc" id="L113">        messenger.sendPluginMessage(plugin, CHANNEL, out.toByteArray());</span>
+<span class="nc" id="L114">    }</span>
+
+    private Player getAnyOnlinePlayer() {
+<span class="nc bnc" id="L117" title="All 2 branches missed.">        for (Player player : Bukkit.getOnlinePlayers()) {</span>
+<span class="nc" id="L118">            return player;</span>
+        }
+<span class="nc" id="L120">        return null;</span>
+    }
+
+    public boolean isRegistered() {
+<span class="nc" id="L124">        return registered;</span>
+    }
+
+    // ============================================================
+    //  接收方法 — 处理来自其他子服或代理的消息
+    // ============================================================
+
+    @Override
+    public void onPluginMessageReceived(String channel, Player player, byte[] message) {
+<span class="nc bnc" id="L133" title="All 2 branches missed.">        if (!CHANNEL.equals(channel)) return;</span>
+
+<span class="nc" id="L135">        ByteArrayDataInput in = ByteStreams.newDataInput(message);</span>
+<span class="nc" id="L136">        String subChannel = in.readUTF();</span>
+
+<span class="nc bnc" id="L138" title="All 3 branches missed.">        switch (subChannel) {</span>
+            case &quot;GlobalMessage&quot; -&gt; {
+<span class="nc" id="L140">                String msg = in.readUTF();</span>
+<span class="nc" id="L141">                handleGlobalMessage(msg);</span>
+<span class="nc" id="L142">            }</span>
+            case &quot;AchievementUnlock&quot; -&gt; {
+<span class="nc" id="L144">                String payload = in.readUTF();</span>
+<span class="nc" id="L145">                handleAchievementBroadcast(payload);</span>
+<span class="nc" id="L146">            }</span>
+            default -&gt; {
+                // 忽略未知子通道（可能来自其他插件）
+            }
+        }
+<span class="nc" id="L151">    }</span>
+
+    private void handleGlobalMessage(String message) {
+<span class="nc" id="L154">        String formatted = org.bukkit.ChatColor.translateAlternateColorCodes('&amp;', message);</span>
+<span class="nc" id="L155">        Bukkit.broadcastMessage(formatted);</span>
+<span class="nc" id="L156">        plugin.getLogger().info(&quot;[Proxy] Global message received: &quot; + message);</span>
+<span class="nc" id="L157">    }</span>
+
+    private void handleAchievementBroadcast(String payload) {
+<span class="nc" id="L160">        String[] parts = payload.split(&quot;\\|&quot;, 3);</span>
+<span class="nc bnc" id="L161" title="All 2 branches missed.">        if (parts.length &lt; 3) return;</span>
+<span class="nc" id="L162">        String playerName = parts[0];</span>
+        // UUID ignored for broadcast display — just show the achievement
+<span class="nc" id="L164">        String achievementName = parts[2];</span>
+
+<span class="nc" id="L166">        String defaultLang = plugin.getConfigManager().getMainConfig().getString(&quot;general.language&quot;, &quot;zh&quot;);</span>
+<span class="nc" id="L167">        org.bukkit.configuration.file.FileConfiguration messages = plugin.getConfigManager().getMessageConfig(defaultLang);</span>
+<span class="nc" id="L168">        String template = messages.getString(&quot;dialogue.proxy-achievement&quot;,</span>
+                &quot;&amp;8[&amp;b英语学习&amp;8] &amp;6成就解锁: &amp;e{achievement} &amp;6- 由 &amp;f{player} &amp;6在另一个子服获得！&quot;);
+<span class="nc" id="L170">        String msg = template.replace(&quot;{achievement}&quot;, achievementName).replace(&quot;{player}&quot;, playerName);</span>
+<span class="nc" id="L171">        msg = org.bukkit.ChatColor.translateAlternateColorCodes('&amp;', msg);</span>
+<span class="nc" id="L172">        Bukkit.broadcastMessage(msg);</span>
+<span class="nc" id="L173">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

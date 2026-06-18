@@ -130,6 +130,22 @@ public enum Achievement {
             "Fortune",
             "累计获得 5000 金币，你的金库已经满满当当！",
             "Earn 5000 coins total — your treasury is overflowing!"
+    ),
+
+    AI_CHAT_10(
+            "ai_chat_10",
+            "初识AI",
+            "AI Beginner",
+            "完成 10 次 AI 情景对话，与 AI 练习口语！",
+            "Complete 10 AI scenario conversations — practicing with AI!"
+    ),
+
+    AI_CHAT_50(
+            "ai_chat_50",
+            "AI伙伴",
+            "AI Companion",
+            "完成 50 次 AI 情景对话，AI 已经成为你的语言伙伴！",
+            "Complete 50 AI scenario conversations — AI is your language partner now!"
     );
 
     private final String id;

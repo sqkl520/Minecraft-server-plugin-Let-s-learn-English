@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LLEPapiExpansion.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.expansion</a> &gt; <span class="el_source">LLEPapiExpansion.java</span></div><h1>LLEPapiExpansion.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.expansion;
+
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard;
+import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import me.clip.placeholderapi.expansion.PlaceholderExpansion;
+import org.bukkit.OfflinePlayer;
+import org.bukkit.entity.Player;
+import org.jetbrains.annotations.NotNull;
+
+import java.util.UUID;
+
+/**
+ * PlaceholderAPI expansion for Let's Learn English!
+ *
+ * Provides these placeholders (all support both zh/en players):
+ *   %lle_score%          — total coins
+ *   %lle_rank%           — rank text (&quot;#1&quot; or &quot;未上榜&quot;/&quot;Unranked&quot;)
+ *   %lle_words%          — total words attempted
+ *   %lle_accuracy%       — accuracy percentage (e.g. &quot;85.3%&quot;)
+ *   %lle_sessions%       — total learning sessions
+ *   %lle_streak%         — current daily streak
+ *   %lle_longest_streak% — longest daily streak
+ *   %lle_achievements%   — &quot;unlocked/total&quot; (e.g. &quot;3/16&quot;)
+ *   %lle_correct%        — total correct answers
+ *   %lle_incorrect%      — total incorrect answers
+ */
+public class LLEPapiExpansion extends PlaceholderExpansion {
+
+    private final LetsLearnEnglish plugin;
+
+<span class="nc" id="L32">    public LLEPapiExpansion(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L33">        this.plugin = plugin;</span>
+<span class="nc" id="L34">    }</span>
+
+    @Override
+    @NotNull
+    public String getIdentifier() {
+<span class="nc" id="L39">        return &quot;lle&quot;;</span>
+    }
+
+    @Override
+    @NotNull
+    public String getAuthor() {
+<span class="nc bnc" id="L45" title="All 2 branches missed.">        return plugin.getDescription().getAuthors().isEmpty()</span>
+<span class="nc" id="L46">                ? &quot;sqkl520&quot; : plugin.getDescription().getAuthors().get(0);</span>
+    }
+
+    @Override
+    @NotNull
+    public String getVersion() {
+<span class="nc" id="L52">        return plugin.getDescription().getVersion();</span>
+    }
+
+    @Override
+    public boolean persist() {
+<span class="nc" id="L57">        return true; // Keep registered across /papi reload</span>
+    }
+
+    @Override
+    public boolean canRegister() {
+<span class="nc" id="L62">        return true;</span>
+    }
+
+    @Override
+    public String onRequest(OfflinePlayer offlinePlayer, @NotNull String params) {
+<span class="nc bnc" id="L67" title="All 2 branches missed.">        if (offlinePlayer == null) {</span>
+<span class="nc" id="L68">            return &quot;&quot;;</span>
+        }
+<span class="nc" id="L70">        UUID playerId = offlinePlayer.getUniqueId();</span>
+<span class="nc" id="L71">        PlayerDataStore store = plugin.getPlayerDataStore();</span>
+
+        // Ensure data is loaded (may trigger DB load for offline players)
+<span class="nc" id="L74">        PlayerDataStore.PlayerStats stats = store.getPlayerStats(playerId);</span>
+<span class="nc bnc" id="L75" title="All 2 branches missed.">        if (stats == null) {</span>
+<span class="nc bnc" id="L76" title="All 2 branches missed.">            return params.equals(&quot;rank&quot;) ? getUnrankedText(offlinePlayer) : &quot;0&quot;;</span>
+        }
+
+<span class="nc bnc" id="L79" title="All 11 branches missed.">        return switch (params) {</span>
+<span class="nc" id="L80">            case &quot;score&quot; -&gt; String.valueOf(stats.getTotalScore());</span>
+            case &quot;rank&quot; -&gt; {
+<span class="nc" id="L82">                int rank = plugin.getProgressManager().getLeaderboard().getPlayerRank(playerId);</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">                yield rank &gt; 0 ? &quot;#&quot; + rank : getUnrankedText(offlinePlayer);</span>
+            }
+<span class="nc" id="L85">            case &quot;words&quot; -&gt; String.valueOf(stats.getTotalWords());</span>
+            case &quot;accuracy&quot; -&gt; {
+<span class="nc" id="L87">                int total = stats.getTotalCorrect() + stats.getTotalIncorrect();</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">                if (total == 0) {</span>
+<span class="nc" id="L89">                    yield &quot;0.0%&quot;;</span>
+                }
+<span class="nc" id="L91">                double acc = (double) stats.getTotalCorrect() / total * 100.0;</span>
+<span class="nc" id="L92">                yield String.format(&quot;%.1f%%&quot;, acc);</span>
+            }
+<span class="nc" id="L94">            case &quot;sessions&quot; -&gt; String.valueOf(stats.getTotalSessions());</span>
+<span class="nc" id="L95">            case &quot;streak&quot; -&gt; String.valueOf(getStreak(playerId, &quot;current_streak&quot;));</span>
+<span class="nc" id="L96">            case &quot;longest_streak&quot; -&gt; String.valueOf(getStreak(playerId, &quot;longest_streak&quot;));</span>
+            case &quot;achievements&quot; -&gt; {
+<span class="nc" id="L98">                int unlocked = plugin.getAchievementManager().getUnlockedCount(playerId);</span>
+<span class="nc" id="L99">                int total = com.letslearnenglish.minecraftplugin.core.achievement.Achievement.values().length;</span>
+<span class="nc" id="L100">                yield unlocked + &quot;/&quot; + total;</span>
+            }
+<span class="nc" id="L102">            case &quot;correct&quot; -&gt; String.valueOf(stats.getTotalCorrect());</span>
+<span class="nc" id="L103">            case &quot;incorrect&quot; -&gt; String.valueOf(stats.getTotalIncorrect());</span>
+<span class="nc" id="L104">            default -&gt; null; // Unknown placeholder</span>
+        };
+    }
+
+    private String getUnrankedText(OfflinePlayer player) {
+<span class="nc bnc" id="L109" title="All 4 branches missed.">        if (player.isOnline() &amp;&amp; player.getPlayer() != null) {</span>
+<span class="nc" id="L110">            String lang = plugin.getPlayerLanguage(player.getPlayer());</span>
+<span class="nc bnc" id="L111" title="All 2 branches missed.">            return &quot;zh&quot;.equalsIgnoreCase(lang) ? &quot;未上榜&quot; : &quot;Unranked&quot;;</span>
+        }
+<span class="nc" id="L113">        return &quot;Unranked&quot;;</span>
+    }
+
+    private int getStreak(UUID playerId, String column) {
+<span class="nc" id="L117">        String tablePrefix = plugin.getDatabaseManager().getTablePrefix();</span>
+<span class="nc" id="L118">        String sql = &quot;SELECT &quot; + column + &quot; FROM &quot; + tablePrefix + &quot;player_data WHERE uuid = ?&quot;;</span>
+<span class="nc" id="L119">        try (java.sql.Connection conn = plugin.getDatabaseManager().getConnection();</span>
+<span class="nc" id="L120">             java.sql.PreparedStatement stmt = conn.prepareStatement(sql)) {</span>
+<span class="nc" id="L121">            stmt.setString(1, playerId.toString());</span>
+<span class="nc" id="L122">            try (java.sql.ResultSet rs = stmt.executeQuery()) {</span>
+<span class="nc bnc" id="L123" title="All 2 branches missed.">                if (rs.next()) {</span>
+<span class="nc" id="L124">                    return rs.getInt(column);</span>
+                }
+<span class="nc bnc" id="L126" title="All 2 branches missed.">            }</span>
+<span class="nc bnc" id="L127" title="All 4 branches missed.">        } catch (java.sql.SQLException e) {</span>
+            // Silently return 0 on error
+<span class="nc" id="L129">        }</span>
+<span class="nc" id="L130">        return 0;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

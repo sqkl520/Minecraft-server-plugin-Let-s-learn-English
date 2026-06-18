@@ -1,9 +1,12 @@
 package com.letslearnenglish.minecraftplugin.command;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
-import com.letslearnenglish.minecraftplugin.gui.DialogueGUI;
+import com.letslearnenglish.minecraftplugin.gui.EnglishSquareGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
+import com.letslearnenglish.minecraftplugin.gui.ProfileGUI;
 import com.letslearnenglish.minecraftplugin.gui.ProgressGUI;
+import com.letslearnenglish.minecraftplugin.gui.ScenarioSelectGUI;
+import com.letslearnenglish.minecraftplugin.gui.WordBankSelectGUI;
 import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -32,7 +35,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     private final LetsLearnEnglish plugin;
 
     private static final List<String> SUBCOMMANDS = Arrays.asList(
-            "menu", "word", "dialogue", "progress", "review", "stats", "help"
+            "menu", "word", "dialogue", "progress", "review", "stats", "help", "square", "profile"
     );
 
     public LearnCommand(LetsLearnEnglish plugin) {
@@ -72,6 +75,12 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             case "stats":
                 handleStatsCommand(player);
                 break;
+            case "square":
+                handleSquareCommand(player);
+                break;
+            case "profile":
+                handleProfileCommand(player, args);
+                break;
             case "help":
                 sendHelpMessage(player);
                 break;
@@ -89,9 +98,16 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleWordCommand(Player player, String[] args) {
-        String difficulty = args.length > 1 ? args[1] : "beginner";
-        String mode = args.length > 2 ? args[2] : "choice";
+        if (args.length <= 1) {
+            new WordBankSelectGUI(plugin).open(player);
+        } else {
+            String difficulty = args[1];
+            String mode = args.length > 2 ? args[2] : "choice";
+            startWordQuiz(player, difficulty, mode);
+        }
+    }
 
+    private void startWordQuiz(Player player, String difficulty, String mode) {
         try {
             plugin.getWordLearningManager().startQuiz(player, difficulty, mode);
             new WordLearningGUI(plugin).openWithMessage(player, difficulty, mode);
@@ -104,12 +120,33 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleDialogueCommand(Player player, String[] args) {
-        String scene = args.length > 1 ? args[1] : "restaurant";
-        new DialogueGUI(plugin).open(player, scene);
+        if (plugin.getChatScenarioListener() == null) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "general.error", "message", "Chat scenario is not available."));
+            return;
+        }
+        if (plugin.getChatScenarioListener().isInScenarioMode(player)) {
+            plugin.getChatScenarioListener().removePlayer(player);
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "dialogue.ended"));
+            return;
+        }
+        if (args.length > 1) {
+            // 直接开始指定场景
+            String scenario = args[1].toLowerCase();
+            plugin.getChatScenarioListener().addPlayer(player);
+            plugin.getAIChatManager().startConversation(player, scenario);
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "dialogue.started", "scenario", scenario));
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "dialogue.instructions"));
+        } else {
+            new ScenarioSelectGUI(plugin).open(player);
+        }
     }
 
     private void handleProgressCommand(Player player) {
-        new ProgressGUI(plugin).open(player);
+        new ProfileGUI(plugin).open(player, player.getUniqueId());
     }
 
     private void handleReviewCommand(Player player) {
@@ -119,7 +156,14 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         if (count > 0) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "review.notification", "count", String.valueOf(count)));
-            plugin.getWordManager().getReviewScheduler().checkAndNotifyReviews();
+            com.letslearnenglish.minecraftplugin.core.word.LearningSession session =
+                    plugin.getWordLearningManager().startReviewQuiz(player);
+            if (session != null) {
+                new com.letslearnenglish.minecraftplugin.gui.WordLearningGUI(plugin)
+                        .openWithMessage(player, "review", "review");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "word.session-start", "difficulty", "复习", "mode", "复习"));
+            }
         } else {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "review.no-words"));
@@ -127,7 +171,26 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleStatsCommand(Player player) {
-        new ProgressGUI(plugin).open(player);
+        new ProfileGUI(plugin).open(player, player.getUniqueId());
+    }
+
+    private void handleSquareCommand(Player player) {
+        new EnglishSquareGUI(plugin).open(player, 1);
+    }
+
+    private void handleProfileCommand(Player player, String[] args) {
+        if (args.length > 1) {
+            String targetName = args[1];
+            Player target = plugin.getServer().getPlayer(targetName);
+            if (target != null) {
+                new ProfileGUI(plugin).open(player, target.getUniqueId());
+            } else {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "general.error", "message", "Player not found"));
+            }
+        } else {
+            new ProfileGUI(plugin).open(player, player.getUniqueId());
+        }
     }
 
     private void sendHelpMessage(Player player) {
@@ -138,6 +201,8 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.progress"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.review"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.stats"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.profile"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.square"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.footer"));
     }
 
@@ -149,6 +214,12 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             for (String sub : SUBCOMMANDS) {
                 if (sub.startsWith(args[0].toLowerCase())) {
                     completions.add(sub);
+                }
+            }
+        } else if (args.length == 2 && "dialogue".equalsIgnoreCase(args[0])) {
+            for (String scenario : plugin.getAIChatManager().getAvailableScenarios()) {
+                if (scenario.startsWith(args[1].toLowerCase())) {
+                    completions.add(scenario);
                 }
             }
         } else if (args.length == 2 && "word".equalsIgnoreCase(args[0])) {

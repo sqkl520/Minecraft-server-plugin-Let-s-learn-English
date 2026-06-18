@@ -1,6 +1,6 @@
 # ============================================================
 #  Let's Learn English! - 主配置文件 (Main Configuration)
-#  Minecraft 英语学习插件 v1.1.0
+#  Minecraft 英语学习插件 v1.0.6
 # ============================================================
 #
 #  说明：
@@ -41,6 +41,15 @@ general:
     enabled: true
     interval: 1440
     max-backups: 7
+
+# ============================================================
+#  消息前缀 (Message Prefix)
+# ============================================================
+#  所有通过插件发送的聊天消息都会自动添加前缀
+#  支持颜色代码（& 符号）
+prefix:
+  zh: "&8[&b英语学习&8] &f"
+  en: "&8[&bEnglish&8] &f"
 
 # ============================================================
 #  数据库设置 (Database Settings)
@@ -96,6 +105,10 @@ word-system:
     # 掌握阈值：单词掌握度达到此值后排除出复习计划
     # 范围：0.0 - 1.0，默认 0.85
     mastery-threshold: 0.85
+    # 已掌握单词低频复习周期（天）
+    # 完成所有艾宾浩斯间隔后，单词进入低频复习池，每 N 天复习一次
+    # 默认 30 天
+    mastered-review-interval-days: 30
 
   # --- 学习模式配置 ---
   modes:
@@ -118,31 +131,32 @@ word-system:
       max-attempts: 3
 
 # ============================================================
-#  情景对话系统 (Dialogue System)
+#  AI 情景对话系统 (AI Scenario Chat System)
 # ============================================================
-dialogue-system:
-  # 是否启用情景对话模块
+#  使用 DeepSeek API 提供智能英语情景对话
+#  API 密钥存储在 ai_config.yml（插件数据文件夹中），不在此配置文件
+ai-chat:
+  # 是否启用 AI 对话模块
   enabled: true
-
-  # --- NPC 设置 ---
-  npc:
-    # 是否使用 Citizens 插件（需单独安装 Citizens 插件）
-    use-citizens: false
-    # 玩家与 NPC 的交互距离（格）
-    interaction-distance: 3.0
-    # NPC 名称前缀（颜色代码使用 & 符号）
-    name-prefix: "&b[English] &f"
-
-  # --- 对话设置 ---
-  conversation:
-    # 是否启用语法检查
-    grammar-check: true
-    # 是否根据玩家水平自适应调整难度
-    adaptive-difficulty: true
-    # 对话历史记录大小（条）
-    history-size: 20
-    # 打字等待超时时间（秒），超时后对话自动结束
-    typing-timeout: 60
+  # DeepSeek API 接口地址（默认使用官方 API）
+  api-url: "https://api.deepseek.com/v1/chat/completions"
+  # 模型名称
+  model: "deepseek-chat"
+  # 最大对话上下文对数（保留最近 N 轮对话）
+  # 值越大对话越连贯，但每次请求消耗更多 token
+  max-context-pairs: 6
+  # 最大上下文 token 数（近似估算，1 token ≈ 4 英文字符）
+  # 当上下文 token 估算值超过此限制时，自动裁剪最早的对话轮次
+  # System Prompt 永远保留，不会被裁剪
+  max-context-tokens: 2000
+  # HTTP 请求超时时间（秒）
+  timeout-seconds: 15
+  # 玩家发送消息的频率限制（秒），防止 API 滥用
+  rate-limit-seconds: 3
+  # 玩家输入最大长度（字符），超出部分将被截断
+  max-input-length: 200
+  # 调试模式：开启后在控制台输出 AI 请求/响应详情
+  debug: false
 
 # ============================================================
 #  进度与奖励系统 (Progress & Reward System)
@@ -162,7 +176,7 @@ progress-system:
   # --- 成就系统 ---
   achievements:
     enabled: true
-    config-file: "achievements.yml"
+    config-file: "achievements-config.yml"
 
   # --- 奖励类型 ---
   rewards:
@@ -181,6 +195,20 @@ progress-system:
       money:
         enabled: false
         vault-required: true
+        # 每答对一题获得的基础金币数
+        base-amount: 10.0
+        # Combo 倍率是否影响金币奖励（金币 = base-amount × combo-multiplier）
+        combo-bonus: true
+        # 学习会话完成时的额外奖励金币
+        session-complete-bonus: 50.0
+        # 达到最高连击时的额外奖励（会话结算时发放）
+        max-combo-bonus: 25.0
+        # 复习模式金币倍率（相对于 base-amount），设为 0.5 表示复习奖励为学习的一半
+        review-multiplier: 0.5
+        # 复习模式答错是否扣除金币
+        review-penalty: true
+        # 复习模式答错扣除的金币数
+        review-penalty-amount: 5.0
 
 # ============================================================
 #  GUI 界面设置 (GUI Settings)
@@ -205,16 +233,172 @@ gui:
     menu-click: "BLOCK_NOTE_BLOCK_HAT"         # 菜单点击音效
 
 # ============================================================
+#  GUI 界面布局设置 (GUI Layout Settings)
+# ============================================================
+#  自定义各界面中的物品材质和位置
+#  - slot: 物品在界面中的格子位置（0-53，主菜单0-26）
+#  - material: Minecraft 物品材质名称
+#  完整材质列表参考: https://hub.spigotmc.org/javadocs/bukkit/org/bukkit/Material.html
+gui-layout:
+  main-menu:
+    word-learning:
+      slot: 11
+      material: "BOOK"
+    dialogue-practice:
+      slot: 13
+      material: "PAPER"
+    scenario-select:
+      back-button:
+        slot: 8
+        material: "RED_STAINED_GLASS_PANE"
+    personal-profile:
+      slot: 15
+      material: "DIAMOND"
+    english-square:
+      slot: 17
+      material: "PLAYER_HEAD"
+    language-toggle:
+      slot: 18
+      material: "RED_BED"
+    daily-challenge:
+      slot: 10
+      material: "WRITABLE_BOOK"
+  word-learning:
+    back-button:
+      slot: 8
+      material: "RED_STAINED_GLASS_PANE"
+    progress-info:
+      slot: 4
+      material: "CLOCK"
+    combo-info:
+      slot: 10
+      material: "BLAZE_ROD"
+    current-word:
+      slot: 13
+      material: "BOOK"
+    stop-button:
+      slot: 16
+      material: "BARRIER"
+    start-button:
+      slot: 22
+      material: "LIME_DYE"
+  english-square:
+    back-button:
+      slot: 8
+      material: "RED_STAINED_GLASS_PANE"
+    prev-page:
+      slot: 47
+      material: "ARROW"
+    next-page:
+      slot: 51
+      material: "ARROW"
+    empty-icon:
+      slot: 22
+      material: "BOOK"
+    mode-weekly:
+      slot: 2
+      material: "CLOCK"
+    mode-monthly:
+      slot: 3
+      material: "BOOK"
+    mode-alltime:
+      slot: 4
+      material: "GOLD_INGOT"
+    mode-all:
+      slot: 5
+      material: "PLAYER_HEAD"
+  profile:
+    border-material: "BLACK_STAINED_GLASS_PANE"
+    back-button:
+      slot: 8
+      material: "RED_STAINED_GLASS_PANE"
+    player-head:
+      slot: 4
+      material: "PLAYER_HEAD"
+    age:
+      slot: 13
+      material: "CAKE"
+    words-learned:
+      slot: 11
+      material: "BOOK"
+    accuracy:
+      slot: 12
+      material: "EXPERIENCE_BOTTLE"
+    sessions:
+      slot: 14
+      material: "CLOCK"
+    coins:
+      slot: 15
+      material: "GOLD_INGOT"
+    settings-button:
+      slot: 26
+      material: "COMPARATOR"
+    settings-back-button:
+      slot: 8
+      material: "RED_STAINED_GLASS_PANE"
+    settings-toggle-on:
+      material: "LIME_DYE"
+    settings-toggle-off:
+      material: "GRAY_DYE"
+    settings-show-answers:
+      slot: 11
+      material: "LIME_DYE"
+    settings-show-results:
+      slot: 13
+      material: "LIME_DYE"
+    settings-show-in-square:
+      slot: 15
+      material: "LIME_DYE"
+  achievement-wall:
+    unlocked-material: "GREEN_STAINED_GLASS_PANE"
+    locked-material: "GRAY_STAINED_GLASS_PANE"
+
+# ============================================================
+#  成就系统设置 (Achievement System)
+# ============================================================
+achievement-system:
+  # 解锁成就时播放的音效（留空则不播放）
+  unlock-sound: "ENTITY_PLAYER_LEVELUP"
+
+# ============================================================
+#  代理网络设置 (Proxy Network Settings)
+# ============================================================
+#  用于 Velocity / BungeeCord 等多服代理网络环境
+proxy:
+  # 是否启用跨服公告（成就解锁时广播到全服）
+  cross-server-announcements: true
+  # 是否启用跨服全局消息接收（接收来自其他子服的公告）
+  cross-server-messages: true
+
+# ============================================================
 #  每日学习提醒 (Daily Study Reminder)
 # ============================================================
 daily-reminder:
   # 是否启用每日学习提醒
   enabled: true
+  # 玩家进服时是否发送学习提醒
+  # 开启后，玩家每次进入服务器都会收到一条鼓励学习消息
+  on-join: true
   # 提醒时间（24小时制的小时数），可设置多个时间点
   # 例如 [9, 14, 20] 表示早9点、下午2点、晚8点各提醒一次
   reminder-hours: [9, 14, 20]
   # 提醒消息（可使用 {player} 占位符）
   message: "{prefix}&6是时候学英语了！输入 &e/le menu &6开始学习吧！"
+
+# ============================================================
+#  每日挑战 (Daily Challenges)
+# ============================================================
+daily-challenges:
+  # 是否启用每日挑战
+  enabled: true
+  # 每天分配给每个玩家的挑战数量
+  challenges-per-day: 3
+  # 各挑战的奖励金币数
+  rewards:
+    answer_10: 30
+    session_3: 50
+    combo_5: 25
+    ai_chat_5: 40
 
 # ============================================================
 #  难度等级设置 (Difficulty Settings)

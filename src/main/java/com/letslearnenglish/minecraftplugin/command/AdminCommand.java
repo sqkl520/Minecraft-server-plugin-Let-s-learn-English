@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.command;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -25,7 +26,7 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
     private final LetsLearnEnglish plugin;
 
     private static final List<String> SUBCOMMANDS = Arrays.asList(
-            "reload", "export", "reset", "info", "help", "ignore-update"
+            "reload", "export", "reset", "info", "help", "ignore-update", "broadcast"
     );
 
     public AdminCommand(LetsLearnEnglish plugin) {
@@ -74,6 +75,9 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
             case "ignore-update":
                 handleIgnoreUpdate(sender);
                 break;
+            case "broadcast":
+                handleBroadcast(sender, args);
+                break;
             default:
                 sender.sendMessage(plugin.getMessageUtil()
                         .getSenderMessage(sender, "admin.unknown-command"));
@@ -84,8 +88,9 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleReset(CommandSender sender, String playerName) {
+        plugin.getAdminCommandHandler().resetPlayerData(playerName);
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
-                "admin.reset-pending", "player", playerName));
+                "admin.player-reset", "player", playerName));
     }
 
     private void handleIgnoreUpdate(CommandSender sender) {
@@ -94,6 +99,25 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
         } else {
             sender.sendMessage("This command can only be used by a player.");
         }
+    }
+
+    private void handleBroadcast(CommandSender sender, String[] args) {
+        if (plugin.getProxyMessenger() == null || !plugin.getProxyMessenger().isRegistered()) {
+            sender.sendMessage(ChatColor.RED + "Proxy messaging is not available. "
+                    + "This server must be running behind Velocity or BungeeCord.");
+            return;
+        }
+        if (args.length < 2) {
+            sender.sendMessage(ChatColor.RED + "Usage: /lea broadcast <message>");
+            sender.sendMessage(ChatColor.GRAY + "Sends a message to all servers via the proxy.");
+            return;
+        }
+        String message = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
+        String formatted = ChatColor.translateAlternateColorCodes('&',
+                "&8[&bLE&8] &eServer Announcement: &f" + message);
+        plugin.getProxyMessenger().sendGlobalMessage(formatted);
+        sender.sendMessage(ChatColor.GREEN + "Global broadcast sent to all servers.");
+        plugin.getLogger().info("Global broadcast sent by " + sender.getName() + ": " + message);
     }
 
     private void sendPluginInfo(CommandSender sender) {
@@ -128,6 +152,9 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                 "admin-help.info"));
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "admin-help.footer"));
+        // broadcast 帮助（不在语言文件中，直接输出）
+        sender.sendMessage(ChatColor.YELLOW + "/lea broadcast <message>"
+                + ChatColor.GRAY + " - Send a message to all servers via proxy");
     }
 
     @Override

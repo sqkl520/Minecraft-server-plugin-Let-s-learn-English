@@ -26,41 +26,50 @@ public class DataExporter {
 <span class="nc" id="L26">    }</span>
 
     /**
-     * Export all player learning data to a CSV file.
+     * Export online players' learning data to a CSV file.
+     * Note: Only exports data for currently online players.
      *
      * @return the path to the exported file
      */
     public String exportAllData() {
-<span class="nc" id="L34">        String timestamp = new SimpleDateFormat(&quot;yyyyMMdd_HHmmss&quot;).format(new Date());</span>
-<span class="nc" id="L35">        String fileName = &quot;export_&quot; + timestamp + &quot;.csv&quot;;</span>
-<span class="nc" id="L36">        File exportFile = new File(plugin.getDataFolder(), fileName);</span>
+<span class="nc" id="L35">        String timestamp = new SimpleDateFormat(&quot;yyyyMMdd_HHmmss&quot;).format(new Date());</span>
+<span class="nc" id="L36">        String fileName = &quot;export_&quot; + timestamp + &quot;.csv&quot;;</span>
+<span class="nc" id="L37">        File exportFile = new File(plugin.getDataFolder(), fileName);</span>
 
-<span class="nc" id="L38">        try (FileWriter writer = new FileWriter(exportFile)) {</span>
-<span class="nc" id="L39">            writer.write(&quot;Player UUID,Player Name,Total Words,Total Sessions,Total Score,Correct,Incorrect\n&quot;);</span>
+<span class="nc" id="L39">        try (FileWriter writer = new FileWriter(exportFile)) {</span>
+<span class="nc" id="L40">            writer.write(&quot;Player UUID,Player Name,Total Words,Total Sessions,Total Score,Correct,Incorrect\n&quot;);</span>
 
-<span class="nc" id="L41">            plugin.getServer().getOnlinePlayers().forEach(player -&gt; {</span>
+<span class="nc" id="L42">            plugin.getServer().getOnlinePlayers().forEach(player -&gt; {</span>
                 try {
-<span class="nc" id="L43">                    PlayerDataStore.PlayerStats stats = playerDataStore.getPlayerStats(player.getUniqueId());</span>
-<span class="nc" id="L44">                    writer.write(player.getUniqueId() + &quot;,&quot;</span>
-<span class="nc" id="L45">                            + player.getName() + &quot;,&quot;</span>
-<span class="nc" id="L46">                            + stats.getTotalWords() + &quot;,&quot;</span>
-<span class="nc" id="L47">                            + stats.getTotalSessions() + &quot;,&quot;</span>
-<span class="nc" id="L48">                            + stats.getTotalScore() + &quot;,&quot;</span>
-<span class="nc" id="L49">                            + stats.getTotalCorrect() + &quot;,&quot;</span>
-<span class="nc" id="L50">                            + stats.getTotalIncorrect() + &quot;\n&quot;);</span>
-<span class="nc" id="L51">                } catch (IOException e) {</span>
-<span class="nc" id="L52">                    plugin.getLogger().log(Level.WARNING, &quot;Export write error for player: &quot;</span>
-<span class="nc" id="L53">                            + player.getName(), e);</span>
-<span class="nc" id="L54">                }</span>
-<span class="nc" id="L55">            });</span>
+<span class="nc" id="L44">                    PlayerDataStore.PlayerStats stats = playerDataStore.getPlayerStats(player.getUniqueId());</span>
+<span class="nc" id="L45">                    writer.write(escapeCsv(player.getUniqueId().toString()) + &quot;,&quot;</span>
+<span class="nc" id="L46">                            + escapeCsv(player.getName()) + &quot;,&quot;</span>
+<span class="nc" id="L47">                            + stats.getTotalWords() + &quot;,&quot;</span>
+<span class="nc" id="L48">                            + stats.getTotalSessions() + &quot;,&quot;</span>
+<span class="nc" id="L49">                            + stats.getTotalScore() + &quot;,&quot;</span>
+<span class="nc" id="L50">                            + stats.getTotalCorrect() + &quot;,&quot;</span>
+<span class="nc" id="L51">                            + stats.getTotalIncorrect() + &quot;\n&quot;);</span>
+<span class="nc" id="L52">                } catch (IOException e) {</span>
+<span class="nc" id="L53">                    plugin.getLogger().log(Level.WARNING, &quot;Export write error for player: &quot;</span>
+<span class="nc" id="L54">                            + player.getName(), e);</span>
+<span class="nc" id="L55">                }</span>
+<span class="nc" id="L56">            });</span>
 
-<span class="nc" id="L57">            plugin.getLogger().info(&quot;Data exported to: &quot; + exportFile.getAbsolutePath());</span>
-<span class="nc" id="L58">        } catch (IOException e) {</span>
-<span class="nc" id="L59">            plugin.getLogger().log(Level.SEVERE, &quot;Failed to export data&quot;, e);</span>
-<span class="nc" id="L60">            return &quot;Export failed: &quot; + e.getMessage();</span>
-<span class="nc" id="L61">        }</span>
+<span class="nc" id="L58">            plugin.getLogger().info(&quot;Data exported to: &quot; + exportFile.getAbsolutePath());</span>
+<span class="nc" id="L59">        } catch (IOException e) {</span>
+<span class="nc" id="L60">            plugin.getLogger().log(Level.SEVERE, &quot;Failed to export data&quot;, e);</span>
+<span class="nc" id="L61">            return &quot;Export failed: &quot; + e.getMessage();</span>
+<span class="nc" id="L62">        }</span>
 
-<span class="nc" id="L63">        return exportFile.getAbsolutePath();</span>
+<span class="nc" id="L64">        return exportFile.getAbsolutePath();</span>
+    }
+
+    private String escapeCsv(String value) {
+<span class="nc bnc" id="L68" title="All 2 branches missed.">        if (value == null) return &quot;&quot;;</span>
+<span class="nc bnc" id="L69" title="All 6 branches missed.">        if (value.contains(&quot;,&quot;) || value.contains(&quot;\&quot;&quot;) || value.contains(&quot;\n&quot;)) {</span>
+<span class="nc" id="L70">            return &quot;\&quot;&quot; + value.replace(&quot;\&quot;&quot;, &quot;\&quot;\&quot;&quot;) + &quot;\&quot;&quot;;</span>
+        }
+<span class="nc" id="L72">        return value;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

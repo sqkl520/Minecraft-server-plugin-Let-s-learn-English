@@ -2,11 +2,13 @@
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.util.HashSet;
 import java.util.Set;
@@ -21,145 +23,189 @@ public class UpdateChecker {
     private static final String GITHUB_RELEASES_URL =
             &quot;https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English-/releases&quot;;
 
-    private final LetsLearnEnglish plugin;
-    private String latestVersion;
-    private boolean updateAvailable;
-    private boolean checkComplete;
-<span class="nc" id="L28">    private final Set&lt;UUID&gt; dismissedPlayers = new HashSet&lt;&gt;();</span>
+    private static final int MAX_RETRIES = 2;
+    private static final int CONNECT_TIMEOUT = 8000;
+    private static final int READ_TIMEOUT = 8000;
 
-<span class="nc" id="L30">    public UpdateChecker(LetsLearnEnglish plugin) {</span>
-<span class="nc" id="L31">        this.plugin = plugin;</span>
-<span class="nc" id="L32">    }</span>
+    private final LetsLearnEnglish plugin;
+    private volatile String latestVersion;
+    private volatile boolean updateAvailable;
+    private volatile boolean checkComplete;
+<span class="nc" id="L34">    private final Set&lt;UUID&gt; dismissedPlayers = new HashSet&lt;&gt;();</span>
+
+<span class="nc" id="L36">    public UpdateChecker(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L37">        this.plugin = plugin;</span>
+<span class="nc" id="L38">    }</span>
 
     public void checkAsync() {
-<span class="nc" id="L35">        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -&gt; {</span>
-            try {
-<span class="nc" id="L37">                String currentVersion = plugin.getDescription().getVersion();</span>
-<span class="nc" id="L38">                String cleanCurrent = currentVersion.replace(&quot;-SNAPSHOT&quot;, &quot;&quot;);</span>
+<span class="nc" id="L41">        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -&gt; {</span>
+<span class="nc" id="L42">            int attempts = 0;</span>
+<span class="nc" id="L43">            Exception lastException = null;</span>
 
-<span class="nc" id="L40">                URL url = new URL(GITHUB_API_URL);</span>
-<span class="nc" id="L41">                HttpURLConnection conn = (HttpURLConnection) url.openConnection();</span>
-<span class="nc" id="L42">                conn.setRequestMethod(&quot;GET&quot;);</span>
-<span class="nc" id="L43">                conn.setRequestProperty(&quot;Accept&quot;, &quot;application/vnd.github+json&quot;);</span>
-<span class="nc" id="L44">                conn.setRequestProperty(&quot;User-Agent&quot;, &quot;LetsLearnEnglish-Plugin&quot;);</span>
-<span class="nc" id="L45">                conn.setConnectTimeout(5000);</span>
-<span class="nc" id="L46">                conn.setReadTimeout(5000);</span>
-
-<span class="nc" id="L48">                int responseCode = conn.getResponseCode();</span>
-<span class="nc bnc" id="L49" title="All 2 branches missed.">                if (responseCode != 200) {</span>
-<span class="nc" id="L50">                    plugin.getLogger().warning(&quot;Update check failed: HTTP &quot; + responseCode);</span>
-<span class="nc" id="L51">                    checkComplete = true;</span>
-<span class="nc" id="L52">                    return;</span>
-                }
-
-<span class="nc" id="L55">                BufferedReader reader = new BufferedReader(</span>
-<span class="nc" id="L56">                        new InputStreamReader(conn.getInputStream()));</span>
-<span class="nc" id="L57">                StringBuilder response = new StringBuilder();</span>
-                String line;
-<span class="nc bnc" id="L59" title="All 2 branches missed.">                while ((line = reader.readLine()) != null) {</span>
-<span class="nc" id="L60">                    response.append(line);</span>
-                }
-<span class="nc" id="L62">                reader.close();</span>
-<span class="nc" id="L63">                conn.disconnect();</span>
-
-<span class="nc" id="L65">                Pattern pattern = Pattern.compile(&quot;\&quot;tag_name\&quot;\\s*:\\s*\&quot;v?([^\&quot;]+)\&quot;&quot;);</span>
-<span class="nc" id="L66">                Matcher matcher = pattern.matcher(response.toString());</span>
-
-<span class="nc bnc" id="L68" title="All 2 branches missed.">                if (matcher.find()) {</span>
-<span class="nc" id="L69">                    latestVersion = matcher.group(1);</span>
-
-<span class="nc bnc" id="L71" title="All 2 branches missed.">                    if (isNewer(latestVersion, cleanCurrent)) {</span>
-<span class="nc" id="L72">                        updateAvailable = true;</span>
-<span class="nc" id="L73">                        plugin.getLogger().info(&quot;Update available! Current: v&quot; + cleanCurrent</span>
-                                + &quot;, Latest: v&quot; + latestVersion);
-<span class="nc" id="L75">                        plugin.getLogger().info(&quot;Download: &quot; + GITHUB_RELEASES_URL);</span>
-
-<span class="nc" id="L77">                        notifyOnlineAdmins();</span>
-                    } else {
-<span class="nc" id="L79">                        plugin.getLogger().info(&quot;Plugin is up to date (v&quot; + cleanCurrent + &quot;)&quot;);</span>
+<span class="nc bnc" id="L45" title="All 2 branches missed.">            while (attempts &lt; MAX_RETRIES) {</span>
+<span class="nc" id="L46">                attempts++;</span>
+                try {
+<span class="nc bnc" id="L48" title="All 2 branches missed.">                    if (attempts &gt; 1) {</span>
+                        // 重试前等待一段时间（指数退避）
+<span class="nc" id="L50">                        Thread.sleep((long) Math.pow(2, attempts) * 1000);</span>
                     }
-                }
 
-<span class="nc" id="L83">            } catch (Exception e) {</span>
-<span class="nc" id="L84">                plugin.getLogger().warning(&quot;Could not check for updates: &quot; + e.getMessage());</span>
-            } finally {
-<span class="nc" id="L86">                checkComplete = true;</span>
+<span class="nc" id="L53">                    String currentVersion = plugin.getDescription().getVersion();</span>
+<span class="nc" id="L54">                    String cleanCurrent = currentVersion.replace(&quot;-SNAPSHOT&quot;, &quot;&quot;);</span>
+
+<span class="nc" id="L56">                    URL url = new URL(GITHUB_API_URL);</span>
+<span class="nc" id="L57">                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();</span>
+<span class="nc" id="L58">                    conn.setRequestMethod(&quot;GET&quot;);</span>
+<span class="nc" id="L59">                    conn.setRequestProperty(&quot;Accept&quot;, &quot;application/vnd.github+json&quot;);</span>
+<span class="nc" id="L60">                    conn.setRequestProperty(&quot;User-Agent&quot;, &quot;LetsLearnEnglish-Plugin&quot;);</span>
+<span class="nc" id="L61">                    conn.setConnectTimeout(CONNECT_TIMEOUT);</span>
+<span class="nc" id="L62">                    conn.setReadTimeout(READ_TIMEOUT);</span>
+<span class="nc" id="L63">                    conn.setInstanceFollowRedirects(true);</span>
+
+<span class="nc" id="L65">                    int responseCode = conn.getResponseCode();</span>
+<span class="nc bnc" id="L66" title="All 2 branches missed.">                    if (responseCode != 200) {</span>
+<span class="nc bnc" id="L67" title="All 4 branches missed.">                        if (responseCode == 403 &amp;&amp; attempts &lt; MAX_RETRIES) {</span>
+                            // Rate limited, retry after backoff
+<span class="nc" id="L69">                            plugin.getLogger().info(&quot;Update check rate limited (attempt &quot;</span>
+                                    + attempts + &quot;/&quot; + MAX_RETRIES + &quot;), retrying...&quot;);
+<span class="nc" id="L71">                            conn.disconnect();</span>
+<span class="nc" id="L72">                            continue;</span>
+                        }
+<span class="nc" id="L74">                        plugin.getLogger().warning(&quot;Update check failed: HTTP &quot; + responseCode);</span>
+<span class="nc" id="L75">                        checkComplete = true;</span>
+<span class="nc" id="L76">                        conn.disconnect();</span>
+<span class="nc" id="L77">                        return;</span>
+                    }
+
+<span class="nc" id="L80">                    StringBuilder response = new StringBuilder();</span>
+<span class="nc" id="L81">                    try (BufferedReader reader = new BufferedReader(</span>
+<span class="nc" id="L82">                            new InputStreamReader(conn.getInputStream()))) {</span>
+                        String line;
+<span class="nc bnc" id="L84" title="All 2 branches missed.">                        while ((line = reader.readLine()) != null) {</span>
+<span class="nc" id="L85">                            response.append(line);</span>
+                        }
+                    }
+<span class="nc" id="L88">                    conn.disconnect();</span>
+
+<span class="nc" id="L90">                    Pattern pattern = Pattern.compile(&quot;\&quot;tag_name\&quot;\\s*:\\s*\&quot;v?([^\&quot;]+)\&quot;&quot;);</span>
+<span class="nc" id="L91">                    Matcher matcher = pattern.matcher(response.toString());</span>
+
+<span class="nc bnc" id="L93" title="All 2 branches missed.">                    if (matcher.find()) {</span>
+<span class="nc" id="L94">                        latestVersion = matcher.group(1);</span>
+
+<span class="nc bnc" id="L96" title="All 2 branches missed.">                        if (isNewer(latestVersion, cleanCurrent)) {</span>
+<span class="nc" id="L97">                            updateAvailable = true;</span>
+<span class="nc" id="L98">                            plugin.getLogger().info(&quot;Update available! Current: v&quot; + cleanCurrent</span>
+                                    + &quot;, Latest: v&quot; + latestVersion);
+<span class="nc" id="L100">                            plugin.getLogger().info(&quot;Download: &quot; + GITHUB_RELEASES_URL);</span>
+
+<span class="nc" id="L102">                            notifyOnlineAdmins();</span>
+                        } else {
+<span class="nc" id="L104">                            plugin.getLogger().info(&quot;Plugin is up to date (v&quot; + cleanCurrent + &quot;)&quot;);</span>
+                        }
+                    }
+
+                    // 成功完成，退出重试循环
+<span class="nc" id="L109">                    checkComplete = true;</span>
+<span class="nc" id="L110">                    return;</span>
+
+<span class="nc" id="L112">                } catch (SocketTimeoutException e) {</span>
+<span class="nc" id="L113">                    lastException = e;</span>
+<span class="nc bnc" id="L114" title="All 2 branches missed.">                    if (attempts &gt;= MAX_RETRIES) {</span>
+<span class="nc" id="L115">                        plugin.getLogger().info(&quot;Update check skipped (network unreachable after &quot;</span>
+                                + MAX_RETRIES + &quot; attempts)&quot;);
+                    }
+<span class="nc" id="L118">                } catch (Exception e) {</span>
+<span class="nc" id="L119">                    lastException = e;</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">                    if (attempts &gt;= MAX_RETRIES) {</span>
+<span class="nc" id="L121">                        plugin.getLogger().warning(&quot;Could not check for updates: &quot; + e.getMessage());</span>
+                    }
+<span class="nc" id="L123">                }</span>
             }
-<span class="nc" id="L88">        });</span>
-<span class="nc" id="L89">    }</span>
+
+<span class="nc" id="L126">            checkComplete = true;</span>
+<span class="nc" id="L127">        });</span>
+<span class="nc" id="L128">    }</span>
 
     private void notifyOnlineAdmins() {
-<span class="nc" id="L92">        Bukkit.getScheduler().runTask(plugin, () -&gt; {</span>
-<span class="nc bnc" id="L93" title="All 2 branches missed.">            for (Player player : Bukkit.getOnlinePlayers()) {</span>
-<span class="nc" id="L94">                notifyPlayer(player);</span>
-<span class="nc" id="L95">            }</span>
-<span class="nc" id="L96">        });</span>
-<span class="nc" id="L97">    }</span>
+<span class="nc" id="L131">        Bukkit.getScheduler().runTask(plugin, () -&gt; {</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">            for (Player player : Bukkit.getOnlinePlayers()) {</span>
+<span class="nc" id="L133">                notifyPlayer(player);</span>
+<span class="nc" id="L134">            }</span>
+<span class="nc" id="L135">        });</span>
+<span class="nc" id="L136">    }</span>
 
     public void notifyPlayer(Player player) {
-<span class="nc bnc" id="L100" title="All 4 branches missed.">        if (!updateAvailable || !checkComplete) {</span>
-<span class="nc" id="L101">            return;</span>
+<span class="nc bnc" id="L139" title="All 4 branches missed.">        if (!updateAvailable || !checkComplete) {</span>
+<span class="nc" id="L140">            return;</span>
         }
-<span class="nc bnc" id="L103" title="All 2 branches missed.">        if (dismissedPlayers.contains(player.getUniqueId())) {</span>
-<span class="nc" id="L104">            return;</span>
+<span class="nc bnc" id="L142" title="All 2 branches missed.">        if (dismissedPlayers.contains(player.getUniqueId())) {</span>
+<span class="nc" id="L143">            return;</span>
         }
-<span class="nc bnc" id="L106" title="All 4 branches missed.">        if (!player.isOp() &amp;&amp; !player.hasPermission(&quot;letslearnenglish.admin&quot;)) {</span>
-<span class="nc" id="L107">            return;</span>
+<span class="nc bnc" id="L145" title="All 4 branches missed.">        if (!player.isOp() &amp;&amp; !player.hasPermission(&quot;letslearnenglish.admin&quot;)) {</span>
+<span class="nc" id="L146">            return;</span>
         }
 
-<span class="nc" id="L110">        String current = plugin.getDescription().getVersion().replace(&quot;-SNAPSHOT&quot;, &quot;&quot;);</span>
+<span class="nc" id="L149">        String current = plugin.getDescription().getVersion().replace(&quot;-SNAPSHOT&quot;, &quot;&quot;);</span>
 
-<span class="nc" id="L112">        player.sendMessage(&quot;&quot;);</span>
-<span class="nc" id="L113">        player.sendMessage(&quot;§6§l===== Let's Learn English! Update Available =====&quot;);</span>
-<span class="nc" id="L114">        player.sendMessage(&quot;§7Current: §fv&quot; + current);</span>
-<span class="nc" id="L115">        player.sendMessage(&quot;§7Latest: §a§lv&quot; + latestVersion);</span>
-<span class="nc" id="L116">        player.sendMessage(&quot;§7Download: §b§n&quot; + GITHUB_RELEASES_URL);</span>
-<span class="nc" id="L117">        player.sendMessage(&quot;§7(Use §e/lea ignore-update §7to dismiss this message)&quot;);</span>
-<span class="nc" id="L118">        player.sendMessage(&quot;§6==================================================&quot;);</span>
-<span class="nc" id="L119">        player.sendMessage(&quot;&quot;);</span>
-<span class="nc" id="L120">    }</span>
+<span class="nc" id="L151">        player.sendMessage(&quot;&quot;);</span>
+<span class="nc" id="L152">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
+                &quot;&amp;6&amp;l===== Let's Learn English! Update Available =====&quot;));
+<span class="nc" id="L154">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
+                &quot;&amp;7Current: &amp;fv&quot; + current));
+<span class="nc" id="L156">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
+                &quot;&amp;7Latest: &amp;a&amp;lv&quot; + latestVersion));
+<span class="nc" id="L158">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
+                &quot;&amp;7Download: &amp;b&amp;n&quot; + GITHUB_RELEASES_URL));
+<span class="nc" id="L160">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
+                &quot;&amp;7(Use &amp;e/lea ignore-update &amp;7to dismiss this message)&quot;));
+<span class="nc" id="L162">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
+                &quot;&amp;6==================================================&quot;));
+<span class="nc" id="L164">        player.sendMessage(&quot;&quot;);</span>
+<span class="nc" id="L165">    }</span>
 
     public void dismiss(Player player) {
-<span class="nc" id="L123">        dismissedPlayers.add(player.getUniqueId());</span>
-<span class="nc" id="L124">        player.sendMessage(&quot;§aUpdate notification dismissed. You will not be reminded again this session.&quot;);</span>
-<span class="nc" id="L125">    }</span>
+<span class="nc" id="L168">        dismissedPlayers.add(player.getUniqueId());</span>
+<span class="nc" id="L169">        player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
+                &quot;&amp;aUpdate notification dismissed. You will not be reminded again this session.&quot;));
+<span class="nc" id="L171">    }</span>
 
     private boolean isNewer(String latest, String current) {
-<span class="nc" id="L128">        String[] latestParts = latest.split(&quot;\\.&quot;);</span>
-<span class="nc" id="L129">        String[] currentParts = current.split(&quot;\\.&quot;);</span>
+<span class="nc" id="L174">        String[] latestParts = latest.split(&quot;\\.&quot;);</span>
+<span class="nc" id="L175">        String[] currentParts = current.split(&quot;\\.&quot;);</span>
 
-<span class="nc" id="L131">        int maxLen = Math.max(latestParts.length, currentParts.length);</span>
-<span class="nc bnc" id="L132" title="All 2 branches missed.">        for (int i = 0; i &lt; maxLen; i++) {</span>
-<span class="nc bnc" id="L133" title="All 2 branches missed.">            int l = i &lt; latestParts.length ? parseIntSafe(latestParts[i]) : 0;</span>
-<span class="nc bnc" id="L134" title="All 2 branches missed.">            int c = i &lt; currentParts.length ? parseIntSafe(currentParts[i]) : 0;</span>
-<span class="nc bnc" id="L135" title="All 2 branches missed.">            if (l &gt; c) {</span>
-<span class="nc" id="L136">                return true;</span>
+<span class="nc" id="L177">        int maxLen = Math.max(latestParts.length, currentParts.length);</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">        for (int i = 0; i &lt; maxLen; i++) {</span>
+<span class="nc bnc" id="L179" title="All 2 branches missed.">            int l = i &lt; latestParts.length ? parseIntSafe(latestParts[i]) : 0;</span>
+<span class="nc bnc" id="L180" title="All 2 branches missed.">            int c = i &lt; currentParts.length ? parseIntSafe(currentParts[i]) : 0;</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">            if (l &gt; c) {</span>
+<span class="nc" id="L182">                return true;</span>
             }
-<span class="nc bnc" id="L138" title="All 2 branches missed.">            if (l &lt; c) {</span>
-<span class="nc" id="L139">                return false;</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">            if (l &lt; c) {</span>
+<span class="nc" id="L185">                return false;</span>
             }
         }
-<span class="nc" id="L142">        return false;</span>
+<span class="nc" id="L188">        return false;</span>
     }
 
     private int parseIntSafe(String s) {
         try {
-<span class="nc" id="L147">            return Integer.parseInt(s.replaceAll(&quot;[^0-9]&quot;, &quot;&quot;));</span>
-<span class="nc" id="L148">        } catch (NumberFormatException e) {</span>
-<span class="nc" id="L149">            return 0;</span>
+<span class="nc" id="L193">            return Integer.parseInt(s.replaceAll(&quot;[^0-9]&quot;, &quot;&quot;));</span>
+<span class="nc" id="L194">        } catch (NumberFormatException e) {</span>
+<span class="nc" id="L195">            return 0;</span>
         }
     }
 
     public boolean isUpdateAvailable() {
-<span class="nc" id="L154">        return updateAvailable;</span>
+<span class="nc" id="L200">        return updateAvailable;</span>
     }
 
     public boolean isCheckComplete() {
-<span class="nc" id="L158">        return checkComplete;</span>
+<span class="nc" id="L204">        return checkComplete;</span>
     }
 
     public String getLatestVersion() {
-<span class="nc" id="L162">        return latestVersion;</span>
+<span class="nc" id="L208">        return latestVersion;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

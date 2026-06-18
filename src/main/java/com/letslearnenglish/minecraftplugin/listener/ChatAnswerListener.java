@@ -20,8 +20,8 @@ import java.util.Collection;
 public class ChatAnswerListener implements Listener {
 
     private final LetsLearnEnglish plugin;
-    private Collection<? extends Player> cachedOnlinePlayers;
-    private long playersCacheTimestamp;
+    private volatile Collection<? extends Player> cachedOnlinePlayers;
+    private volatile long playersCacheTimestamp;
 
     public ChatAnswerListener(LetsLearnEnglish plugin) {
         this.plugin = plugin;
@@ -86,6 +86,9 @@ public class ChatAnswerListener implements Listener {
                                 "&a\u2714 Correct! &7(+&e{score}&7){combo}")
                                 .replace("{score}", String.valueOf(result.comboScore))
                                 .replace("{combo}", comboMsg)));
+
+                plugin.getAchievementManager().checkStreakAchievement(
+                        player.getUniqueId(), result.consecutiveCorrect);
             } else {
                 SoundManager.playSound(player, "incorrect");
                 player.sendMessage(ChatColor.translateAlternateColorCodes('&',

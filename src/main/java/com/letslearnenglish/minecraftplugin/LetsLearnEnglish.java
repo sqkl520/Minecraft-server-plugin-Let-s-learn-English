@@ -2,23 +2,34 @@ package com.letslearnenglish.minecraftplugin;
 
 import com.letslearnenglish.minecraftplugin.api.LetsLearnEnglishAPI;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
+import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager;
+import com.letslearnenglish.minecraftplugin.core.GuiNavigationManager;
+import com.letslearnenglish.minecraftplugin.core.ProxyMessenger;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
-import com.letslearnenglish.minecraftplugin.core.dialogue.DialogueManagerImpl;
+import com.letslearnenglish.minecraftplugin.core.achievement.AchievementManager;
+import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
 import com.letslearnenglish.minecraftplugin.core.manager.AdminCommandHandler;
 import com.letslearnenglish.minecraftplugin.core.manager.DataExporter;
 import com.letslearnenglish.minecraftplugin.core.manager.HotReloadManager;
 import com.letslearnenglish.minecraftplugin.core.progress.ProgressManagerImpl;
 import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
-import com.letslearnenglish.minecraftplugin.listener.ChatAnswerListener;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
-import com.letslearnenglish.minecraftplugin.listener.GUIMenuListener;
-import com.letslearnenglish.minecraftplugin.listener.NPCInteractionListener;
+import com.letslearnenglish.minecraftplugin.listener.ChatAnswerListener;
+import com.letslearnenglish.minecraftplugin.listener.ChatScenarioListener;
+import com.letslearnenglish.minecraftplugin.listener.MainMenuListener;
+import com.letslearnenglish.minecraftplugin.listener.MiscGUIListener;
 import com.letslearnenglish.minecraftplugin.listener.PlayerJoinListener;
+import com.letslearnenglish.minecraftplugin.listener.ScenarioSelectListener;
+import com.letslearnenglish.minecraftplugin.listener.SocialListener;
+import com.letslearnenglish.minecraftplugin.listener.WordLearningListener;
+import com.letslearnenglish.minecraftplugin.expansion.LLEPapiExpansion;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import com.letslearnenglish.minecraftplugin.util.VersionAdapter;
 import com.letslearnenglish.minecraftplugin.core.UpdateChecker;
+import net.milkbowl.vault.economy.Economy;
+import org.bukkit.plugin.RegisteredServiceProvider;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -50,7 +61,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
     private VersionAdapter versionAdapter;
 
     private WordManagerImpl wordManager;
-    private DialogueManagerImpl dialogueManager;
+    private AIChatManager aiChatManager;
     private ProgressManagerImpl progressManager;
 
     private AdminCommandHandler adminCommandHandler;
@@ -62,8 +73,18 @@ public final class LetsLearnEnglish extends JavaPlugin {
     private UpdateChecker updateChecker;
 
     private WordLearningManager wordLearningManager;
+    private AchievementManager achievementManager;
 
     private SoundManager soundManager;
+    private ProxyMessenger proxyMessenger;
+
+    private ChatScenarioListener chatScenarioListener;
+
+    private GuiNavigationManager guiNavigationManager;
+
+    private DailyChallengeManager dailyChallengeManager;
+
+    private Economy economy = null;
 
     private final Map<UUID, String> playerLanguage = new ConcurrentHashMap<>();
 
@@ -93,7 +114,11 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
         this.wordManager = new WordManagerImpl(this, configManager, playerDataStore);
         this.wordLearningManager = new WordLearningManager(this);
-        this.dialogueManager = new DialogueManagerImpl(configManager, playerDataStore);
+        this.achievementManager = new AchievementManager(this, playerDataStore);
+        this.aiChatManager = new AIChatManager(this);
+        this.chatScenarioListener = new ChatScenarioListener(this, aiChatManager);
+        this.guiNavigationManager = new GuiNavigationManager();
+        this.dailyChallengeManager = new DailyChallengeManager(this);
         this.progressManager = new ProgressManagerImpl(this, playerDataStore);
 
         this.adminCommandHandler = new AdminCommandHandler(this);
@@ -102,11 +127,24 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
         this.soundManager = new SoundManager(this);
 
+        // Proxy 消息通道（Velocity / BungeeCord 兼容）
+        this.proxyMessenger = new ProxyMessenger(this);
+        this.proxyMessenger.register();
+
+        setupEconomy();
+
+        setupPlaceholderAPI();
+
         this.api = new LetsLearnEnglishAPI(this);
 
         registerListeners();
         registerCommands();
         startScheduledTasks();
+
+        // Load leaderboard from database
+        getServer().getScheduler().runTaskAsynchronously(this, () -> {
+            progressManager.getLeaderboard().loadFromDB();
+        });
 
         long loadTime = System.currentTimeMillis() - startTime;
         getLogger().info("============================================");
@@ -130,7 +168,22 @@ public final class LetsLearnEnglish extends JavaPlugin {
         savePlayerLanguages();
 
         if (playerDataStore != null) {
-            getServer().getOnlinePlayers().forEach(p -> playerDataStore.savePlayerData(p.getUniqueId()));
+            getServer().getOnlinePlayers().forEach(p -> {
+                playerDataStore.savePlayerData(p.getUniqueId());
+                playerDataStore.saveProfileSettings(p.getUniqueId());
+            });
+        }
+
+        if (achievementManager != null) {
+            achievementManager.clearCache();
+        }
+
+        if (proxyMessenger != null) {
+            proxyMessenger.unregister();
+        }
+
+        if (aiChatManager != null) {
+            aiChatManager.shutdown();
         }
 
         if (databaseManager != null) {
@@ -142,8 +195,12 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     private void registerListeners() {
         getServer().getPluginManager().registerEvents(new PlayerJoinListener(this), this);
-        getServer().getPluginManager().registerEvents(new GUIMenuListener(this), this);
-        getServer().getPluginManager().registerEvents(new NPCInteractionListener(this), this);
+        getServer().getPluginManager().registerEvents(new MainMenuListener(this), this);
+        getServer().getPluginManager().registerEvents(new WordLearningListener(this), this);
+        getServer().getPluginManager().registerEvents(new ScenarioSelectListener(this), this);
+        getServer().getPluginManager().registerEvents(new SocialListener(this), this);
+        getServer().getPluginManager().registerEvents(new MiscGUIListener(this), this);
+        getServer().getPluginManager().registerEvents(chatScenarioListener, this);
         getServer().getPluginManager().registerEvents(new ChatAnswerListener(this), this);
         getServer().getPluginManager().registerEvents(soundManager, this);
     }
@@ -161,8 +218,9 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     private void startScheduledTasks() {
         int saveInterval = configManager.getMainConfig().getInt("general.auto-save-interval", 5);
-        getServer().getScheduler().runTaskTimer(this, () -> {
+        getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
             getServer().getOnlinePlayers().forEach(p -> playerDataStore.savePlayerData(p.getUniqueId()));
+            getServer().getOnlinePlayers().forEach(p -> playerDataStore.saveProfileSettings(p.getUniqueId()));
         }, saveInterval * 1200L, saveInterval * 1200L);
 
         if (configManager.getMainConfig().getBoolean("word-system.review.enabled", true)) {
@@ -204,7 +262,9 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
             if (currentMinute == 0 && effectiveHours.contains(currentHour) && !remindedHours.contains(currentHour)) {
                 remindedHours.add(currentHour);
-                String message = rawMessage.replace("{prefix}", "");
+                String defaultLang = configManager.getMainConfig().getString("general.language", "zh");
+                String prefix = configManager.getMainConfig().getString("prefix." + defaultLang, "&8[&b英语学习&8] &f");
+                String message = rawMessage.replace("{prefix}", prefix);
                 for (Player player : getServer().getOnlinePlayers()) {
                     player.sendMessage(ChatColor.translateAlternateColorCodes('&', message));
                 }
@@ -307,12 +367,46 @@ public final class LetsLearnEnglish extends JavaPlugin {
         return wordLearningManager;
     }
 
+    public AchievementManager getAchievementManager() {
+        return achievementManager;
+    }
+
+    private void setupEconomy() {
+        if (getServer().getPluginManager().getPlugin("Vault") == null) {
+            return;
+        }
+        RegisteredServiceProvider<Economy> rsp = getServer().getServicesManager().getRegistration(Economy.class);
+        if (rsp != null) {
+            economy = rsp.getProvider();
+            getLogger().info("Vault economy integration enabled.");
+        }
+    }
+
+    public Economy getEconomy() {
+        return economy;
+    }
+
+    private void setupPlaceholderAPI() {
+        if (getServer().getPluginManager().getPlugin("PlaceholderAPI") == null) {
+            return;
+        }
+        LLEPapiExpansion expansion = new LLEPapiExpansion(this);
+        if (expansion.canRegister()) {
+            expansion.register();
+            getLogger().info("PlaceholderAPI expansion registered. Available: %lle_score%, %lle_rank%, etc.");
+        }
+    }
+
     public WordManagerImpl getWordManager() {
         return wordManager;
     }
 
-    public DialogueManagerImpl getDialogueManager() {
-        return dialogueManager;
+    public AIChatManager getAIChatManager() {
+        return aiChatManager;
+    }
+
+    public ChatScenarioListener getChatScenarioListener() {
+        return chatScenarioListener;
     }
 
     public ProgressManagerImpl getProgressManager() {
@@ -339,8 +433,21 @@ public final class LetsLearnEnglish extends JavaPlugin {
         return soundManager;
     }
 
+    public GuiNavigationManager getGuiNavigationManager() {
+        return guiNavigationManager;
+    }
+
+    public DailyChallengeManager getDailyChallengeManager() {
+        return dailyChallengeManager;
+    }
+
+    public ProxyMessenger getProxyMessenger() {
+        return proxyMessenger;
+    }
+
     public String getPlayerLanguage(Player player) {
-        return playerLanguage.getOrDefault(player.getUniqueId(), "en");
+        return playerLanguage.getOrDefault(player.getUniqueId(),
+                configManager.getMainConfig().getString("general.language", "zh"));
     }
 
     public void setPlayerLanguage(Player player, String lang) {

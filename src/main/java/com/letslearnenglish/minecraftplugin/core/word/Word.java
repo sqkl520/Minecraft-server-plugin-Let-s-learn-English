@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.core.word;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Word entity class
@@ -96,11 +97,12 @@ public class Word {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof Word word)) return false;
-        return english.equalsIgnoreCase(word.english);
+        return english.equalsIgnoreCase(word.english)
+                && Double.compare(reward, word.reward) == 0;
     }
 
     @Override
     public int hashCode() {
-        return english.toLowerCase().hashCode();
+        return Objects.hash(english.toLowerCase(), reward);
     }
 }

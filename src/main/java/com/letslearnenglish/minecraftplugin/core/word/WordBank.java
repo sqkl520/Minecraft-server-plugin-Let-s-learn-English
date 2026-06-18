@@ -30,7 +30,6 @@ public class WordBank {
         loadWords(config);
     }
 
-    @SuppressWarnings("unchecked")
     private void loadWords(FileConfiguration config) {
         List<?> rawList = config.getList("words");
         if (rawList == null) {
@@ -41,14 +40,20 @@ public class WordBank {
             if (!(item instanceof Map)) {
                 continue;
             }
-            Map<String, Object> wordData = (Map<String, Object>) item;
+            // Build a type-checked Map<String, Object> from the raw YAML map
+            Map<String, Object> wordData = new java.util.LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) item).entrySet()) {
+                if (entry.getKey() instanceof String key) {
+                    wordData.put(key, entry.getValue());
+                }
+            }
             String english = (String) wordData.get("english");
             String chinese = (String) wordData.get("chinese");
             String partOfSpeech = (String) wordData.get("part_of_speech");
             String phonetic = (String) wordData.get("phonetic");
             String exampleSentence = (String) wordData.get("example_sentence");
 
-            List<String> synonyms = new ArrayList<>();
+            List<String> synonyms = new ArrayList<>(4);
             Object synObj = wordData.get("synonyms");
             if (synObj instanceof List) {
                 for (Object s : (List<?>) synObj) {
@@ -56,7 +61,7 @@ public class WordBank {
                 }
             }
 
-            List<String> antonyms = new ArrayList<>();
+            List<String> antonyms = new ArrayList<>(4);
             Object antObj = wordData.get("antonyms");
             if (antObj instanceof List) {
                 for (Object a : (List<?>) antObj) {
@@ -64,11 +69,20 @@ public class WordBank {
                 }
             }
 
-            int difficultyLevel = wordData.containsKey("difficulty_level")
-                    ? ((Number) wordData.get("difficulty_level")).intValue() : 1;
+            int difficultyLevel = 1;
+            Object diffObj = wordData.get("difficulty_level");
+            if (diffObj instanceof Number num) {
+                difficultyLevel = num.intValue();
+            }
+
+            double reward = 0.0;
+            Object rewardObj = wordData.get("reward");
+            if (rewardObj instanceof Number num) {
+                reward = num.doubleValue();
+            }
 
             Word word = new Word(english, chinese, partOfSpeech, phonetic,
-                    exampleSentence, synonyms, antonyms, difficulty, difficultyLevel);
+                    exampleSentence, synonyms, antonyms, difficulty, difficultyLevel, reward);
             words.add(word);
         }
     }
@@ -99,16 +113,18 @@ public class WordBank {
         List<Word> selected = new ArrayList<>();
 
         if (unmastered.size() >= count) {
-            Collections.shuffle(unmastered, random);
-            selected.addAll(unmastered.subList(0, count));
+            List<Word> shuffledUnmastered = new ArrayList<>(unmastered);
+            Collections.shuffle(shuffledUnmastered, random);
+            selected.addAll(shuffledUnmastered.subList(0, count));
         } else {
             selected.addAll(unmastered);
 
-            Collections.shuffle(mastered, random);
+            List<Word> shuffledMastered = new ArrayList<>(mastered);
+            Collections.shuffle(shuffledMastered, random);
 
             int remaining = count - selected.size();
-            int toAdd = Math.min(remaining, mastered.size());
-            selected.addAll(mastered.subList(0, toAdd));
+            int toAdd = Math.min(remaining, shuffledMastered.size());
+            selected.addAll(shuffledMastered.subList(0, toAdd));
         }
 
         Collections.shuffle(selected, random);

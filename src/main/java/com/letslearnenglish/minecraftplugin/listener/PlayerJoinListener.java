@@ -6,6 +6,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
+import java.util.UUID;
+
 /**
  * Player Join Listener
  *
@@ -22,14 +24,21 @@ public class PlayerJoinListener implements Listener {
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         plugin.getPlayerDataStore().loadPlayerData(event.getPlayer().getUniqueId());
+        plugin.getAchievementManager().loadPlayerAchievements(event.getPlayer().getUniqueId());
+        plugin.getPlayerDataStore().loadProfileSettings(event.getPlayer().getUniqueId());
 
         org.bukkit.Bukkit.getScheduler().runTaskLater(plugin, () -> {
             plugin.getUpdateChecker().notifyPlayer(event.getPlayer());
         }, 60L);
+
+        plugin.getDailyChallengeManager().checkAndAssign(event.getPlayer().getUniqueId());
     }
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        plugin.getPlayerDataStore().unloadPlayerData(event.getPlayer().getUniqueId());
+        UUID playerId = event.getPlayer().getUniqueId();
+        plugin.getPlayerDataStore().unloadPlayerData(playerId);
+        plugin.getAchievementManager().unloadPlayer(playerId);
+        plugin.getPlayerDataStore().unloadProfileSettings(playerId);
     }
 }

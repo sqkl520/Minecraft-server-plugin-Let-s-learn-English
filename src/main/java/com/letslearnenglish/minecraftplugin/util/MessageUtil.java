@@ -106,7 +106,12 @@ public class MessageUtil {
      */
     public String getRawMessage(String key) {
         FileConfiguration messageConfig = configManager.getMessageConfig();
-        return messageConfig.getString(key, key);
+        String value = messageConfig.getString(key);
+        if (value == null) {
+            plugin.getLogger().warning("Missing raw message key: " + key);
+            return key;
+        }
+        return value;
     }
 
     public String getPlayerMessage(Player player, String key, String... placeholders) {

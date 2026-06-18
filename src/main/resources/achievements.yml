@@ -1,6 +1,8 @@
 # ============================================================
 #  Achievement Configuration
 #  Define all unlockable achievements and their conditions
+#  NOTE: This file is deprecated. The current achievement system uses
+#  achievements-config.yml for configuration. This file is kept for reference only.
 # ============================================================
 
 achievements:

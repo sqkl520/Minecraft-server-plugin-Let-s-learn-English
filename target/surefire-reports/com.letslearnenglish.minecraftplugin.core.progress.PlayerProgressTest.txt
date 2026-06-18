@@ -1,4 +1,4 @@
 -------------------------------------------------------------------------------
 Test set: com.letslearnenglish.minecraftplugin.core.progress.PlayerProgressTest
 -------------------------------------------------------------------------------
-Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.172 s -- in com.letslearnenglish.minecraftplugin.core.progress.PlayerProgressTest
+Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.184 s -- in com.letslearnenglish.minecraftplugin.core.progress.PlayerProgressTest

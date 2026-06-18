@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
 import org.bukkit.Bukkit;
@@ -51,6 +52,7 @@ public class WordLearningGUI {
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
         WordLearningManager wlManager = plugin.getWordLearningManager();
+        ConfigManager cm = plugin.getConfigManager();
         WordLearningManager.QuizState state = wlManager.getQuizState(player.getUniqueId());
         if (state == null) return;
 
@@ -70,7 +72,7 @@ public class WordLearningGUI {
                     messages.getString("word-learning-gui.current-word-lore-1",
                             "Close the GUI and type the English word"));
 
-            inv.setItem(13, createItem(Material.BOOK, wordLabel, viewLore));
+            inv.setItem(cm.getGuiSlot("word-learning", "current-word", 13), createItem(cm.getGuiMaterial("word-learning", "current-word", Material.BOOK), wordLabel, viewLore));
         }
 
         String progressLabel = ChatColor.translateAlternateColorCodes('&', "&a" +
@@ -81,17 +83,17 @@ public class WordLearningGUI {
         String scoreLore = ChatColor.translateAlternateColorCodes('&',
                 "&7Score: &e" + score);
 
-        inv.setItem(4, createItem(Material.CLOCK, progressLabel, scoreLore));
+        inv.setItem(cm.getGuiSlot("word-learning", "progress-info", 4), createItem(cm.getGuiMaterial("word-learning", "progress-info", Material.CLOCK), progressLabel, scoreLore));
 
         String comboLabel = getComboLabel(combo, multiplier, messages);
-        inv.setItem(10, createItem(Material.BLAZE_ROD, comboLabel));
+        inv.setItem(cm.getGuiSlot("word-learning", "combo-info", 10), createItem(cm.getGuiMaterial("word-learning", "combo-info", Material.BLAZE_ROD), comboLabel));
 
         String stopLabel = ChatColor.translateAlternateColorCodes('&', "&c" +
                 messages.getString("word-learning-gui.stop-button", "Stop Session"));
         String stopLore = ChatColor.translateAlternateColorCodes('&', "&7" +
                 messages.getString("word-learning-gui.stop-lore", "End the current learning session"));
 
-        inv.setItem(16, createItem(Material.BARRIER, stopLabel, stopLore));
+        inv.setItem(cm.getGuiSlot("word-learning", "stop-button", 16), createItem(cm.getGuiMaterial("word-learning", "stop-button", Material.BARRIER), stopLabel, stopLore));
 
         String startLabel = ChatColor.translateAlternateColorCodes('&', "&a" +
                 messages.getString("word-learning-gui.answer-hint", "Start Answering"));
@@ -99,7 +101,14 @@ public class WordLearningGUI {
                 messages.getString("word-learning-gui.answer-hint-lore-1",
                         "Close the GUI and start answering"));
 
-        inv.setItem(22, createItem(Material.LIME_DYE, startLabel, startLore));
+        inv.setItem(cm.getGuiSlot("word-learning", "start-button", 22), createItem(cm.getGuiMaterial("word-learning", "start-button", Material.LIME_DYE), startLabel, startLore));
+
+        String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
+                messages.getString("gui.back-button", "Back to Menu"));
+        String backLore = ChatColor.translateAlternateColorCodes('&', "&7" +
+                messages.getString("gui.back-lore",
+                        "Return to the main menu"));
+        inv.setItem(cm.getGuiSlot("word-learning", "back-button", 8), createItem(cm.getGuiMaterial("word-learning", "back-button", Material.RED_STAINED_GLASS_PANE), backLabel, backLore));
     }
 
     private String getComboLabel(int combo, double multiplier, FileConfiguration messages) {

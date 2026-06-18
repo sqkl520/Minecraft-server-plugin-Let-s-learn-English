@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>EnglishSquareGUI.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.gui</a> &gt; <span class="el_source">EnglishSquareGUI.java</span></div><h1>EnglishSquareGUI.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.gui;
 
-import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
-import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.UUID;
+
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -12,152 +16,298 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.UUID;
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.config.ConfigManager;
+import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.LeaderboardEntry;
+import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.RankingMode;
+import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 
 /**
- * English Square GUI — paginated list of all active players.
+ * English Square GUI with ranking modes — paginated list of players.
  *
- * Shows every player who has ever answered at least one word.
- * Players who set &quot;show_in_square = false&quot; will appear in the list by name,
- * but clicking them opens a joke screen (&quot;throwing invisibility potions&quot;)
- * instead of their profile.
+ * Supports 4 modes:
+ * - WEEKLY: this week's top players by coin
+ * - MONTHLY: this month's top players by coin
+ * - ALL_TIME_COINS: all-time top players by total score
+ * - ALL_PLAYERS: all active players (original English Square behavior)
+ *
+ * Players who set &quot;show_in_square = false&quot; get the invisibility joke screen.
  */
 public class EnglishSquareGUI {
 
     private static final int GUI_SIZE = 54;
-    private static final int PLAYERS_PER_PAGE = 45;
-    private final LetsLearnEnglish plugin;
 
-<span class="nc" id="L34">    public EnglishSquareGUI(LetsLearnEnglish plugin) {</span>
-<span class="nc" id="L35">        this.plugin = plugin;</span>
-<span class="nc" id="L36">    }</span>
+<span class="nc" id="L40">    private static final int[] PLAYER_SLOTS = {</span>
+        10, 11, 12, 13, 14, 15, 16,
+        19, 20, 21, 22, 23, 24, 25,
+        28, 29, 30, 31, 32, 33, 34,
+        37, 38, 39, 40, 41, 42, 43
+    };
+<span class="nc" id="L46">    private static final int PLAYERS_PER_PAGE = PLAYER_SLOTS.length;</span>
+
+    private final LetsLearnEnglish plugin;
+<span class="nc" id="L49">    private List&lt;UUID&gt; currentPlayerIds = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L50">    private RankingMode currentMode = RankingMode.ALL_PLAYERS;</span>
+
+<span class="nc" id="L52">    public EnglishSquareGUI(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L53">        this.plugin = plugin;</span>
+<span class="nc" id="L54">    }</span>
+
+    public List&lt;UUID&gt; getCurrentPlayerIds() {
+<span class="nc" id="L57">        return currentPlayerIds;</span>
+    }
+
+    public RankingMode getCurrentMode() {
+<span class="nc" id="L61">        return currentMode;</span>
+    }
 
     public void open(Player viewer, int page) {
-<span class="nc" id="L39">        FileConfiguration messages = plugin.getConfigManager()</span>
-<span class="nc" id="L40">                .getMessageConfig(plugin.getPlayerLanguage(viewer));</span>
+<span class="nc" id="L65">        open(viewer, page, RankingMode.ALL_PLAYERS);</span>
+<span class="nc" id="L66">    }</span>
 
-<span class="nc" id="L42">        PlayerDataStore store = plugin.getPlayerDataStore();</span>
-<span class="nc" id="L43">        List&lt;UUID&gt; allPlayerIds = store.getActivePlayerIds();</span>
+    public void open(Player viewer, int page, RankingMode mode) {
+<span class="nc" id="L69">        ConfigManager cm = plugin.getConfigManager();</span>
+<span class="nc" id="L70">        String lang = plugin.getPlayerLanguage(viewer);</span>
+<span class="nc" id="L71">        FileConfiguration messages = cm.getMessageConfig(lang);</span>
+<span class="nc" id="L72">        PlayerDataStore store = plugin.getPlayerDataStore();</span>
+<span class="nc" id="L73">        this.currentMode = mode;</span>
 
-<span class="nc" id="L45">        int totalPages = Math.max(1, (int) Math.ceil((double) allPlayerIds.size() / PLAYERS_PER_PAGE));</span>
-<span class="nc bnc" id="L46" title="All 2 branches missed.">        if (page &lt; 1) page = 1;</span>
-<span class="nc bnc" id="L47" title="All 2 branches missed.">        if (page &gt; totalPages) page = totalPages;</span>
+<span class="nc" id="L75">        int displayCount = cm.getMainConfig().getInt(&quot;progress-system.leaderboard.display-count&quot;, 50);</span>
 
-<span class="nc" id="L49">        String title = ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc" id="L50">                messages.getString(&quot;square.title&quot;, &quot;English Square&quot;));</span>
-<span class="nc" id="L51">        title = title + &quot; &quot; + ChatColor.GRAY + &quot;| Page &quot; + page + &quot;/&quot; + totalPages;</span>
-<span class="nc" id="L52">        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);</span>
-
-<span class="nc" id="L54">        int startIdx = (page - 1) * PLAYERS_PER_PAGE;</span>
-<span class="nc" id="L55">        int endIdx = Math.min(startIdx + PLAYERS_PER_PAGE, allPlayerIds.size());</span>
-
-<span class="nc" id="L57">        String lang = plugin.getPlayerLanguage(viewer);</span>
-
-<span class="nc bnc" id="L59" title="All 2 branches missed.">        for (int i = startIdx; i &lt; endIdx; i++) {</span>
-<span class="nc" id="L60">            UUID targetId = allPlayerIds.get(i);</span>
-<span class="nc" id="L61">            String targetName = store.getPlayerName(targetId);</span>
-<span class="nc bnc" id="L62" title="All 2 branches missed.">            if (targetName == null) targetName = &quot;Unknown&quot;;</span>
-
-<span class="nc" id="L64">            PlayerDataStore.ProfileSettings ps = store.getProfileSettings(targetId);</span>
-<span class="nc" id="L65">            PlayerDataStore.PlayerStats stats = store.getPlayerStats(targetId);</span>
-
-<span class="nc" id="L67">            String zhInfo = &quot;&amp;7答对: &amp;a{correct} &amp;7答错: &amp;c{incorrect} &amp;7会话: &amp;e{sessions}&quot;;</span>
-<span class="nc" id="L68">            String enInfo = &quot;&amp;7Correct: &amp;a{correct} &amp;7Wrong: &amp;c{incorrect} &amp;7Sessions: &amp;e{sessions}&quot;;</span>
-<span class="nc bnc" id="L69" title="All 2 branches missed.">            String infoTemplate = &quot;zh&quot;.equalsIgnoreCase(lang) ? zhInfo : enInfo;</span>
-<span class="nc" id="L70">            String loreInfo = ChatColor.translateAlternateColorCodes('&amp;',</span>
-                    infoTemplate
-<span class="nc" id="L72">                            .replace(&quot;{correct}&quot;, String.valueOf(stats.getTotalCorrect()))</span>
-<span class="nc" id="L73">                            .replace(&quot;{incorrect}&quot;, String.valueOf(stats.getTotalIncorrect()))</span>
-<span class="nc" id="L74">                            .replace(&quot;{sessions}&quot;, String.valueOf(stats.getTotalSessions())));</span>
-
-<span class="nc" id="L76">            String clickHint = ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc bnc" id="L77" title="All 2 branches missed.">                    &quot;zh&quot;.equalsIgnoreCase(lang) ? &quot;&amp;7点击查看个人主页&quot; : &quot;&amp;7Click to view profile&quot;);</span>
-
-<span class="nc" id="L79">            ItemStack head = new ItemStack(Material.PLAYER_HEAD);</span>
-<span class="nc" id="L80">            SkullMeta meta = (SkullMeta) head.getItemMeta();</span>
-<span class="nc" id="L81">            meta.setOwningPlayer(Bukkit.getOfflinePlayer(targetId));</span>
-<span class="nc" id="L82">            meta.setDisplayName(ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;b&quot; + targetName));</span>
-<span class="nc" id="L83">            List&lt;String&gt; lore = new ArrayList&lt;&gt;();</span>
-<span class="nc" id="L84">            lore.add(loreInfo);</span>
-<span class="nc" id="L85">            lore.add(&quot;&quot;);</span>
-<span class="nc" id="L86">            lore.add(clickHint);</span>
-<span class="nc" id="L87">            meta.setLore(lore);</span>
-<span class="nc" id="L88">            head.setItemMeta(meta);</span>
-
-<span class="nc" id="L90">            inv.setItem(i - startIdx, head);</span>
+        List&lt;LeaderboardEntry&gt; rankedEntries;
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        if (mode == RankingMode.ALL_PLAYERS) {</span>
+            // Original mode: show active players
+<span class="nc" id="L80">            List&lt;UUID&gt; allPlayers = store.getActivePlayerIds();</span>
+<span class="nc" id="L81">            currentPlayerIds = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L82" title="All 2 branches missed.">            for (UUID id : allPlayers) {</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">                if (!id.equals(viewer.getUniqueId())) {</span>
+<span class="nc" id="L84">                    currentPlayerIds.add(id);</span>
+                }
+<span class="nc" id="L86">            }</span>
+<span class="nc" id="L87">            rankedEntries = Collections.emptyList();</span>
+<span class="nc" id="L88">        } else {</span>
+            // Ranking mode: query leaderboard
+<span class="nc" id="L90">            rankedEntries = plugin.getProgressManager().getLeaderboard().getTopPlayers(mode, displayCount);</span>
+<span class="nc" id="L91">            currentPlayerIds = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">            for (LeaderboardEntry e : rankedEntries) {</span>
+<span class="nc bnc" id="L93" title="All 2 branches missed.">                if (!e.playerId.equals(viewer.getUniqueId())) {</span>
+<span class="nc" id="L94">                    currentPlayerIds.add(e.playerId);</span>
+                }
+<span class="nc" id="L96">            }</span>
         }
 
-<span class="nc bnc" id="L93" title="All 2 branches missed.">        if (page &lt; totalPages) {</span>
-<span class="nc" id="L94">            String nextLabel = ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc" id="L95">                    messages.getString(&quot;square.next-page&quot;, &quot;&amp;eNext Page →&quot;));</span>
-<span class="nc" id="L96">            inv.setItem(50, createItem(Material.ARROW, nextLabel,</span>
-<span class="nc" id="L97">                    Collections.singletonList(ChatColor.GRAY + &quot;Page &quot; + (page + 1) + &quot;/&quot; + totalPages)));</span>
+<span class="nc" id="L99">        int totalPages = Math.max(1, (int) Math.ceil((double) currentPlayerIds.size() / PLAYERS_PER_PAGE));</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">        if (page &lt; 1) page = 1;</span>
+<span class="nc bnc" id="L101" title="All 2 branches missed.">        if (page &gt; totalPages) page = totalPages;</span>
+
+        // Title always contains &quot;English Square&quot; / &quot;英语广场&quot; so listener always matches
+<span class="nc" id="L104">        String baseTitle = messages.getString(&quot;square.title&quot;, &quot;&amp;d&amp;l英语广场 - 第{page}页&quot;);</span>
+<span class="nc bnc" id="L105" title="All 4 branches missed.">        String modeLabel = switch (mode) {</span>
+<span class="nc" id="L106">            case WEEKLY -&gt; messages.getString(&quot;leaderboard.mode-weekly&quot;, &quot;&amp;e周榜&quot;);</span>
+<span class="nc" id="L107">            case MONTHLY -&gt; messages.getString(&quot;leaderboard.mode-monthly&quot;, &quot;&amp;e月榜&quot;);</span>
+<span class="nc" id="L108">            case ALL_TIME_COINS -&gt; messages.getString(&quot;leaderboard.mode-alltime&quot;, &quot;&amp;e总榜&quot;);</span>
+<span class="nc" id="L109">            default -&gt; &quot;&quot;;</span>
+        };
+<span class="nc" id="L111">        String title = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc bnc" id="L112" title="All 2 branches missed.">                (modeLabel.isEmpty() ? baseTitle : baseTitle + &quot; | &quot; + modeLabel)</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">                        .replace(&quot;{page}&quot;, currentPlayerIds.isEmpty() ? &quot;1/1&quot; : page + &quot;/&quot; + totalPages));</span>
+<span class="nc" id="L114">        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);</span>
+
+        // ---- Mode toggle buttons (slots 2-5) ----
+<span class="nc" id="L117">        addModeButton(inv, cm, messages, lang, 2, RankingMode.WEEKLY, &quot;mode-weekly&quot;, Material.CLOCK,</span>
+                &quot;leaderboard.mode-weekly&quot;, &quot;&amp;e周榜&quot;);
+<span class="nc" id="L119">        addModeButton(inv, cm, messages, lang, 3, RankingMode.MONTHLY, &quot;mode-monthly&quot;, Material.BOOK,</span>
+                &quot;leaderboard.mode-monthly&quot;, &quot;&amp;e月榜&quot;);
+<span class="nc" id="L121">        addModeButton(inv, cm, messages, lang, 4, RankingMode.ALL_TIME_COINS, &quot;mode-alltime&quot;, Material.GOLD_INGOT,</span>
+                &quot;leaderboard.mode-alltime&quot;, &quot;&amp;e总榜&quot;);
+<span class="nc" id="L123">        addModeButton(inv, cm, messages, lang, 5, RankingMode.ALL_PLAYERS, &quot;mode-all&quot;, Material.PLAYER_HEAD,</span>
+                &quot;leaderboard.mode-all&quot;, &quot;&amp;e广场&quot;);
+
+        // ---- Player heads ----
+<span class="nc" id="L127">        int startIdx = (page - 1) * PLAYERS_PER_PAGE;</span>
+<span class="nc" id="L128">        int endIdx = Math.min(startIdx + PLAYERS_PER_PAGE, currentPlayerIds.size());</span>
+
+<span class="nc bnc" id="L130" title="All 2 branches missed.">        for (int i = startIdx; i &lt; endIdx; i++) {</span>
+<span class="nc" id="L131">            int slot = PLAYER_SLOTS[i - startIdx];</span>
+<span class="nc" id="L132">            UUID targetId = currentPlayerIds.get(i);</span>
+<span class="nc" id="L133">            String targetName = store.getPlayerName(targetId);</span>
+<span class="nc bnc" id="L134" title="All 2 branches missed.">            if (targetName == null) targetName = &quot;Unknown&quot;;</span>
+
+<span class="nc" id="L136">            ItemStack head = new ItemStack(Material.PLAYER_HEAD);</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">            if (head.getItemMeta() instanceof SkullMeta meta) {</span>
+<span class="nc" id="L138">                meta.setOwningPlayer(Bukkit.getOfflinePlayer(targetId));</span>
+<span class="nc" id="L139">                meta.setDisplayName(ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;b&quot; + targetName));</span>
+<span class="nc" id="L140">                List&lt;String&gt; lore = new ArrayList&lt;&gt;();</span>
+
+<span class="nc bnc" id="L142" title="All 2 branches missed.">                if (mode == RankingMode.ALL_PLAYERS) {</span>
+<span class="nc" id="L143">                    PlayerDataStore.PlayerStats stats = store.getPlayerStats(targetId);</span>
+<span class="nc" id="L144">                    lore.add(ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L145">                            messages.getString(&quot;square.player-info&quot;, &quot;&amp;7答对: &amp;a{correct} &amp;7答错: &amp;c{incorrect}&quot;)</span>
+<span class="nc" id="L146">                                    .replace(&quot;{correct}&quot;, String.valueOf(stats.getTotalCorrect()))</span>
+<span class="nc" id="L147">                                    .replace(&quot;{incorrect}&quot;, String.valueOf(stats.getTotalIncorrect()))));</span>
+<span class="nc" id="L148">                } else {</span>
+                    // Find the entry for this player
+<span class="nc" id="L150">                    LeaderboardEntry entry = findEntry(rankedEntries, targetId);</span>
+<span class="nc bnc" id="L151" title="All 2 branches missed.">                    if (entry != null) {</span>
+<span class="nc" id="L152">                        lore.add(ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L153">                                messages.getString(&quot;leaderboard.rank-entry&quot;, &quot;&amp;6#{rank} &amp;7金币: &amp;e{score}&quot;)</span>
+<span class="nc" id="L154">                                        .replace(&quot;{rank}&quot;, String.valueOf(entry.rank))</span>
+<span class="nc" id="L155">                                        .replace(&quot;{score}&quot;, String.valueOf(entry.score))));</span>
+<span class="nc" id="L156">                        lore.add(ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L157">                                messages.getString(&quot;square.player-info&quot;, &quot;&amp;7答对: &amp;a{correct} &amp;7答错: &amp;c{incorrect}&quot;)</span>
+<span class="nc" id="L158">                                        .replace(&quot;{correct}&quot;, String.valueOf(entry.correct))</span>
+<span class="nc" id="L159">                                        .replace(&quot;{incorrect}&quot;, String.valueOf(entry.incorrect))));</span>
+                    }
+                }
+<span class="nc" id="L162">                lore.add(&quot;&quot;);</span>
+<span class="nc" id="L163">                lore.add(ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L164">                        messages.getString(&quot;square.click-hint&quot;, &quot;&amp;7点击查看个人主页&quot;)));</span>
+<span class="nc" id="L165">                meta.setLore(lore);</span>
+<span class="nc" id="L166">                head.setItemMeta(meta);</span>
+            }
+<span class="nc" id="L168">            inv.setItem(slot, head);</span>
         }
-<span class="nc bnc" id="L99" title="All 2 branches missed.">        if (page &gt; 1) {</span>
-<span class="nc" id="L100">            String prevLabel = ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc" id="L101">                    messages.getString(&quot;square.prev-page&quot;, &quot;&amp;e← Previous Page&quot;));</span>
-<span class="nc" id="L102">            inv.setItem(48, createItem(Material.ARROW, prevLabel,</span>
-<span class="nc" id="L103">                    Collections.singletonList(ChatColor.GRAY + &quot;Page &quot; + (page - 1) + &quot;/&quot; + totalPages)));</span>
+
+        // ---- Pagination ----
+<span class="nc bnc" id="L172" title="All 2 branches missed.">        boolean pageFull = (endIdx - startIdx) &gt;= PLAYERS_PER_PAGE;</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">        if (pageFull) {</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">            if (page &gt; 1) {</span>
+<span class="nc" id="L175">                String prevLabel = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L176">                        messages.getString(&quot;square.prev-page&quot;, &quot;&amp;e← 上一页&quot;));</span>
+<span class="nc" id="L177">                String prevLore = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L178">                        messages.getString(&quot;square.prev-page-lore&quot;, &quot;&amp;7第 {page} 页&quot;)</span>
+<span class="nc" id="L179">                                .replace(&quot;{page}&quot;, String.valueOf(page - 1)));</span>
+<span class="nc" id="L180">                int prevSlot = cm.getGuiSlot(&quot;english-square&quot;, &quot;prev-page&quot;, 47);</span>
+<span class="nc" id="L181">                Material prevMaterial = cm.getGuiMaterial(&quot;english-square&quot;, &quot;prev-page&quot;, Material.ARROW);</span>
+<span class="nc" id="L182">                inv.setItem(prevSlot, createItem(prevMaterial, prevLabel,</span>
+<span class="nc" id="L183">                        Collections.singletonList(prevLore)));</span>
+            }
+<span class="nc bnc" id="L185" title="All 2 branches missed.">            if (page &lt; totalPages) {</span>
+<span class="nc" id="L186">                String nextLabel = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L187">                        messages.getString(&quot;square.next-page&quot;, &quot;&amp;e下一页 →&quot;));</span>
+<span class="nc" id="L188">                String nextLore = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L189">                        messages.getString(&quot;square.next-page-lore&quot;, &quot;&amp;7第 {page} 页&quot;)</span>
+<span class="nc" id="L190">                                .replace(&quot;{page}&quot;, String.valueOf(page + 1)));</span>
+<span class="nc" id="L191">                int nextSlot = cm.getGuiSlot(&quot;english-square&quot;, &quot;next-page&quot;, 51);</span>
+<span class="nc" id="L192">                Material nextMaterial = cm.getGuiMaterial(&quot;english-square&quot;, &quot;next-page&quot;, Material.ARROW);</span>
+<span class="nc" id="L193">                inv.setItem(nextSlot, createItem(nextMaterial, nextLabel,</span>
+<span class="nc" id="L194">                        Collections.singletonList(nextLore)));</span>
+            }
         }
 
-<span class="nc" id="L106">        String backLabel = ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;e&quot; +</span>
-<span class="nc" id="L107">                messages.getString(&quot;gui.back-button&quot;, &quot;Back to Menu&quot;));</span>
-<span class="nc" id="L108">        inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE, backLabel,</span>
-<span class="nc" id="L109">                Collections.singletonList(ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;7&quot; +</span>
-<span class="nc" id="L110">                        messages.getString(&quot;gui.back-lore&quot;, &quot;Return to the main menu&quot;)))));</span>
+        // ---- Back button ----
+<span class="nc" id="L199">        String backLabel = ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;e&quot; +</span>
+<span class="nc" id="L200">                messages.getString(&quot;gui.back-button&quot;, &quot;Back to Menu&quot;));</span>
+<span class="nc" id="L201">        int backSlot = cm.getGuiSlot(&quot;english-square&quot;, &quot;back-button&quot;, 8);</span>
+<span class="nc" id="L202">        Material backMaterial = cm.getGuiMaterial(&quot;english-square&quot;, &quot;back-button&quot;, Material.RED_STAINED_GLASS_PANE);</span>
+<span class="nc" id="L203">        inv.setItem(backSlot, createItem(backMaterial, backLabel,</span>
+<span class="nc" id="L204">                Collections.singletonList(ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;7&quot; +</span>
+<span class="nc" id="L205">                        messages.getString(&quot;gui.back-lore&quot;, &quot;Return to the main menu&quot;)))));</span>
 
-<span class="nc" id="L112">        String emptyLabel = ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc bnc" id="L113" title="All 2 branches missed.">                &quot;zh&quot;.equalsIgnoreCase(lang) ? &quot;&amp;7还没有人答过题&quot; : &quot;&amp;7No one has answered yet&quot;);</span>
-<span class="nc bnc" id="L114" title="All 2 branches missed.">        if (allPlayerIds.isEmpty()) {</span>
-<span class="nc" id="L115">            inv.setItem(22, createItem(Material.BOOK, emptyLabel, Collections.emptyList()));</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">        if (currentPlayerIds.isEmpty()) {</span>
+<span class="nc" id="L208">            String emptyLabel = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L209">                    messages.getString(&quot;square.empty&quot;, &quot;&amp;7还没有人答过题呢~&quot;));</span>
+<span class="nc" id="L210">            int emptySlot = cm.getGuiSlot(&quot;english-square&quot;, &quot;empty-icon&quot;, 22);</span>
+<span class="nc" id="L211">            Material emptyMaterial = cm.getGuiMaterial(&quot;english-square&quot;, &quot;empty-icon&quot;, Material.BOOK);</span>
+<span class="nc" id="L212">            inv.setItem(emptySlot, createItem(emptyMaterial, emptyLabel, Collections.emptyList()));</span>
         }
 
-<span class="nc" id="L118">        viewer.openInventory(inv);</span>
-<span class="nc" id="L119">    }</span>
+        // Viewer's own head — slot 0
+<span class="nc" id="L216">        PlayerDataStore.PlayerStats ownStats = store.getPlayerStats(viewer.getUniqueId());</span>
+        String ownInfo;
+<span class="nc bnc" id="L218" title="All 2 branches missed.">        if (mode == RankingMode.ALL_PLAYERS) {</span>
+<span class="nc" id="L219">            ownInfo = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L220">                    messages.getString(&quot;square.player-info&quot;, &quot;&amp;7答对: &amp;a{correct} &amp;7答错: &amp;c{incorrect}&quot;)</span>
+<span class="nc" id="L221">                            .replace(&quot;{correct}&quot;, String.valueOf(ownStats.getTotalCorrect()))</span>
+<span class="nc" id="L222">                            .replace(&quot;{incorrect}&quot;, String.valueOf(ownStats.getTotalIncorrect())));</span>
+        } else {
+<span class="nc" id="L224">            ownInfo = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L225">                    messages.getString(&quot;leaderboard.rank-entry&quot;, &quot;&amp;7金币: &amp;e{score}&quot;)</span>
+<span class="nc" id="L226">                            .replace(&quot;{rank}&quot;, &quot;-&quot;)</span>
+<span class="nc" id="L227">                            .replace(&quot;{score}&quot;, String.valueOf(ownStats.getTotalScore())));</span>
+        }
+<span class="nc" id="L229">        String ownClickHint = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L230">                messages.getString(&quot;square.click-hint&quot;, &quot;&amp;7点击查看个人主页&quot;));</span>
+<span class="nc" id="L231">        ItemStack ownHead = new ItemStack(Material.PLAYER_HEAD);</span>
+<span class="nc bnc" id="L232" title="All 2 branches missed.">        if (ownHead.getItemMeta() instanceof SkullMeta ownMeta) {</span>
+<span class="nc" id="L233">            ownMeta.setOwningPlayer(Bukkit.getOfflinePlayer(viewer.getUniqueId()));</span>
+<span class="nc" id="L234">            ownMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;b&quot; + viewer.getName()));</span>
+<span class="nc" id="L235">            List&lt;String&gt; ownLore = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L236">            ownLore.add(ownInfo);</span>
+<span class="nc" id="L237">            ownLore.add(&quot;&quot;);</span>
+<span class="nc" id="L238">            ownLore.add(ownClickHint);</span>
+<span class="nc" id="L239">            ownMeta.setLore(ownLore);</span>
+<span class="nc" id="L240">            ownHead.setItemMeta(ownMeta);</span>
+        }
+<span class="nc" id="L242">        inv.setItem(0, ownHead);</span>
 
-    /**
-     * Show the &quot;hidden&quot; joke screen when a player hides their profile.
-     */
+<span class="nc" id="L244">        viewer.openInventory(inv);</span>
+<span class="nc" id="L245">    }</span>
+
+    private void addModeButton(Inventory inv, ConfigManager cm, FileConfiguration messages,
+                                String lang, int defaultSlot, RankingMode mode, String configKey,
+                                Material defaultMaterial, String messageKey, String fallback) {
+<span class="nc" id="L250">        int slot = cm.getGuiSlot(&quot;english-square&quot;, configKey, defaultSlot);</span>
+<span class="nc" id="L251">        Material mat = cm.getGuiMaterial(&quot;english-square&quot;, configKey, defaultMaterial);</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">        boolean selected = (currentMode == mode);</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">        Material displayMat = selected ? Material.LIME_DYE : mat;</span>
+<span class="nc" id="L254">        String label = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc bnc" id="L255" title="All 2 branches missed.">                (selected ? &quot;&amp;a&amp;l&quot; : &quot;&amp;7&quot;) + messages.getString(messageKey, fallback));</span>
+<span class="nc bnc" id="L256" title="All 2 branches missed.">        String hint = messages.getString(selected ? &quot;leaderboard.selected&quot; : &quot;leaderboard.switch-hint&quot;,</span>
+<span class="nc bnc" id="L257" title="All 2 branches missed.">                selected ? &quot;&amp;aSelected&quot; : &quot;&amp;7Click to switch&quot;);</span>
+<span class="nc" id="L258">        inv.setItem(slot, createItem(displayMat, label,</span>
+<span class="nc" id="L259">                Collections.singletonList(ChatColor.translateAlternateColorCodes('&amp;', hint))));</span>
+<span class="nc" id="L260">    }</span>
+
+    private LeaderboardEntry findEntry(List&lt;LeaderboardEntry&gt; entries, UUID playerId) {
+<span class="nc bnc" id="L263" title="All 2 branches missed.">        for (LeaderboardEntry e : entries) {</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">            if (e.playerId.equals(playerId)) return e;</span>
+<span class="nc" id="L265">        }</span>
+<span class="nc" id="L266">        return null;</span>
+    }
+
     public void openHidden(Player viewer, UUID targetId) {
-<span class="nc" id="L125">        FileConfiguration messages = plugin.getConfigManager()</span>
-<span class="nc" id="L126">                .getMessageConfig(plugin.getPlayerLanguage(viewer));</span>
-<span class="nc" id="L127">        String title = ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc" id="L128">                messages.getString(&quot;square.title&quot;, &quot;English Square&quot;));</span>
-<span class="nc" id="L129">        Inventory inv = Bukkit.createInventory(null, 27, title);</span>
+<span class="nc" id="L270">        ConfigManager cm = plugin.getConfigManager();</span>
+<span class="nc" id="L271">        FileConfiguration messages = cm.getMessageConfig(plugin.getPlayerLanguage(viewer));</span>
+<span class="nc" id="L272">        String title = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L273">                messages.getString(&quot;square.title&quot;, &quot;English Square&quot;));</span>
+<span class="nc" id="L274">        Inventory inv = Bukkit.createInventory(null, 27, title);</span>
 
-<span class="nc" id="L131">        String jokeName = ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc" id="L132">                messages.getString(&quot;square.hidden-title&quot;, &quot;&amp;b&amp;k??? &amp;r&amp;b??? &amp;k???&quot;));</span>
-<span class="nc" id="L133">        String jokeLore = ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc" id="L134">                messages.getString(&quot;square.hidden-lore&quot;,</span>
+<span class="nc" id="L276">        String jokeName = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L277">                messages.getString(&quot;square.hidden-title&quot;, &quot;&amp;b&amp;k??? &amp;r&amp;b??? &amp;k???&quot;));</span>
+<span class="nc" id="L278">        String jokeLore = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L279">                messages.getString(&quot;square.hidden-lore&quot;,</span>
                         &quot;&amp;7The player is throwing invisibility splash potions everywhere...&quot;));
 
-<span class="nc" id="L137">        ItemStack potion = new ItemStack(Material.SPLASH_POTION);</span>
-<span class="nc" id="L138">        ItemMeta meta = potion.getItemMeta();</span>
-<span class="nc" id="L139">        meta.setDisplayName(jokeName);</span>
-<span class="nc" id="L140">        meta.setLore(Collections.singletonList(jokeLore));</span>
-<span class="nc" id="L141">        potion.setItemMeta(meta);</span>
+<span class="nc" id="L282">        ItemStack potion = new ItemStack(Material.POTION);</span>
+<span class="nc" id="L283">        ItemMeta meta = potion.getItemMeta();</span>
+<span class="nc bnc" id="L284" title="All 2 branches missed.">        if (meta != null) {</span>
+<span class="nc" id="L285">            meta.setDisplayName(jokeName);</span>
+<span class="nc" id="L286">            meta.setLore(Collections.singletonList(jokeLore));</span>
+<span class="nc" id="L287">            potion.setItemMeta(meta);</span>
+        }
+<span class="nc" id="L289">        inv.setItem(13, potion);</span>
 
-<span class="nc" id="L143">        inv.setItem(13, potion);</span>
+<span class="nc" id="L291">        String backLabel = ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;e&quot; +</span>
+<span class="nc" id="L292">                messages.getString(&quot;gui.back-button&quot;, &quot;Back to Menu&quot;));</span>
+<span class="nc" id="L293">        int backSlot = cm.getGuiSlot(&quot;english-square&quot;, &quot;back-button&quot;, 8);</span>
+<span class="nc" id="L294">        Material backMaterial = cm.getGuiMaterial(&quot;english-square&quot;, &quot;back-button&quot;, Material.RED_STAINED_GLASS_PANE);</span>
+<span class="nc" id="L295">        inv.setItem(backSlot, createItem(backMaterial, backLabel,</span>
+<span class="nc" id="L296">                Collections.singletonList(ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;7&quot; +</span>
+<span class="nc" id="L297">                        messages.getString(&quot;gui.back-lore&quot;, &quot;Return to the main menu&quot;)))));</span>
 
-<span class="nc" id="L145">        String backLabel = ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;e&quot; +</span>
-<span class="nc" id="L146">                messages.getString(&quot;gui.back-button&quot;, &quot;Back to Menu&quot;));</span>
-<span class="nc" id="L147">        inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE, backLabel,</span>
-<span class="nc" id="L148">                Collections.singletonList(ChatColor.translateAlternateColorCodes('&amp;', &quot;&amp;7&quot; +</span>
-<span class="nc" id="L149">                        messages.getString(&quot;gui.back-lore&quot;, &quot;Return to the main menu&quot;)))));</span>
-
-<span class="nc" id="L151">        viewer.openInventory(inv);</span>
-<span class="nc" id="L152">    }</span>
+<span class="nc" id="L299">        viewer.openInventory(inv);</span>
+<span class="nc" id="L300">    }</span>
 
     private ItemStack createItem(Material material, String name, List&lt;String&gt; lore) {
-<span class="nc" id="L155">        ItemStack item = new ItemStack(material);</span>
-<span class="nc" id="L156">        ItemMeta meta = item.getItemMeta();</span>
-<span class="nc" id="L157">        meta.setDisplayName(name);</span>
-<span class="nc" id="L158">        meta.setLore(lore);</span>
-<span class="nc" id="L159">        item.setItemMeta(meta);</span>
-<span class="nc" id="L160">        return item;</span>
+<span class="nc" id="L303">        ItemStack item = new ItemStack(material);</span>
+<span class="nc" id="L304">        ItemMeta meta = item.getItemMeta();</span>
+<span class="nc bnc" id="L305" title="All 2 branches missed.">        if (meta != null) {</span>
+<span class="nc" id="L306">            meta.setDisplayName(name);</span>
+<span class="nc" id="L307">            meta.setLore(lore);</span>
+<span class="nc" id="L308">            item.setItemMeta(meta);</span>
+        }
+<span class="nc" id="L310">        return item;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

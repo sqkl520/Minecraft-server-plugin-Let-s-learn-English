@@ -26,7 +26,8 @@ public class DataExporter {
     }
 
     /**
-     * Export all player learning data to a CSV file.
+     * Export online players' learning data to a CSV file.
+     * Note: Only exports data for currently online players.
      *
      * @return the path to the exported file
      */
@@ -41,8 +42,8 @@ public class DataExporter {
             plugin.getServer().getOnlinePlayers().forEach(player -> {
                 try {
                     PlayerDataStore.PlayerStats stats = playerDataStore.getPlayerStats(player.getUniqueId());
-                    writer.write(player.getUniqueId() + ","
-                            + player.getName() + ","
+                    writer.write(escapeCsv(player.getUniqueId().toString()) + ","
+                            + escapeCsv(player.getName()) + ","
                             + stats.getTotalWords() + ","
                             + stats.getTotalSessions() + ","
                             + stats.getTotalScore() + ","
@@ -61,5 +62,13 @@ public class DataExporter {
         }
 
         return exportFile.getAbsolutePath();
+    }
+
+    private String escapeCsv(String value) {
+        if (value == null) return "";
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
     }
 }
