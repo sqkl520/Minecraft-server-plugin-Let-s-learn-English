@@ -20,8 +20,8 @@ import java.util.Collection;
 public class ChatAnswerListener implements Listener {
 
     private final LetsLearnEnglish plugin;
-    private Collection&lt;? extends Player&gt; cachedOnlinePlayers;
-    private long playersCacheTimestamp;
+    private volatile Collection&lt;? extends Player&gt; cachedOnlinePlayers;
+    private volatile long playersCacheTimestamp;
 
 <span class="nc" id="L26">    public ChatAnswerListener(LetsLearnEnglish plugin) {</span>
 <span class="nc" id="L27">        this.plugin = plugin;</span>
@@ -86,23 +86,26 @@ public class ChatAnswerListener implements Listener {
                                 &quot;&amp;a\u2714 Correct! &amp;7(+&amp;e{score}&amp;7){combo}&quot;)
 <span class="nc" id="L87">                                .replace(&quot;{score}&quot;, String.valueOf(result.comboScore))</span>
 <span class="nc" id="L88">                                .replace(&quot;{combo}&quot;, comboMsg)));</span>
-<span class="nc" id="L89">            } else {</span>
-<span class="nc" id="L90">                SoundManager.playSound(player, &quot;incorrect&quot;);</span>
-<span class="nc" id="L91">                player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc" id="L92">                        msgs.getString(&quot;word-learning-gui.incorrect&quot;,</span>
+
+<span class="nc" id="L90">                plugin.getAchievementManager().checkStreakAchievement(</span>
+<span class="nc" id="L91">                        player.getUniqueId(), result.consecutiveCorrect);</span>
+<span class="nc" id="L92">            } else {</span>
+<span class="nc" id="L93">                SoundManager.playSound(player, &quot;incorrect&quot;);</span>
+<span class="nc" id="L94">                player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L95">                        msgs.getString(&quot;word-learning-gui.incorrect&quot;,</span>
                                 &quot;&amp;c\u2716 Wrong! Answer: &amp;e{answer}&quot;)
-<span class="nc" id="L94">                                .replace(&quot;{answer}&quot;, result.correctAnswer)));</span>
+<span class="nc" id="L97">                                .replace(&quot;{answer}&quot;, result.correctAnswer)));</span>
             }
 
-<span class="nc bnc" id="L97" title="All 2 branches missed.">            if (result.sessionComplete) {</span>
-<span class="nc" id="L98">                SoundManager.playSound(player, &quot;complete&quot;);</span>
-<span class="nc" id="L99">                wlManager.showSessionComplete(player, result);</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">            if (result.sessionComplete) {</span>
+<span class="nc" id="L101">                SoundManager.playSound(player, &quot;complete&quot;);</span>
+<span class="nc" id="L102">                wlManager.showSessionComplete(player, result);</span>
             } else {
-<span class="nc" id="L101">                String difficulty = wlManager.getDifficulty(player.getUniqueId());</span>
-<span class="nc" id="L102">                String mode = wlManager.getMode(player.getUniqueId());</span>
-<span class="nc" id="L103">                new WordLearningGUI(plugin).openWithMessage(player, difficulty, mode);</span>
+<span class="nc" id="L104">                String difficulty = wlManager.getDifficulty(player.getUniqueId());</span>
+<span class="nc" id="L105">                String mode = wlManager.getMode(player.getUniqueId());</span>
+<span class="nc" id="L106">                new WordLearningGUI(plugin).openWithMessage(player, difficulty, mode);</span>
             }
-<span class="nc" id="L105">        });</span>
-<span class="nc" id="L106">    }</span>
+<span class="nc" id="L108">        });</span>
+<span class="nc" id="L109">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

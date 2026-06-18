@@ -4,6 +4,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -11,6 +12,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager.ChallengeType;
 import com.letslearnenglish.minecraftplugin.core.progress.RewardEngine;
 import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
 
@@ -100,6 +102,12 @@ public class WordLearningManager {
                 comboScore = (int) Math.round(BASE_SCORE * multiplier);
                 session.addScore(comboScore);
                 session.recordCorrect();
+
+                // Daily challenge hooks
+                plugin.getDailyChallengeManager().updateProgress(id, ChallengeType.ANSWER_10, 1);
+                if (state.consecutiveCorrect >= 5) {
+                    plugin.getDailyChallengeManager().completeChallenge(id, ChallengeType.COMBO_5);
+                }
 
                 RewardEngine rewards = plugin.getProgressManager().getRewardEngine();
                 if (state.isReviewMode) {
@@ -225,7 +233,7 @@ public class WordLearningManager {
             }
         }, 20L, 20L);
 
-        state.answerTaskId = task.getTaskId();
+        state.answerTaskId.set(task.getTaskId());
     }
 
     public void cancelAnswerTimer(Player player) {
@@ -235,9 +243,9 @@ public class WordLearningManager {
 
         state.cancelled = true;
 
-        if (state.answerTaskId != -1) {
-            plugin.getServer().getScheduler().cancelTask(state.answerTaskId);
-            state.answerTaskId = -1;
+        if (state.answerTaskId.get() != -1) {
+            plugin.getServer().getScheduler().cancelTask(state.answerTaskId.get());
+            state.answerTaskId.set(-1);
         }
         state.isAnswering = false;
     }
@@ -280,8 +288,8 @@ public class WordLearningManager {
 
     public void endQuiz(UUID playerId) {
         QuizState state = quizStates.get(playerId);
-        if (state != null && state.answerTaskId != -1) {
-            plugin.getServer().getScheduler().cancelTask(state.answerTaskId);
+        if (state != null && state.answerTaskId.get() != -1) {
+            plugin.getServer().getScheduler().cancelTask(state.answerTaskId.get());
         }
         quizStates.remove(playerId);
         wordManager.endSession(playerId);
@@ -290,8 +298,8 @@ public class WordLearningManager {
     public void clearAllSessions() {
         for (UUID playerId : quizStates.keySet()) {
             QuizState state = quizStates.get(playerId);
-            if (state != null && state.answerTaskId != -1) {
-                plugin.getServer().getScheduler().cancelTask(state.answerTaskId);
+            if (state != null && state.answerTaskId.get() != -1) {
+                plugin.getServer().getScheduler().cancelTask(state.answerTaskId.get());
             }
             wordManager.endSession(playerId);
         }
@@ -341,6 +349,27 @@ public class WordLearningManager {
         if (state != null) {
             plugin.getProgressManager().getRewardEngine()
                     .giveSessionCompleteMoneyReward(player, state.maxComboReached);
+
+            LearningSession session = state.session;
+            if (session != null) {
+                plugin.getAchievementManager().checkSessionAchievements(
+                        player.getUniqueId(),
+                        session.getTotalCorrect(),
+                        session.getTotalIncorrect(),
+                        session.getTotalWords(),
+                        state.mode
+                );
+                // 记录到学习日历
+                plugin.getPlayerDataStore().recordSession(
+                        player.getUniqueId(),
+                        session.getTotalWords(),
+                        session.getTotalCorrect(),
+                        result.score,
+                        state.mode
+                );
+                // Daily challenge: session completed
+                plugin.getDailyChallengeManager().updateProgress(player.getUniqueId(), ChallengeType.SESSION_3, 1);
+            }
         }
     }
 
@@ -352,20 +381,19 @@ public class WordLearningManager {
         public final LearningSession session;
         public final String difficulty;
         public final String mode;
-        public int answerTaskId;
+        public final AtomicInteger answerTaskId = new AtomicInteger(-1);
         public int answerTimeout;
-        public boolean isAnswering;
+        public volatile boolean isAnswering;
         public volatile boolean cancelled;
         public final AtomicBoolean submitting = new AtomicBoolean(false);
-        public int consecutiveCorrect;
-        public int maxComboReached;
+        public volatile int consecutiveCorrect;
+        public volatile int maxComboReached;
         public boolean isReviewMode;
 
         public QuizState(LearningSession session, String difficulty, String mode, int answerTimeout) {
             this.session = session;
             this.difficulty = difficulty;
             this.mode = mode;
-            this.answerTaskId = -1;
             this.answerTimeout = answerTimeout;
             this.isAnswering = false;
             this.cancelled = false;

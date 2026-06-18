@@ -6,6 +6,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Learning Session - tracks a player's current word learning session.
@@ -23,152 +26,147 @@ public class LearningSession {
     private final String mode;
     private final List&lt;Word&gt; words;
     private final Map&lt;String, WordResult&gt; results;
-    private int currentIndex;
-    private int totalCorrect;
-    private int totalIncorrect;
-    private int totalScore;
+<span class="fc" id="L29">    private final AtomicInteger currentIndex = new AtomicInteger(0);</span>
+<span class="fc" id="L30">    private final AtomicInteger totalCorrect = new AtomicInteger(0);</span>
+<span class="fc" id="L31">    private final AtomicInteger totalIncorrect = new AtomicInteger(0);</span>
+<span class="fc" id="L32">    private final AtomicLong totalScore = new AtomicLong(0);</span>
     private final long startTime;
-    private boolean completed;
+<span class="fc" id="L34">    private final AtomicBoolean completed = new AtomicBoolean(false);</span>
 
-<span class="fc" id="L33">    public LearningSession(UUID playerId, String difficulty, String mode, List&lt;Word&gt; words) {</span>
-<span class="fc" id="L34">        this.playerId = playerId;</span>
-<span class="fc" id="L35">        this.difficulty = difficulty;</span>
-<span class="fc" id="L36">        this.mode = mode;</span>
-<span class="fc" id="L37">        this.words = new ArrayList&lt;&gt;(words);</span>
-<span class="fc" id="L38">        this.results = new ConcurrentHashMap&lt;&gt;();</span>
-<span class="fc" id="L39">        this.currentIndex = 0;</span>
-<span class="fc" id="L40">        this.totalCorrect = 0;</span>
-<span class="fc" id="L41">        this.totalIncorrect = 0;</span>
-<span class="fc" id="L42">        this.totalScore = 0;</span>
-<span class="fc" id="L43">        this.startTime = System.currentTimeMillis();</span>
-<span class="fc" id="L44">        this.completed = false;</span>
+<span class="fc" id="L36">    public LearningSession(UUID playerId, String difficulty, String mode, List&lt;Word&gt; words) {</span>
+<span class="fc" id="L37">        this.playerId = playerId;</span>
+<span class="fc" id="L38">        this.difficulty = difficulty;</span>
+<span class="fc" id="L39">        this.mode = mode;</span>
+<span class="fc" id="L40">        this.words = new ArrayList&lt;&gt;(words);</span>
+<span class="fc" id="L41">        this.results = new ConcurrentHashMap&lt;&gt;();</span>
+<span class="fc" id="L42">        this.startTime = System.currentTimeMillis();</span>
 
-<span class="fc bfc" id="L46" title="All 2 branches covered.">        for (Word word : words) {</span>
-<span class="fc" id="L47">            results.put(word.getEnglish().toLowerCase(), new WordResult(word));</span>
-<span class="fc" id="L48">        }</span>
-<span class="fc" id="L49">    }</span>
+<span class="fc bfc" id="L44" title="All 2 branches covered.">        for (Word word : words) {</span>
+<span class="fc" id="L45">            results.put(word.getEnglish().toLowerCase(), new WordResult(word));</span>
+<span class="fc" id="L46">        }</span>
+<span class="fc" id="L47">    }</span>
 
     /**
      * Get the current word being learned.
      */
     public Word getCurrentWord() {
-<span class="fc bfc" id="L55" title="All 2 branches covered.">        if (currentIndex &gt;= words.size()) {</span>
-<span class="fc" id="L56">            return null;</span>
+<span class="fc bfc" id="L53" title="All 2 branches covered.">        if (currentIndex.get() &gt;= words.size()) {</span>
+<span class="fc" id="L54">            return null;</span>
         }
-<span class="fc" id="L58">        return words.get(currentIndex);</span>
+<span class="fc" id="L56">        return words.get(currentIndex.get());</span>
     }
 
     /**
      * Record a correct answer for the current word and advance.
      */
     public void recordCorrect() {
-<span class="fc" id="L65">        Word current = getCurrentWord();</span>
-<span class="pc bpc" id="L66" title="1 of 2 branches missed.">        if (current != null) {</span>
-<span class="fc" id="L67">            WordResult result = results.get(current.getEnglish().toLowerCase());</span>
-<span class="pc bpc" id="L68" title="1 of 2 branches missed.">            if (result != null) {</span>
-<span class="fc" id="L69">                result.incrementCorrect();</span>
+<span class="fc" id="L63">        Word current = getCurrentWord();</span>
+<span class="pc bpc" id="L64" title="1 of 2 branches missed.">        if (current != null) {</span>
+<span class="fc" id="L65">            WordResult result = results.get(current.getEnglish().toLowerCase());</span>
+<span class="pc bpc" id="L66" title="1 of 2 branches missed.">            if (result != null) {</span>
+<span class="fc" id="L67">                result.incrementCorrect();</span>
             }
-<span class="fc" id="L71">            totalCorrect++;</span>
+<span class="fc" id="L69">            totalCorrect.incrementAndGet();</span>
         }
-<span class="fc" id="L73">        advance();</span>
-<span class="fc" id="L74">    }</span>
+<span class="fc" id="L71">        advance();</span>
+<span class="fc" id="L72">    }</span>
 
     /**
      * Record an incorrect answer for the current word and advance.
      */
     public void recordIncorrect() {
-<span class="fc" id="L80">        Word current = getCurrentWord();</span>
-<span class="pc bpc" id="L81" title="1 of 2 branches missed.">        if (current != null) {</span>
-<span class="fc" id="L82">            WordResult result = results.get(current.getEnglish().toLowerCase());</span>
-<span class="pc bpc" id="L83" title="1 of 2 branches missed.">            if (result != null) {</span>
-<span class="fc" id="L84">                result.incrementIncorrect();</span>
+<span class="fc" id="L78">        Word current = getCurrentWord();</span>
+<span class="pc bpc" id="L79" title="1 of 2 branches missed.">        if (current != null) {</span>
+<span class="fc" id="L80">            WordResult result = results.get(current.getEnglish().toLowerCase());</span>
+<span class="pc bpc" id="L81" title="1 of 2 branches missed.">            if (result != null) {</span>
+<span class="fc" id="L82">                result.incrementIncorrect();</span>
             }
-<span class="fc" id="L86">            totalIncorrect++;</span>
+<span class="fc" id="L84">            totalIncorrect.incrementAndGet();</span>
         }
-<span class="fc" id="L88">        advance();</span>
-<span class="fc" id="L89">    }</span>
+<span class="fc" id="L86">        advance();</span>
+<span class="fc" id="L87">    }</span>
 
     /**
      * Move to the next word.
      */
     public void advance() {
-<span class="fc" id="L95">        currentIndex++;</span>
-<span class="fc bfc" id="L96" title="All 2 branches covered.">        if (currentIndex &gt;= words.size()) {</span>
-<span class="fc" id="L97">            completed = true;</span>
+<span class="fc" id="L93">        currentIndex.incrementAndGet();</span>
+<span class="fc bfc" id="L94" title="All 2 branches covered.">        if (currentIndex.get() &gt;= words.size()) {</span>
+<span class="fc" id="L95">            completed.set(true);</span>
         }
-<span class="fc" id="L99">    }</span>
+<span class="fc" id="L97">    }</span>
 
     /**
      * Get the accuracy rate (0.0 to 1.0).
      */
     public double getAccuracy() {
-<span class="fc" id="L105">        int total = totalCorrect + totalIncorrect;</span>
-<span class="fc bfc" id="L106" title="All 2 branches covered.">        if (total == 0) {</span>
-<span class="fc" id="L107">            return 0.0;</span>
+<span class="fc" id="L103">        int total = totalCorrect.get() + totalIncorrect.get();</span>
+<span class="fc bfc" id="L104" title="All 2 branches covered.">        if (total == 0) {</span>
+<span class="fc" id="L105">            return 0.0;</span>
         }
-<span class="fc" id="L109">        return (double) totalCorrect / total;</span>
+<span class="fc" id="L107">        return (double) totalCorrect.get() / total;</span>
     }
 
     /**
      * Get the score for this session.
      */
     public int getScore() {
-<span class="fc" id="L116">        return totalScore;</span>
+<span class="fc" id="L114">        return (int) totalScore.get();</span>
     }
 
     public void addScore(int points) {
-<span class="fc" id="L120">        this.totalScore += points;</span>
-<span class="fc" id="L121">    }</span>
+<span class="fc" id="L118">        this.totalScore.addAndGet(points);</span>
+<span class="fc" id="L119">    }</span>
 
     /**
      * Get the elapsed time in seconds.
      */
     public long getElapsedSeconds() {
-<span class="fc" id="L127">        return (System.currentTimeMillis() - startTime) / 1000;</span>
+<span class="fc" id="L125">        return (System.currentTimeMillis() - startTime) / 1000;</span>
     }
 
     public UUID getPlayerId() {
-<span class="fc" id="L131">        return playerId;</span>
+<span class="fc" id="L129">        return playerId;</span>
     }
 
     public String getDifficulty() {
-<span class="fc" id="L135">        return difficulty;</span>
+<span class="fc" id="L133">        return difficulty;</span>
     }
 
     public String getMode() {
-<span class="fc" id="L139">        return mode;</span>
+<span class="fc" id="L137">        return mode;</span>
     }
 
     public List&lt;Word&gt; getWords() {
-<span class="fc" id="L143">        return Collections.unmodifiableList(words);</span>
+<span class="fc" id="L141">        return Collections.unmodifiableList(words);</span>
     }
 
     public Map&lt;String, WordResult&gt; getResults() {
-<span class="fc" id="L147">        return Collections.unmodifiableMap(results);</span>
+<span class="fc" id="L145">        return Collections.unmodifiableMap(results);</span>
     }
 
     public int getCurrentIndex() {
-<span class="fc" id="L151">        return currentIndex;</span>
+<span class="fc" id="L149">        return currentIndex.get();</span>
     }
 
     public int getTotalWords() {
-<span class="fc" id="L155">        return words.size();</span>
+<span class="fc" id="L153">        return words.size();</span>
     }
 
     public int getTotalCorrect() {
-<span class="fc" id="L159">        return totalCorrect;</span>
+<span class="fc" id="L157">        return totalCorrect.get();</span>
     }
 
     public int getTotalIncorrect() {
-<span class="fc" id="L163">        return totalIncorrect;</span>
+<span class="fc" id="L161">        return totalIncorrect.get();</span>
     }
 
     public boolean isCompleted() {
-<span class="fc" id="L167">        return completed;</span>
+<span class="fc" id="L165">        return completed.get();</span>
     }
 
     public long getStartTime() {
-<span class="nc" id="L171">        return startTime;</span>
+<span class="nc" id="L169">        return startTime;</span>
     }
 
     /**
@@ -179,35 +177,35 @@ public class LearningSession {
         private int correctCount;
         private int incorrectCount;
 
-<span class="fc" id="L182">        public WordResult(Word word) {</span>
-<span class="fc" id="L183">            this.word = word;</span>
-<span class="fc" id="L184">            this.correctCount = 0;</span>
-<span class="fc" id="L185">            this.incorrectCount = 0;</span>
-<span class="fc" id="L186">        }</span>
+<span class="fc" id="L180">        public WordResult(Word word) {</span>
+<span class="fc" id="L181">            this.word = word;</span>
+<span class="fc" id="L182">            this.correctCount = 0;</span>
+<span class="fc" id="L183">            this.incorrectCount = 0;</span>
+<span class="fc" id="L184">        }</span>
 
         public void incrementCorrect() {
-<span class="fc" id="L189">            correctCount++;</span>
-<span class="fc" id="L190">        }</span>
+<span class="fc" id="L187">            correctCount++;</span>
+<span class="fc" id="L188">        }</span>
 
         public void incrementIncorrect() {
-<span class="fc" id="L193">            incorrectCount++;</span>
-<span class="fc" id="L194">        }</span>
+<span class="fc" id="L191">            incorrectCount++;</span>
+<span class="fc" id="L192">        }</span>
 
         public Word getWord() {
-<span class="nc" id="L197">            return word;</span>
+<span class="nc" id="L195">            return word;</span>
         }
 
         public int getCorrectCount() {
-<span class="fc" id="L201">            return correctCount;</span>
+<span class="fc" id="L199">            return correctCount;</span>
         }
 
         public int getIncorrectCount() {
-<span class="fc" id="L205">            return incorrectCount;</span>
+<span class="fc" id="L203">            return incorrectCount;</span>
         }
 
         public boolean isMastered() {
-<span class="fc" id="L209">            int total = correctCount + incorrectCount;</span>
-<span class="pc bpc" id="L210" title="1 of 4 branches missed.">            return total &gt; 0 &amp;&amp; (double) correctCount / total &gt;= 0.8;</span>
+<span class="fc" id="L207">            int total = correctCount + incorrectCount;</span>
+<span class="pc bpc" id="L208" title="1 of 4 branches missed.">            return total &gt; 0 &amp;&amp; (double) correctCount / total &gt;= 0.8;</span>
         }
     }
 }

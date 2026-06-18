@@ -21,7 +21,8 @@ public class DatabaseManager {
 
     private final LetsLearnEnglish plugin;
     private final ConfigManager configManager;
-    private Connection connection;
+    private final Object connectionLock = new Object();
+    private volatile Connection connection;
     private String tablePrefix;
     private boolean isSQLite;
 
@@ -127,19 +128,77 @@ public class DatabaseManager {
                         "  ended_at BIGINT" +
                         ")"
         );
+
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "player_sessions (" +
+                        "  id INTEGER PRIMARY KEY " + (isSQLite() ? "AUTOINCREMENT" : "AUTO_INCREMENT") + "," +
+                        "  uuid VARCHAR(36) NOT NULL," +
+                        "  session_date DATE NOT NULL," +
+                        "  words_count INT DEFAULT 0," +
+                        "  correct_count INT DEFAULT 0," +
+                        "  score BIGINT DEFAULT 0," +
+                        "  mode VARCHAR(32)," +
+                        "  UNIQUE(uuid, session_date)" +
+                        ")"
+        );
+
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "player_profiles (" +
+                        "  uuid VARCHAR(36) PRIMARY KEY," +
+                        "  age INT DEFAULT 0," +
+                        "  show_answers BOOLEAN DEFAULT 1," +
+                        "  show_results BOOLEAN DEFAULT 1," +
+                        "  show_in_square BOOLEAN DEFAULT 1" +
+                        ")"
+        );
+
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "player_achievements (" +
+                        "  uuid VARCHAR(36) NOT NULL," +
+                        "  achievement_id VARCHAR(64) NOT NULL," +
+                        "  unlocked_at BIGINT NOT NULL," +
+                        "  PRIMARY KEY (uuid, achievement_id)" +
+                        ")"
+        );
+
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "daily_challenges (" +
+                        "  uuid VARCHAR(36) NOT NULL," +
+                        "  challenge_date DATE NOT NULL," +
+                        "  challenge_id VARCHAR(32) NOT NULL," +
+                        "  progress INT DEFAULT 0," +
+                        "  completed BOOLEAN DEFAULT 0," +
+                        "  claimed BOOLEAN DEFAULT 0," +
+                        "  PRIMARY KEY (uuid, challenge_date, challenge_id)" +
+                        ")"
+        );
     }
 
     /**
      * Get the database connection.
+     * Uses double-checked locking to prevent concurrent initialization.
      */
     public Connection getConnection() {
+        // Fast path — connection is already valid (no lock)
         try {
-            if (connection == null || connection.isClosed()) {
-                initialize();
+            if (connection != null && !connection.isClosed()) {
+                return connection;
             }
         } catch (SQLException e) {
             plugin.getLogger().log(Level.SEVERE, "Database connection check failed", e);
             throw new RuntimeException("Failed to get database connection", e);
+        }
+
+        // Slow path — initialize under lock to prevent races
+        synchronized (connectionLock) {
+            try {
+                if (connection == null || connection.isClosed()) {
+                    initialize();
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.SEVERE, "Database connection check failed", e);
+                throw new RuntimeException("Failed to get database connection", e);
+            }
         }
         if (connection == null) {
             throw new RuntimeException("Database connection is null after initialization");

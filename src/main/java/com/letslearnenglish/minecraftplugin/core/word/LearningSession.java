@@ -6,6 +6,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Learning Session - tracks a player's current word learning session.
@@ -23,12 +26,12 @@ public class LearningSession {
     private final String mode;
     private final List<Word> words;
     private final Map<String, WordResult> results;
-    private int currentIndex;
-    private int totalCorrect;
-    private int totalIncorrect;
-    private int totalScore;
+    private final AtomicInteger currentIndex = new AtomicInteger(0);
+    private final AtomicInteger totalCorrect = new AtomicInteger(0);
+    private final AtomicInteger totalIncorrect = new AtomicInteger(0);
+    private final AtomicLong totalScore = new AtomicLong(0);
     private final long startTime;
-    private boolean completed;
+    private final AtomicBoolean completed = new AtomicBoolean(false);
 
     public LearningSession(UUID playerId, String difficulty, String mode, List<Word> words) {
         this.playerId = playerId;
@@ -36,12 +39,7 @@ public class LearningSession {
         this.mode = mode;
         this.words = new ArrayList<>(words);
         this.results = new ConcurrentHashMap<>();
-        this.currentIndex = 0;
-        this.totalCorrect = 0;
-        this.totalIncorrect = 0;
-        this.totalScore = 0;
         this.startTime = System.currentTimeMillis();
-        this.completed = false;
 
         for (Word word : words) {
             results.put(word.getEnglish().toLowerCase(), new WordResult(word));
@@ -52,10 +50,10 @@ public class LearningSession {
      * Get the current word being learned.
      */
     public Word getCurrentWord() {
-        if (currentIndex >= words.size()) {
+        if (currentIndex.get() >= words.size()) {
             return null;
         }
-        return words.get(currentIndex);
+        return words.get(currentIndex.get());
     }
 
     /**
@@ -68,7 +66,7 @@ public class LearningSession {
             if (result != null) {
                 result.incrementCorrect();
             }
-            totalCorrect++;
+            totalCorrect.incrementAndGet();
         }
         advance();
     }
@@ -83,7 +81,7 @@ public class LearningSession {
             if (result != null) {
                 result.incrementIncorrect();
             }
-            totalIncorrect++;
+            totalIncorrect.incrementAndGet();
         }
         advance();
     }
@@ -92,9 +90,9 @@ public class LearningSession {
      * Move to the next word.
      */
     public void advance() {
-        currentIndex++;
-        if (currentIndex >= words.size()) {
-            completed = true;
+        currentIndex.incrementAndGet();
+        if (currentIndex.get() >= words.size()) {
+            completed.set(true);
         }
     }
 
@@ -102,22 +100,22 @@ public class LearningSession {
      * Get the accuracy rate (0.0 to 1.0).
      */
     public double getAccuracy() {
-        int total = totalCorrect + totalIncorrect;
+        int total = totalCorrect.get() + totalIncorrect.get();
         if (total == 0) {
             return 0.0;
         }
-        return (double) totalCorrect / total;
+        return (double) totalCorrect.get() / total;
     }
 
     /**
      * Get the score for this session.
      */
     public int getScore() {
-        return totalScore;
+        return (int) totalScore.get();
     }
 
     public void addScore(int points) {
-        this.totalScore += points;
+        this.totalScore.addAndGet(points);
     }
 
     /**
@@ -148,7 +146,7 @@ public class LearningSession {
     }
 
     public int getCurrentIndex() {
-        return currentIndex;
+        return currentIndex.get();
     }
 
     public int getTotalWords() {
@@ -156,15 +154,15 @@ public class LearningSession {
     }
 
     public int getTotalCorrect() {
-        return totalCorrect;
+        return totalCorrect.get();
     }
 
     public int getTotalIncorrect() {
-        return totalIncorrect;
+        return totalIncorrect.get();
     }
 
     public boolean isCompleted() {
-        return completed;
+        return completed.get();
     }
 
     public long getStartTime() {

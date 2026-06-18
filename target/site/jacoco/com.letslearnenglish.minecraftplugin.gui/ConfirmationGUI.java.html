@@ -86,19 +86,23 @@ public class ConfirmationGUI {
 <span class="nc" id="L86">        confirmStages.remove(player.getUniqueId());</span>
 <span class="nc" id="L87">        plugin.setPlayerLanguage(player, targetLang);</span>
 
-<span class="nc" id="L89">        String switcMsg = plugin.getMessageUtil().getPlayerMessage(player, &quot;language.switched&quot;);</span>
-<span class="nc" id="L90">        player.sendMessage(switcMsg);</span>
-<span class="nc" id="L91">    }</span>
+<span class="nc" id="L89">        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(targetLang);</span>
+<span class="nc" id="L90">        String prefix = messages.getString(&quot;prefix&quot;, &quot;&amp;8[&amp;bEnglish&amp;8] &amp;f&quot;);</span>
+<span class="nc" id="L91">        String rawMsg = messages.getString(&quot;language.switched&quot;, &quot;&amp;aLanguage switched!&quot;);</span>
+<span class="nc" id="L92">        String switcMsg = ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L93">                rawMsg.replace(&quot;{prefix}&quot;, prefix));</span>
+<span class="nc" id="L94">        player.sendMessage(switcMsg);</span>
+<span class="nc" id="L95">    }</span>
 
     private ItemStack createConfirmItem(String name, String lore) {
-<span class="nc" id="L94">        ItemStack item = new ItemStack(Material.EMERALD);</span>
-<span class="nc" id="L95">        ItemMeta meta = item.getItemMeta();</span>
-<span class="nc bnc" id="L96" title="All 2 branches missed.">        if (meta != null) {</span>
-<span class="nc" id="L97">            meta.setDisplayName(name);</span>
-<span class="nc" id="L98">            meta.setLore(Arrays.asList(lore));</span>
-<span class="nc" id="L99">            item.setItemMeta(meta);</span>
+<span class="nc" id="L98">        ItemStack item = new ItemStack(Material.EMERALD);</span>
+<span class="nc" id="L99">        ItemMeta meta = item.getItemMeta();</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">        if (meta != null) {</span>
+<span class="nc" id="L101">            meta.setDisplayName(name);</span>
+<span class="nc" id="L102">            meta.setLore(Arrays.asList(lore));</span>
+<span class="nc" id="L103">            item.setItemMeta(meta);</span>
         }
-<span class="nc" id="L101">        return item;</span>
+<span class="nc" id="L105">        return item;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

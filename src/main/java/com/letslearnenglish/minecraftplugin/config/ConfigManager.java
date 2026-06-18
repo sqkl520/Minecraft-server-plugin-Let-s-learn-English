@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.config;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import org.bukkit.Material;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 
@@ -16,13 +17,12 @@ import java.util.logging.Level;
  * Managed configuration files:
  * - config.yml         Main configuration
  * - achievements.yml   Achievement configuration
- * - words/*.yml        Word bank files
- * - dialogues/*.yml    Dialogue scene files
+ * - words/*.yml      Word bank files
  * - messages/*.yml     Multi-language message files
  */
 public class ConfigManager {
 
-    private static final int MESSAGE_CONFIG_VERSION = 3;
+    private static final int MESSAGE_CONFIG_VERSION = 5;
 
     private final LetsLearnEnglish plugin;
     private final Map<String, FileConfiguration> configCache;
@@ -46,14 +46,10 @@ public class ConfigManager {
         achievementConfig = loadConfig("achievements.yml");
 
         createDirectoryIfNotExists("words");
-        createDirectoryIfNotExists("dialogues");
 
         saveResourceIfNotExists("words/beginner.yml");
         saveResourceIfNotExists("words/intermediate.yml");
         saveResourceIfNotExists("words/advanced.yml");
-        saveResourceIfNotExists("dialogues/restaurant.yml");
-        saveResourceIfNotExists("dialogues/airport.yml");
-        saveResourceIfNotExists("dialogues/shopping.yml");
 
         messageConfigZh = loadMessageConfig("messages/zh.yml");
         messageConfigEn = loadMessageConfig("messages/en.yml");
@@ -117,10 +113,6 @@ public class ConfigManager {
         return loadConfig("words/" + difficulty + ".yml");
     }
 
-    public FileConfiguration loadDialogueScene(String sceneName) {
-        return loadConfig("dialogues/" + sceneName + ".yml");
-    }
-
     private void createDirectoryIfNotExists(String dirName) {
         File dir = new File(plugin.getDataFolder(), dirName);
         if (!dir.exists()) {
@@ -149,5 +141,31 @@ public class ConfigManager {
 
     public FileConfiguration getMessageConfig(String lang) {
         return "zh".equals(lang) ? messageConfigZh : messageConfigEn;
+    }
+
+    public int getGuiSlot(String guiName, String itemKey, int defaultSlot) {
+        return mainConfig.getInt("gui-layout." + guiName + "." + itemKey + ".slot", defaultSlot);
+    }
+
+    public Material getGuiMaterial(String guiName, String itemKey, Material defaultMaterial) {
+        String matName = mainConfig.getString("gui-layout." + guiName + "." + itemKey + ".material");
+        if (matName != null) {
+            try {
+                return Material.valueOf(matName.toUpperCase());
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        return defaultMaterial;
+    }
+
+    public Material getGuiBorderMaterial(String guiName, Material defaultMaterial) {
+        String matName = mainConfig.getString("gui-layout." + guiName + ".border-material");
+        if (matName != null) {
+            try {
+                return Material.valueOf(matName.toUpperCase());
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        return defaultMaterial;
     }
 }

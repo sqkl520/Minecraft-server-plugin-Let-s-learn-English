@@ -25,15 +25,15 @@ public class VersionAdapter {
         this.plugin = plugin;
         this.serverVersion = plugin.getServer().getMinecraftVersion();
 
-        int parsedMajor = 20;
+        int parsedMajor = 21;
         int parsedMinor = 0;
         try {
             String[] parts = serverVersion.split("\\.");
-            parsedMajor = parts.length > 1 ? Integer.parseInt(parts[1]) : 20;
+            parsedMajor = parts.length > 1 ? Integer.parseInt(parts[1]) : 21;
             parsedMinor = parts.length > 2 ? Integer.parseInt(parts[2].replaceAll("[^0-9].*$", "")) : 0;
         } catch (NumberFormatException e) {
             plugin.getLogger().warning("Failed to parse server version: " + serverVersion
-                    + ". Using defaults (major=20, minor=0).");
+                    + ". Using defaults (major=21, minor=0).");
         }
         this.majorVersion = parsedMajor;
         this.minorVersion = parsedMinor;

@@ -1,7 +1,7 @@
 package com.letslearnenglish.minecraftplugin.core;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
-import com.letslearnenglish.minecraftplugin.listener.GUIMenuListener;
+import com.letslearnenglish.minecraftplugin.gui.GUIUtils;
 import com.letslearnenglish.minecraftplugin.util.VersionAdapter;
 import org.bukkit.Sound;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -43,26 +43,48 @@ public class SoundManager implements Listener {
 
     private void cacheSound(FileConfiguration config, String key, String defaultSound) {
         String soundName = config.getString("gui.sounds." + key, defaultSound);
-        try {
-            Sound sound = Sound.valueOf(soundName);
+        Sound sound = resolveSound(soundName);
+        if (sound != null) {
             soundCache.put(key, sound);
-        } catch (IllegalArgumentException e) {
-            plugin.getLogger().warning("Invalid sound name for '" + key + "': " + soundName);
-            try {
-                Sound fallback = Sound.valueOf(defaultSound);
-                soundCache.put(key, fallback);
-                plugin.getLogger().info("Using default sound '" + defaultSound + "' for '" + key + "'");
-            } catch (IllegalArgumentException ex) {
-                plugin.getLogger().warning("Default sound also invalid for '" + key + "': " + defaultSound);
-            }
+            return;
         }
+        plugin.getLogger().warning("Invalid sound name for '" + key + "': " + soundName);
+        sound = resolveSound(defaultSound);
+        if (sound != null) {
+            soundCache.put(key, sound);
+            plugin.getLogger().info("Using default sound '" + defaultSound + "' for '" + key + "'");
+        } else {
+            plugin.getLogger().warning("Default sound also invalid for '" + key + "': " + defaultSound);
+        }
+    }
+
+    /**
+     * Resolve a sound name, trying exact match first, then namespaced variants.
+     * Paper 1.21.4 refactored the Sound enum — this handles both old and new naming.
+     */
+    private Sound resolveSound(String name) {
+        if (name == null || name.isEmpty()) return null;
+        try {
+            return Sound.valueOf(name);
+        } catch (IllegalArgumentException ignored) {
+        }
+        // Try with namespaced prefix: minecraft:entity.villager.no → ENTITY_VILLAGER_NO
+        if (!name.contains(".")) return null;
+        String converted = name.replace("minecraft:", "")
+                .replace('.', '_')
+                .toUpperCase();
+        try {
+            return Sound.valueOf(converted);
+        } catch (IllegalArgumentException ignored) {
+        }
+        return null;
     }
 
     @EventHandler
     public void onInventoryOpen(InventoryOpenEvent event) {
         if (!enabled) return;
         if (!(event.getPlayer() instanceof Player)) return;
-        if (!GUIMenuListener.isPluginGUI(event.getView().getTitle())) return;
+        if (!GUIUtils.isPluginGUI(event.getView().getTitle())) return;
         playSound((Player) event.getPlayer(), "menu-open");
     }
 
@@ -71,7 +93,7 @@ public class SoundManager implements Listener {
         if (!enabled) return;
         if (event.getCurrentItem() == null) return;
         if (!(event.getWhoClicked() instanceof Player)) return;
-        if (!GUIMenuListener.isPluginGUI(event.getView().getTitle())) return;
+        if (!GUIUtils.isPluginGUI(event.getView().getTitle())) return;
         playSound((Player) event.getWhoClicked(), "menu-click");
     }
 

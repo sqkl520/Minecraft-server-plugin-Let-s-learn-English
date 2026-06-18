@@ -1,9 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PlayerJoinListener.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.listener</a> &gt; <span class="el_source">PlayerJoinListener.java</span></div><h1>PlayerJoinListener.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.listener;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
-import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
-import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -14,55 +11,35 @@ import java.util.UUID;
 /**
  * Player Join Listener
  *
- * Handles player join/quit events for data loading, update notifications,
- * and welcome (learning encouragement) messages.
+ * Handles player join/quit events for data loading and cleanup.
  */
 public class PlayerJoinListener implements Listener {
 
     private final LetsLearnEnglish plugin;
 
-<span class="nc" id="L24">    public PlayerJoinListener(LetsLearnEnglish plugin) {</span>
-<span class="nc" id="L25">        this.plugin = plugin;</span>
-<span class="nc" id="L26">    }</span>
+<span class="nc" id="L20">    public PlayerJoinListener(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L21">        this.plugin = plugin;</span>
+<span class="nc" id="L22">    }</span>
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
-<span class="nc" id="L30">        Player player = event.getPlayer();</span>
+<span class="nc" id="L26">        plugin.getPlayerDataStore().loadPlayerData(event.getPlayer().getUniqueId());</span>
+<span class="nc" id="L27">        plugin.getAchievementManager().loadPlayerAchievements(event.getPlayer().getUniqueId());</span>
+<span class="nc" id="L28">        plugin.getPlayerDataStore().loadProfileSettings(event.getPlayer().getUniqueId());</span>
 
-<span class="nc" id="L32">        plugin.getPlayerDataStore().loadPlayerData(player.getUniqueId());</span>
-<span class="nc" id="L33">        plugin.getAchievementManager().loadPlayerAchievements(player.getUniqueId());</span>
-<span class="nc" id="L34">        plugin.getPlayerDataStore().loadProfileSettings(player.getUniqueId());</span>
+<span class="nc" id="L30">        org.bukkit.Bukkit.getScheduler().runTaskLater(plugin, () -&gt; {</span>
+<span class="nc" id="L31">            plugin.getUpdateChecker().notifyPlayer(event.getPlayer());</span>
+<span class="nc" id="L32">        }, 60L);</span>
 
-<span class="nc" id="L36">        Bukkit.getScheduler().runTaskLater(plugin, () -&gt; {</span>
-<span class="nc" id="L37">            plugin.getUpdateChecker().notifyPlayer(player);</span>
-<span class="nc" id="L38">        }, 60L);</span>
-
-<span class="nc bnc" id="L40" title="All 2 branches missed.">        if (plugin.getConfig().getBoolean(&quot;daily-reminder.on-join&quot;, true)) {</span>
-<span class="nc" id="L41">            Bukkit.getScheduler().runTaskLater(plugin, () -&gt; {</span>
-<span class="nc" id="L42">                sendJoinReminder(player);</span>
-<span class="nc" id="L43">            }, 80L);</span>
-        }
-<span class="nc" id="L45">    }</span>
-
-    private void sendJoinReminder(Player player) {
-<span class="nc" id="L48">        String lang = plugin.getPlayerLanguage(player);</span>
-<span class="nc" id="L49">        String prefix = plugin.getConfig().getString(&quot;prefix.&quot; + lang,</span>
-<span class="nc" id="L50">                plugin.getConfig().getString(&quot;prefix.en&quot;, &quot;&quot;));</span>
-<span class="nc" id="L51">        String rawMessage = plugin.getConfig().getString(&quot;daily-reminder.message&quot;,</span>
-                &quot;{prefix}&amp;6It's time to learn English! Use &amp;e/le menu &amp;6to start!&quot;);
-
-<span class="nc" id="L54">        String message = ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc" id="L55">                rawMessage.replace(&quot;{prefix}&quot;, prefix)</span>
-<span class="nc" id="L56">                        .replace(&quot;{player}&quot;, player.getName()));</span>
-<span class="nc" id="L57">        player.sendMessage(message);</span>
-<span class="nc" id="L58">    }</span>
+<span class="nc" id="L34">        plugin.getDailyChallengeManager().checkAndAssign(event.getPlayer().getUniqueId());</span>
+<span class="nc" id="L35">    }</span>
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-<span class="nc" id="L62">        UUID playerId = event.getPlayer().getUniqueId();</span>
-<span class="nc" id="L63">        plugin.getPlayerDataStore().unloadPlayerData(playerId);</span>
-<span class="nc" id="L64">        plugin.getAchievementManager().unloadPlayer(playerId);</span>
-<span class="nc" id="L65">        plugin.getPlayerDataStore().unloadProfileSettings(playerId);</span>
-<span class="nc" id="L66">    }</span>
+<span class="nc" id="L39">        UUID playerId = event.getPlayer().getUniqueId();</span>
+<span class="nc" id="L40">        plugin.getPlayerDataStore().unloadPlayerData(playerId);</span>
+<span class="nc" id="L41">        plugin.getAchievementManager().unloadPlayer(playerId);</span>
+<span class="nc" id="L42">        plugin.getPlayerDataStore().unloadProfileSettings(playerId);</span>
+<span class="nc" id="L43">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

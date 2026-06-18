@@ -1,15 +1,14 @@
 name: LetsLearnEnglish
 version: ${project.version}
 main: com.letslearnenglish.minecraftplugin.LetsLearnEnglish
-api-version: "1.20"
-description: "Let's learn English! - A gamified English learning plugin for Minecraft"
+api-version: "1.21"
+description: "Let's learn English! - A gamified English learning plugin for Minecraft (Velocity/BungeeCord compatible)"
 author: sqkl520
 website: https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English-
 
 softdepend:
   - PlaceholderAPI
   - Vault
-  - Citizens
 
 commands:
   learnenglish:
@@ -33,7 +32,7 @@ permissions:
     description: "Allows use of all word learning features"
     default: true
   letslearnenglish.dialogue.*:
-    description: "Allows use of all dialogue practice features"
+    description: "Allows use of AI scenario chat features"
     default: true
   letslearnenglish.progress.*:
     description: "Allows viewing all progress information"

@@ -1,15 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AchievementManager.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.core.achievement</a> &gt; <span class="el_source">AchievementManager.java</span></div><h1>AchievementManager.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.core.achievement;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 
+import java.io.File;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 /**
@@ -27,76 +34,88 @@ public class AchievementManager {
     private final LetsLearnEnglish plugin;
     private final PlayerDataStore playerDataStore;
     private final Map&lt;UUID, Set&lt;String&gt;&gt; unlockedCache;
+    private FileConfiguration achievementConfig;
 
-<span class="nc" id="L31">    public AchievementManager(LetsLearnEnglish plugin, PlayerDataStore playerDataStore) {</span>
-<span class="nc" id="L32">        this.plugin = plugin;</span>
-<span class="nc" id="L33">        this.playerDataStore = playerDataStore;</span>
-<span class="nc" id="L34">        this.unlockedCache = new HashMap&lt;&gt;();</span>
-<span class="nc" id="L35">    }</span>
+<span class="nc" id="L39">    public AchievementManager(LetsLearnEnglish plugin, PlayerDataStore playerDataStore) {</span>
+<span class="nc" id="L40">        this.plugin = plugin;</span>
+<span class="nc" id="L41">        this.playerDataStore = playerDataStore;</span>
+<span class="nc" id="L42">        this.unlockedCache = new ConcurrentHashMap&lt;&gt;();</span>
+<span class="nc" id="L43">    }</span>
+
+    private FileConfiguration getAchievementConfig() {
+<span class="nc bnc" id="L46" title="All 2 branches missed.">        if (achievementConfig == null) {</span>
+<span class="nc" id="L47">            File file = new File(plugin.getDataFolder(), &quot;achievements-config.yml&quot;);</span>
+<span class="nc bnc" id="L48" title="All 2 branches missed.">            if (!file.exists()) {</span>
+<span class="nc" id="L49">                plugin.saveResource(&quot;achievements-config.yml&quot;, false);</span>
+            }
+<span class="nc" id="L51">            achievementConfig = YamlConfiguration.loadConfiguration(file);</span>
+        }
+<span class="nc" id="L53">        return achievementConfig;</span>
+    }
 
     /**
      * Load a player's unlocked achievements into the cache.
      */
     public void loadPlayerAchievements(UUID playerId) {
-<span class="nc" id="L41">        Set&lt;String&gt; unlocked = new HashSet&lt;&gt;();</span>
-<span class="nc" id="L42">        String sql = &quot;SELECT achievement_id FROM &quot;</span>
-<span class="nc" id="L43">                + plugin.getDatabaseManager().getTablePrefix() + &quot;achievements WHERE uuid = ?&quot;;</span>
-<span class="nc" id="L44">        try (Connection conn = plugin.getDatabaseManager().getConnection();</span>
-<span class="nc" id="L45">             PreparedStatement stmt = conn.prepareStatement(sql)) {</span>
-<span class="nc" id="L46">            stmt.setString(1, playerId.toString());</span>
-<span class="nc" id="L47">            try (ResultSet rs = stmt.executeQuery()) {</span>
-<span class="nc bnc" id="L48" title="All 2 branches missed.">                while (rs.next()) {</span>
-<span class="nc" id="L49">                    unlocked.add(rs.getString(&quot;achievement_id&quot;));</span>
+<span class="nc" id="L60">        Set&lt;String&gt; unlocked = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L61">        String sql = &quot;SELECT achievement_id FROM &quot;</span>
+<span class="nc" id="L62">                + plugin.getDatabaseManager().getTablePrefix() + &quot;achievements WHERE uuid = ?&quot;;</span>
+<span class="nc" id="L63">        try (Connection conn = plugin.getDatabaseManager().getConnection();</span>
+<span class="nc" id="L64">             PreparedStatement stmt = conn.prepareStatement(sql)) {</span>
+<span class="nc" id="L65">            stmt.setString(1, playerId.toString());</span>
+<span class="nc" id="L66">            try (ResultSet rs = stmt.executeQuery()) {</span>
+<span class="nc bnc" id="L67" title="All 2 branches missed.">                while (rs.next()) {</span>
+<span class="nc" id="L68">                    unlocked.add(rs.getString(&quot;achievement_id&quot;));</span>
                 }
             }
-<span class="nc" id="L52">        } catch (SQLException e) {</span>
-<span class="nc" id="L53">            plugin.getLogger().log(Level.WARNING,</span>
+<span class="nc" id="L71">        } catch (SQLException e) {</span>
+<span class="nc" id="L72">            plugin.getLogger().log(Level.WARNING,</span>
                     &quot;Failed to load achievements for &quot; + playerId, e);
-<span class="nc" id="L55">        }</span>
-<span class="nc" id="L56">        unlockedCache.put(playerId, unlocked);</span>
-<span class="nc" id="L57">    }</span>
+<span class="nc" id="L74">        }</span>
+<span class="nc" id="L75">        unlockedCache.put(playerId, unlocked);</span>
+<span class="nc" id="L76">    }</span>
 
     /**
      * Check if a player has unlocked an achievement.
      */
     public boolean hasAchievement(UUID playerId, Achievement achievement) {
-<span class="nc" id="L63">        Set&lt;String&gt; unlocked = unlockedCache.get(playerId);</span>
-<span class="nc bnc" id="L64" title="All 2 branches missed.">        if (unlocked == null) {</span>
-<span class="nc" id="L65">            loadPlayerAchievements(playerId);</span>
-<span class="nc" id="L66">            unlocked = unlockedCache.get(playerId);</span>
+<span class="nc" id="L82">        Set&lt;String&gt; unlocked = unlockedCache.get(playerId);</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">        if (unlocked == null) {</span>
+<span class="nc" id="L84">            loadPlayerAchievements(playerId);</span>
+<span class="nc" id="L85">            unlocked = unlockedCache.get(playerId);</span>
         }
-<span class="nc bnc" id="L68" title="All 4 branches missed.">        return unlocked != null &amp;&amp; unlocked.contains(achievement.getId());</span>
+<span class="nc bnc" id="L87" title="All 4 branches missed.">        return unlocked != null &amp;&amp; unlocked.contains(achievement.getId());</span>
     }
 
     /**
      * Get all unlocked achievements for a player.
      */
     public Set&lt;Achievement&gt; getUnlockedAchievements(UUID playerId) {
-<span class="nc" id="L75">        Set&lt;String&gt; unlockedIds = unlockedCache.get(playerId);</span>
-<span class="nc bnc" id="L76" title="All 2 branches missed.">        if (unlockedIds == null) {</span>
-<span class="nc" id="L77">            loadPlayerAchievements(playerId);</span>
-<span class="nc" id="L78">            unlockedIds = unlockedCache.get(playerId);</span>
+<span class="nc" id="L94">        Set&lt;String&gt; unlockedIds = unlockedCache.get(playerId);</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">        if (unlockedIds == null) {</span>
+<span class="nc" id="L96">            loadPlayerAchievements(playerId);</span>
+<span class="nc" id="L97">            unlockedIds = unlockedCache.get(playerId);</span>
         }
-<span class="nc" id="L80">        Set&lt;Achievement&gt; result = new LinkedHashSet&lt;&gt;();</span>
-<span class="nc bnc" id="L81" title="All 2 branches missed.">        if (unlockedIds != null) {</span>
-<span class="nc bnc" id="L82" title="All 2 branches missed.">            for (String id : unlockedIds) {</span>
-<span class="nc" id="L83">                Achievement a = Achievement.fromId(id);</span>
-<span class="nc bnc" id="L84" title="All 2 branches missed.">                if (a != null) result.add(a);</span>
-<span class="nc" id="L85">            }</span>
+<span class="nc" id="L99">        Set&lt;Achievement&gt; result = new LinkedHashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">        if (unlockedIds != null) {</span>
+<span class="nc bnc" id="L101" title="All 2 branches missed.">            for (String id : unlockedIds) {</span>
+<span class="nc" id="L102">                Achievement a = Achievement.fromId(id);</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">                if (a != null) result.add(a);</span>
+<span class="nc" id="L104">            }</span>
         }
-<span class="nc" id="L87">        return result;</span>
+<span class="nc" id="L106">        return result;</span>
     }
 
     /**
      * Get the count of unlocked achievements for a player.
      */
     public int getUnlockedCount(UUID playerId) {
-<span class="nc" id="L94">        Set&lt;String&gt; unlocked = unlockedCache.get(playerId);</span>
-<span class="nc bnc" id="L95" title="All 2 branches missed.">        if (unlocked == null) {</span>
-<span class="nc" id="L96">            loadPlayerAchievements(playerId);</span>
-<span class="nc" id="L97">            unlocked = unlockedCache.get(playerId);</span>
+<span class="nc" id="L113">        Set&lt;String&gt; unlocked = unlockedCache.get(playerId);</span>
+<span class="nc bnc" id="L114" title="All 2 branches missed.">        if (unlocked == null) {</span>
+<span class="nc" id="L115">            loadPlayerAchievements(playerId);</span>
+<span class="nc" id="L116">            unlocked = unlockedCache.get(playerId);</span>
         }
-<span class="nc bnc" id="L99" title="All 2 branches missed.">        return unlocked != null ? unlocked.size() : 0;</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        return unlocked != null ? unlocked.size() : 0;</span>
     }
 
     /**
@@ -104,45 +123,88 @@ public class AchievementManager {
      * Broadcasts a message to the player if newly unlocked.
      */
     public boolean tryUnlock(UUID playerId, Achievement achievement) {
-<span class="nc" id="L107">        Set&lt;String&gt; unlocked = unlockedCache.computeIfAbsent(playerId, k -&gt; new HashSet&lt;&gt;());</span>
-<span class="nc bnc" id="L108" title="All 2 branches missed.">        if (unlocked.contains(achievement.getId())) {</span>
-<span class="nc" id="L109">            return false;</span>
+<span class="nc" id="L126">        Set&lt;String&gt; unlocked = unlockedCache.computeIfAbsent(playerId, k -&gt; new HashSet&lt;&gt;());</span>
+<span class="nc" id="L127">        FileConfiguration achConfig = getAchievementConfig();</span>
+<span class="nc bnc" id="L128" title="All 2 branches missed.">        if (!isAchievementEligible(achConfig, achievement)) {</span>
+<span class="nc" id="L129">            return false;</span>
+        }
+<span class="nc bnc" id="L131" title="All 2 branches missed.">        if (unlocked.contains(achievement.getId())) {</span>
+<span class="nc" id="L132">            return false;</span>
         }
 
-<span class="nc" id="L112">        unlocked.add(achievement.getId());</span>
+<span class="nc" id="L135">        unlocked.add(achievement.getId());</span>
 
-<span class="nc" id="L114">        String sql = &quot;INSERT OR REPLACE INTO &quot;</span>
-<span class="nc" id="L115">                + plugin.getDatabaseManager().getTablePrefix()</span>
+<span class="nc" id="L137">        String sql = &quot;INSERT OR REPLACE INTO &quot;</span>
+<span class="nc" id="L138">                + plugin.getDatabaseManager().getTablePrefix()</span>
                 + &quot;achievements (uuid, achievement_id, unlocked_at) VALUES (?, ?, ?)&quot;;
-<span class="nc bnc" id="L117" title="All 2 branches missed.">        if (!plugin.getDatabaseManager().isSQLite()) {</span>
-<span class="nc" id="L118">            sql = &quot;INSERT INTO &quot; + plugin.getDatabaseManager().getTablePrefix()</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">        if (!plugin.getDatabaseManager().isSQLite()) {</span>
+<span class="nc" id="L141">            sql = &quot;INSERT INTO &quot; + plugin.getDatabaseManager().getTablePrefix()</span>
                     + &quot;achievements (uuid, achievement_id, unlocked_at) VALUES (?, ?, ?) &quot;
                     + &quot;ON DUPLICATE KEY UPDATE unlocked_at=VALUES(unlocked_at)&quot;;
         }
 
-<span class="nc" id="L123">        try (Connection conn = plugin.getDatabaseManager().getConnection();</span>
-<span class="nc" id="L124">             PreparedStatement stmt = conn.prepareStatement(sql)) {</span>
-<span class="nc" id="L125">            stmt.setString(1, playerId.toString());</span>
-<span class="nc" id="L126">            stmt.setString(2, achievement.getId());</span>
-<span class="nc" id="L127">            stmt.setLong(3, System.currentTimeMillis());</span>
-<span class="nc" id="L128">            stmt.executeUpdate();</span>
-<span class="nc" id="L129">        } catch (SQLException e) {</span>
-<span class="nc" id="L130">            plugin.getLogger().log(Level.WARNING,</span>
-<span class="nc" id="L131">                    &quot;Failed to save achievement &quot; + achievement.getId() + &quot; for &quot; + playerId, e);</span>
-<span class="nc" id="L132">        }</span>
+<span class="nc" id="L146">        try (Connection conn = plugin.getDatabaseManager().getConnection();</span>
+<span class="nc" id="L147">             PreparedStatement stmt = conn.prepareStatement(sql)) {</span>
+<span class="nc" id="L148">            stmt.setString(1, playerId.toString());</span>
+<span class="nc" id="L149">            stmt.setString(2, achievement.getId());</span>
+<span class="nc" id="L150">            stmt.setLong(3, System.currentTimeMillis());</span>
+<span class="nc" id="L151">            stmt.executeUpdate();</span>
+<span class="nc" id="L152">        } catch (SQLException e) {</span>
+<span class="nc" id="L153">            plugin.getLogger().log(Level.WARNING,</span>
+<span class="nc" id="L154">                    &quot;Failed to save achievement &quot; + achievement.getId() + &quot; for &quot; + playerId, e);</span>
+<span class="nc" id="L155">        }</span>
 
-<span class="nc" id="L134">        Player player = Bukkit.getPlayer(playerId);</span>
-<span class="nc bnc" id="L135" title="All 4 branches missed.">        if (player != null &amp;&amp; player.isOnline()) {</span>
-<span class="nc" id="L136">            String lang = plugin.getPlayerLanguage(player);</span>
-<span class="nc bnc" id="L137" title="All 2 branches missed.">            String title = &quot;zh&quot;.equalsIgnoreCase(lang) ? &quot;&amp;6&amp;l成就解锁！&quot; : &quot;&amp;6&amp;lAchievement Unlocked!&quot;;</span>
-<span class="nc" id="L138">            String name = achievement.getDisplayName(lang);</span>
-<span class="nc" id="L139">            String desc = achievement.getDisplayDesc(lang);</span>
-<span class="nc" id="L140">            player.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&amp;',</span>
-                    &quot;&amp;b&amp;l✧ &quot; + title + &quot; &amp;f- &quot; + name));
-<span class="nc" id="L142">            player.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L157">        Player player = Bukkit.getPlayer(playerId);</span>
+<span class="nc bnc" id="L158" title="All 4 branches missed.">        if (player != null &amp;&amp; player.isOnline()) {</span>
+<span class="nc" id="L159">            FileConfiguration messages = plugin.getConfigManager()</span>
+<span class="nc" id="L160">                    .getMessageConfig(plugin.getPlayerLanguage(player));</span>
+<span class="nc" id="L161">            String title = messages.getString(&quot;achievement.unlock-title&quot;,</span>
+                    &quot;&amp;6&amp;lAchievement Unlocked!&quot;);
+<span class="nc" id="L163">            String fmt = messages.getString(&quot;achievement.unlock-format&quot;,</span>
+                    &quot;&amp;b&amp;l✧ {title} &amp;f- {name}&quot;);
+<span class="nc" id="L165">            String name = achievement.getDisplayName(plugin.getPlayerLanguage(player));</span>
+<span class="nc" id="L166">            String desc = achievement.getDisplayDesc(plugin.getPlayerLanguage(player));</span>
+<span class="nc" id="L167">            player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
+<span class="nc" id="L168">                    fmt.replace(&quot;{title}&quot;, title).replace(&quot;{name}&quot;, name)));</span>
+<span class="nc" id="L169">            player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;',</span>
                     &quot;&amp;7&quot; + desc));
+
+<span class="nc" id="L172">            String soundName = plugin.getConfigManager().getMainConfig()</span>
+<span class="nc" id="L173">                    .getString(&quot;achievement-system.unlock-sound&quot;, &quot;ENTITY_PLAYER_LEVELUP&quot;);</span>
+<span class="nc bnc" id="L174" title="All 4 branches missed.">            if (soundName != null &amp;&amp; !soundName.isEmpty()) {</span>
+<span class="nc" id="L175">                SoundManager.playSound(player, &quot;complete&quot;);</span>
+            }
+
+            // 跨服成就广播（Velocity / BungeeCord）
+<span class="nc bnc" id="L179" title="All 4 branches missed.">            if (plugin.getProxyMessenger() != null &amp;&amp; plugin.getProxyMessenger().isRegistered()) {</span>
+<span class="nc" id="L180">                plugin.getProxyMessenger().sendAchievementBroadcast(</span>
+<span class="nc" id="L181">                        player.getName(), playerId, achievement.getDisplayName(plugin.getPlayerLanguage(player)));</span>
+            }
         }
-<span class="nc" id="L145">        return true;</span>
+<span class="nc" id="L184">        return true;</span>
+    }
+
+    private boolean isAchievementEligible(FileConfiguration config, Achievement achievement) {
+<span class="nc bnc" id="L188" title="All 2 branches missed.">        if (config == null) return true;</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">        if (!config.getBoolean(&quot;achievements.&quot; + achievement.getId() + &quot;.enabled&quot;, true)) {</span>
+<span class="nc" id="L190">            return false;</span>
+        }
+<span class="nc bnc" id="L192" title="All 2 branches missed.">        if (!config.getBoolean(&quot;achievements.&quot; + achievement.getId() + &quot;.time-limit.enabled&quot;, false)) {</span>
+<span class="nc" id="L193">            return true;</span>
+        }
+<span class="nc" id="L195">        String startStr = config.getString(&quot;achievements.&quot; + achievement.getId() + &quot;.time-limit.start&quot;);</span>
+<span class="nc" id="L196">        String endStr = config.getString(&quot;achievements.&quot; + achievement.getId() + &quot;.time-limit.end&quot;);</span>
+<span class="nc bnc" id="L197" title="All 4 branches missed.">        if (startStr == null || endStr == null) return true;</span>
+        try {
+<span class="nc" id="L199">            SimpleDateFormat sdf = new SimpleDateFormat(&quot;yyyy-MM-dd HH:mm&quot;);</span>
+<span class="nc" id="L200">            sdf.setTimeZone(java.util.TimeZone.getTimeZone(&quot;Asia/Shanghai&quot;));</span>
+<span class="nc" id="L201">            Date start = sdf.parse(startStr);</span>
+<span class="nc" id="L202">            Date end = sdf.parse(endStr);</span>
+<span class="nc" id="L203">            Date now = new Date();</span>
+<span class="nc bnc" id="L204" title="All 4 branches missed.">            return !now.before(start) &amp;&amp; !now.after(end);</span>
+<span class="nc" id="L205">        } catch (java.text.ParseException e) {</span>
+<span class="nc" id="L206">            return true;</span>
+        }
     }
 
     /**
@@ -151,59 +213,105 @@ public class AchievementManager {
      */
     public void checkSessionAchievements(UUID playerId, int sessionCorrect, int sessionIncorrect,
                                           int sessionWordsCount, String mode) {
-<span class="nc" id="L154">        PlayerDataStore.PlayerStats stats = playerDataStore.getPlayerStats(playerId);</span>
+<span class="nc" id="L216">        PlayerDataStore.PlayerStats stats = playerDataStore.getPlayerStats(playerId);</span>
 
-<span class="nc bnc" id="L156" title="All 4 branches missed.">        if (sessionCorrect &gt;= 1 &amp;&amp; sessionIncorrect == 0) {</span>
-<span class="nc" id="L157">            tryUnlock(playerId, Achievement.FIRST_WORD);</span>
+<span class="nc bnc" id="L218" title="All 4 branches missed.">        if (sessionCorrect &gt;= 1 &amp;&amp; sessionIncorrect == 0) {</span>
+<span class="nc" id="L219">            tryUnlock(playerId, Achievement.FIRST_WORD);</span>
         }
 
-<span class="nc" id="L160">        int totalCorrect = stats.getTotalCorrect();</span>
-<span class="nc bnc" id="L161" title="All 2 branches missed.">        if (totalCorrect &gt;= 25) tryUnlock(playerId, Achievement.WORDS_25);</span>
-<span class="nc bnc" id="L162" title="All 2 branches missed.">        if (totalCorrect &gt;= 100) tryUnlock(playerId, Achievement.WORDS_100);</span>
-<span class="nc bnc" id="L163" title="All 2 branches missed.">        if (totalCorrect &gt;= 500) tryUnlock(playerId, Achievement.WORDS_500);</span>
+<span class="nc" id="L222">        int totalCorrect = stats.getTotalCorrect();</span>
+<span class="nc bnc" id="L223" title="All 2 branches missed.">        if (totalCorrect &gt;= 25) tryUnlock(playerId, Achievement.WORDS_25);</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">        if (totalCorrect &gt;= 100) tryUnlock(playerId, Achievement.WORDS_100);</span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">        if (totalCorrect &gt;= 500) tryUnlock(playerId, Achievement.WORDS_500);</span>
 
-<span class="nc bnc" id="L165" title="All 6 branches missed.">        if (sessionCorrect == sessionWordsCount &amp;&amp; sessionIncorrect == 0 &amp;&amp; sessionWordsCount &gt; 0) {</span>
-<span class="nc" id="L166">            tryUnlock(playerId, Achievement.PERFECT_SESSION);</span>
+<span class="nc bnc" id="L227" title="All 6 branches missed.">        if (sessionCorrect == sessionWordsCount &amp;&amp; sessionIncorrect == 0 &amp;&amp; sessionWordsCount &gt; 0) {</span>
+<span class="nc" id="L228">            tryUnlock(playerId, Achievement.PERFECT_SESSION);</span>
         }
 
-<span class="nc bnc" id="L169" title="All 2 branches missed.">        if (&quot;spelling&quot;.equalsIgnoreCase(mode)) {</span>
-<span class="nc" id="L170">            tryUnlock(playerId, Achievement.SPELLING_MASTER);</span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">        if (&quot;spelling&quot;.equalsIgnoreCase(mode)) {</span>
+<span class="nc" id="L232">            tryUnlock(playerId, Achievement.SPELLING_MASTER);</span>
         }
 
-<span class="nc" id="L173">        int totalSessions = stats.getTotalSessions();</span>
-<span class="nc bnc" id="L174" title="All 2 branches missed.">        if (totalSessions &gt;= 10) tryUnlock(playerId, Achievement.SESSIONS_10);</span>
-<span class="nc bnc" id="L175" title="All 2 branches missed.">        if (totalSessions &gt;= 50) tryUnlock(playerId, Achievement.SESSIONS_50);</span>
-<span class="nc" id="L176">    }</span>
+<span class="nc" id="L235">        int totalSessions = stats.getTotalSessions();</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">        if (totalSessions &gt;= 10) tryUnlock(playerId, Achievement.SESSIONS_10);</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">        if (totalSessions &gt;= 50) tryUnlock(playerId, Achievement.SESSIONS_50);</span>
+
+<span class="nc" id="L239">        checkDailyStreak(playerId);</span>
+<span class="nc" id="L240">        long totalCoins = stats.getTotalScore();</span>
+<span class="nc bnc" id="L241" title="All 2 branches missed.">        if (totalCoins &gt;= 500) tryUnlock(playerId, Achievement.COINS_500);</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">        if (totalCoins &gt;= 5000) tryUnlock(playerId, Achievement.COINS_5000);</span>
+<span class="nc" id="L243">    }</span>
 
     /**
      * Check achievement for in-session streak.
      * Called by WordLearningManager after each correct answer within a session.
      */
     public void checkStreakAchievement(UUID playerId, int currentSessionStreak) {
-<span class="nc bnc" id="L183" title="All 2 branches missed.">        if (currentSessionStreak &gt;= 3) tryUnlock(playerId, Achievement.STREAK_3);</span>
-<span class="nc bnc" id="L184" title="All 2 branches missed.">        if (currentSessionStreak &gt;= 10) tryUnlock(playerId, Achievement.STREAK_10);</span>
-<span class="nc" id="L185">    }</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">        if (currentSessionStreak &gt;= 3) tryUnlock(playerId, Achievement.STREAK_3);</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">        if (currentSessionStreak &gt;= 10) tryUnlock(playerId, Achievement.STREAK_10);</span>
+<span class="nc" id="L252">    }</span>
 
     /**
      * Check coin-based achievements.
      */
     public void checkCoinAchievements(UUID playerId, long totalCoins) {
-<span class="nc bnc" id="L191" title="All 2 branches missed.">        if (totalCoins &gt;= 500) tryUnlock(playerId, Achievement.COINS_500);</span>
-<span class="nc bnc" id="L192" title="All 2 branches missed.">        if (totalCoins &gt;= 5000) tryUnlock(playerId, Achievement.COINS_5000);</span>
-<span class="nc" id="L193">    }</span>
+<span class="nc bnc" id="L258" title="All 2 branches missed.">        if (totalCoins &gt;= 500) tryUnlock(playerId, Achievement.COINS_500);</span>
+<span class="nc bnc" id="L259" title="All 2 branches missed.">        if (totalCoins &gt;= 5000) tryUnlock(playerId, Achievement.COINS_5000);</span>
+<span class="nc" id="L260">    }</span>
+
+    private void checkDailyStreak(UUID playerId) {
+<span class="nc" id="L263">        java.util.Set&lt;String&gt; days = new java.util.LinkedHashSet&lt;&gt;();</span>
+<span class="nc" id="L264">        String daySql = &quot;SELECT session_date FROM &quot;</span>
+<span class="nc" id="L265">                + plugin.getDatabaseManager().getTablePrefix()</span>
+                + &quot;player_sessions WHERE uuid = ? ORDER BY session_date DESC&quot;;
+<span class="nc" id="L267">        try (Connection conn = plugin.getDatabaseManager().getConnection();</span>
+<span class="nc" id="L268">             PreparedStatement stmt = conn.prepareStatement(daySql)) {</span>
+<span class="nc" id="L269">            stmt.setString(1, playerId.toString());</span>
+<span class="nc" id="L270">            try (ResultSet rs = stmt.executeQuery()) {</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">                while (rs.next()) {</span>
+<span class="nc" id="L272">                    days.add(rs.getString(&quot;session_date&quot;));</span>
+                }
+            }
+<span class="nc" id="L275">        } catch (SQLException e) {</span>
+<span class="nc" id="L276">            return;</span>
+<span class="nc" id="L277">        }</span>
+
+<span class="nc" id="L279">        int consecutive = 0;</span>
+<span class="nc" id="L280">        java.time.LocalDate today = java.time.LocalDate.now();</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">        for (int i = 0; i &lt; 30; i++) {</span>
+<span class="nc" id="L282">            java.time.LocalDate date = today.minusDays(i);</span>
+<span class="nc" id="L283">            String dateStr = date.toString();</span>
+<span class="nc bnc" id="L284" title="All 2 branches missed.">            if (days.contains(dateStr)) {</span>
+<span class="nc" id="L285">                consecutive++;</span>
+<span class="nc bnc" id="L286" title="All 2 branches missed.">            } else if (i &gt; 0) {</span>
+<span class="nc" id="L287">                break;</span>
+            }
+        }
+<span class="nc bnc" id="L290" title="All 2 branches missed.">        if (consecutive &gt;= 3) tryUnlock(playerId, Achievement.DAILY_STREAK_3);</span>
+<span class="nc bnc" id="L291" title="All 2 branches missed.">        if (consecutive &gt;= 7) tryUnlock(playerId, Achievement.DAILY_STREAK_7);</span>
+<span class="nc" id="L292">    }</span>
 
     /**
      * Unload achievement data from cache (called on player quit).
      */
     public void unloadPlayer(UUID playerId) {
-<span class="nc" id="L199">        unlockedCache.remove(playerId);</span>
-<span class="nc" id="L200">    }</span>
+<span class="nc" id="L298">        unlockedCache.remove(playerId);</span>
+<span class="nc" id="L299">    }</span>
+
+    /**
+     * Check AI chat conversation count achievements.
+     * Called when a player ends an AI scenario conversation.
+     */
+    public void checkAIChatAchievement(UUID playerId, int totalConversations) {
+<span class="nc bnc" id="L306" title="All 2 branches missed.">        if (totalConversations &gt;= 10) tryUnlock(playerId, Achievement.AI_CHAT_10);</span>
+<span class="nc bnc" id="L307" title="All 2 branches missed.">        if (totalConversations &gt;= 50) tryUnlock(playerId, Achievement.AI_CHAT_50);</span>
+<span class="nc" id="L308">    }</span>
 
     /**
      * Clear all achievement caches (called on reload).
      */
     public void clearCache() {
-<span class="nc" id="L206">        unlockedCache.clear();</span>
-<span class="nc" id="L207">    }</span>
+<span class="nc" id="L314">        unlockedCache.clear();</span>
+<span class="nc" id="L315">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

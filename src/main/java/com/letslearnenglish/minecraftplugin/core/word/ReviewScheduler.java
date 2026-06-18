@@ -18,6 +18,7 @@ public class ReviewScheduler {
     private final PlayerDataStore playerDataStore;
     private final int reviewIntervalsSize;
     private final long[] reviewIntervalsMs;
+    private final long masteredReviewIntervalMs;
 
     private final Map<UUID, CacheEntry> dueWordCache = new ConcurrentHashMap<>();
 
@@ -34,6 +35,10 @@ public class ReviewScheduler {
         for (int i = 0; i < reviewIntervalsSize; i++) {
             reviewIntervalsMs[i] = TimeUnit.HOURS.toMillis(intervals.get(i));
         }
+
+        int masteredDays = plugin.getConfigManager().getMainConfig()
+                .getInt("word-system.review.mastered-review-interval-days", 30);
+        this.masteredReviewIntervalMs = TimeUnit.DAYS.toMillis(masteredDays);
     }
 
     public void checkAndNotifyReviews() {
@@ -62,11 +67,19 @@ public class ReviewScheduler {
             long lastReview = entry.getValue();
             Integer reviewCount = reviewCounts.get(word);
 
-            if (reviewCount == null || reviewCount >= reviewIntervalsSize) {
+            if (reviewCount == null) {
                 continue;
             }
 
-            long nextReviewTime = lastReview + reviewIntervalsMs[reviewCount];
+            long nextReviewTime;
+            if (reviewCount >= reviewIntervalsSize) {
+                // Word has completed all Ebbinghaus intervals — enter low-frequency
+                // MASTERED review pool with a configurable long-interval cycle
+                nextReviewTime = lastReview + masteredReviewIntervalMs;
+            } else {
+                nextReviewTime = lastReview + reviewIntervalsMs[reviewCount];
+            }
+
             if (now >= nextReviewTime) {
                 dueWords.add(word);
             }

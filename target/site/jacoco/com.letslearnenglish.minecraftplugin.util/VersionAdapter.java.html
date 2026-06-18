@@ -25,15 +25,15 @@ public class VersionAdapter {
 <span class="nc" id="L25">        this.plugin = plugin;</span>
 <span class="nc" id="L26">        this.serverVersion = plugin.getServer().getMinecraftVersion();</span>
 
-<span class="nc" id="L28">        int parsedMajor = 20;</span>
+<span class="nc" id="L28">        int parsedMajor = 21;</span>
 <span class="nc" id="L29">        int parsedMinor = 0;</span>
         try {
 <span class="nc" id="L31">            String[] parts = serverVersion.split(&quot;\\.&quot;);</span>
-<span class="nc bnc" id="L32" title="All 2 branches missed.">            parsedMajor = parts.length &gt; 1 ? Integer.parseInt(parts[1]) : 20;</span>
+<span class="nc bnc" id="L32" title="All 2 branches missed.">            parsedMajor = parts.length &gt; 1 ? Integer.parseInt(parts[1]) : 21;</span>
 <span class="nc bnc" id="L33" title="All 2 branches missed.">            parsedMinor = parts.length &gt; 2 ? Integer.parseInt(parts[2].replaceAll(&quot;[^0-9].*$&quot;, &quot;&quot;)) : 0;</span>
 <span class="nc" id="L34">        } catch (NumberFormatException e) {</span>
 <span class="nc" id="L35">            plugin.getLogger().warning(&quot;Failed to parse server version: &quot; + serverVersion</span>
-                    + &quot;. Using defaults (major=20, minor=0).&quot;);
+                    + &quot;. Using defaults (major=21, minor=0).&quot;);
 <span class="nc" id="L37">        }</span>
 <span class="nc" id="L38">        this.majorVersion = parsedMajor;</span>
 <span class="nc" id="L39">        this.minorVersion = parsedMinor;</span>

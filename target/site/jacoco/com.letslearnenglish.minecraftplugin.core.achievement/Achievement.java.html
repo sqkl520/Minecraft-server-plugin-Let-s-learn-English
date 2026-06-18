@@ -130,6 +130,22 @@
             &quot;Fortune&quot;,
             &quot;累计获得 5000 金币，你的金库已经满满当当！&quot;,
             &quot;Earn 5000 coins total — your treasury is overflowing!&quot;
+    ),
+
+<span class="nc" id="L135">    AI_CHAT_10(</span>
+            &quot;ai_chat_10&quot;,
+            &quot;初识AI&quot;,
+            &quot;AI Beginner&quot;,
+            &quot;完成 10 次 AI 情景对话，与 AI 练习口语！&quot;,
+            &quot;Complete 10 AI scenario conversations — practicing with AI!&quot;
+    ),
+
+<span class="nc" id="L143">    AI_CHAT_50(</span>
+            &quot;ai_chat_50&quot;,
+            &quot;AI伙伴&quot;,
+            &quot;AI Companion&quot;,
+            &quot;完成 50 次 AI 情景对话，AI 已经成为你的语言伙伴！&quot;,
+            &quot;Complete 50 AI scenario conversations — AI is your language partner now!&quot;
     );
 
     private final String id;
@@ -138,47 +154,47 @@
     private final String zhDesc;
     private final String enDesc;
 
-<span class="nc" id="L141">    Achievement(String id, String zhName, String enName, String zhDesc, String enDesc) {</span>
-<span class="nc" id="L142">        this.id = id;</span>
-<span class="nc" id="L143">        this.zhName = zhName;</span>
-<span class="nc" id="L144">        this.enName = enName;</span>
-<span class="nc" id="L145">        this.zhDesc = zhDesc;</span>
-<span class="nc" id="L146">        this.enDesc = enDesc;</span>
-<span class="nc" id="L147">    }</span>
+<span class="nc" id="L157">    Achievement(String id, String zhName, String enName, String zhDesc, String enDesc) {</span>
+<span class="nc" id="L158">        this.id = id;</span>
+<span class="nc" id="L159">        this.zhName = zhName;</span>
+<span class="nc" id="L160">        this.enName = enName;</span>
+<span class="nc" id="L161">        this.zhDesc = zhDesc;</span>
+<span class="nc" id="L162">        this.enDesc = enDesc;</span>
+<span class="nc" id="L163">    }</span>
 
     public String getId() {
-<span class="nc" id="L150">        return id;</span>
+<span class="nc" id="L166">        return id;</span>
     }
 
     public String getZhName() {
-<span class="nc" id="L154">        return zhName;</span>
+<span class="nc" id="L170">        return zhName;</span>
     }
 
     public String getEnName() {
-<span class="nc" id="L158">        return enName;</span>
+<span class="nc" id="L174">        return enName;</span>
     }
 
     public String getZhDesc() {
-<span class="nc" id="L162">        return zhDesc;</span>
+<span class="nc" id="L178">        return zhDesc;</span>
     }
 
     public String getEnDesc() {
-<span class="nc" id="L166">        return enDesc;</span>
+<span class="nc" id="L182">        return enDesc;</span>
     }
 
     public String getDisplayName(String language) {
-<span class="nc bnc" id="L170" title="All 2 branches missed.">        return &quot;zh&quot;.equalsIgnoreCase(language) ? zhName : enName;</span>
+<span class="nc bnc" id="L186" title="All 2 branches missed.">        return &quot;zh&quot;.equalsIgnoreCase(language) ? zhName : enName;</span>
     }
 
     public String getDisplayDesc(String language) {
-<span class="nc bnc" id="L174" title="All 2 branches missed.">        return &quot;zh&quot;.equalsIgnoreCase(language) ? zhDesc : enDesc;</span>
+<span class="nc bnc" id="L190" title="All 2 branches missed.">        return &quot;zh&quot;.equalsIgnoreCase(language) ? zhDesc : enDesc;</span>
     }
 
     public static Achievement fromId(String id) {
-<span class="nc bnc" id="L178" title="All 2 branches missed.">        for (Achievement a : values()) {</span>
-<span class="nc bnc" id="L179" title="All 2 branches missed.">            if (a.id.equals(id)) return a;</span>
+<span class="nc bnc" id="L194" title="All 2 branches missed.">        for (Achievement a : values()) {</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">            if (a.id.equals(id)) return a;</span>
         }
-<span class="nc" id="L181">        return null;</span>
+<span class="nc" id="L197">        return null;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

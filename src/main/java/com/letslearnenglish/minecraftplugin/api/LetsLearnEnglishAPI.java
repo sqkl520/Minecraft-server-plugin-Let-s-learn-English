@@ -3,7 +3,7 @@ package com.letslearnenglish.minecraftplugin.api;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.achievement.AchievementManager;
-import com.letslearnenglish.minecraftplugin.core.dialogue.DialogueManagerImpl;
+import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
 import com.letslearnenglish.minecraftplugin.core.progress.ProgressManagerImpl;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
@@ -42,8 +42,8 @@ public class LetsLearnEnglishAPI {
         return plugin.getWordManager();
     }
 
-    public DialogueManagerImpl getDialogueManager() {
-        return plugin.getDialogueManager();
+    public AIChatManager getAIChatManager() {
+        return plugin.getAIChatManager();
     }
 
     public ProgressManagerImpl getProgressManager() {

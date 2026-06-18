@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SocialListener.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Let's Learn English!</a> &gt; <a href="index.source.html" class="el_package">com.letslearnenglish.minecraftplugin.listener</a> &gt; <span class="el_source">SocialListener.java</span></div><h1>SocialListener.java</h1><pre class="source lang-java linenums">package com.letslearnenglish.minecraftplugin.listener;
+
+import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.GuiNavigationManager;
+import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.RankingMode;
+import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import com.letslearnenglish.minecraftplugin.gui.AchievementWallGUI;
+import com.letslearnenglish.minecraftplugin.gui.EnglishSquareGUI;
+import com.letslearnenglish.minecraftplugin.gui.MainMenu;
+import com.letslearnenglish.minecraftplugin.gui.ProfileGUI;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryClickEvent;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * Listener for English Square, Profile, and Achievement Wall GUI interactions.
+ * Uses GuiNavigationManager for back-navigation between these GUIs.
+ */
+public class SocialListener implements Listener {
+
+    private final LetsLearnEnglish plugin;
+    private EnglishSquareGUI lastSquareGui;
+
+    /** Player head slots: rows 2-5, skipping first and last columns */
+<span class="nc" id="L31">    private static final int[] SQUARE_PLAYER_SLOTS = {</span>
+        10, 11, 12, 13, 14, 15, 16,
+        19, 20, 21, 22, 23, 24, 25,
+        28, 29, 30, 31, 32, 33, 34,
+        37, 38, 39, 40, 41, 42, 43
+    };
+
+<span class="nc" id="L38">    public SocialListener(LetsLearnEnglish plugin) {</span>
+<span class="nc" id="L39">        this.plugin = plugin;</span>
+<span class="nc" id="L40">    }</span>
+
+    @EventHandler
+    public void onInventoryClick(InventoryClickEvent event) {
+<span class="nc" id="L44">        String title = event.getView().getTitle();</span>
+
+<span class="nc bnc" id="L46" title="All 4 branches missed.">        if (!title.contains(&quot;English Square&quot;) &amp;&amp; !title.contains(&quot;英语广场&quot;)</span>
+<span class="nc bnc" id="L47" title="All 6 branches missed.">                &amp;&amp; !title.contains(&quot;周榜&quot;) &amp;&amp; !title.contains(&quot;月榜&quot;) &amp;&amp; !title.contains(&quot;总榜&quot;)</span>
+<span class="nc bnc" id="L48" title="All 4 branches missed.">                &amp;&amp; !title.contains(&quot;Weekly Ranking&quot;) &amp;&amp; !title.contains(&quot;Monthly Ranking&quot;)</span>
+<span class="nc bnc" id="L49" title="All 2 branches missed.">                &amp;&amp; !title.contains(&quot;All-Time Ranking&quot;)</span>
+<span class="nc bnc" id="L50" title="All 4 branches missed.">                &amp;&amp; !title.contains(&quot;'s Profile&quot;) &amp;&amp; !title.contains(&quot;的主页&quot;)</span>
+<span class="nc bnc" id="L51" title="All 2 branches missed.">                &amp;&amp; !title.contains(&quot;个人主页&quot;)</span>
+<span class="nc bnc" id="L52" title="All 4 branches missed.">                &amp;&amp; !title.contains(&quot;Achievement Wall&quot;) &amp;&amp; !title.contains(&quot;成就墙&quot;)) {</span>
+<span class="nc" id="L53">            return;</span>
+        }
+
+<span class="nc" id="L56">        event.setCancelled(true);</span>
+<span class="nc bnc" id="L57" title="All 2 branches missed.">        if (event.getCurrentItem() == null) return;</span>
+<span class="nc bnc" id="L58" title="All 2 branches missed.">        if (!(event.getWhoClicked() instanceof Player player)) return;</span>
+
+<span class="nc" id="L60">        int slot = event.getSlot();</span>
+
+<span class="nc bnc" id="L62" title="All 4 branches missed.">        if (title.contains(&quot;English Square&quot;) || title.contains(&quot;英语广场&quot;)) {</span>
+<span class="nc" id="L63">            handleEnglishSquareGUI(player, slot, title);</span>
+<span class="nc bnc" id="L64" title="All 6 branches missed.">        } else if (title.contains(&quot;'s Profile&quot;) || title.contains(&quot;的主页&quot;) || title.contains(&quot;个人主页&quot;)) {</span>
+<span class="nc" id="L65">            handleProfileGUI(player, slot, title);</span>
+<span class="nc bnc" id="L66" title="All 4 branches missed.">        } else if (title.contains(&quot;Achievement Wall&quot;) || title.contains(&quot;成就墙&quot;)) {</span>
+<span class="nc" id="L67">            handleAchievementWall(player, slot);</span>
+        }
+<span class="nc" id="L69">    }</span>
+
+    private void handleEnglishSquareGUI(Player player, int slot, String title) {
+<span class="nc" id="L72">        GuiNavigationManager nav = plugin.getGuiNavigationManager();</span>
+<span class="nc" id="L73">        PlayerDataStore store = plugin.getPlayerDataStore();</span>
+
+        // Determine mode and player list early (needed for slot 0 and head clicks)
+        RankingMode currentMode;
+        List&lt;UUID&gt; playerIds;
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        if (lastSquareGui != null) {</span>
+<span class="nc" id="L79">            currentMode = lastSquareGui.getCurrentMode();</span>
+<span class="nc" id="L80">            playerIds = lastSquareGui.getCurrentPlayerIds();</span>
+        } else {
+<span class="nc" id="L82">            currentMode = RankingMode.ALL_PLAYERS;</span>
+<span class="nc" id="L83">            List&lt;UUID&gt; raw = store.getActivePlayerIds();</span>
+<span class="nc" id="L84">            playerIds = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">            for (UUID id : raw) {</span>
+<span class="nc bnc" id="L86" title="All 2 branches missed.">                if (!id.equals(player.getUniqueId())) playerIds.add(id);</span>
+<span class="nc" id="L87">            }</span>
+        }
+<span class="nc" id="L89">        int page = extractPageFromTitle(title);</span>
+
+<span class="nc bnc" id="L91" title="All 2 branches missed.">        if (slot == 8) {</span>
+<span class="nc" id="L92">            SoundManager.playSound(player, &quot;menu-click&quot;);</span>
+<span class="nc" id="L93">            lastSquareGui = null;</span>
+<span class="nc" id="L94">            new MainMenu(plugin).open(player);</span>
+<span class="nc" id="L95">            return;</span>
+        }
+        // Viewer's own head at slot 0 — open own profile
+<span class="nc bnc" id="L98" title="All 2 branches missed.">        if (slot == 0) {</span>
+<span class="nc" id="L99">            SoundManager.playSound(player, &quot;menu-click&quot;);</span>
+<span class="nc" id="L100">            int cp = page;</span>
+<span class="nc" id="L101">            RankingMode cm = currentMode;</span>
+<span class="nc" id="L102">            nav.pushBack(player.getUniqueId(), () -&gt; {</span>
+<span class="nc" id="L103">                EnglishSquareGUI backGui = new EnglishSquareGUI(plugin);</span>
+<span class="nc" id="L104">                backGui.open(player, cp, cm);</span>
+<span class="nc" id="L105">            });</span>
+<span class="nc" id="L106">            new ProfileGUI(plugin).open(player, player.getUniqueId());</span>
+<span class="nc" id="L107">            return;</span>
+        }
+        // Mode toggle buttons
+<span class="nc bnc" id="L110" title="All 4 branches missed.">        if (slot &gt;= 2 &amp;&amp; slot &lt;= 5) {</span>
+<span class="nc" id="L111">            SoundManager.playSound(player, &quot;menu-click&quot;);</span>
+<span class="nc bnc" id="L112" title="All 4 branches missed.">            RankingMode mode = switch (slot) {</span>
+<span class="nc" id="L113">                case 2 -&gt; RankingMode.WEEKLY;</span>
+<span class="nc" id="L114">                case 3 -&gt; RankingMode.MONTHLY;</span>
+<span class="nc" id="L115">                case 4 -&gt; RankingMode.ALL_TIME_COINS;</span>
+<span class="nc" id="L116">                default -&gt; RankingMode.ALL_PLAYERS;</span>
+            };
+<span class="nc" id="L118">            lastSquareGui = new EnglishSquareGUI(plugin);</span>
+<span class="nc" id="L119">            lastSquareGui.open(player, 1, mode);</span>
+<span class="nc" id="L120">            return;</span>
+        }
+
+<span class="nc bnc" id="L123" title="All 2 branches missed.">        if (slot == 47) {</span>
+<span class="nc" id="L124">            SoundManager.playSound(player, &quot;menu-click&quot;);</span>
+<span class="nc" id="L125">            lastSquareGui = new EnglishSquareGUI(plugin);</span>
+<span class="nc" id="L126">            lastSquareGui.open(player, Math.max(1, page - 1), currentMode);</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">        } else if (slot == 51) {</span>
+<span class="nc" id="L128">            SoundManager.playSound(player, &quot;menu-click&quot;);</span>
+<span class="nc" id="L129">            lastSquareGui = new EnglishSquareGUI(plugin);</span>
+<span class="nc" id="L130">            lastSquareGui.open(player, page + 1, currentMode);</span>
+        } else {
+<span class="nc" id="L132">            int slotIdx = getPlayerSlotIndexOnSquare(slot);</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">            if (slotIdx &lt; 0) return;</span>
+<span class="nc" id="L134">            int globalIndex = (page - 1) * getPlayersPerPageOnSquare() + slotIdx;</span>
+<span class="nc bnc" id="L135" title="All 4 branches missed.">            if (globalIndex &lt; 0 || globalIndex &gt;= playerIds.size()) return;</span>
+
+<span class="nc" id="L137">            UUID targetId = playerIds.get(globalIndex);</span>
+<span class="nc" id="L138">            SoundManager.playSound(player, &quot;menu-click&quot;);</span>
+<span class="nc" id="L139">            int cp = page;</span>
+<span class="nc" id="L140">            RankingMode cm = currentMode;</span>
+<span class="nc" id="L141">            nav.pushBack(player.getUniqueId(), () -&gt; {</span>
+<span class="nc" id="L142">                EnglishSquareGUI backGui = new EnglishSquareGUI(plugin);</span>
+<span class="nc" id="L143">                backGui.open(player, cp, cm);</span>
+<span class="nc" id="L144">            });</span>
+<span class="nc" id="L145">            PlayerDataStore.ProfileSettings ps = store.getProfileSettings(targetId);</span>
+<span class="nc bnc" id="L146" title="All 2 branches missed.">            if (ps.isShowInSquare()) {</span>
+<span class="nc" id="L147">                new ProfileGUI(plugin).open(player, targetId);</span>
+            } else {
+<span class="nc" id="L149">                new EnglishSquareGUI(plugin).openHidden(player, targetId);</span>
+            }
+        }
+<span class="nc" id="L152">    }</span>
+
+    private void handleProfileGUI(Player player, int slot, String title) {
+<span class="nc" id="L155">        GuiNavigationManager nav = plugin.getGuiNavigationManager();</span>
+
+<span class="nc bnc" id="L157" title="All 2 branches missed.">        if (slot == 8) {</span>
+<span class="nc" id="L158">            SoundManager.playSound(player, &quot;menu-click&quot;);</span>
+<span class="nc" id="L159">            Runnable backAction = nav.popBack(player.getUniqueId(),</span>
+<span class="nc" id="L160">                    () -&gt; new MainMenu(plugin).open(player));</span>
+<span class="nc" id="L161">            backAction.run();</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">        } else if (slot == 18) {</span>
+<span class="nc" id="L163">            SoundManager.playSound(player, &quot;menu-click&quot;);</span>
+<span class="nc" id="L164">            UUID targetId = extractTargetIdFromTitle(player, title);</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">            if (targetId != null) {</span>
+<span class="nc" id="L166">                UUID backToTarget = targetId;</span>
+<span class="nc" id="L167">                nav.pushBack(player.getUniqueId(),</span>
+<span class="nc" id="L168">                        () -&gt; new ProfileGUI(plugin).open(player, backToTarget));</span>
+<span class="nc" id="L169">                new AchievementWallGUI(plugin).open(player, targetId);</span>
+            }
+<span class="nc bnc" id="L171" title="All 2 branches missed.">        } else if (slot == 26) {</span>
+<span class="nc" id="L172">            SoundManager.playSound(player, &quot;menu-click&quot;);</span>
+<span class="nc" id="L173">            new ProfileGUI(plugin).openSettings(player);</span>
+        }
+<span class="nc" id="L175">    }</span>
+
+    private void handleAchievementWall(Player player, int slot) {
+<span class="nc bnc" id="L178" title="All 2 branches missed.">        if (slot == 49) {</span>
+<span class="nc" id="L179">            SoundManager.playSound(player, &quot;menu-click&quot;);</span>
+<span class="nc" id="L180">            GuiNavigationManager nav = plugin.getGuiNavigationManager();</span>
+<span class="nc" id="L181">            Runnable backAction = nav.popBack(player.getUniqueId(),</span>
+<span class="nc" id="L182">                    () -&gt; new ProfileGUI(plugin).open(player, player.getUniqueId()));</span>
+<span class="nc" id="L183">            backAction.run();</span>
+        }
+<span class="nc" id="L185">    }</span>
+
+    private int getPlayerSlotIndexOnSquare(int slot) {
+<span class="nc bnc" id="L188" title="All 2 branches missed.">        for (int i = 0; i &lt; SQUARE_PLAYER_SLOTS.length; i++) {</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">            if (SQUARE_PLAYER_SLOTS[i] == slot) return i;</span>
+        }
+<span class="nc" id="L191">        return -1;</span>
+    }
+
+    private int getPlayersPerPageOnSquare() {
+<span class="nc" id="L195">        return SQUARE_PLAYER_SLOTS.length;</span>
+    }
+
+    private UUID extractTargetIdFromTitle(Player viewer, String title) {
+<span class="nc" id="L199">        PlayerDataStore store = plugin.getPlayerDataStore();</span>
+<span class="nc" id="L200">        List&lt;UUID&gt; activeIds = store.getActivePlayerIds();</span>
+<span class="nc bnc" id="L201" title="All 2 branches missed.">        for (UUID id : activeIds) {</span>
+<span class="nc" id="L202">            String name = store.getPlayerName(id);</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">            if (name == null) continue;</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">            if (title.contains(name)) {</span>
+<span class="nc" id="L205">                return id;</span>
+            }
+<span class="nc" id="L207">        }</span>
+<span class="nc" id="L208">        return viewer.getUniqueId();</span>
+    }
+
+    private int extractPageFromTitle(String title) {
+<span class="nc" id="L212">        String[] parts = title.split(&quot; &quot;);</span>
+<span class="nc bnc" id="L213" title="All 2 branches missed.">        for (int i = 0; i &lt; parts.length; i++) {</span>
+<span class="nc bnc" id="L214" title="All 4 branches missed.">            if (&quot;Page&quot;.equalsIgnoreCase(parts[i]) &amp;&amp; i + 1 &lt; parts.length) {</span>
+                try {
+<span class="nc" id="L216">                    return Integer.parseInt(parts[i + 1]);</span>
+<span class="nc" id="L217">                } catch (NumberFormatException ignored) {</span>
+                }
+            }
+        }
+<span class="nc" id="L221">        return 1;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

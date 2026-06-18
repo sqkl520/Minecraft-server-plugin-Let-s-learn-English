@@ -2,24 +2,34 @@
 
 import com.letslearnenglish.minecraftplugin.api.LetsLearnEnglishAPI;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
+import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager;
+import com.letslearnenglish.minecraftplugin.core.GuiNavigationManager;
+import com.letslearnenglish.minecraftplugin.core.ProxyMessenger;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.achievement.AchievementManager;
-import com.letslearnenglish.minecraftplugin.core.dialogue.DialogueManagerImpl;
+import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
 import com.letslearnenglish.minecraftplugin.core.manager.AdminCommandHandler;
 import com.letslearnenglish.minecraftplugin.core.manager.DataExporter;
 import com.letslearnenglish.minecraftplugin.core.manager.HotReloadManager;
 import com.letslearnenglish.minecraftplugin.core.progress.ProgressManagerImpl;
 import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
-import com.letslearnenglish.minecraftplugin.listener.ChatAnswerListener;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
-import com.letslearnenglish.minecraftplugin.listener.GUIMenuListener;
-import com.letslearnenglish.minecraftplugin.listener.NPCInteractionListener;
+import com.letslearnenglish.minecraftplugin.listener.ChatAnswerListener;
+import com.letslearnenglish.minecraftplugin.listener.ChatScenarioListener;
+import com.letslearnenglish.minecraftplugin.listener.MainMenuListener;
+import com.letslearnenglish.minecraftplugin.listener.MiscGUIListener;
 import com.letslearnenglish.minecraftplugin.listener.PlayerJoinListener;
+import com.letslearnenglish.minecraftplugin.listener.ScenarioSelectListener;
+import com.letslearnenglish.minecraftplugin.listener.SocialListener;
+import com.letslearnenglish.minecraftplugin.listener.WordLearningListener;
+import com.letslearnenglish.minecraftplugin.expansion.LLEPapiExpansion;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import com.letslearnenglish.minecraftplugin.util.VersionAdapter;
 import com.letslearnenglish.minecraftplugin.core.UpdateChecker;
+import net.milkbowl.vault.economy.Economy;
+import org.bukkit.plugin.RegisteredServiceProvider;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -34,15 +44,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import net.milkbowl.vault.economy.Economy;
 import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
-import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
-<span class="nc" id="L45">public final class LetsLearnEnglish extends JavaPlugin {</span>
+<span class="nc" id="L53">public final class LetsLearnEnglish extends JavaPlugin {</span>
 
     private static LetsLearnEnglish instance;
 
@@ -53,7 +61,7 @@ import org.bukkit.plugin.java.JavaPlugin;
     private VersionAdapter versionAdapter;
 
     private WordManagerImpl wordManager;
-    private DialogueManagerImpl dialogueManager;
+    private AIChatManager aiChatManager;
     private ProgressManagerImpl progressManager;
 
     private AdminCommandHandler adminCommandHandler;
@@ -65,374 +73,416 @@ import org.bukkit.plugin.java.JavaPlugin;
     private UpdateChecker updateChecker;
 
     private WordLearningManager wordLearningManager;
-
     private AchievementManager achievementManager;
 
     private SoundManager soundManager;
+    private ProxyMessenger proxyMessenger;
 
-    private Economy economy;
+    private ChatScenarioListener chatScenarioListener;
 
-<span class="nc" id="L75">    private final Map&lt;UUID, String&gt; playerLanguage = new ConcurrentHashMap&lt;&gt;();</span>
+    private GuiNavigationManager guiNavigationManager;
+
+    private DailyChallengeManager dailyChallengeManager;
+
+<span class="nc" id="L87">    private Economy economy = null;</span>
+
+<span class="nc" id="L89">    private final Map&lt;UUID, String&gt; playerLanguage = new ConcurrentHashMap&lt;&gt;();</span>
 
     @Override
     public void onLoad() {
-<span class="nc" id="L79">        instance = this;</span>
-<span class="nc" id="L80">        this.versionAdapter = new VersionAdapter(this);</span>
-<span class="nc" id="L81">        getLogger().info(&quot;Version adapter initialized for server version: &quot;</span>
-<span class="nc" id="L82">                + getServer().getMinecraftVersion());</span>
-<span class="nc" id="L83">    }</span>
+<span class="nc" id="L93">        instance = this;</span>
+<span class="nc" id="L94">        this.versionAdapter = new VersionAdapter(this);</span>
+<span class="nc" id="L95">        getLogger().info(&quot;Version adapter initialized for server version: &quot;</span>
+<span class="nc" id="L96">                + getServer().getMinecraftVersion());</span>
+<span class="nc" id="L97">    }</span>
 
     @Override
     public void onEnable() {
-<span class="nc" id="L87">        long startTime = System.currentTimeMillis();</span>
+<span class="nc" id="L101">        long startTime = System.currentTimeMillis();</span>
 
-<span class="nc" id="L89">        this.configManager = new ConfigManager(this);</span>
-<span class="nc" id="L90">        this.configManager.loadAllConfigs();</span>
+<span class="nc" id="L103">        this.configManager = new ConfigManager(this);</span>
+<span class="nc" id="L104">        this.configManager.loadAllConfigs();</span>
 
-<span class="nc" id="L92">        loadPlayerLanguages();</span>
+<span class="nc" id="L106">        loadPlayerLanguages();</span>
 
-<span class="nc" id="L94">        this.messageUtil = new MessageUtil(this, configManager);</span>
+<span class="nc" id="L108">        this.messageUtil = new MessageUtil(this, configManager);</span>
 
-<span class="nc" id="L96">        this.databaseManager = new DatabaseManager(this, configManager);</span>
-<span class="nc" id="L97">        this.databaseManager.initialize();</span>
+<span class="nc" id="L110">        this.databaseManager = new DatabaseManager(this, configManager);</span>
+<span class="nc" id="L111">        this.databaseManager.initialize();</span>
 
-<span class="nc" id="L99">        this.playerDataStore = new PlayerDataStore(this, databaseManager);</span>
+<span class="nc" id="L113">        this.playerDataStore = new PlayerDataStore(this, databaseManager);</span>
 
-<span class="nc" id="L101">        this.wordManager = new WordManagerImpl(this, configManager, playerDataStore);</span>
-<span class="nc" id="L102">        this.wordLearningManager = new WordLearningManager(this);</span>
-<span class="nc" id="L103">        this.achievementManager = new AchievementManager(this, playerDataStore);</span>
-<span class="nc" id="L104">        this.dialogueManager = new DialogueManagerImpl(configManager, playerDataStore);</span>
-<span class="nc" id="L105">        this.progressManager = new ProgressManagerImpl(this, playerDataStore);</span>
+<span class="nc" id="L115">        this.wordManager = new WordManagerImpl(this, configManager, playerDataStore);</span>
+<span class="nc" id="L116">        this.wordLearningManager = new WordLearningManager(this);</span>
+<span class="nc" id="L117">        this.achievementManager = new AchievementManager(this, playerDataStore);</span>
+<span class="nc" id="L118">        this.aiChatManager = new AIChatManager(this);</span>
+<span class="nc" id="L119">        this.chatScenarioListener = new ChatScenarioListener(this, aiChatManager);</span>
+<span class="nc" id="L120">        this.guiNavigationManager = new GuiNavigationManager();</span>
+<span class="nc" id="L121">        this.dailyChallengeManager = new DailyChallengeManager(this);</span>
+<span class="nc" id="L122">        this.progressManager = new ProgressManagerImpl(this, playerDataStore);</span>
 
-<span class="nc" id="L107">        this.adminCommandHandler = new AdminCommandHandler(this);</span>
-<span class="nc" id="L108">        this.dataExporter = new DataExporter(this, playerDataStore);</span>
-<span class="nc" id="L109">        this.hotReloadManager = new HotReloadManager(this, configManager);</span>
+<span class="nc" id="L124">        this.adminCommandHandler = new AdminCommandHandler(this);</span>
+<span class="nc" id="L125">        this.dataExporter = new DataExporter(this, playerDataStore);</span>
+<span class="nc" id="L126">        this.hotReloadManager = new HotReloadManager(this, configManager);</span>
 
-<span class="nc" id="L111">        this.soundManager = new SoundManager(this);</span>
+<span class="nc" id="L128">        this.soundManager = new SoundManager(this);</span>
 
-<span class="nc" id="L113">        this.api = new LetsLearnEnglishAPI(this);</span>
+        // Proxy 消息通道（Velocity / BungeeCord 兼容）
+<span class="nc" id="L131">        this.proxyMessenger = new ProxyMessenger(this);</span>
+<span class="nc" id="L132">        this.proxyMessenger.register();</span>
 
-<span class="nc" id="L115">        registerListeners();</span>
-<span class="nc" id="L116">        registerCommands();</span>
-<span class="nc" id="L117">        setupEconomy();</span>
-<span class="nc" id="L118">        startScheduledTasks();</span>
+<span class="nc" id="L134">        setupEconomy();</span>
 
-<span class="nc" id="L120">        long loadTime = System.currentTimeMillis() - startTime;</span>
-<span class="nc" id="L121">        getLogger().info(&quot;============================================&quot;);</span>
-<span class="nc" id="L122">        getLogger().info(&quot;  Let's Learn English! v&quot; + getDescription().getVersion());</span>
-<span class="nc" id="L123">        getLogger().info(&quot;  Plugin enabled successfully! (Time: &quot; + loadTime + &quot;ms)&quot;);</span>
-<span class="nc" id="L124">        getLogger().info(&quot;============================================&quot;);</span>
+<span class="nc" id="L136">        setupPlaceholderAPI();</span>
 
-<span class="nc" id="L126">        this.updateChecker = new UpdateChecker(this);</span>
-<span class="nc" id="L127">        updateChecker.checkAsync();</span>
-<span class="nc" id="L128">    }</span>
+<span class="nc" id="L138">        this.api = new LetsLearnEnglishAPI(this);</span>
+
+<span class="nc" id="L140">        registerListeners();</span>
+<span class="nc" id="L141">        registerCommands();</span>
+<span class="nc" id="L142">        startScheduledTasks();</span>
+
+        // Load leaderboard from database
+<span class="nc" id="L145">        getServer().getScheduler().runTaskAsynchronously(this, () -&gt; {</span>
+<span class="nc" id="L146">            progressManager.getLeaderboard().loadFromDB();</span>
+<span class="nc" id="L147">        });</span>
+
+<span class="nc" id="L149">        long loadTime = System.currentTimeMillis() - startTime;</span>
+<span class="nc" id="L150">        getLogger().info(&quot;============================================&quot;);</span>
+<span class="nc" id="L151">        getLogger().info(&quot;  Let's Learn English! v&quot; + getDescription().getVersion());</span>
+<span class="nc" id="L152">        getLogger().info(&quot;  Plugin enabled successfully! (Time: &quot; + loadTime + &quot;ms)&quot;);</span>
+<span class="nc" id="L153">        getLogger().info(&quot;============================================&quot;);</span>
+
+<span class="nc" id="L155">        this.updateChecker = new UpdateChecker(this);</span>
+<span class="nc" id="L156">        updateChecker.checkAsync();</span>
+<span class="nc" id="L157">    }</span>
 
     @Override
     public void onDisable() {
-<span class="nc" id="L132">        getLogger().info(&quot;Saving player data...&quot;);</span>
+<span class="nc" id="L161">        getLogger().info(&quot;Saving player data...&quot;);</span>
 
-<span class="nc bnc" id="L134" title="All 2 branches missed.">        if (wordLearningManager != null) {</span>
-<span class="nc" id="L135">            wordLearningManager.clearAllSessions();</span>
-<span class="nc" id="L136">            getLogger().info(&quot;Cleared all active word learning sessions.&quot;);</span>
+<span class="nc bnc" id="L163" title="All 2 branches missed.">        if (wordLearningManager != null) {</span>
+<span class="nc" id="L164">            wordLearningManager.clearAllSessions();</span>
+<span class="nc" id="L165">            getLogger().info(&quot;Cleared all active word learning sessions.&quot;);</span>
         }
 
-<span class="nc" id="L139">        savePlayerLanguages();</span>
+<span class="nc" id="L168">        savePlayerLanguages();</span>
 
-<span class="nc bnc" id="L141" title="All 2 branches missed.">        if (playerDataStore != null) {</span>
-<span class="nc" id="L142">            getServer().getOnlinePlayers().forEach(p -&gt; {</span>
-<span class="nc" id="L143">                playerDataStore.savePlayerData(p.getUniqueId());</span>
-<span class="nc" id="L144">                playerDataStore.saveProfileSettings(p.getUniqueId());</span>
-<span class="nc" id="L145">            });</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        if (playerDataStore != null) {</span>
+<span class="nc" id="L171">            getServer().getOnlinePlayers().forEach(p -&gt; {</span>
+<span class="nc" id="L172">                playerDataStore.savePlayerData(p.getUniqueId());</span>
+<span class="nc" id="L173">                playerDataStore.saveProfileSettings(p.getUniqueId());</span>
+<span class="nc" id="L174">            });</span>
         }
 
-<span class="nc bnc" id="L148" title="All 2 branches missed.">        if (achievementManager != null) {</span>
-<span class="nc" id="L149">            achievementManager.clearCache();</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">        if (achievementManager != null) {</span>
+<span class="nc" id="L178">            achievementManager.clearCache();</span>
         }
 
-<span class="nc bnc" id="L152" title="All 2 branches missed.">        if (databaseManager != null) {</span>
-<span class="nc" id="L153">            databaseManager.shutdown();</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">        if (proxyMessenger != null) {</span>
+<span class="nc" id="L182">            proxyMessenger.unregister();</span>
         }
 
-<span class="nc" id="L156">        getLogger().info(&quot;Let's Learn English! plugin has been safely disabled.&quot;);</span>
-<span class="nc" id="L157">    }</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">        if (aiChatManager != null) {</span>
+<span class="nc" id="L186">            aiChatManager.shutdown();</span>
+        }
+
+<span class="nc bnc" id="L189" title="All 2 branches missed.">        if (databaseManager != null) {</span>
+<span class="nc" id="L190">            databaseManager.shutdown();</span>
+        }
+
+<span class="nc" id="L193">        getLogger().info(&quot;Let's Learn English! plugin has been safely disabled.&quot;);</span>
+<span class="nc" id="L194">    }</span>
 
     private void registerListeners() {
-<span class="nc" id="L160">        getServer().getPluginManager().registerEvents(new PlayerJoinListener(this), this);</span>
-<span class="nc" id="L161">        getServer().getPluginManager().registerEvents(new GUIMenuListener(this), this);</span>
-<span class="nc" id="L162">        getServer().getPluginManager().registerEvents(new NPCInteractionListener(this), this);</span>
-<span class="nc" id="L163">        getServer().getPluginManager().registerEvents(new ChatAnswerListener(this), this);</span>
-<span class="nc" id="L164">        getServer().getPluginManager().registerEvents(soundManager, this);</span>
-<span class="nc" id="L165">    }</span>
+<span class="nc" id="L197">        getServer().getPluginManager().registerEvents(new PlayerJoinListener(this), this);</span>
+<span class="nc" id="L198">        getServer().getPluginManager().registerEvents(new MainMenuListener(this), this);</span>
+<span class="nc" id="L199">        getServer().getPluginManager().registerEvents(new WordLearningListener(this), this);</span>
+<span class="nc" id="L200">        getServer().getPluginManager().registerEvents(new ScenarioSelectListener(this), this);</span>
+<span class="nc" id="L201">        getServer().getPluginManager().registerEvents(new SocialListener(this), this);</span>
+<span class="nc" id="L202">        getServer().getPluginManager().registerEvents(new MiscGUIListener(this), this);</span>
+<span class="nc" id="L203">        getServer().getPluginManager().registerEvents(chatScenarioListener, this);</span>
+<span class="nc" id="L204">        getServer().getPluginManager().registerEvents(new ChatAnswerListener(this), this);</span>
+<span class="nc" id="L205">        getServer().getPluginManager().registerEvents(soundManager, this);</span>
+<span class="nc" id="L206">    }</span>
 
     private void registerCommands() {
-<span class="nc" id="L168">        var learnCmd = getCommand(&quot;learnenglish&quot;);</span>
-<span class="nc bnc" id="L169" title="All 2 branches missed.">        if (learnCmd != null) {</span>
-<span class="nc" id="L170">            learnCmd.setExecutor(new com.letslearnenglish.minecraftplugin.command.LearnCommand(this));</span>
+<span class="nc" id="L209">        var learnCmd = getCommand(&quot;learnenglish&quot;);</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">        if (learnCmd != null) {</span>
+<span class="nc" id="L211">            learnCmd.setExecutor(new com.letslearnenglish.minecraftplugin.command.LearnCommand(this));</span>
         }
-<span class="nc" id="L172">        var adminCmd = getCommand(&quot;learnadmin&quot;);</span>
-<span class="nc bnc" id="L173" title="All 2 branches missed.">        if (adminCmd != null) {</span>
-<span class="nc" id="L174">            adminCmd.setExecutor(new com.letslearnenglish.minecraftplugin.command.AdminCommand(this));</span>
+<span class="nc" id="L213">        var adminCmd = getCommand(&quot;learnadmin&quot;);</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">        if (adminCmd != null) {</span>
+<span class="nc" id="L215">            adminCmd.setExecutor(new com.letslearnenglish.minecraftplugin.command.AdminCommand(this));</span>
         }
-<span class="nc" id="L176">    }</span>
+<span class="nc" id="L217">    }</span>
 
     private void startScheduledTasks() {
-<span class="nc" id="L179">        int saveInterval = configManager.getMainConfig().getInt(&quot;general.auto-save-interval&quot;, 5);</span>
-<span class="nc" id="L180">        getServer().getScheduler().runTaskTimerAsynchronously(this, () -&gt; {</span>
-            try {
-<span class="nc" id="L182">                java.sql.Connection conn = databaseManager.createAsyncConnection();</span>
-                try {
-<span class="nc bnc" id="L184" title="All 2 branches missed.">                    for (Player p : getServer().getOnlinePlayers()) {</span>
-<span class="nc" id="L185">                        playerDataStore.savePlayerDataAsync(p.getUniqueId(), conn);</span>
-<span class="nc" id="L186">                        playerDataStore.saveProfileSettings(p.getUniqueId());</span>
-<span class="nc" id="L187">                    }</span>
-                } finally {
-<span class="nc" id="L189">                    try { conn.close(); } catch (java.sql.SQLException ignored) {}</span>
-                }
-<span class="nc" id="L191">            } catch (java.sql.SQLException e) {</span>
-<span class="nc" id="L192">                getLogger().warning(&quot;Async auto-save failed: &quot; + e.getMessage());</span>
-<span class="nc" id="L193">            }</span>
-<span class="nc" id="L194">        }, saveInterval * 1200L, saveInterval * 1200L);</span>
+<span class="nc" id="L220">        int saveInterval = configManager.getMainConfig().getInt(&quot;general.auto-save-interval&quot;, 5);</span>
+<span class="nc" id="L221">        getServer().getScheduler().runTaskTimerAsynchronously(this, () -&gt; {</span>
+<span class="nc" id="L222">            getServer().getOnlinePlayers().forEach(p -&gt; playerDataStore.savePlayerData(p.getUniqueId()));</span>
+<span class="nc" id="L223">            getServer().getOnlinePlayers().forEach(p -&gt; playerDataStore.saveProfileSettings(p.getUniqueId()));</span>
+<span class="nc" id="L224">        }, saveInterval * 1200L, saveInterval * 1200L);</span>
 
-<span class="nc bnc" id="L196" title="All 2 branches missed.">        if (configManager.getMainConfig().getBoolean(&quot;word-system.review.enabled&quot;, true)) {</span>
-<span class="nc" id="L197">            getServer().getScheduler().runTaskTimer(this, () -&gt; {</span>
-<span class="nc" id="L198">                wordManager.getReviewScheduler().checkAndNotifyReviews();</span>
-<span class="nc" id="L199">            }, 6000L, 6000L);</span>
+<span class="nc bnc" id="L226" title="All 2 branches missed.">        if (configManager.getMainConfig().getBoolean(&quot;word-system.review.enabled&quot;, true)) {</span>
+<span class="nc" id="L227">            getServer().getScheduler().runTaskTimer(this, () -&gt; {</span>
+<span class="nc" id="L228">                wordManager.getReviewScheduler().checkAndNotifyReviews();</span>
+<span class="nc" id="L229">            }, 6000L, 6000L);</span>
         }
 
-<span class="nc bnc" id="L202" title="All 2 branches missed.">        if (configManager.getMainConfig().getBoolean(&quot;daily-reminder.enabled&quot;, true)) {</span>
-<span class="nc" id="L203">            scheduleDailyReminders();</span>
+<span class="nc bnc" id="L232" title="All 2 branches missed.">        if (configManager.getMainConfig().getBoolean(&quot;daily-reminder.enabled&quot;, true)) {</span>
+<span class="nc" id="L233">            scheduleDailyReminders();</span>
         }
 
-<span class="nc bnc" id="L206" title="All 2 branches missed.">        if (configManager.getMainConfig().getBoolean(&quot;general.backup.enabled&quot;, true)) {</span>
-<span class="nc" id="L207">            scheduleDatabaseBackup();</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">        if (configManager.getMainConfig().getBoolean(&quot;general.backup.enabled&quot;, true)) {</span>
+<span class="nc" id="L237">            scheduleDatabaseBackup();</span>
         }
-<span class="nc" id="L209">    }</span>
+<span class="nc" id="L239">    }</span>
 
     private void scheduleDailyReminders() {
-<span class="nc" id="L212">        List&lt;Integer&gt; reminderHours = configManager.getMainConfig().getIntegerList(&quot;daily-reminder.reminder-hours&quot;);</span>
-<span class="nc bnc" id="L213" title="All 2 branches missed.">        if (reminderHours.isEmpty()) {</span>
-<span class="nc" id="L214">            getLogger().warning(&quot;Daily reminder is enabled but no reminder-hours configured.&quot;);</span>
-<span class="nc" id="L215">            return;</span>
+<span class="nc" id="L242">        List&lt;Integer&gt; reminderHours = configManager.getMainConfig().getIntegerList(&quot;daily-reminder.reminder-hours&quot;);</span>
+<span class="nc bnc" id="L243" title="All 2 branches missed.">        if (reminderHours.isEmpty()) {</span>
+<span class="nc" id="L244">            getLogger().warning(&quot;Daily reminder is enabled but no reminder-hours configured.&quot;);</span>
+<span class="nc" id="L245">            return;</span>
         }
 
-<span class="nc" id="L218">        String rawMessage = configManager.getMainConfig().getString(&quot;daily-reminder.message&quot;,</span>
+<span class="nc" id="L248">        String rawMessage = configManager.getMainConfig().getString(&quot;daily-reminder.message&quot;,</span>
                 &quot;{prefix}&amp;6It's time to learn English! Use &amp;e/le menu &amp;6to start!&quot;);
 
-<span class="nc" id="L221">        Set&lt;Integer&gt; remindedHours = new HashSet&lt;&gt;();</span>
-<span class="nc" id="L222">        final Set&lt;Integer&gt; effectiveHours = new HashSet&lt;&gt;(reminderHours);</span>
+<span class="nc" id="L251">        Set&lt;Integer&gt; remindedHours = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L252">        final Set&lt;Integer&gt; effectiveHours = new HashSet&lt;&gt;(reminderHours);</span>
 
-<span class="nc" id="L224">        getServer().getScheduler().runTaskTimer(this, () -&gt; {</span>
-<span class="nc" id="L225">            Calendar cal = Calendar.getInstance();</span>
-<span class="nc" id="L226">            int currentHour = cal.get(Calendar.HOUR_OF_DAY);</span>
-<span class="nc" id="L227">            int currentMinute = cal.get(Calendar.MINUTE);</span>
+<span class="nc" id="L254">        getServer().getScheduler().runTaskTimer(this, () -&gt; {</span>
+<span class="nc" id="L255">            Calendar cal = Calendar.getInstance();</span>
+<span class="nc" id="L256">            int currentHour = cal.get(Calendar.HOUR_OF_DAY);</span>
+<span class="nc" id="L257">            int currentMinute = cal.get(Calendar.MINUTE);</span>
 
-<span class="nc bnc" id="L229" title="All 4 branches missed.">            if (currentHour == 0 &amp;&amp; currentMinute == 0) {</span>
-<span class="nc" id="L230">                remindedHours.clear();</span>
+<span class="nc bnc" id="L259" title="All 4 branches missed.">            if (currentHour == 0 &amp;&amp; currentMinute == 0) {</span>
+<span class="nc" id="L260">                remindedHours.clear();</span>
             }
 
-<span class="nc bnc" id="L233" title="All 6 branches missed.">            if (currentMinute == 0 &amp;&amp; effectiveHours.contains(currentHour) &amp;&amp; !remindedHours.contains(currentHour)) {</span>
-<span class="nc" id="L234">                remindedHours.add(currentHour);</span>
-<span class="nc" id="L235">                String prefix = configManager.getMainConfig().getString(&quot;prefix.&quot;</span>
-<span class="nc" id="L236">                        + configManager.getMainConfig().getString(&quot;general.language&quot;, &quot;en&quot;), &quot;&quot;);</span>
-<span class="nc" id="L237">                String message = ChatColor.translateAlternateColorCodes('&amp;',</span>
-<span class="nc" id="L238">                        rawMessage.replace(&quot;{prefix}&quot;, prefix));</span>
-<span class="nc bnc" id="L239" title="All 2 branches missed.">                for (Player player : getServer().getOnlinePlayers()) {</span>
-<span class="nc" id="L240">                    player.sendMessage(message);</span>
-<span class="nc" id="L241">                }</span>
-<span class="nc" id="L242">                getLogger().info(&quot;Daily study reminder sent to all online players at hour &quot; + currentHour + &quot;:00&quot;);</span>
+<span class="nc bnc" id="L263" title="All 6 branches missed.">            if (currentMinute == 0 &amp;&amp; effectiveHours.contains(currentHour) &amp;&amp; !remindedHours.contains(currentHour)) {</span>
+<span class="nc" id="L264">                remindedHours.add(currentHour);</span>
+<span class="nc" id="L265">                String defaultLang = configManager.getMainConfig().getString(&quot;general.language&quot;, &quot;zh&quot;);</span>
+<span class="nc" id="L266">                String prefix = configManager.getMainConfig().getString(&quot;prefix.&quot; + defaultLang, &quot;&amp;8[&amp;b英语学习&amp;8] &amp;f&quot;);</span>
+<span class="nc" id="L267">                String message = rawMessage.replace(&quot;{prefix}&quot;, prefix);</span>
+<span class="nc bnc" id="L268" title="All 2 branches missed.">                for (Player player : getServer().getOnlinePlayers()) {</span>
+<span class="nc" id="L269">                    player.sendMessage(ChatColor.translateAlternateColorCodes('&amp;', message));</span>
+<span class="nc" id="L270">                }</span>
+<span class="nc" id="L271">                getLogger().info(&quot;Daily study reminder sent to all online players at hour &quot; + currentHour + &quot;:00&quot;);</span>
             }
-<span class="nc" id="L244">        }, 1200L, 1200L);</span>
+<span class="nc" id="L273">        }, 1200L, 1200L);</span>
 
-<span class="nc" id="L246">        getLogger().info(&quot;Daily study reminder scheduled at hours: &quot; + effectiveHours);</span>
-<span class="nc" id="L247">    }</span>
+<span class="nc" id="L275">        getLogger().info(&quot;Daily study reminder scheduled at hours: &quot; + effectiveHours);</span>
+<span class="nc" id="L276">    }</span>
 
     private void scheduleDatabaseBackup() {
-<span class="nc" id="L250">        int intervalMinutes = configManager.getMainConfig().getInt(&quot;general.backup.interval&quot;, 1440);</span>
-<span class="nc bnc" id="L251" title="All 2 branches missed.">        if (intervalMinutes &lt;= 0) {</span>
-<span class="nc" id="L252">            getLogger().info(&quot;Database auto-backup is disabled (interval set to 0).&quot;);</span>
-<span class="nc" id="L253">            return;</span>
+<span class="nc" id="L279">        int intervalMinutes = configManager.getMainConfig().getInt(&quot;general.backup.interval&quot;, 1440);</span>
+<span class="nc bnc" id="L280" title="All 2 branches missed.">        if (intervalMinutes &lt;= 0) {</span>
+<span class="nc" id="L281">            getLogger().info(&quot;Database auto-backup is disabled (interval set to 0).&quot;);</span>
+<span class="nc" id="L282">            return;</span>
         }
 
-<span class="nc" id="L256">        int maxBackups = configManager.getMainConfig().getInt(&quot;general.backup.max-backups&quot;, 7);</span>
-<span class="nc" id="L257">        long intervalTicks = intervalMinutes * 1200L;</span>
+<span class="nc" id="L285">        int maxBackups = configManager.getMainConfig().getInt(&quot;general.backup.max-backups&quot;, 7);</span>
+<span class="nc" id="L286">        long intervalTicks = intervalMinutes * 1200L;</span>
 
-<span class="nc" id="L259">        getServer().getScheduler().runTaskTimerAsynchronously(this, () -&gt; {</span>
-<span class="nc" id="L260">            backupDatabase(maxBackups);</span>
-<span class="nc" id="L261">        }, intervalTicks, intervalTicks);</span>
+<span class="nc" id="L288">        getServer().getScheduler().runTaskTimerAsynchronously(this, () -&gt; {</span>
+<span class="nc" id="L289">            backupDatabase(maxBackups);</span>
+<span class="nc" id="L290">        }, intervalTicks, intervalTicks);</span>
 
-<span class="nc" id="L263">        getLogger().info(&quot;Database auto-backup scheduled every &quot; + intervalMinutes</span>
+<span class="nc" id="L292">        getLogger().info(&quot;Database auto-backup scheduled every &quot; + intervalMinutes</span>
                 + &quot; minutes, keeping up to &quot; + maxBackups + &quot; backups.&quot;);
-<span class="nc" id="L265">    }</span>
+<span class="nc" id="L294">    }</span>
 
     private void backupDatabase(int maxBackups) {
-<span class="nc" id="L268">        String dbType = configManager.getMainConfig().getString(&quot;database.type&quot;, &quot;sqlite&quot;);</span>
-<span class="nc bnc" id="L269" title="All 2 branches missed.">        if (!&quot;sqlite&quot;.equalsIgnoreCase(dbType)) {</span>
-<span class="nc" id="L270">            getLogger().info(&quot;Database backup skipped: only SQLite backup is supported.&quot;);</span>
-<span class="nc" id="L271">            return;</span>
+<span class="nc" id="L297">        String dbType = configManager.getMainConfig().getString(&quot;database.type&quot;, &quot;sqlite&quot;);</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">        if (!&quot;sqlite&quot;.equalsIgnoreCase(dbType)) {</span>
+<span class="nc" id="L299">            getLogger().info(&quot;Database backup skipped: only SQLite backup is supported.&quot;);</span>
+<span class="nc" id="L300">            return;</span>
         }
 
-<span class="nc" id="L274">        String dbFileName = configManager.getMainConfig().getString(&quot;database.sqlite.filename&quot;, &quot;playerdata.db&quot;);</span>
-<span class="nc" id="L275">        File dbFile = new File(getDataFolder(), dbFileName);</span>
-<span class="nc bnc" id="L276" title="All 2 branches missed.">        if (!dbFile.exists()) {</span>
-<span class="nc" id="L277">            getLogger().warning(&quot;Database file not found for backup: &quot; + dbFile.getAbsolutePath());</span>
-<span class="nc" id="L278">            return;</span>
+<span class="nc" id="L303">        String dbFileName = configManager.getMainConfig().getString(&quot;database.sqlite.filename&quot;, &quot;playerdata.db&quot;);</span>
+<span class="nc" id="L304">        File dbFile = new File(getDataFolder(), dbFileName);</span>
+<span class="nc bnc" id="L305" title="All 2 branches missed.">        if (!dbFile.exists()) {</span>
+<span class="nc" id="L306">            getLogger().warning(&quot;Database file not found for backup: &quot; + dbFile.getAbsolutePath());</span>
+<span class="nc" id="L307">            return;</span>
         }
 
-<span class="nc" id="L281">        File backupDir = new File(getDataFolder(), &quot;backups&quot;);</span>
-<span class="nc bnc" id="L282" title="All 2 branches missed.">        if (!backupDir.exists()) {</span>
-<span class="nc" id="L283">            backupDir.mkdirs();</span>
+<span class="nc" id="L310">        File backupDir = new File(getDataFolder(), &quot;backups&quot;);</span>
+<span class="nc bnc" id="L311" title="All 2 branches missed.">        if (!backupDir.exists()) {</span>
+<span class="nc" id="L312">            backupDir.mkdirs();</span>
         }
 
-<span class="nc" id="L286">        String timestamp = new SimpleDateFormat(&quot;yyyyMMdd-HHmmss&quot;).format(new Date());</span>
-<span class="nc" id="L287">        File backupFile = new File(backupDir, dbFileName + &quot;.&quot; + timestamp + &quot;.bak&quot;);</span>
+<span class="nc" id="L315">        String timestamp = new SimpleDateFormat(&quot;yyyyMMdd-HHmmss&quot;).format(new Date());</span>
+<span class="nc" id="L316">        File backupFile = new File(backupDir, dbFileName + &quot;.&quot; + timestamp + &quot;.bak&quot;);</span>
 
         try {
-<span class="nc" id="L290">            Files.copy(dbFile.toPath(), backupFile.toPath(), StandardCopyOption.REPLACE_EXISTING);</span>
-<span class="nc" id="L291">            getLogger().info(&quot;Database backup created: &quot; + backupFile.getName());</span>
-<span class="nc" id="L292">        } catch (IOException e) {</span>
-<span class="nc" id="L293">            getLogger().warning(&quot;Failed to create database backup: &quot; + e.getMessage());</span>
-<span class="nc" id="L294">            return;</span>
-<span class="nc" id="L295">        }</span>
+<span class="nc" id="L319">            Files.copy(dbFile.toPath(), backupFile.toPath(), StandardCopyOption.REPLACE_EXISTING);</span>
+<span class="nc" id="L320">            getLogger().info(&quot;Database backup created: &quot; + backupFile.getName());</span>
+<span class="nc" id="L321">        } catch (IOException e) {</span>
+<span class="nc" id="L322">            getLogger().warning(&quot;Failed to create database backup: &quot; + e.getMessage());</span>
+<span class="nc" id="L323">            return;</span>
+<span class="nc" id="L324">        }</span>
 
-<span class="nc bnc" id="L297" title="All 4 branches missed.">        File[] backupFiles = backupDir.listFiles((dir, name) -&gt; name.startsWith(dbFileName) &amp;&amp; name.endsWith(&quot;.bak&quot;));</span>
-<span class="nc bnc" id="L298" title="All 4 branches missed.">        if (backupFiles != null &amp;&amp; backupFiles.length &gt; maxBackups) {</span>
-<span class="nc" id="L299">            java.util.Arrays.sort(backupFiles, (a, b) -&gt; Long.compare(a.lastModified(), b.lastModified()));</span>
-<span class="nc" id="L300">            int toDelete = backupFiles.length - maxBackups;</span>
-<span class="nc bnc" id="L301" title="All 2 branches missed.">            for (int i = 0; i &lt; toDelete; i++) {</span>
-<span class="nc bnc" id="L302" title="All 2 branches missed.">                if (backupFiles[i].delete()) {</span>
-<span class="nc" id="L303">                    getLogger().info(&quot;Old backup deleted: &quot; + backupFiles[i].getName());</span>
+<span class="nc bnc" id="L326" title="All 4 branches missed.">        File[] backupFiles = backupDir.listFiles((dir, name) -&gt; name.startsWith(dbFileName) &amp;&amp; name.endsWith(&quot;.bak&quot;));</span>
+<span class="nc bnc" id="L327" title="All 4 branches missed.">        if (backupFiles != null &amp;&amp; backupFiles.length &gt; maxBackups) {</span>
+<span class="nc" id="L328">            java.util.Arrays.sort(backupFiles, (a, b) -&gt; Long.compare(a.lastModified(), b.lastModified()));</span>
+<span class="nc" id="L329">            int toDelete = backupFiles.length - maxBackups;</span>
+<span class="nc bnc" id="L330" title="All 2 branches missed.">            for (int i = 0; i &lt; toDelete; i++) {</span>
+<span class="nc bnc" id="L331" title="All 2 branches missed.">                if (backupFiles[i].delete()) {</span>
+<span class="nc" id="L332">                    getLogger().info(&quot;Old backup deleted: &quot; + backupFiles[i].getName());</span>
                 }
             }
         }
-<span class="nc" id="L307">    }</span>
-
-    private void setupEconomy() {
-<span class="nc bnc" id="L310" title="All 2 branches missed.">        if (getServer().getPluginManager().getPlugin(&quot;Vault&quot;) == null) {</span>
-<span class="nc" id="L311">            getLogger().info(&quot;Vault not found - economy rewards disabled.&quot;);</span>
-<span class="nc" id="L312">            return;</span>
-        }
-<span class="nc" id="L314">        RegisteredServiceProvider&lt;Economy&gt; rsp = getServer().getServicesManager().getRegistration(Economy.class);</span>
-<span class="nc bnc" id="L315" title="All 2 branches missed.">        if (rsp == null) {</span>
-<span class="nc" id="L316">            getLogger().warning(&quot;Vault found but no economy plugin registered - economy rewards disabled.&quot;);</span>
-<span class="nc" id="L317">            return;</span>
-        }
-<span class="nc" id="L319">        economy = rsp.getProvider();</span>
-<span class="nc" id="L320">        getLogger().info(&quot;Economy hooked: &quot; + economy.getName());</span>
-<span class="nc" id="L321">    }</span>
-
-    public Economy getEconomy() {
-<span class="nc" id="L324">        return economy;</span>
-    }
+<span class="nc" id="L336">    }</span>
 
     public static LetsLearnEnglish getInstance() {
-<span class="nc" id="L328">        return instance;</span>
+<span class="nc" id="L339">        return instance;</span>
     }
 
     public ConfigManager getConfigManager() {
-<span class="nc" id="L332">        return configManager;</span>
+<span class="nc" id="L343">        return configManager;</span>
     }
 
     public DatabaseManager getDatabaseManager() {
-<span class="nc" id="L336">        return databaseManager;</span>
+<span class="nc" id="L347">        return databaseManager;</span>
     }
 
     public PlayerDataStore getPlayerDataStore() {
-<span class="nc" id="L340">        return playerDataStore;</span>
+<span class="nc" id="L351">        return playerDataStore;</span>
     }
 
     public MessageUtil getMessageUtil() {
-<span class="nc" id="L344">        return messageUtil;</span>
+<span class="nc" id="L355">        return messageUtil;</span>
     }
 
     public VersionAdapter getVersionAdapter() {
-<span class="nc" id="L348">        return versionAdapter;</span>
+<span class="nc" id="L359">        return versionAdapter;</span>
     }
 
     public UpdateChecker getUpdateChecker() {
-<span class="nc" id="L352">        return updateChecker;</span>
+<span class="nc" id="L363">        return updateChecker;</span>
     }
 
     public WordLearningManager getWordLearningManager() {
-<span class="nc" id="L356">        return wordLearningManager;</span>
+<span class="nc" id="L367">        return wordLearningManager;</span>
     }
 
     public AchievementManager getAchievementManager() {
-<span class="nc" id="L360">        return achievementManager;</span>
+<span class="nc" id="L371">        return achievementManager;</span>
     }
+
+    private void setupEconomy() {
+<span class="nc bnc" id="L375" title="All 2 branches missed.">        if (getServer().getPluginManager().getPlugin(&quot;Vault&quot;) == null) {</span>
+<span class="nc" id="L376">            return;</span>
+        }
+<span class="nc" id="L378">        RegisteredServiceProvider&lt;Economy&gt; rsp = getServer().getServicesManager().getRegistration(Economy.class);</span>
+<span class="nc bnc" id="L379" title="All 2 branches missed.">        if (rsp != null) {</span>
+<span class="nc" id="L380">            economy = rsp.getProvider();</span>
+<span class="nc" id="L381">            getLogger().info(&quot;Vault economy integration enabled.&quot;);</span>
+        }
+<span class="nc" id="L383">    }</span>
+
+    public Economy getEconomy() {
+<span class="nc" id="L386">        return economy;</span>
+    }
+
+    private void setupPlaceholderAPI() {
+<span class="nc bnc" id="L390" title="All 2 branches missed.">        if (getServer().getPluginManager().getPlugin(&quot;PlaceholderAPI&quot;) == null) {</span>
+<span class="nc" id="L391">            return;</span>
+        }
+<span class="nc" id="L393">        LLEPapiExpansion expansion = new LLEPapiExpansion(this);</span>
+<span class="nc bnc" id="L394" title="All 2 branches missed.">        if (expansion.canRegister()) {</span>
+<span class="nc" id="L395">            expansion.register();</span>
+<span class="nc" id="L396">            getLogger().info(&quot;PlaceholderAPI expansion registered. Available: %lle_score%, %lle_rank%, etc.&quot;);</span>
+        }
+<span class="nc" id="L398">    }</span>
 
     public WordManagerImpl getWordManager() {
-<span class="nc" id="L364">        return wordManager;</span>
+<span class="nc" id="L401">        return wordManager;</span>
     }
 
-    public DialogueManagerImpl getDialogueManager() {
-<span class="nc" id="L368">        return dialogueManager;</span>
+    public AIChatManager getAIChatManager() {
+<span class="nc" id="L405">        return aiChatManager;</span>
+    }
+
+    public ChatScenarioListener getChatScenarioListener() {
+<span class="nc" id="L409">        return chatScenarioListener;</span>
     }
 
     public ProgressManagerImpl getProgressManager() {
-<span class="nc" id="L372">        return progressManager;</span>
+<span class="nc" id="L413">        return progressManager;</span>
     }
 
     public AdminCommandHandler getAdminCommandHandler() {
-<span class="nc" id="L376">        return adminCommandHandler;</span>
+<span class="nc" id="L417">        return adminCommandHandler;</span>
     }
 
     public DataExporter getDataExporter() {
-<span class="nc" id="L380">        return dataExporter;</span>
+<span class="nc" id="L421">        return dataExporter;</span>
     }
 
     public HotReloadManager getHotReloadManager() {
-<span class="nc" id="L384">        return hotReloadManager;</span>
+<span class="nc" id="L425">        return hotReloadManager;</span>
     }
 
     public LetsLearnEnglishAPI getAPI() {
-<span class="nc" id="L388">        return api;</span>
+<span class="nc" id="L429">        return api;</span>
     }
 
     public SoundManager getSoundManager() {
-<span class="nc" id="L392">        return soundManager;</span>
+<span class="nc" id="L433">        return soundManager;</span>
+    }
+
+    public GuiNavigationManager getGuiNavigationManager() {
+<span class="nc" id="L437">        return guiNavigationManager;</span>
+    }
+
+    public DailyChallengeManager getDailyChallengeManager() {
+<span class="nc" id="L441">        return dailyChallengeManager;</span>
+    }
+
+    public ProxyMessenger getProxyMessenger() {
+<span class="nc" id="L445">        return proxyMessenger;</span>
     }
 
     public String getPlayerLanguage(Player player) {
-<span class="nc" id="L396">        String defaultLang = getConfig().getString(&quot;general.language&quot;, &quot;en&quot;);</span>
-<span class="nc bnc" id="L397" title="All 4 branches missed.">        if (!&quot;en&quot;.equals(defaultLang) &amp;&amp; !&quot;zh&quot;.equals(defaultLang)) {</span>
-<span class="nc" id="L398">            defaultLang = &quot;en&quot;;</span>
-        }
-<span class="nc" id="L400">        return playerLanguage.getOrDefault(player.getUniqueId(), defaultLang);</span>
+<span class="nc" id="L449">        return playerLanguage.getOrDefault(player.getUniqueId(),</span>
+<span class="nc" id="L450">                configManager.getMainConfig().getString(&quot;general.language&quot;, &quot;zh&quot;));</span>
     }
 
     public void setPlayerLanguage(Player player, String lang) {
-<span class="nc" id="L404">        playerLanguage.put(player.getUniqueId(), lang);</span>
-<span class="nc" id="L405">        savePlayerLanguages();</span>
-<span class="nc" id="L406">    }</span>
+<span class="nc" id="L454">        playerLanguage.put(player.getUniqueId(), lang);</span>
+<span class="nc" id="L455">        savePlayerLanguages();</span>
+<span class="nc" id="L456">    }</span>
 
     private void loadPlayerLanguages() {
-<span class="nc" id="L409">        File langFile = new File(getDataFolder(), &quot;player_lang.yml&quot;);</span>
-<span class="nc bnc" id="L410" title="All 2 branches missed.">        if (!langFile.exists()) {</span>
-<span class="nc" id="L411">            return;</span>
+<span class="nc" id="L459">        File langFile = new File(getDataFolder(), &quot;player_lang.yml&quot;);</span>
+<span class="nc bnc" id="L460" title="All 2 branches missed.">        if (!langFile.exists()) {</span>
+<span class="nc" id="L461">            return;</span>
         }
-<span class="nc" id="L413">        FileConfiguration langConfig = YamlConfiguration.loadConfiguration(langFile);</span>
-<span class="nc bnc" id="L414" title="All 2 branches missed.">        for (String key : langConfig.getKeys(false)) {</span>
+<span class="nc" id="L463">        FileConfiguration langConfig = YamlConfiguration.loadConfiguration(langFile);</span>
+<span class="nc bnc" id="L464" title="All 2 branches missed.">        for (String key : langConfig.getKeys(false)) {</span>
             try {
-<span class="nc" id="L416">                UUID uuid = UUID.fromString(key);</span>
-<span class="nc" id="L417">                playerLanguage.put(uuid, langConfig.getString(key, &quot;en&quot;));</span>
-<span class="nc" id="L418">            } catch (IllegalArgumentException e) {</span>
-<span class="nc" id="L419">                getLogger().warning(&quot;Invalid UUID in player_lang.yml: &quot; + key);</span>
-<span class="nc" id="L420">            }</span>
-<span class="nc" id="L421">        }</span>
-<span class="nc" id="L422">        getLogger().info(&quot;Loaded &quot; + playerLanguage.size() + &quot; player language preferences.&quot;);</span>
-<span class="nc" id="L423">    }</span>
+<span class="nc" id="L466">                UUID uuid = UUID.fromString(key);</span>
+<span class="nc" id="L467">                playerLanguage.put(uuid, langConfig.getString(key, &quot;en&quot;));</span>
+<span class="nc" id="L468">            } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L469">                getLogger().warning(&quot;Invalid UUID in player_lang.yml: &quot; + key);</span>
+<span class="nc" id="L470">            }</span>
+<span class="nc" id="L471">        }</span>
+<span class="nc" id="L472">        getLogger().info(&quot;Loaded &quot; + playerLanguage.size() + &quot; player language preferences.&quot;);</span>
+<span class="nc" id="L473">    }</span>
 
     private void savePlayerLanguages() {
-<span class="nc" id="L426">        File langFile = new File(getDataFolder(), &quot;player_lang.yml&quot;);</span>
-<span class="nc" id="L427">        FileConfiguration langConfig = new YamlConfiguration();</span>
-<span class="nc bnc" id="L428" title="All 2 branches missed.">        for (Map.Entry&lt;UUID, String&gt; entry : playerLanguage.entrySet()) {</span>
-<span class="nc" id="L429">            langConfig.set(entry.getKey().toString(), entry.getValue());</span>
-<span class="nc" id="L430">        }</span>
+<span class="nc" id="L476">        File langFile = new File(getDataFolder(), &quot;player_lang.yml&quot;);</span>
+<span class="nc" id="L477">        FileConfiguration langConfig = new YamlConfiguration();</span>
+<span class="nc bnc" id="L478" title="All 2 branches missed.">        for (Map.Entry&lt;UUID, String&gt; entry : playerLanguage.entrySet()) {</span>
+<span class="nc" id="L479">            langConfig.set(entry.getKey().toString(), entry.getValue());</span>
+<span class="nc" id="L480">        }</span>
         try {
-<span class="nc" id="L432">            langConfig.save(langFile);</span>
-<span class="nc" id="L433">        } catch (IOException e) {</span>
-<span class="nc" id="L434">            getLogger().warning(&quot;Failed to save player language preferences: &quot; + e.getMessage());</span>
-<span class="nc" id="L435">        }</span>
-<span class="nc" id="L436">    }</span>
+<span class="nc" id="L482">            langConfig.save(langFile);</span>
+<span class="nc" id="L483">        } catch (IOException e) {</span>
+<span class="nc" id="L484">            getLogger().warning(&quot;Failed to save player language preferences: &quot; + e.getMessage());</span>
+<span class="nc" id="L485">        }</span>
+<span class="nc" id="L486">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

@@ -1,0 +1,124 @@
+# ============================================================
+# 成就配置 (Achievement Configuration)
+# ============================================================
+# 配置版本号，请勿手动修改
+config-version: 1
+
+# 每个成就的独立配置
+# - enabled: 是否启用该成就（false 时无法获得也不会显示）
+# - time-limit: 时间限制（可选）
+#   - enabled: 是否启用时间限制（仅在时间段内可获得成就）
+#   - start: 开始时间（格式: yyyy-MM-dd HH:mm）
+#   - end: 结束时间（格式: yyyy-MM-dd HH:mm）
+achievements:
+  first_word:
+    enabled: true
+    time-limit:
+      enabled: false
+      start: "2026-01-01 00:00"
+      end: "2099-12-31 23:59"
+
+  words_25:
+    enabled: true
+    time-limit:
+      enabled: false
+      start: "2026-01-01 00:00"
+      end: "2099-12-31 23:59"
+
+  words_100:
+    enabled: true
+    time-limit:
+      enabled: false
+      start: "2026-01-01 00:00"
+      end: "2099-12-31 23:59"
+
+  words_500:
+    enabled: true
+    time-limit:
+      enabled: false
+      start: "2026-01-01 00:00"
+      end: "2099-12-31 23:59"
+
+  perfect_session:
+    enabled: true
+    time-limit:
+      enabled: false
+      start: "2026-01-01 00:00"
+      end: "2099-12-31 23:59"
+
+  streak_3:
+    enabled: true
+    time-limit:
+      enabled: false
+      start: "2026-01-01 00:00"
+      end: "2099-12-31 23:59"
+
+  streak_10:
+    enabled: true
+    time-limit:
+      enabled: false
+      start: "2026-01-01 00:00"
+      end: "2099-12-31 23:59"
+
+  spelling_master:
+    enabled: true
+    time-limit:
+      enabled: false
+      start: "2026-01-01 00:00"
+      end: "2099-12-31 23:59"
+
+  daily_streak_3:
+    enabled: true
+    time-limit:
+      enabled: false
+      start: "2026-01-01 00:00"
+      end: "2099-12-31 23:59"
+
+  daily_streak_7:
+    enabled: true
+    time-limit:
+      enabled: false
+      start: "2026-01-01 00:00"
+      end: "2099-12-31 23:59"
+
+  sessions_10:
+    enabled: true
+    time-limit:
+      enabled: false
+      start: "2026-01-01 00:00"
+      end: "2099-12-31 23:59"
+
+  sessions_50:
+    enabled: true
+    time-limit:
+      enabled: false
+      start: "2026-01-01 00:00"
+      end: "2099-12-31 23:59"
+
+  coins_500:
+    enabled: true
+    time-limit:
+      enabled: false
+      start: "2026-01-01 00:00"
+      end: "2099-12-31 23:59"
+
+  coins_5000:
+    enabled: true
+    time-limit:
+      enabled: false
+      start: "2026-01-01 00:00"
+      end: "2099-12-31 23:59"
+
+  ai_chat_10:
+    enabled: true
+    time-limit:
+      enabled: false
+      start: "2026-01-01 00:00"
+      end: "2099-12-31 23:59"
+
+  ai_chat_50:
+    enabled: true
+    time-limit:
+      enabled: false
+      start: "2026-01-01 00:00"
+      end: "2099-12-31 23:59"

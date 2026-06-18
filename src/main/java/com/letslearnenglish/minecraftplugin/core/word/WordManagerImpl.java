@@ -40,7 +40,7 @@ public class WordManagerImpl {
         this.reviewScheduler = new ReviewScheduler(plugin, this, playerDataStore);
         this.wordBanks = new ConcurrentHashMap<>();
         this.activeSessions = new ConcurrentHashMap<>();
-        this.globalWordIndex = new HashMap<>();
+        this.globalWordIndex = new ConcurrentHashMap<>();
 
         loadAllWordBanks();
     }

@@ -1,15 +1,22 @@
 package com.letslearnenglish.minecraftplugin.core.achievement;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 
+import java.io.File;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 /**
@@ -27,11 +34,23 @@ public class AchievementManager {
     private final LetsLearnEnglish plugin;
     private final PlayerDataStore playerDataStore;
     private final Map<UUID, Set<String>> unlockedCache;
+    private FileConfiguration achievementConfig;
 
     public AchievementManager(LetsLearnEnglish plugin, PlayerDataStore playerDataStore) {
         this.plugin = plugin;
         this.playerDataStore = playerDataStore;
-        this.unlockedCache = new HashMap<>();
+        this.unlockedCache = new ConcurrentHashMap<>();
+    }
+
+    private FileConfiguration getAchievementConfig() {
+        if (achievementConfig == null) {
+            File file = new File(plugin.getDataFolder(), "achievements-config.yml");
+            if (!file.exists()) {
+                plugin.saveResource("achievements-config.yml", false);
+            }
+            achievementConfig = YamlConfiguration.loadConfiguration(file);
+        }
+        return achievementConfig;
     }
 
     /**
@@ -105,6 +124,10 @@ public class AchievementManager {
      */
     public boolean tryUnlock(UUID playerId, Achievement achievement) {
         Set<String> unlocked = unlockedCache.computeIfAbsent(playerId, k -> new HashSet<>());
+        FileConfiguration achConfig = getAchievementConfig();
+        if (!isAchievementEligible(achConfig, achievement)) {
+            return false;
+        }
         if (unlocked.contains(achievement.getId())) {
             return false;
         }
@@ -133,16 +156,55 @@ public class AchievementManager {
 
         Player player = Bukkit.getPlayer(playerId);
         if (player != null && player.isOnline()) {
-            String lang = plugin.getPlayerLanguage(player);
-            String title = "zh".equalsIgnoreCase(lang) ? "&6&l成就解锁！" : "&6&lAchievement Unlocked!";
-            String name = achievement.getDisplayName(lang);
-            String desc = achievement.getDisplayDesc(lang);
-            player.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                    "&b&l✧ " + title + " &f- " + name));
-            player.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&',
+            FileConfiguration messages = plugin.getConfigManager()
+                    .getMessageConfig(plugin.getPlayerLanguage(player));
+            String title = messages.getString("achievement.unlock-title",
+                    "&6&lAchievement Unlocked!");
+            String fmt = messages.getString("achievement.unlock-format",
+                    "&b&l✧ {title} &f- {name}");
+            String name = achievement.getDisplayName(plugin.getPlayerLanguage(player));
+            String desc = achievement.getDisplayDesc(plugin.getPlayerLanguage(player));
+            player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                    fmt.replace("{title}", title).replace("{name}", name)));
+            player.sendMessage(ChatColor.translateAlternateColorCodes('&',
                     "&7" + desc));
+
+            String soundName = plugin.getConfigManager().getMainConfig()
+                    .getString("achievement-system.unlock-sound", "ENTITY_PLAYER_LEVELUP");
+            if (soundName != null && !soundName.isEmpty()) {
+                SoundManager.playSound(player, "complete");
+            }
+
+            // 跨服成就广播（Velocity / BungeeCord）
+            if (plugin.getProxyMessenger() != null && plugin.getProxyMessenger().isRegistered()) {
+                plugin.getProxyMessenger().sendAchievementBroadcast(
+                        player.getName(), playerId, achievement.getDisplayName(plugin.getPlayerLanguage(player)));
+            }
         }
         return true;
+    }
+
+    private boolean isAchievementEligible(FileConfiguration config, Achievement achievement) {
+        if (config == null) return true;
+        if (!config.getBoolean("achievements." + achievement.getId() + ".enabled", true)) {
+            return false;
+        }
+        if (!config.getBoolean("achievements." + achievement.getId() + ".time-limit.enabled", false)) {
+            return true;
+        }
+        String startStr = config.getString("achievements." + achievement.getId() + ".time-limit.start");
+        String endStr = config.getString("achievements." + achievement.getId() + ".time-limit.end");
+        if (startStr == null || endStr == null) return true;
+        try {
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm");
+            sdf.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Shanghai"));
+            Date start = sdf.parse(startStr);
+            Date end = sdf.parse(endStr);
+            Date now = new Date();
+            return !now.before(start) && !now.after(end);
+        } catch (java.text.ParseException e) {
+            return true;
+        }
     }
 
     /**
@@ -173,6 +235,11 @@ public class AchievementManager {
         int totalSessions = stats.getTotalSessions();
         if (totalSessions >= 10) tryUnlock(playerId, Achievement.SESSIONS_10);
         if (totalSessions >= 50) tryUnlock(playerId, Achievement.SESSIONS_50);
+
+        checkDailyStreak(playerId);
+        long totalCoins = stats.getTotalScore();
+        if (totalCoins >= 500) tryUnlock(playerId, Achievement.COINS_500);
+        if (totalCoins >= 5000) tryUnlock(playerId, Achievement.COINS_5000);
     }
 
     /**
@@ -192,11 +259,52 @@ public class AchievementManager {
         if (totalCoins >= 5000) tryUnlock(playerId, Achievement.COINS_5000);
     }
 
+    private void checkDailyStreak(UUID playerId) {
+        java.util.Set<String> days = new java.util.LinkedHashSet<>();
+        String daySql = "SELECT session_date FROM "
+                + plugin.getDatabaseManager().getTablePrefix()
+                + "player_sessions WHERE uuid = ? ORDER BY session_date DESC";
+        try (Connection conn = plugin.getDatabaseManager().getConnection();
+             PreparedStatement stmt = conn.prepareStatement(daySql)) {
+            stmt.setString(1, playerId.toString());
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    days.add(rs.getString("session_date"));
+                }
+            }
+        } catch (SQLException e) {
+            return;
+        }
+
+        int consecutive = 0;
+        java.time.LocalDate today = java.time.LocalDate.now();
+        for (int i = 0; i < 30; i++) {
+            java.time.LocalDate date = today.minusDays(i);
+            String dateStr = date.toString();
+            if (days.contains(dateStr)) {
+                consecutive++;
+            } else if (i > 0) {
+                break;
+            }
+        }
+        if (consecutive >= 3) tryUnlock(playerId, Achievement.DAILY_STREAK_3);
+        if (consecutive >= 7) tryUnlock(playerId, Achievement.DAILY_STREAK_7);
+    }
+
     /**
      * Unload achievement data from cache (called on player quit).
      */
     public void unloadPlayer(UUID playerId) {
         unlockedCache.remove(playerId);
+    }
+
+    /**
+     * Check AI chat conversation count achievements.
+     * Called when a player ends an AI scenario conversation.
+     */
+    public void checkAIChatAchievement(UUID playerId, int totalConversations) {
+        if (totalConversations >= 10) tryUnlock(playerId, Achievement.AI_CHAT_10);
+        if (totalConversations >= 50) tryUnlock(playerId, Achievement.AI_CHAT_50);
     }
 
     /**

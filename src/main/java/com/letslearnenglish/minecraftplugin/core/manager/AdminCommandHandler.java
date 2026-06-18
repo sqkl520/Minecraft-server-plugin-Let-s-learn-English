@@ -25,6 +25,10 @@ import java.util.logging.Level;
 
 public class AdminCommandHandler {
 
+    private static final String[] PLAYER_TABLES = {
+        "player_data", "word_progress", "achievements", "learning_log"
+    };
+
     private final LetsLearnEnglish plugin;
 
     public AdminCommandHandler(LetsLearnEnglish plugin) {
@@ -45,8 +49,7 @@ public class AdminCommandHandler {
 
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
         try (Connection conn = plugin.getDatabaseManager().getConnection()) {
-            String[] tables = {"player_data", "word_progress", "achievements", "learning_log"};
-            for (String table : tables) {
+            for (String table : PLAYER_TABLES) {
                 try (PreparedStatement stmt = conn.prepareStatement(
                         "DELETE FROM " + tablePrefix + table + " WHERE uuid = ?")) {
                     stmt.setString(1, playerId.toString());
@@ -153,6 +156,9 @@ public class AdminCommandHandler {
                 wordData.put("antonyms", w.getAntonyms());
             }
             wordData.put("difficulty_level", w.getDifficultyLevel());
+            if (w.getReward() > 0.0) {
+                wordData.put("reward", w.getReward());
+            }
             wordList.add(wordData);
         }
         config.set("words", wordList);
