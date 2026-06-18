@@ -52,9 +52,14 @@ public class Leaderboard {
     }
 
     private static final int NOT_RANKED = -1;
+    private static final int DEFAULT_CACHE_LIMIT = 50;
 
     private final LetsLearnEnglish plugin;
     private final Map<UUID, Long> scores;
+
+    private volatile List<LeaderboardEntry> coinsCache = new ArrayList<>();
+    private volatile List<LeaderboardEntry> wordsCache = new ArrayList<>();
+    private volatile List<LeaderboardEntry> comboCache = new ArrayList<>();
 
     public Leaderboard(LetsLearnEnglish plugin) {
         this.plugin = plugin;
@@ -143,5 +148,40 @@ public class Leaderboard {
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load leaderboard from database", e);
         }
+    }
+
+    /**
+     * Refresh all three leaderboard caches from the database.
+     * Called on plugin startup and periodically (every 5 minutes).
+     */
+    public void refreshCache() {
+        try {
+            coinsCache = plugin.getDatabaseManager().getTopCoins(DEFAULT_CACHE_LIMIT);
+            wordsCache = plugin.getDatabaseManager().getTopWordsLearned(DEFAULT_CACHE_LIMIT);
+            comboCache = plugin.getDatabaseManager().getTopCombo(DEFAULT_CACHE_LIMIT);
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to refresh leaderboard caches", e);
+        }
+    }
+
+    /**
+     * Get the cached coins leaderboard (top players by total_score).
+     */
+    public List<LeaderboardEntry> getCachedCoinsLeaderboard() {
+        return coinsCache;
+    }
+
+    /**
+     * Get the cached words learned leaderboard.
+     */
+    public List<LeaderboardEntry> getCachedWordsLeaderboard() {
+        return wordsCache;
+    }
+
+    /**
+     * Get the cached combo leaderboard (top players by longest_streak).
+     */
+    public List<LeaderboardEntry> getCachedComboLeaderboard() {
+        return comboCache;
     }
 }

@@ -1,4 +1,6 @@
 com\letslearnenglish\minecraftplugin\core\UpdateChecker.class
+com\letslearnenglish\minecraftplugin\gui\ChallengeCompleteGUI.class
+com\letslearnenglish\minecraftplugin\listener\ChatHistoryListener.class
 com\letslearnenglish\minecraftplugin\gui\AchievementWallGUI.class
 com\letslearnenglish\minecraftplugin\gui\DailyChallengeGUI$1.class
 com\letslearnenglish\minecraftplugin\listener\MainMenuListener.class
@@ -8,6 +10,7 @@ com\letslearnenglish\minecraftplugin\listener\MiscGUIListener.class
 com\letslearnenglish\minecraftplugin\listener\SocialListener.class
 com\letslearnenglish\minecraftplugin\core\ai\AIChatManager$MessagePair.class
 com\letslearnenglish\minecraftplugin\core\ProxyMessenger.class
+com\letslearnenglish\minecraftplugin\core\word\WordBankValidator$ValidationResult.class
 com\letslearnenglish\minecraftplugin\core\ai\AIChatManager$DifficultyConfig.class
 com\letslearnenglish\minecraftplugin\core\progress\RewardEngine.class
 com\letslearnenglish\minecraftplugin\gui\EnglishSquareGUI.class
@@ -25,6 +28,8 @@ com\letslearnenglish\minecraftplugin\gui\DailyChallengeGUI.class
 com\letslearnenglish\minecraftplugin\util\MessageUtil.class
 com\letslearnenglish\minecraftplugin\gui\MainMenu.class
 com\letslearnenglish\minecraftplugin\core\word\WordLearningManager$AnswerResult.class
+com\letslearnenglish\minecraftplugin\core\word\WordBankValidator.class
+com\letslearnenglish\minecraftplugin\gui\ChatHistoryGUI.class
 com\letslearnenglish\minecraftplugin\core\ai\AIChatManager$ScenarioConfig.class
 com\letslearnenglish\minecraftplugin\core\word\LearningSession.class
 com\letslearnenglish\minecraftplugin\gui\ProgressGUI.class
@@ -34,6 +39,8 @@ com\letslearnenglish\minecraftplugin\command\AdminCommand.class
 com\letslearnenglish\minecraftplugin\core\manager\DataExporter.class
 com\letslearnenglish\minecraftplugin\listener\ScenarioSelectListener.class
 com\letslearnenglish\minecraftplugin\core\DailyChallengeManager.class
+com\letslearnenglish\minecraftplugin\gui\LeaderboardGUI.class
+com\letslearnenglish\minecraftplugin\core\DailyChallengeManager$WordChallengeProgress.class
 com\letslearnenglish\minecraftplugin\listener\WordLearningListener.class
 com\letslearnenglish\minecraftplugin\expansion\LLEPapiExpansion.class
 com\letslearnenglish\minecraftplugin\core\achievement\Achievement.class
@@ -46,6 +53,7 @@ com\letslearnenglish\minecraftplugin\core\word\WordLearningManager$QuizState.cla
 com\letslearnenglish\minecraftplugin\core\manager\AdminCommandHandler.class
 com\letslearnenglish\minecraftplugin\gui\LearningCalendarGUI.class
 com\letslearnenglish\minecraftplugin\data\PlayerDataStore$ProfileSettings.class
+com\letslearnenglish\minecraftplugin\data\ChatHistoryEntry.class
 com\letslearnenglish\minecraftplugin\listener\ChatScenarioListener.class
 com\letslearnenglish\minecraftplugin\command\LearnCommand.class
 com\letslearnenglish\minecraftplugin\core\word\WordLearningManager.class

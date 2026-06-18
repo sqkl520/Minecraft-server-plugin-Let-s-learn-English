@@ -391,8 +391,12 @@ daily-reminder:
 daily-challenges:
   # 是否启用每日挑战
   enabled: true
-  # 每天分配给每个玩家的挑战数量
+  # 每天分配给每个玩家的任务挑战数量
   challenges-per-day: 3
+  # 每日单词挑战数量（从词库中随机选择）
+  word-count: 5
+  # 完成所有每日单词挑战后的奖励金币
+  word-challenge-reward: 100.0
   # 各挑战的奖励金币数
   rewards:
     answer_10: 30

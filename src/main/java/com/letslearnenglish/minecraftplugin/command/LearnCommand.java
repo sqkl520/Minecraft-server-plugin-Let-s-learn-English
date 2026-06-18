@@ -1,7 +1,9 @@
 package com.letslearnenglish.minecraftplugin.command;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.gui.ChatHistoryGUI;
 import com.letslearnenglish.minecraftplugin.gui.EnglishSquareGUI;
+import com.letslearnenglish.minecraftplugin.gui.LeaderboardGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.ProfileGUI;
 import com.letslearnenglish.minecraftplugin.gui.ProgressGUI;
@@ -35,7 +37,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     private final LetsLearnEnglish plugin;
 
     private static final List<String> SUBCOMMANDS = Arrays.asList(
-            "menu", "word", "dialogue", "progress", "review", "stats", "help", "square", "profile"
+            "menu", "word", "dialogue", "progress", "review", "stats", "help", "square", "profile", "leaderboard", "challenge", "history"
     );
 
     public LearnCommand(LetsLearnEnglish plugin) {
@@ -80,6 +82,15 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 break;
             case "profile":
                 handleProfileCommand(player, args);
+                break;
+            case "leaderboard":
+                handleLeaderboardCommand(player);
+                break;
+            case "challenge":
+                handleChallengeCommand(player);
+                break;
+            case "history":
+                handleHistoryCommand(player);
                 break;
             case "help":
                 sendHelpMessage(player);
@@ -178,6 +189,10 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         new EnglishSquareGUI(plugin).open(player, 1);
     }
 
+    private void handleLeaderboardCommand(Player player) {
+        new LeaderboardGUI(plugin).open(player);
+    }
+
     private void handleProfileCommand(Player player, String[] args) {
         if (args.length > 1) {
             String targetName = args[1];
@@ -193,6 +208,44 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         }
     }
 
+    private void handleChallengeCommand(Player player) {
+        var dcm = plugin.getDailyChallengeManager();
+        int[] progress = dcm.getTodayWordProgress(player);
+        int completed = progress[0];
+        int total = progress[1];
+
+        if (total == 0) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "daily-challenge.no-words"));
+            return;
+        }
+
+        // Show overall progress header
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                "daily-challenge.header",
+                "completed", String.valueOf(completed),
+                "total", String.valueOf(total)));
+
+        // Show individual word status
+        var details = dcm.getTodayWordDetails(player);
+        for (var wordProgress : details) {
+            String statusKey = wordProgress.completed
+                    ? "daily-challenge.word-done"
+                    : "daily-challenge.word-pending";
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    statusKey, "word", wordProgress.wordId));
+        }
+
+        if (completed >= total && total > 0) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "daily-challenge.all-complete-chat"));
+        }
+    }
+
+    private void handleHistoryCommand(Player player) {
+        new ChatHistoryGUI(plugin).open(player);
+    }
+
     private void sendHelpMessage(Player player) {
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.header"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.menu"));
@@ -203,6 +256,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.stats"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.profile"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.square"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.history"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.footer"));
     }
 

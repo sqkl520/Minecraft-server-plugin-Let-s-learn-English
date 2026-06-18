@@ -72,6 +72,14 @@ leaderboard:
   rank-entry: "&6#{rank} &7Coins: &e{score}"
   selected: "&aSelected"
   switch-hint: "&7Click to switch"
+  title: "&6&l排行榜 / Leaderboard"
+  tab-coins: "&e金币榜 / Coins"
+  tab-words: "&e单词榜 / Words"
+  tab-combo: "&e连击榜 / Combo"
+  empty: "&7暂无数据 / No data"
+  entry-coins: "&7Coins: &e{score}"
+  entry-words: "&7Words Learned: &e{score}"
+  entry-combo: "&7Longest Combo: &e{score}"
 
 progress:
   view: "{prefix}&aViewing your learning progress..."
@@ -84,6 +92,13 @@ admin:
   usage-reset: "Usage: /lea reset <player>"
   reset-pending: "Player data reset for: {player} (feature pending)"
   unknown-command: "Unknown subcommand. Use /lea help for help."
+
+wordbank:
+  export-success: "{prefix}&aWord bank &e{difficulty} &aexported! &7File: &f{file} &7({count} words)"
+  export-failed: "{prefix}&cExport failed: {reason}"
+  import-summary: "{prefix}&aImport complete! &7Imported: &e{imported} &7Skipped (duplicates): &e{skipped} &7Errors: &e{errors}"
+  import-failed: "{prefix}&cImport failed: {reason}"
+  validation-failed: "{prefix}&cValidation failed! Check these errors:"
 
 language:
   button: "&eSwitch to \u4e2d\u6587"
@@ -103,6 +118,7 @@ help:
   stats: "&e/le stats &7- View learning statistics"
   profile: "&e/le profile [player] &7- View player profile"
   square: "&e/le square &7- Enter English Square"
+  history: "&e/le history &7- View AI chat history"
   footer: "&6======================================"
 
 admin-help:
@@ -111,6 +127,8 @@ admin-help:
   export: "&e/lea export &7- Export player data"
   reset: "&e/lea reset <player> &7- Reset player data"
   info: "&e/lea info &7- Show plugin info"
+  exportwordbank: "&e/lea exportwordbank <difficulty> &7- Export word bank to YAML"
+  importwordbank: "&e/lea importwordbank <filename> &7- Import word bank from YAML"
   footer: "&6======================================"
 
 plugin-info:
@@ -154,6 +172,23 @@ daily:
   name-session-3: "Diligent Learner"
   name-combo-5: "Combo Artist"
   name-ai-chat-5: "Chat Expert"
+
+daily-challenge:
+  header: "{prefix}&6===== Daily Word Challenge ===== &7({completed}/{total})"
+  no-words: "{prefix}&cNo word challenges for today! Please try again later."
+  word-done: "  &a✔ &f{word} &7- Completed"
+  word-pending: "  &8✖ &7{word} &7- Pending"
+  all-complete-chat: "{prefix}&6★ &aYou completed all daily word challenges! Reward granted!"
+  all-complete: "&6★ &aAll daily challenge words completed! &e+{reward} coins"
+  complete-title: "&6&lChallenge Complete!"
+  player-head: "&e{player}"
+  player-head-lore: "&7Completed all daily challenge words!"
+  firework: "&6&l★ Congratulations! ★"
+  firework-lore: "&7You completed all today's challenge words!"
+  reward-title: "&eReward: {reward} coins"
+  reward-lore: "&7Claim your hard-earned reward!"
+  claim-button: "&a&lClaim Reward!"
+  claim-button-lore: "&7Click to receive your coins!"
 
 word-learning-gui:
   title: "Word Learning - {difficulty}"
@@ -255,3 +290,25 @@ profile:
   settings-show-in-square-on: "&aCurrent: Visible"
   settings-show-in-square-off: "&7Current: Hidden"
   settings-toggle-hint: "&7Click to toggle"
+
+chat-history:
+  title: "&6&lAI Chat History"
+  empty: "&7No chat history yet~"
+  empty-lore: "&7Start an AI conversation with /le dialogue"
+  back-button: "&c&lBack to Menu"
+  back-lore: "&7Click to return to main menu"
+  back-to-list: "&e← Back to List"
+  back-to-list-lore: "&7Return to session list"
+  prev-page: "&e← Previous Page"
+  prev-page-lore: "&7Page {page}"
+  next-page: "&eNext Page →"
+  next-page-lore: "&7Page {page}"
+  page-indicator: "&7Page {current}/{total}"
+  session-date: "&7Date: &f{date}"
+  session-scenario: "&7Scenario: &e{scenario}"
+  session-preview: "&7First: &f{msg}"
+  click-to-view: "&7Click to view full conversation"
+  session-title: "&6&lConversation Details"
+  role-system: "&5[System]"
+  role-user: "&a[You]"
+  role-assistant: "&b[AI]"

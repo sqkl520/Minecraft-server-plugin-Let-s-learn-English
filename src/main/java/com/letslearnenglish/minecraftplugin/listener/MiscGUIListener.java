@@ -36,7 +36,8 @@ public class MiscGUIListener implements Listener {
         if (!title.contains("Privacy Settings") && !title.contains("隐私设置")
                 && !title.contains("Select Word Bank") && !title.contains("选择词库")
                 && !title.contains("学习日历") && !title.contains("Learning Calendar")
-                && !title.contains("Daily Challenge") && !title.contains("每日挑战")) {
+                && !title.contains("Daily Challenge") && !title.contains("每日挑战")
+                && !title.contains("Challenge Complete") && !title.contains("挑战完成")) {
             return;
         }
 
@@ -54,6 +55,8 @@ public class MiscGUIListener implements Listener {
             handleLearningCalendar(player, slot);
         } else if (title.contains("Daily Challenge") || title.contains("每日挑战")) {
             handleDailyChallenge(player, slot);
+        } else if (title.contains("Challenge Complete") || title.contains("挑战完成")) {
+            handleChallengeComplete(player, slot);
         }
     }
 
@@ -137,6 +140,14 @@ public class MiscGUIListener implements Listener {
                     new DailyChallengeGUI(plugin).open(player);
                 }
             }
+        }
+    }
+
+    private void handleChallengeComplete(Player player, int slot) {
+        if (slot == 8 || slot == 22) {
+            SoundManager.playSound(player, "menu-click");
+            // Back to main menu or claim button — both go to main menu
+            new MainMenu(plugin).open(player);
         }
     }
 }

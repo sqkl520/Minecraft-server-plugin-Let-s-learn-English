@@ -65,6 +65,9 @@ public class AIChatManager {
     private final Map<UUID, Deque<MessagePair>> conversationContexts = new ConcurrentHashMap<>();
     private final Map<UUID, Integer> conversationCount = new ConcurrentHashMap<>();
 
+    /** 每个玩家当前的会话 ID */
+    private final Map<UUID, String> activeSessionIds = new ConcurrentHashMap<>();
+
     /** 每个玩家当前使用的难度 */
     private final Map<UUID, String> playerDifficulties = new ConcurrentHashMap<>();
     private static final String DEFAULT_DIFFICULTY = "medium";
@@ -322,13 +325,23 @@ public class AIChatManager {
         String difficulty = getPlayerDifficulty(player);
         Deque<MessagePair> context = new ArrayDeque<>();
         String systemPrompt = buildSystemPrompt(scenario, difficulty, plugin.getPlayerLanguage(player));
+        String sessionId = UUID.randomUUID().toString().substring(0, 8);
 
-        debugLog("[" + player.getName() + "] 开始对话 — 场景=" + scenario + " 难度=" + difficulty);
+        debugLog("[" + player.getName() + "] 开始对话 — 场景=" + scenario + " 难度=" + difficulty + " 会话=" + sessionId);
         debugLog("[" + player.getName() + "] 系统提示词(" + systemPrompt.length() + "字符): "
                 + systemPrompt.substring(0, Math.min(120, systemPrompt.length())).replace("\n", "\\n") + "...");
 
         context.add(new MessagePair("system", systemPrompt));
         conversationContexts.put(player.getUniqueId(), context);
+        activeSessionIds.put(player.getUniqueId(), sessionId);
+
+        // Write system prompt to DB asynchronously
+        final UUID playerId = player.getUniqueId();
+        final String finalSessionId = sessionId;
+        final String finalPrompt = systemPrompt;
+        CompletableFuture.runAsync(() -> {
+            plugin.getDatabaseManager().insertChatHistory(playerId, finalSessionId, "system", finalPrompt);
+        });
     }
 
     /**
@@ -372,6 +385,7 @@ public class AIChatManager {
     public void endConversation(Player player) {
         conversationContexts.remove(player.getUniqueId());
         lastRequestTime.remove(player.getUniqueId());
+        activeSessionIds.remove(player.getUniqueId());
 
         // AI 对话计数 + 成就检查
         int count = conversationCount.merge(player.getUniqueId(), 1, Integer::sum);
@@ -483,6 +497,16 @@ public class AIChatManager {
 
         context.add(new MessagePair("user", sanitized));
 
+        // Write user message to DB asynchronously
+        final String sessionId = activeSessionIds.get(player.getUniqueId());
+        final UUID playerId = player.getUniqueId();
+        final String finalSanitized = sanitized;
+        if (sessionId != null) {
+            CompletableFuture.runAsync(() -> {
+                plugin.getDatabaseManager().insertChatHistory(playerId, sessionId, "user", finalSanitized);
+            });
+        }
+
         // Trim context by estimated token count — system prompt (index 0) is NEVER removed.
         // Only remove complete user/assistant pairs from the oldest end of the conversation.
         trimContextByTokens(context);
@@ -503,6 +527,15 @@ public class AIChatManager {
                         + (response != null ? response.substring(0, Math.min(150, response.length())).replace("\n", "\\n") : "null"));
                 if (response != null) {
                     context.add(new MessagePair("assistant", response));
+                    // Write AI response to DB asynchronously (sessionId captured from enclosing scope)
+                    if (sessionId != null) {
+                        try {
+                            plugin.getDatabaseManager().insertChatHistory(playerId, sessionId, "assistant", response);
+                        } catch (Exception e) {
+                            // DB write failure should not affect the chat flow
+                            debugLog("[" + player.getName() + "] 写入 AI 回复到数据库失败: " + e.getMessage());
+                        }
+                    }
                 }
                 return response;
             } catch (Exception e) {
@@ -598,6 +631,7 @@ public class AIChatManager {
         playerDifficulties.clear();
         lastRequestTime.clear();
         conversationCount.clear();
+        activeSessionIds.clear();
     }
 
     @FunctionalInterface

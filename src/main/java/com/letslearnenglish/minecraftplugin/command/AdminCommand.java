@@ -11,6 +11,7 @@ import org.bukkit.entity.Player;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.io.File;
 
 /**
  * Admin Command - Administrator command for plugin management.
@@ -26,7 +27,8 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
     private final LetsLearnEnglish plugin;
 
     private static final List<String> SUBCOMMANDS = Arrays.asList(
-            "reload", "export", "reset", "info", "help", "ignore-update", "broadcast"
+            "reload", "export", "reset", "info", "help", "ignore-update", "broadcast",
+            "exportwordbank", "importwordbank"
     );
 
     public AdminCommand(LetsLearnEnglish plugin) {
@@ -77,6 +79,25 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                 break;
             case "broadcast":
                 handleBroadcast(sender, args);
+                break;
+            case "exportwordbank":
+                if (args.length > 1) {
+                    plugin.getAdminCommandHandler().exportWordBank(args[1], sender);
+                } else {
+                    sender.sendMessage(ChatColor.RED + "Usage: /lea exportwordbank <difficulty>");
+                    sender.sendMessage(ChatColor.GRAY
+                            + "Available difficulties: "
+                            + String.join(", ", plugin.getWordManager().getAvailableDifficulties()));
+                }
+                break;
+            case "importwordbank":
+                if (args.length > 1) {
+                    plugin.getAdminCommandHandler().importWordBank(args[1], sender);
+                } else {
+                    sender.sendMessage(ChatColor.RED + "Usage: /lea importwordbank <filename.yml>");
+                    sender.sendMessage(ChatColor.GRAY
+                            + "Place file in plugins/LetsLearnEnglish/exports/ first.");
+                }
                 break;
             default:
                 sender.sendMessage(plugin.getMessageUtil()
@@ -151,6 +172,10 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "admin-help.info"));
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "admin-help.exportwordbank"));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "admin-help.importwordbank"));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "admin-help.footer"));
         // broadcast 帮助（不在语言文件中，直接输出）
         sender.sendMessage(ChatColor.YELLOW + "/lea broadcast <message>"
@@ -167,11 +192,34 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                     completions.add(sub);
                 }
             }
-        } else if (args.length == 2 && "reset".equalsIgnoreCase(args[0])) {
-            plugin.getServer().getOnlinePlayers().stream()
-                    .map(p -> p.getName())
-                    .filter(name -> name.toLowerCase().startsWith(args[1].toLowerCase()))
-                    .forEach(completions::add);
+        } else if (args.length == 2) {
+            if ("reset".equalsIgnoreCase(args[0])) {
+                plugin.getServer().getOnlinePlayers().stream()
+                        .map(Player::getName)
+                        .filter(name -> name.toLowerCase().startsWith(args[1].toLowerCase()))
+                        .forEach(completions::add);
+            } else if ("exportwordbank".equalsIgnoreCase(args[0])) {
+                String prefix = args[1].toLowerCase();
+                for (String diff : plugin.getWordManager().getAvailableDifficulties()) {
+                    if (diff.toLowerCase().startsWith(prefix)) {
+                        completions.add(diff);
+                    }
+                }
+            } else if ("importwordbank".equalsIgnoreCase(args[0])) {
+                String prefix = args[1].toLowerCase();
+                File exportsDir = new File(plugin.getDataFolder(), "exports");
+                if (exportsDir.exists() && exportsDir.isDirectory()) {
+                    File[] files = exportsDir.listFiles(
+                            (dir, name) -> name.endsWith(".yml"));
+                    if (files != null) {
+                        for (File f : files) {
+                            if (f.getName().toLowerCase().startsWith(prefix)) {
+                                completions.add(f.getName());
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         return completions;

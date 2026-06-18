@@ -14,6 +14,29 @@
 - `config.yml` ai-chat 段新增 `max-context-tokens` 配置项（默认 2000），基于 token 估算值裁剪对话上下文
 - AIChatManager 新增 `trimContextByTokens()` 方法：按估算 token 数裁剪，只移除最早 user/assistant 交替对，System Prompt 不可删除
 - AIChatManager 新增 `estimateTokens()` 辅助方法：按 1 token ≈ 4 字符近似估算
+- Leaderboard 排行榜持久化缓存系统：Leaderboard 新增 coinsCache/wordsCache/comboCache 三个缓存列表，每 5 分钟自动从数据库刷新
+- DatabaseManager 新增 `getTopCoins()`、`getTopWordsLearned()`、`getTopCombo()` 三个排行榜查询方法，从 player_data 表读取数据
+- 新增 LeaderboardGUI（54 格 GUI）：支持金币榜/单词榜/连击榜三个 Tab 切换，显示 Top 10 玩家头像和排名信息
+- `/le leaderboard` 命令打开排行榜 GUI；LearnCommand 新增 `leaderboard` 子命令和 Tab 补全
+- **AI 对话历史回顾**：新增 `ai_chat_history` 数据库表持久化存储所有 AI 对话消息（system/user/assistant）；AIChatManager 在 startConversation/chatAsync/AI 回复时通过 CompletableFuture.runAsync 异步写入 DB，不阻塞主线程
+- ChatHistoryGUI（54 格 GUI）：分页展示历史对话会话列表（10 条/页），每个会话显示日期/场景/首条消息预览；点击进入完整对话详情视图查看所有消息
+- DatabaseManager 新增 `insertChatHistory()`、`getChatSessions()`、`getSessionPreview()`、`getChatSession()`、`getChatHistoryCount()`、`cleanupOldChatHistory()` 方法；插件启动时异步清理 30 天前的旧记录
+- ChatHistoryListener 处理会话列表和对话详情的 GUI 交互（分页导航、返回主菜单/返回列表）
+- `/le history` 命令打开 AI 对话历史 GUI；i18n 新增 `chat-history.*` 段（中英双语）和 `help.history` 帮助条目
+- i18n 新增 `leaderboard.title`、`leaderboard.tab-coins`、`leaderboard.tab-words`、`leaderboard.tab-combo`、`leaderboard.empty` 等消息键
+- WordBankValidator 新增词库导入校验器：验证 YAML 结构、必填字段类型、列表子元素类型、最大 1000 词限制
+- AdminCommandHandler 新增 `exportWordBank()` 方法：导出指定难度词库至 `exports/{difficulty}_export_{timestamp}.yml`，包含所有单词字段
+- AdminCommandHandler 新增 `importWordBank()` 方法：从 YAML 文件导入词库，校验后跳过重复单词（不覆盖），保存至对应难度词库文件
+- AdminCommand 新增 `/lea exportwordbank <difficulty>` 和 `/lea importwordbank <filename>` 子命令，含 Tab 补全
+- 每日单词挑战系统：从词库随机选择 N 个真实单词作为每日挑战（默认 5 个，可在 `config.yml` 的 `daily-challenges.word-count` 配置）
+- `daily_challenge_words` 数据库表：记录每位玩家每日分配的单词挑战及其完成状态
+- DatabaseManager 新增 `getDailyChallengeWords()`、`assignDailyChallengeWords()`、`markDailyChallengeWordComplete()`、`isDailyChallengeWordsCompleted()`、`getDailyChallengeWordsProgress()` 方法
+- DailyChallengeManager 新增 `WordManagerImpl` 依赖注入；新增 `ensureWordChallengesAssigned()`（玩家加入时自动分配单词挑战）、`onWordCorrect()`（答对时自动标记完成）、`getTodayWordProgress()`、`getTodayWordDetails()` 方法
+- WordLearningManager.submitAnswer() 增加钩子：答对单词时自动调用 `DailyChallengeManager.onWordCorrect()` 检查并标记每日挑战单词
+- ChallengeCompleteGUI：27 格庆祝界面，玩家完成所有每日单词挑战后弹出，显示玩家头像、烟花庆祝、金币奖励和领取按钮
+- `/le challenge` 命令：以聊天文本形式展示今日单词挑战进度（已完成/总数及各单词状态）
+- `config.yml` `daily-challenges` 段新增 `word-count`（默认 5）和 `word-challenge-reward`（默认 100.0）配置项
+- i18n 新增 `daily-challenge.*` 消息键（中英双语）：header、word-done、word-pending、all-complete、complete-title 等
 
 ## [1.0.6] - 2026-05-30
 
