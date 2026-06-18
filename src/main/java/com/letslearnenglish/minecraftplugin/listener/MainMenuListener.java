@@ -77,6 +77,10 @@ public class MainMenuListener implements Listener {
                         () -> new MainMenu(plugin).open(player));
                 new DailyChallengeGUI(plugin).open(player);
             }
+            case 14 -> {
+                SoundManager.playSound(player, "menu-click");
+                new com.letslearnenglish.minecraftplugin.gui.WrongBookGUI(plugin).open(player, 1);
+            }
             case 18 -> {
                 SoundManager.playSound(player, "menu-click");
                 handleLanguageSwitch(player);

@@ -30,7 +30,45 @@ public class ChatAnswerListener implements Listener {
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
+
+        // Check duel first — duel answers take priority over word learning
+        var duelManager = plugin.getDuelManager();
+        if (duelManager != null && duelManager.isInDuel(player.getUniqueId())) {
+            event.setCancelled(true);
+            event.getRecipients().clear();
+            String answer = event.getMessage();
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                duelManager.submitAnswer(player, answer);
+            });
+            return;
+        }
+
         WordLearningManager wlManager = plugin.getWordLearningManager();
+
+        // Check practice mode first (Wrong Book practice)
+        if (wlManager.isPracticingWord(player.getUniqueId())) {
+            event.setCancelled(true);
+            String answer = event.getMessage();
+            String practiceWord = wlManager.getPracticingWord(player.getUniqueId());
+
+            // Check for cancel command
+            if (answer.trim().equalsIgnoreCase("cancel")) {
+                wlManager.cancelPractice(player.getUniqueId());
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                            "&7Practice cancelled."));
+                    new com.letslearnenglish.minecraftplugin.gui.WrongBookGUI(plugin).open(player, 1);
+                });
+                return;
+            }
+
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                wlManager.submitPracticeAnswer(player, answer);
+                // Re-open WrongBookGUI after answer
+                new com.letslearnenglish.minecraftplugin.gui.WrongBookGUI(plugin).open(player, 1);
+            });
+            return;
+        }
 
         if (!wlManager.isAnswering(player.getUniqueId())) {
             return;

@@ -50,6 +50,11 @@ public class GUIUtils {
                 || title.contains("Chat History")
                 || title.contains("聊天记录")
                 || title.contains("Conversation Details")
-                || title.contains("对话详情");
+                || title.contains("对话详情")
+                || title.contains("Word Duel")
+                || title.contains("单词对决")
+                || title.contains("Wrong Book")
+                || title.contains("错题本")
+                || title.contains("Difficult Words");
     }
 }
