@@ -75,6 +75,12 @@ public class MainMenu {
                 createMenuItem(cm.getGuiMaterial("main-menu", "daily-challenge", Material.WRITABLE_BOOK),
                         dailyName, dailyLore));
 
+        String wrongName = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("main-menu.wrong-book", "&cWrong Book"));
+        String wrongLore = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("main-menu.wrong-book-lore", "&7Review your difficult words"));
+        menu.setItem(14, createMenuItem(Material.BOOKSHELF, wrongName, wrongLore));
+
         String calendarName = ChatColor.translateAlternateColorCodes('&',
                 messages.getString("main-menu.calendar", "&aLearning Calendar"));
         String calendarLore = ChatColor.translateAlternateColorCodes('&',

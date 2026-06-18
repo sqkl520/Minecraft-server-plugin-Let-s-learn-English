@@ -26,6 +26,7 @@ public class WordLearningManager {
     private final LetsLearnEnglish plugin;
     private final WordManagerImpl wordManager;
     private final Map<UUID, QuizState> quizStates = new ConcurrentHashMap<>();
+    private final Map<UUID, String> practiceWords = new ConcurrentHashMap<>();
 
     public WordLearningManager(LetsLearnEnglish plugin) {
         this.plugin = plugin;
@@ -127,6 +128,9 @@ public class WordLearningManager {
                     plugin.getProgressManager().getRewardEngine()
                             .giveMoneyForReviewIncorrect(player);
                 }
+
+                // Track wrong answers for Wrong Book feature
+                trackWrongAnswer(player, currentWord);
             }
 
             return buildResult(id, state, correct, correctAnswer, comboScore,
@@ -161,10 +165,37 @@ public class WordLearningManager {
                         .giveMoneyForReviewIncorrect(player);
             }
 
+            // Track timeout as wrong answer for Wrong Book
+            trackWrongAnswer(player, currentWord);
+
             return buildResult(id, state, false, currentWord.getEnglish(),
                     -INCORRECT_PENALTY, 0, 1.0);
         } finally {
             state.submitting.set(false);
+        }
+    }
+
+    /**
+     * Track a wrong answer for the Wrong Book / Difficult Words feature.
+     * After 3 wrong answers, the word is automatically added to the player's wrong book.
+     */
+    private void trackWrongAnswer(Player player, Word incorrectWord) {
+        UUID playerId = player.getUniqueId();
+        String word = incorrectWord.getEnglish();
+        com.letslearnenglish.minecraftplugin.data.PlayerDataStore store = plugin.getPlayerDataStore();
+
+        int wrongCount = store.incrementWrongCount(playerId, word);
+
+        // When wrong count hits exactly 3, add to wrong book and notify
+        if (wrongCount == 3) {
+            store.addDifficultWord(playerId, word);
+
+            org.bukkit.configuration.file.FileConfiguration messages = plugin.getConfigManager()
+                    .getMessageConfig(plugin.getPlayerLanguage(player));
+            String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("wrong-book.auto-add",
+                            "&cThis word has been added to your Wrong Book! Use &e/le wrong &cto review it."));
+            player.sendMessage(msg);
         }
     }
 
@@ -377,6 +408,81 @@ public class WordLearningManager {
 
     private FileConfiguration getMessages(Player player) {
         return plugin.getConfigManager().getMessageConfig(plugin.getPlayerLanguage(player));
+    }
+
+    // ============================================================
+    //  Wrong Book Practice Mode
+    // ============================================================
+
+    /**
+     * Start practicing a difficult word. The player types the word in chat.
+     */
+    public void startPracticeWord(UUID playerId, String word) {
+        practiceWords.put(playerId, word.toLowerCase());
+    }
+
+    /**
+     * Check if a player is currently practicing a difficult word.
+     */
+    public boolean isPracticingWord(UUID playerId) {
+        return practiceWords.containsKey(playerId);
+    }
+
+    /**
+     * Get the word being practiced, or null if not in practice mode.
+     */
+    public String getPracticingWord(UUID playerId) {
+        return practiceWords.get(playerId);
+    }
+
+    /**
+     * Submit a practice answer. Returns true if correct, false if not.
+     * On correct, decrements wrong count and removes from book if count reaches 0.
+     */
+    public boolean submitPracticeAnswer(Player player, String answer) {
+        UUID playerId = player.getUniqueId();
+        String word = practiceWords.remove(playerId);
+        if (word == null) return false;
+
+        boolean correct = word.equalsIgnoreCase(answer.trim());
+        com.letslearnenglish.minecraftplugin.data.PlayerDataStore store = plugin.getPlayerDataStore();
+
+        if (correct) {
+            store.decrementWrongCount(playerId, word);
+            int newCount = store.getWrongCount(playerId, word);
+            org.bukkit.configuration.file.FileConfiguration messages = plugin.getConfigManager()
+                    .getMessageConfig(plugin.getPlayerLanguage(player));
+            if (newCount <= 0) {
+                store.removeDifficultWord(playerId, word);
+                String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                        messages.getString("wrong-book.practice-removed",
+                                "&aCorrect! The word has been removed from your Wrong Book!"));
+                player.sendMessage(msg);
+            } else {
+                String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                        messages.getString("wrong-book.practice-correct",
+                                "&aCorrect! Wrong count reduced to &e{count}&a.")
+                                .replace("{count}", String.valueOf(newCount)));
+                player.sendMessage(msg);
+            }
+        } else {
+            org.bukkit.configuration.file.FileConfiguration messages = plugin.getConfigManager()
+                    .getMessageConfig(plugin.getPlayerLanguage(player));
+            String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("wrong-book.practice-incorrect",
+                            "&cWrong! The correct answer is: &e{word}")
+                            .replace("{word}", word));
+            player.sendMessage(msg);
+        }
+
+        return correct;
+    }
+
+    /**
+     * Cancel a practice session.
+     */
+    public void cancelPractice(UUID playerId) {
+        practiceWords.remove(playerId);
     }
 
     public static class QuizState {

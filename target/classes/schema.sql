@@ -117,3 +117,12 @@ CREATE TABLE IF NOT EXISTS {prefix}ai_chat_history (
 
 CREATE INDEX IF NOT EXISTS {prefix}idx_chat_player_time ON {prefix}ai_chat_history(player_uuid, timestamp);
 CREATE INDEX IF NOT EXISTS {prefix}idx_chat_session ON {prefix}ai_chat_history(session_id);
+
+-- Difficult words / Wrong Book (words answered incorrectly 3+ times)
+CREATE TABLE IF NOT EXISTS {prefix}difficult_words (
+    player_uuid VARCHAR(36) NOT NULL,
+    word VARCHAR(100) NOT NULL,
+    wrong_count INTEGER DEFAULT 0,
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (player_uuid, word)
+);

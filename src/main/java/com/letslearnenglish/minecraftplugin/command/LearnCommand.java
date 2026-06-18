@@ -37,7 +37,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     private final LetsLearnEnglish plugin;
 
     private static final List<String> SUBCOMMANDS = Arrays.asList(
-            "menu", "word", "dialogue", "progress", "review", "stats", "help", "square", "profile", "leaderboard", "challenge", "history"
+            "menu", "word", "dialogue", "progress", "review", "stats", "help", "square", "profile", "leaderboard", "challenge", "history", "duel", "wrong"
     );
 
     public LearnCommand(LetsLearnEnglish plugin) {
@@ -91,6 +91,12 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 break;
             case "history":
                 handleHistoryCommand(player);
+                break;
+            case "duel":
+                handleDuelCommand(player, args);
+                break;
+            case "wrong":
+                handleWrongCommand(player);
                 break;
             case "help":
                 sendHelpMessage(player);
@@ -246,6 +252,42 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         new ChatHistoryGUI(plugin).open(player);
     }
 
+    private void handleDuelCommand(Player player, String[] args) {
+        com.letslearnenglish.minecraftplugin.core.duel.DuelManager duelManager = plugin.getDuelManager();
+        if (duelManager == null) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "general.error", "message", "Duel system is not available."));
+            return;
+        }
+
+        if (args.length < 2) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "duel.usage"));
+            return;
+        }
+
+        String sub = args[1].toLowerCase();
+
+        if ("quit".equals(sub)) {
+            duelManager.quitDuel(player);
+        } else if ("accept".equals(sub)) {
+            duelManager.acceptDuel(player);
+        } else {
+            // Treat as a player name — send duel request
+            Player target = plugin.getServer().getPlayer(sub);
+            if (target == null) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "general.error", "message", "Player " + sub + " is not online."));
+                return;
+            }
+            duelManager.sendDuelRequest(player, target);
+        }
+    }
+
+    private void handleWrongCommand(Player player) {
+        new com.letslearnenglish.minecraftplugin.gui.WrongBookGUI(plugin).open(player, 1);
+    }
+
     private void sendHelpMessage(Player player) {
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.header"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.menu"));
@@ -257,6 +299,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.profile"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.square"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.history"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.wrong"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.footer"));
     }
 
@@ -286,6 +329,21 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             for (String mode : Arrays.asList("spelling", "choice", "fill_blank")) {
                 if (mode.startsWith(args[2].toLowerCase())) {
                     completions.add(mode);
+                }
+            }
+        } else if (args.length == 2 && "duel".equalsIgnoreCase(args[0])) {
+            String input = args[1].toLowerCase();
+            // Suggest accept/quit sub-commands
+            for (String sub : Arrays.asList("accept", "quit")) {
+                if (sub.startsWith(input)) {
+                    completions.add(sub);
+                }
+            }
+            // Also suggest online player names (excluding self)
+            for (Player p : org.bukkit.Bukkit.getOnlinePlayers()) {
+                if (!p.getName().equals(sender.getName())
+                        && p.getName().toLowerCase().startsWith(input)) {
+                    completions.add(p.getName());
                 }
             }
         }

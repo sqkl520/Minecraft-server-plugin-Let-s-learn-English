@@ -37,6 +37,29 @@
 - `/le challenge` 命令：以聊天文本形式展示今日单词挑战进度（已完成/总数及各单词状态）
 - `config.yml` `daily-challenges` 段新增 `word-count`（默认 5）和 `word-challenge-reward`（默认 100.0）配置项
 - i18n 新增 `daily-challenge.*` 消息键（中英双语）：header、word-done、word-pending、all-complete、complete-title 等
+- **单词发音助手（音标 + TTS）**：WordLearningGUI 当前单词物品 lore 中显示音标符号（如 /wɜːd/）；新增发音按钮（NOTE_BLOCK 材质，slot 14），点击播放 NOTE_BLOCK_PLING 提示音并异步下载 TTS 音频缓存；新增 TtsManager 管理 VoiceRSS API 音频下载与缓存清理；音频下载为可选功能，需配置 API 密钥
+- `config.yml` 新增 `tts` 配置段（enabled / cache-days / voicerss-api-key），控制发音功能开关和音频缓存策略
+- `config.yml` gui-layout.word-learning 新增 `pronunciation-button` 按钮槽位和材质配置
+- i18n 新增 `word.pronunciation-button`、`word.pronunciation-button-lore`、`word.phonetic-label`、`word.pronunciation-unavailable` 消息键（中英双语）
+- **PvP 单词对决系统**：实时 1v1 单词对决，两名玩家抢答同一单词，先得 5 分者获胜；DuelManager 管理对决生命周期（发起/接受/退出/弃权）；DuelRoom 线程安全状态机（synchronized 提交答案防并发）；DuelGUI 27 格界面展示双方分数（彩色羊毛进度条）、当前单词和弃权按钮；Bukkit Scoreboard API 侧边栏实时显示比分和 Grace 倒计时；30 秒断线保护（DuelListener 监听 PlayerJoinEvent/PlayerQuitEvent）；聊天答案优先路由到对决系统，答案不广播；`/le duel <玩家名>` 发起挑战，`/le duel accept` 接受，`/le duel quit` 退出，Tab 补全支持玩家名和子命令
+- 新增 DuelRoom（core/duel/）、DuelManager（core/duel/）、DuelGUI（gui/）、DuelGUIListener（listener/）、DuelListener（listener/）共 5 个文件
+- i18n 新增 `duel.*` 段 30 个消息键（中英双语）、`help.duel` 帮助条目
+- GUIUtils.isPluginGUI() 新增 `Word Duel` 和 `单词对决` 标题识别
+- ChatAnswerListener 新增对决答案拦截逻辑（优先于普通答题和错题练习）
+- LearnCommand 新增 `duel` 子命令和 Tab 补全（accept/quit + 在线玩家名）
+- **错题本 / Wrong Book**：答错 3 次的单词自动加入错题本；WrongBookGUI（54 格 GUI）分页展示错词，显示中文释义/错误次数/加入时间；左键移出错题本，Shift+点击进入独立练习模式（不计入艾宾浩斯复习）；练习正确降低错误计数，归零自动移除
+- 新增 `difficult_words` 数据库表持久化存储错词；DatabaseManager 新增 `incrementWrongCount()`、`getWrongCount()`、`getDifficultWords()`、`removeDifficultWord()`、`decrementWrongCount()`、`clearWrongCount()` 方法
+- PlayerDataStore 新增 difficultWordsCache/wrongCountCache 内存缓存及对应操作方法，异步写 DB
+- WordLearningManager 新增 `trackWrongAnswer()`、`startPracticeWord()`、`submitPracticeAnswer()` 方法及 practiceWords 状态管理
+- ChatAnswerListener 新增练习模式答案拦截（优先于普通答题）；练习完成后自动重新打开 WrongBookGUI
+- `/le wrong` 命令打开错题本 GUI；MainMenu 新增错题本按钮（第 14 槽位/书架材质）
+- i18n 新增 `wrong-book.*` 段 18 个消息键（中英双语）和 `help.wrong` 帮助条目
+- 主菜单新增 `main-menu.wrong-book` / `main-menu.wrong-book-lore` i18n 键（中英双语）
+- **学习统计 HTTP 仪表盘**：基于 Java 内置 HttpServer 的 Web 管理面板，展示学习统计数据与 ECharts 图表；双重安全防护（IP 白名单 + CIDR 支持 + HTTP Basic Auth）；`GET /` 返回深色主题 HTML 仪表盘（含 7 日学习趋势折线图、每日活跃玩家柱状图、摘要卡片、60 秒自动刷新）；`GET /api/stats` 返回 JSON 格式统计数据
+- 新增 `StatisticsHttpServer` 类（core/manager/）：服务生命周期管理（start/stop）、IP CIDR 匹配、Basic Auth 认证、内联 HTML 仪表盘
+- `config.yml` 新增 `statistics-server` 配置段（enabled / port / ip-whitelist / auth），默认 disabled
+- DatabaseManager 新增 `getTotalWordCount()`、`getTodayActivePlayers()`、`getTotalSessions()`、`getTotalCoinsEarned()`、`getTotalCoinsSpent()`、`getLast7DaysStats()` 统计查询方法和 `DailyStats` 记录类
+- `LetsLearnEnglish.onEnable()` 读取 `statistics-server.enabled` 配置，按需启动 HTTP 服务器；`onDisable()` 优雅停止
 
 ## [1.0.6] - 2026-05-30
 

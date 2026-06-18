@@ -12,8 +12,11 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Level;
 
@@ -218,6 +221,17 @@ public class DatabaseManager {
         } catch (SQLException e) {
             plugin.getLogger().fine("Index idx_chat_session may already exist: " + e.getMessage());
         }
+
+        // Difficult words / Wrong Book table
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "difficult_words (" +
+                        "  player_uuid VARCHAR(36) NOT NULL," +
+                        "  word VARCHAR(100) NOT NULL," +
+                        "  wrong_count INTEGER DEFAULT 0," +
+                        "  added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
+                        "  PRIMARY KEY (player_uuid, word)" +
+                        ")"
+        );
     }
 
     /**
@@ -667,6 +681,300 @@ public class DatabaseManager {
                     "Failed to get daily challenge words progress for " + playerId, e);
         }
         return new int[]{0, 0};
+    }
+
+    // ============================================================
+    //  Difficult Words / Wrong Book
+    // ============================================================
+
+    /**
+     * Increment the wrong count for a word. Inserts the word if it doesn't exist yet.
+     * Returns the new wrong count after incrementing.
+     */
+    public int incrementWrongCount(UUID playerId, String word) {
+        String upsertSql;
+        if (isSQLite()) {
+            upsertSql = "INSERT INTO " + tablePrefix + "difficult_words (player_uuid, word, wrong_count) VALUES (?, ?, 1) ON CONFLICT(player_uuid, word) DO UPDATE SET wrong_count = wrong_count + 1";
+        } else {
+            upsertSql = "INSERT INTO " + tablePrefix + "difficult_words (player_uuid, word, wrong_count) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE wrong_count = wrong_count + 1";
+        }
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(upsertSql)) {
+            stmt.setString(1, playerId.toString());
+            stmt.setString(2, word.toLowerCase());
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to increment wrong count for " + playerId + " / " + word, e);
+        }
+
+        // Read back the new count
+        return getWrongCount(playerId, word);
+    }
+
+    /**
+     * Get the current wrong count for a player's word.
+     */
+    public int getWrongCount(UUID playerId, String word) {
+        String sql = "SELECT wrong_count FROM " + tablePrefix + "difficult_words WHERE player_uuid = ? AND word = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, playerId.toString());
+            stmt.setString(2, word.toLowerCase());
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt("wrong_count");
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to get wrong count for " + playerId + " / " + word, e);
+        }
+        return 0;
+    }
+
+    /**
+     * Get all difficult words for a player with their wrong counts and added timestamps.
+     */
+    public List<DifficultWord> getDifficultWords(UUID playerId) {
+        List<DifficultWord> words = new ArrayList<>();
+        String sql = "SELECT word, wrong_count, added_at FROM " + tablePrefix
+                + "difficult_words WHERE player_uuid = ? ORDER BY added_at DESC";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, playerId.toString());
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    String word = rs.getString("word");
+                    int wrongCount = rs.getInt("wrong_count");
+                    Timestamp ts = rs.getTimestamp("added_at");
+                    long addedAt = ts != null ? ts.getTime() : System.currentTimeMillis();
+                    words.add(new DifficultWord(word, wrongCount, addedAt));
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to get difficult words for " + playerId, e);
+        }
+        return words;
+    }
+
+    /**
+     * Remove a word from the player's difficult words list entirely.
+     */
+    public void removeDifficultWord(UUID playerId, String word) {
+        String sql = "DELETE FROM " + tablePrefix + "difficult_words WHERE player_uuid = ? AND word = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, playerId.toString());
+            stmt.setString(2, word.toLowerCase());
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to remove difficult word for " + playerId + " / " + word, e);
+        }
+    }
+
+    /**
+     * Reset the wrong count for a word to 0 (used when practicing correctly).
+     * Returns true if the row was updated (word existed), false otherwise.
+     */
+    public boolean decrementWrongCount(UUID playerId, String word) {
+        String sql = "UPDATE " + tablePrefix + "difficult_words SET wrong_count = wrong_count - 1 WHERE player_uuid = ? AND word = ? AND wrong_count > 0";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, playerId.toString());
+            stmt.setString(2, word.toLowerCase());
+            int rows = stmt.executeUpdate();
+            return rows > 0;
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to decrement wrong count for " + playerId + " / " + word, e);
+            return false;
+        }
+    }
+
+    /**
+     * Clear wrong count to 0 for a word (reset without removing).
+     */
+    public void clearWrongCount(UUID playerId, String word) {
+        String sql = "UPDATE " + tablePrefix + "difficult_words SET wrong_count = 0 WHERE player_uuid = ? AND word = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, playerId.toString());
+            stmt.setString(2, word.toLowerCase());
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to clear wrong count for " + playerId + " / " + word, e);
+        }
+    }
+
+    // ============================================================
+    //  Statistics HTTP Dashboard queries
+    // ============================================================
+
+    /**
+     * Daily statistics record for the 7-day trend chart.
+     */
+    public record DailyStats(String date, int sessions, int players, int wordsLearned) {}
+
+    /**
+     * Count distinct words that have been learned by any player.
+     */
+    public int getTotalWordCount() {
+        String sql = "SELECT COUNT(DISTINCT word) FROM " + tablePrefix + "word_progress";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+            if (rs.next()) {
+                return rs.getInt(1);
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to query total word count", e);
+        }
+        return 0;
+    }
+
+    /**
+     * Count distinct players who were active today (have a session record for today).
+     */
+    public int getTodayActivePlayers() {
+        String today = LocalDate.now().toString();
+        String sql = "SELECT COUNT(DISTINCT uuid) FROM " + tablePrefix
+                + "player_sessions WHERE session_date = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, today);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to query today active players", e);
+        }
+        return 0;
+    }
+
+    /**
+     * Count total learning sessions from the learning_log table.
+     */
+    public int getTotalSessions() {
+        String sql = "SELECT COUNT(*) FROM " + tablePrefix + "learning_log";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+            if (rs.next()) {
+                return rs.getInt(1);
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to query total sessions", e);
+        }
+        return 0;
+    }
+
+    /**
+     * Sum total score (coins earned) from all players.
+     */
+    public long getTotalCoinsEarned() {
+        String sql = "SELECT COALESCE(SUM(total_score), 0) FROM " + tablePrefix + "player_data";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+            if (rs.next()) {
+                return rs.getLong(1);
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to query total coins earned", e);
+        }
+        return 0L;
+    }
+
+    /**
+     * Total coins spent. Currently not tracked separately in the database;
+     * spending happens via Vault economy, which is external.
+     */
+    public long getTotalCoinsSpent() {
+        return 0L;
+    }
+
+    /**
+     * Get daily statistics breakdown for the last 7 days.
+     * Combines data from player_sessions (players, words) and
+     * learning_log (session count) per day.
+     */
+    public List<DailyStats> getLast7DaysStats() {
+        Map<String, int[]> dailyData = new LinkedHashMap<>();
+        LocalDate today = LocalDate.now();
+
+        // Initialize all 7 days (including today) with zeros
+        for (int i = 6; i >= 0; i--) {
+            String date = today.minusDays(i).toString();
+            dailyData.put(date, new int[]{0, 0, 0}); // [sessions, players, wordsLearned]
+        }
+
+        // Query player_sessions for daily players and words
+        String sessionsSql = "SELECT session_date, COUNT(DISTINCT uuid) as players, "
+                + "COALESCE(SUM(words_count), 0) as words "
+                + "FROM " + tablePrefix + "player_sessions "
+                + "WHERE session_date >= ? "
+                + "GROUP BY session_date";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sessionsSql)) {
+            stmt.setString(1, today.minusDays(6).toString());
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    String date = rs.getString("session_date");
+                    int[] data = dailyData.get(date);
+                    if (data != null) {
+                        data[1] = rs.getInt("players");
+                        data[2] = rs.getInt("words");
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to query daily player stats", e);
+        }
+
+        // Query learning_log for daily session counts
+        String dateExpr;
+        String logSql;
+        if (isSQLite()) {
+            logSql = "SELECT date(started_at / 1000, 'unixepoch') as day, COUNT(*) as cnt "
+                    + "FROM " + tablePrefix + "learning_log "
+                    + "WHERE started_at >= ? "
+                    + "GROUP BY day";
+        } else {
+            logSql = "SELECT DATE(FROM_UNIXTIME(started_at / 1000)) as day, COUNT(*) as cnt "
+                    + "FROM " + tablePrefix + "learning_log "
+                    + "WHERE started_at >= ? "
+                    + "GROUP BY day";
+        }
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(logSql)) {
+            long sevenDaysAgoMillis = today.minusDays(6).atStartOfDay(
+                    java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+            stmt.setLong(1, sevenDaysAgoMillis);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    String day = rs.getString("day");
+                    int[] data = dailyData.get(day);
+                    if (data != null) {
+                        data[0] = rs.getInt("cnt");
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to query daily session counts", e);
+        }
+
+        List<DailyStats> result = new ArrayList<>();
+        for (Map.Entry<String, int[]> entry : dailyData.entrySet()) {
+            int[] d = entry.getValue();
+            result.add(new DailyStats(entry.getKey(), d[0], d[1], d[2]));
+        }
+        return result;
     }
 
     /**

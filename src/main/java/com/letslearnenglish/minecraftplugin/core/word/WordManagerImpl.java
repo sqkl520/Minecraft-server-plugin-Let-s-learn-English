@@ -141,6 +141,14 @@ public class WordManagerImpl {
     /**
      * Get the word bank for a specific difficulty.
      */
+    /**
+     * Look up a word by its English name across all word banks.
+     * Returns null if the word is not found in any bank.
+     */
+    public Word getWord(String english) {
+        return globalWordIndex.get(english.toLowerCase());
+    }
+
     public WordBank getWordBank(String difficulty) {
         return wordBanks.get(difficulty);
     }

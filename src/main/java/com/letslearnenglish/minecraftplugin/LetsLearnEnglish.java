@@ -8,9 +8,12 @@ import com.letslearnenglish.minecraftplugin.core.ProxyMessenger;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.achievement.AchievementManager;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
+import com.letslearnenglish.minecraftplugin.core.ai.TtsManager;
+import com.letslearnenglish.minecraftplugin.core.duel.DuelManager;
 import com.letslearnenglish.minecraftplugin.core.manager.AdminCommandHandler;
 import com.letslearnenglish.minecraftplugin.core.manager.DataExporter;
 import com.letslearnenglish.minecraftplugin.core.manager.HotReloadManager;
+import com.letslearnenglish.minecraftplugin.core.manager.StatisticsHttpServer;
 import com.letslearnenglish.minecraftplugin.core.progress.ProgressManagerImpl;
 import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
@@ -19,6 +22,8 @@ import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.listener.ChatAnswerListener;
 import com.letslearnenglish.minecraftplugin.listener.ChatHistoryListener;
 import com.letslearnenglish.minecraftplugin.listener.ChatScenarioListener;
+import com.letslearnenglish.minecraftplugin.listener.DuelGUIListener;
+import com.letslearnenglish.minecraftplugin.listener.DuelListener;
 import com.letslearnenglish.minecraftplugin.listener.MainMenuListener;
 import com.letslearnenglish.minecraftplugin.listener.MiscGUIListener;
 import com.letslearnenglish.minecraftplugin.listener.PlayerJoinListener;
@@ -77,6 +82,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
     private AchievementManager achievementManager;
 
     private SoundManager soundManager;
+    private TtsManager ttsManager;
     private ProxyMessenger proxyMessenger;
 
     private ChatScenarioListener chatScenarioListener;
@@ -84,6 +90,10 @@ public final class LetsLearnEnglish extends JavaPlugin {
     private GuiNavigationManager guiNavigationManager;
 
     private DailyChallengeManager dailyChallengeManager;
+
+    private DuelManager duelManager;
+
+    private StatisticsHttpServer statisticsHttpServer;
 
     private Economy economy = null;
 
@@ -127,11 +137,19 @@ public final class LetsLearnEnglish extends JavaPlugin {
         this.dailyChallengeManager = new DailyChallengeManager(this, wordManager);
         this.progressManager = new ProgressManagerImpl(this, playerDataStore);
 
+        this.duelManager = new DuelManager(this);
+
         this.adminCommandHandler = new AdminCommandHandler(this);
         this.dataExporter = new DataExporter(this, playerDataStore);
         this.hotReloadManager = new HotReloadManager(this, configManager);
 
         this.soundManager = new SoundManager(this);
+
+        this.ttsManager = new TtsManager(this);
+        // Clean expired TTS audio cache asynchronously on startup
+        getServer().getScheduler().runTaskAsynchronously(this, () -> {
+            ttsManager.cleanExpiredCache();
+        });
 
         // Proxy 消息通道（Velocity / BungeeCord 兼容）
         this.proxyMessenger = new ProxyMessenger(this);
@@ -152,6 +170,12 @@ public final class LetsLearnEnglish extends JavaPlugin {
             progressManager.getLeaderboard().loadFromDB();
             progressManager.getLeaderboard().refreshCache();
         });
+
+        // Statistics HTTP Dashboard
+        if (configManager.getMainConfig().getBoolean("statistics-server.enabled", false)) {
+            statisticsHttpServer = new StatisticsHttpServer(this, databaseManager);
+            statisticsHttpServer.start();
+        }
 
         long loadTime = System.currentTimeMillis() - startTime;
         getLogger().info("============================================");
@@ -189,8 +213,16 @@ public final class LetsLearnEnglish extends JavaPlugin {
             proxyMessenger.unregister();
         }
 
+        if (ttsManager != null) {
+            ttsManager.shutdown();
+        }
+
         if (aiChatManager != null) {
             aiChatManager.shutdown();
+        }
+
+        if (statisticsHttpServer != null && statisticsHttpServer.isRunning()) {
+            statisticsHttpServer.stop();
         }
 
         if (databaseManager != null) {
@@ -210,6 +242,9 @@ public final class LetsLearnEnglish extends JavaPlugin {
         getServer().getPluginManager().registerEvents(chatScenarioListener, this);
         getServer().getPluginManager().registerEvents(new ChatAnswerListener(this), this);
         getServer().getPluginManager().registerEvents(new ChatHistoryListener(this), this);
+        getServer().getPluginManager().registerEvents(new DuelGUIListener(this), this);
+        getServer().getPluginManager().registerEvents(new DuelListener(this), this);
+        getServer().getPluginManager().registerEvents(new com.letslearnenglish.minecraftplugin.listener.WrongBookListener(this), this);
         getServer().getPluginManager().registerEvents(soundManager, this);
     }
 
@@ -446,12 +481,20 @@ public final class LetsLearnEnglish extends JavaPlugin {
         return soundManager;
     }
 
+    public TtsManager getTtsManager() {
+        return ttsManager;
+    }
+
     public GuiNavigationManager getGuiNavigationManager() {
         return guiNavigationManager;
     }
 
     public DailyChallengeManager getDailyChallengeManager() {
         return dailyChallengeManager;
+    }
+
+    public DuelManager getDuelManager() {
+        return duelManager;
     }
 
     public ProxyMessenger getProxyMessenger() {

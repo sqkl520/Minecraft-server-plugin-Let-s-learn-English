@@ -16,6 +16,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
+import com.letslearnenglish.minecraftplugin.data.DifficultWord;
+
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.LeaderboardEntry;
 import com.letslearnenglish.minecraftplugin.core.word.LearningSession;
@@ -46,6 +48,8 @@ public class PlayerDataStore {
     private final Set<UUID> activeSessionPlayers;
     private final Map<UUID, Set<String>> masteredWordsCache;
     private final Map<UUID, ProfileSettings> profileSettingsCache;
+    private final Map<UUID, Map<String, DifficultWord>> difficultWordsCache;
+    private final Map<UUID, Map<String, Integer>> wrongCountCache;
 
     public PlayerDataStore(LetsLearnEnglish plugin, DatabaseManager databaseManager) {
         this.plugin = plugin;
@@ -59,6 +63,8 @@ public class PlayerDataStore {
         this.activeSessionPlayers = ConcurrentHashMap.newKeySet();
         this.masteredWordsCache = new ConcurrentHashMap<>();
         this.profileSettingsCache = new ConcurrentHashMap<>();
+        this.difficultWordsCache = new ConcurrentHashMap<>();
+        this.wrongCountCache = new ConcurrentHashMap<>();
     }
 
     /**
@@ -186,7 +192,144 @@ public class PlayerDataStore {
         }
         playerStatsCache.put(playerId, stats);
 
+        // Load difficult words / wrong book data
+        loadDifficultWordsFromDB(playerId);
+
         masteredWordsCache.remove(playerId);
+    }
+
+    /**
+     * Load difficult words from database into cache.
+     */
+    private void loadDifficultWordsFromDB(UUID playerId) {
+        List<DifficultWord> words = databaseManager.getDifficultWords(playerId);
+        Map<String, DifficultWord> wordMap = new ConcurrentHashMap<>();
+        Map<String, Integer> countMap = new ConcurrentHashMap<>();
+        for (DifficultWord dw : words) {
+            wordMap.put(dw.getWord().toLowerCase(), dw);
+            countMap.put(dw.getWord().toLowerCase(), dw.getWrongCount());
+        }
+        difficultWordsCache.put(playerId, wordMap);
+        wrongCountCache.put(playerId, countMap);
+    }
+
+    /**
+     * Get all difficult words for a player from cache, loading from DB if needed.
+     * Returns a map of word → DifficultWord data.
+     */
+    public Map<String, DifficultWord> getDifficultWordsData(UUID playerId) {
+        Map<String, DifficultWord> cached = difficultWordsCache.get(playerId);
+        if (cached == null) {
+            loadDifficultWordsFromDB(playerId);
+            cached = difficultWordsCache.get(playerId);
+        }
+        return cached != null ? cached : new ConcurrentHashMap<>();
+    }
+
+    /**
+     * Get the set of difficult word strings for a player.
+     */
+    public Set<String> getDifficultWords(UUID playerId) {
+        return getDifficultWordsData(playerId).keySet();
+    }
+
+    /**
+     * Get the wrong count for a specific word.
+     */
+    public int getWrongCount(UUID playerId, String word) {
+        Map<String, Integer> counts = wrongCountCache.get(playerId);
+        if (counts == null) {
+            loadDifficultWordsFromDB(playerId);
+            counts = wrongCountCache.get(playerId);
+        }
+        if (counts != null) {
+            Integer count = counts.get(word.toLowerCase());
+            if (count != null) return count;
+        }
+        return 0;
+    }
+
+    /**
+     * Increment wrong count for a word. If it reaches the threshold, adds to difficult words.
+     * Runs DB increment asynchronously. Returns the new count.
+     */
+    public int incrementWrongCount(UUID playerId, String word) {
+        String wordLower = word.toLowerCase();
+
+        // Update in-memory wrong count cache
+        Map<String, Integer> counts = wrongCountCache.computeIfAbsent(playerId,
+                k -> new ConcurrentHashMap<>());
+        int newCount = counts.merge(wordLower, 1, Integer::sum);
+
+        // Async DB increment
+        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+            databaseManager.incrementWrongCount(playerId, wordLower);
+        });
+
+        return newCount;
+    }
+
+    /**
+     * Mark a word as difficult (add to wrong book cache).
+     */
+    public void addDifficultWord(UUID playerId, String word) {
+        String wordLower = word.toLowerCase();
+        Map<String, DifficultWord> words = difficultWordsCache.computeIfAbsent(playerId,
+                k -> new ConcurrentHashMap<>());
+        int count = getWrongCount(playerId, wordLower);
+        words.put(wordLower, new DifficultWord(wordLower, Math.max(count, 3), System.currentTimeMillis()));
+    }
+
+    /**
+     * Remove a word from the difficult words cache and database.
+     */
+    public void removeDifficultWord(UUID playerId, String word) {
+        String wordLower = word.toLowerCase();
+        Map<String, DifficultWord> words = difficultWordsCache.get(playerId);
+        if (words != null) {
+            words.remove(wordLower);
+        }
+        Map<String, Integer> counts = wrongCountCache.get(playerId);
+        if (counts != null) {
+            counts.remove(wordLower);
+        }
+        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+            databaseManager.removeDifficultWord(playerId, wordLower);
+        });
+    }
+
+    /**
+     * Decrement wrong count by 1 (on practice correct). If reaches 0, remove from book.
+     */
+    public void decrementWrongCount(UUID playerId, String word) {
+        String wordLower = word.toLowerCase();
+        Map<String, Integer> counts = wrongCountCache.get(playerId);
+        if (counts != null) {
+            int newCount = counts.merge(wordLower, -1, Integer::sum);
+            if (newCount <= 0) {
+                counts.remove(wordLower);
+                Map<String, DifficultWord> words = difficultWordsCache.get(playerId);
+                if (words != null) {
+                    words.remove(wordLower);
+                }
+            }
+        }
+        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+            databaseManager.decrementWrongCount(playerId, wordLower);
+            // Check if count reached 0 in DB and remove
+            int dbCount = databaseManager.getWrongCount(playerId, wordLower);
+            if (dbCount <= 0) {
+                databaseManager.removeDifficultWord(playerId, wordLower);
+            }
+        });
+    }
+
+    /**
+     * Save difficult words cache to database.
+     */
+    public void saveDifficultWords(UUID playerId) {
+        // Difficult words are written incrementally via async DB ops,
+        // so no explicit full save is needed. This method exists for API consistency.
     }
 
     /**
@@ -437,6 +580,8 @@ public class PlayerDataStore {
         playerStatsCache.remove(playerId);
         activeSessionPlayers.remove(playerId);
         masteredWordsCache.remove(playerId);
+        difficultWordsCache.remove(playerId);
+        wrongCountCache.remove(playerId);
     }
 
     /**
@@ -452,6 +597,8 @@ public class PlayerDataStore {
         playerStatsCache.clear();
         activeSessionPlayers.clear();
         masteredWordsCache.clear();
+        difficultWordsCache.clear();
+        wrongCountCache.clear();
     }
 
     /**

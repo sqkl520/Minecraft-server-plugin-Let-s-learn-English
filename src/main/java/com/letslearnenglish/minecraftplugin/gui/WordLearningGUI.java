@@ -68,12 +68,40 @@ public class WordLearningGUI {
                     messages.getString("word-learning-gui.current-word",
                             "&eCurrent Word: &f{chinese}")
                             .replace("{chinese}", currentWord.getChinese()));
+
+            String phoneticStr = currentWord.getPhonetic();
+            String phoneticLine = "";
+            if (phoneticStr != null && !phoneticStr.isEmpty()) {
+                phoneticLine = ChatColor.translateAlternateColorCodes('&', "&7" +
+                        messages.getString("word.phonetic-label", "Phonetic")
+                        + ": &f" + phoneticStr);
+            }
+
             String viewLore = ChatColor.translateAlternateColorCodes('&', "&7" +
                     messages.getString("word-learning-gui.current-word-lore-1",
                             "Close the GUI and type the English word"));
 
-            inv.setItem(cm.getGuiSlot("word-learning", "current-word", 13), createItem(cm.getGuiMaterial("word-learning", "current-word", Material.BOOK), wordLabel, viewLore));
+            String[] loreLines;
+            if (!phoneticLine.isEmpty()) {
+                loreLines = new String[] { phoneticLine, viewLore };
+            } else {
+                loreLines = new String[] { viewLore };
+            }
+
+            inv.setItem(cm.getGuiSlot("word-learning", "current-word", 13),
+                    createItem(cm.getGuiMaterial("word-learning", "current-word", Material.BOOK),
+                            wordLabel, loreLines));
         }
+
+        // Pronunciation button
+        String pronLabel = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("word.pronunciation-button", "&dPronounce"));
+        String pronLore = ChatColor.translateAlternateColorCodes('&', "&7" +
+                messages.getString("word.pronunciation-button-lore",
+                        "Click to play pronunciation cue"));
+        int pronSlot = cm.getGuiSlot("word-learning", "pronunciation-button", 14);
+        Material pronMat = cm.getGuiMaterial("word-learning", "pronunciation-button", Material.NOTE_BLOCK);
+        inv.setItem(pronSlot, createItem(pronMat, pronLabel, pronLore));
 
         String progressLabel = ChatColor.translateAlternateColorCodes('&', "&a" +
                 messages.getString("word-learning-gui.progress",

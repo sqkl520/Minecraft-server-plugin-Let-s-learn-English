@@ -83,6 +83,7 @@ public class WordLearningListener implements Listener {
 
     private void handleWordLearningGUI(Player player, int slot) {
         WordLearningManager wlManager = plugin.getWordLearningManager();
+        int pronSlot = plugin.getConfigManager().getGuiSlot("word-learning", "pronunciation-button", 14);
 
         if (slot == 8) {
             if (wlManager.hasActiveQuiz(player.getUniqueId())) {
@@ -96,6 +97,8 @@ public class WordLearningListener implements Listener {
                 SoundManager.playSound(player, "menu-click");
                 new MainMenu(plugin).open(player);
             }
+        } else if (slot == pronSlot) {
+            handlePronunciationButton(player, wlManager);
         } else if (slot == 16) {
             SoundManager.playSound(player, "menu-click");
             handleStopSession(player, wlManager);
@@ -103,6 +106,41 @@ public class WordLearningListener implements Listener {
             SoundManager.playSound(player, "menu-click");
             startAnswerForCurrentWord(player, wlManager);
             player.closeInventory();
+        }
+    }
+
+    private void handlePronunciationButton(Player player, WordLearningManager wlManager) {
+        var ttsManager = plugin.getTtsManager();
+        if (ttsManager == null || !ttsManager.isEnabled()) {
+            SoundManager.playSound(player, "incorrect");
+            String lang = plugin.getPlayerLanguage(player);
+            var messages = plugin.getConfigManager().getMessageConfig(lang);
+            String msg = messages.getString("word.pronunciation-unavailable",
+                    "&7TTS not available");
+            player.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
+            return;
+        }
+
+        SoundManager.playSound(player, "menu-click");
+        ttsManager.playPronunciationCue(player);
+
+        // Show phonetic in chat as feedback
+        var currentWord = wlManager.getCurrentWord(player.getUniqueId());
+        if (currentWord != null) {
+            String phonetic = currentWord.getPhonetic();
+            String english = currentWord.getEnglish();
+            if (phonetic != null && !phonetic.isEmpty()) {
+                String lang = plugin.getPlayerLanguage(player);
+                var messages = plugin.getConfigManager().getMessageConfig(lang);
+                String phoneticLabel = messages.getString("word.phonetic-label", "Phonetic");
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                        "&d" + english + " &7" + phoneticLabel + ": &f" + phonetic));
+            }
+        }
+
+        // Async download audio for future cache (best-effort, silent on failure)
+        if (ttsManager.hasApiKey() && currentWord != null) {
+            ttsManager.generateAudio(currentWord.getEnglish());
         }
     }
 

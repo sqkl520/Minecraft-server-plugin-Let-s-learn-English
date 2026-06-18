@@ -279,6 +279,9 @@ gui-layout:
     stop-button:
       slot: 16
       material: "BARRIER"
+    pronunciation-button:
+      slot: 14
+      material: "NOTE_BLOCK"
     start-button:
       slot: 22
       material: "LIME_DYE"
@@ -405,6 +408,20 @@ daily-challenges:
     ai_chat_5: 40
 
 # ============================================================
+#  TTS 语音设置 (Text-to-Speech Settings)
+# ============================================================
+#  单词发音辅助功能：在 GUI 中显示音标符号，并支持 TTS 音频发音
+#  音标显示为主要功能；音频下载需要 VoiceRSS API 密钥（免费注册）
+tts:
+  # 是否启用发音功能（至少显示音标符号）
+  enabled: true
+  # 音频缓存保留天数，过期后自动清理
+  cache-days: 7
+  # VoiceRSS API 密钥（留空则不下载音频，仅显示音标）
+  # 免费注册: https://www.voicerss.org/registration.aspx
+  voicerss-api-key: ""
+
+# ============================================================
 #  难度等级设置 (Difficulty Settings)
 # ============================================================
 difficulty-settings:
@@ -415,3 +432,23 @@ difficulty-settings:
     beginner: "初级"
     intermediate: "中级"
     advanced: "高级"
+
+# ============================================================
+#  统计仪表盘 HTTP 服务器 (Statistics Dashboard HTTP Server)
+# ============================================================
+#  为管理员提供一个 Web 仪表盘，展示学习统计数据与图表
+#  使用 Java 内置 HttpServer，无需额外 HTTP 依赖
+statistics-server:
+  # 是否启用统计 HTTP 服务器
+  enabled: false
+  # 监听端口
+  port: 8080
+  # IP 白名单（支持 CIDR 表示法，如 192.168.1.0/24）
+  # 不在白名单中的 IP 将收到 403 Forbidden
+  ip-whitelist:
+    - "127.0.0.1"
+    - "192.168.1.0/24"
+  # HTTP Basic Auth 认证
+  auth:
+    username: "admin"
+    password: "changeme"
