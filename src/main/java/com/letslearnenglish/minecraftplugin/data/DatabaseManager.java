@@ -232,6 +232,15 @@ public class DatabaseManager {
                         "  PRIMARY KEY (player_uuid, word)" +
                         ")"
         );
+
+        // Daily check-in table
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "checkin_data (" +
+                        "  player_uuid VARCHAR(36) NOT NULL PRIMARY KEY," +
+                        "  last_checkin_date DATE NOT NULL," +
+                        "  streak_count INTEGER DEFAULT 1" +
+                        ")"
+        );
     }
 
     /**
@@ -975,6 +984,72 @@ public class DatabaseManager {
             result.add(new DailyStats(entry.getKey(), d[0], d[1], d[2]));
         }
         return result;
+    }
+
+    // ============================================================
+    //  Daily Check-in
+    // ============================================================
+
+    /**
+     * Get a player's check-in data (last date and streak).
+     * Returns null if the player has never checked in.
+     */
+    public CheckInData getCheckInData(UUID playerId) {
+        String sql = "SELECT last_checkin_date, streak_count FROM " + tablePrefix
+                + "checkin_data WHERE player_uuid = ?";
+        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+            stmt.setString(1, playerId.toString());
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    String lastDate = rs.getString("last_checkin_date");
+                    int streak = rs.getInt("streak_count");
+                    return new CheckInData(lastDate, streak);
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to get check-in data for " + playerId, e);
+        }
+        return null;
+    }
+
+    /**
+     * Update (UPSERT) a player's check-in data.
+     */
+    public void updateCheckIn(UUID playerId, String date, int streakCount) {
+        String sql;
+        if (isSQLite()) {
+            sql = "INSERT OR REPLACE INTO " + tablePrefix
+                    + "checkin_data (player_uuid, last_checkin_date, streak_count) VALUES (?, ?, ?)";
+        } else {
+            sql = "INSERT INTO " + tablePrefix
+                    + "checkin_data (player_uuid, last_checkin_date, streak_count) VALUES (?, ?, ?) "
+                    + "ON DUPLICATE KEY UPDATE last_checkin_date = VALUES(last_checkin_date), "
+                    + "streak_count = VALUES(streak_count)";
+        }
+        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+            stmt.setString(1, playerId.toString());
+            stmt.setString(2, date);
+            stmt.setInt(3, streakCount);
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to update check-in data for " + playerId, e);
+        }
+    }
+
+    /**
+     * Reset a player's check-in streak to 0.
+     */
+    public void resetCheckInStreak(UUID playerId) {
+        String sql = "UPDATE " + tablePrefix + "checkin_data SET streak_count = 0 WHERE player_uuid = ?";
+        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+            stmt.setString(1, playerId.toString());
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to reset check-in streak for " + playerId, e);
+        }
     }
 
     /**

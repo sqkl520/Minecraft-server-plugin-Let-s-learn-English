@@ -59,6 +59,7 @@ public class AIChatManager {
     private int timeoutSeconds;
     private int rateLimitSeconds;
     private int maxInputLength;
+    private int maxPromptLength;
     private boolean debug;
 
     private final Map<UUID, Long> lastRequestTime = new ConcurrentHashMap<>();
@@ -71,6 +72,9 @@ public class AIChatManager {
     /** 每个玩家当前使用的难度 */
     private final Map<UUID, String> playerDifficulties = new ConcurrentHashMap<>();
     private static final String DEFAULT_DIFFICULTY = "medium";
+
+    /** 每个玩家当前会话的 System Prompt（用于导出场景分享码） */
+    private final Map<UUID, String> playerSystemPrompts = new ConcurrentHashMap<>();
 
     /** 场景配置（保持插入顺序） */
     private final LinkedHashMap<String, ScenarioConfig> scenarios = new LinkedHashMap<>();
@@ -150,6 +154,7 @@ public class AIChatManager {
         this.timeoutSeconds = config.getInt("ai-chat.timeout-seconds", 15);
         this.rateLimitSeconds = config.getInt("ai-chat.rate-limit-seconds", 3);
         this.maxInputLength = config.getInt("ai-chat.max-input-length", 200);
+        this.maxPromptLength = config.getInt("scenario.max-prompt-length", 2000);
         this.debug = config.getBoolean("ai-chat.debug", false);
 
         if (debug) {
@@ -334,6 +339,7 @@ public class AIChatManager {
         context.add(new MessagePair("system", systemPrompt));
         conversationContexts.put(player.getUniqueId(), context);
         activeSessionIds.put(player.getUniqueId(), sessionId);
+        playerSystemPrompts.put(player.getUniqueId(), systemPrompt);
 
         // Write system prompt to DB asynchronously
         final UUID playerId = player.getUniqueId();
@@ -386,6 +392,7 @@ public class AIChatManager {
         conversationContexts.remove(player.getUniqueId());
         lastRequestTime.remove(player.getUniqueId());
         activeSessionIds.remove(player.getUniqueId());
+        playerSystemPrompts.remove(player.getUniqueId());
 
         // AI 对话计数 + 成就检查
         int count = conversationCount.merge(player.getUniqueId(), 1, Integer::sum);
@@ -624,6 +631,16 @@ public class AIChatManager {
         return scenarios;
     }
 
+    /** 获取玩家当前会话的 System Prompt（用于导出场景分享码），无会话时返回 null */
+    public String getCurrentSystemPrompt(Player player) {
+        return playerSystemPrompts.get(player.getUniqueId());
+    }
+
+    /** 获取场景 Prompt 最大长度限制 */
+    public int getMaxPromptLength() {
+        return maxPromptLength;
+    }
+
     public void shutdown() {
         // HttpClient is static and shared — no explicit shutdown needed.
         // Clear in-memory state so stale references don't leak.
@@ -632,6 +649,7 @@ public class AIChatManager {
         lastRequestTime.clear();
         conversationCount.clear();
         activeSessionIds.clear();
+        playerSystemPrompts.clear();
     }
 
     @FunctionalInterface

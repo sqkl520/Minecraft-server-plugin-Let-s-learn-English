@@ -19,6 +19,7 @@ D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-L
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\GuiNavigationManager.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\word\WordLearningManager.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\config\ConfigManager.java
+D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\data\CheckInData.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\word\WordManagerImpl.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\listener\ChatScenarioListener.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\data\ChatHistoryEntry.java
@@ -44,6 +45,7 @@ D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-L
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\UpdateChecker.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\gui\LearningCalendarGUI.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\gui\ScenarioSelectGUI.java
+D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\ai\ScenarioCodec.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\listener\SocialListener.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\progress\PlayerProgress.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\achievement\Achievement.java
@@ -59,6 +61,7 @@ D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-L
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\word\WordBank.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\ProxyMessenger.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\DailyChallengeManager.java
+D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\manager\CheckInManager.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\gui\ChatHistoryGUI.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\listener\ChatAnswerListener.java
 D:\Server\MCServers\Server plugin\Let's learn English!\Minecraft-server-plugin-Let-s-learn-English--1\src\main\java\com\letslearnenglish\minecraftplugin\core\manager\DataExporter.java
