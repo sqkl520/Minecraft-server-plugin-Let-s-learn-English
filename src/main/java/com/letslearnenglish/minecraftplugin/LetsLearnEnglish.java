@@ -11,6 +11,7 @@ import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
 import com.letslearnenglish.minecraftplugin.core.ai.TtsManager;
 import com.letslearnenglish.minecraftplugin.core.duel.DuelManager;
 import com.letslearnenglish.minecraftplugin.core.manager.AdminCommandHandler;
+import com.letslearnenglish.minecraftplugin.core.manager.CheckInManager;
 import com.letslearnenglish.minecraftplugin.core.manager.DataExporter;
 import com.letslearnenglish.minecraftplugin.core.manager.HotReloadManager;
 import com.letslearnenglish.minecraftplugin.core.manager.StatisticsHttpServer;
@@ -93,6 +94,8 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     private DuelManager duelManager;
 
+    private CheckInManager checkInManager;
+
     private StatisticsHttpServer statisticsHttpServer;
 
     private Economy economy = null;
@@ -138,6 +141,8 @@ public final class LetsLearnEnglish extends JavaPlugin {
         this.progressManager = new ProgressManagerImpl(this, playerDataStore);
 
         this.duelManager = new DuelManager(this);
+
+        this.checkInManager = new CheckInManager(this);
 
         this.adminCommandHandler = new AdminCommandHandler(this);
         this.dataExporter = new DataExporter(this, playerDataStore);
@@ -495,6 +500,10 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     public DuelManager getDuelManager() {
         return duelManager;
+    }
+
+    public CheckInManager getCheckInManager() {
+        return checkInManager;
     }
 
     public ProxyMessenger getProxyMessenger() {

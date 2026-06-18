@@ -126,3 +126,10 @@ CREATE TABLE IF NOT EXISTS {prefix}difficult_words (
     added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (player_uuid, word)
 );
+
+-- Daily check-in data (streak tracking)
+CREATE TABLE IF NOT EXISTS {prefix}checkin_data (
+    player_uuid VARCHAR(36) NOT NULL PRIMARY KEY,
+    last_checkin_date DATE NOT NULL,
+    streak_count INTEGER DEFAULT 1
+);

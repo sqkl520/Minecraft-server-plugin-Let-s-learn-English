@@ -125,7 +125,25 @@ help:
   history: "&e/le history &7- View AI chat history"
   duel: "&e/le duel <player> &7- Challenge a player to a word duel"
   wrong: "&e/le wrong &7- View your Wrong Book"
+  checkin: "&e/le checkin &7- Daily check-in for coins"
+  save_scenario: "&e/le save_scenario <name> &7- Export current AI scenario as share code"
+  load_scenario: "&e/le load_scenario <code> &7- Import a shared scenario code"
   footer: "&6======================================"
+
+checkin:
+  success: "{prefix}&aCheck-in successful! Streak: &e{streak} &adays, earned &e{coins} &acoins!"
+  already: "{prefix}&eYou've already checked in today! Come back tomorrow~"
+  streak-broken: "{prefix}&cStreak broken... &7Streak has been reset to &e1 &7day"
+  streak-info: "{prefix}&7Current streak: &e{streak} &7days"
+
+scenario:
+  save-success: "{prefix}&aScenario saved! Share code: &e{code}"
+  save-no-conversation: "{prefix}&cYou don't have an active AI conversation. Use /le dialogue to start one first~"
+  save-name-invalid: "{prefix}&cInvalid scenario name! Only Chinese/English letters, digits, and underscores allowed; max 32 characters."
+  save-prompt-too-long: "{prefix}&cScenario prompt is too long ({length}/{max} chars). Please simplify and try again."
+  load-success: "{prefix}&aScenario '{name}' loaded! You can now select it in /le dialogue~"
+  load-invalid: "{prefix}&cInvalid scenario code. Please check if it was copied completely."
+  load-name-invalid: "{prefix}&cInvalid scenario name in the code~"
 
 duel:
   cannot-challenge-self: "{prefix}&cYou cannot challenge yourself!"

@@ -125,7 +125,25 @@ help:
   history: "&e/le history &7- 查看 AI 对话历史"
   duel: "&e/le duel <玩家名> &7- 发起单词对决"
   wrong: "&e/le wrong &7- 查看错题本"
+  checkin: "&e/le checkin &7- 每日签到获取金币"
+  save_scenario: "&e/le save_scenario <名称> &7- 导出当前 AI 场景为分享码"
+  load_scenario: "&e/le load_scenario <编码> &7- 导入分享的场景码"
   footer: "&6======================================"
+
+checkin:
+  success: "{prefix}&a签到成功! 连续签到 &e{streak} &a天，获得 &e{coins} &a金币!"
+  already: "{prefix}&e你今天已经签到过了喵~ 明天再来吧!"
+  streak-broken: "{prefix}&c断签了... &7连续签到已重置为 &e1 &7天"
+  streak-info: "{prefix}&7当前连续签到 &e{streak} &7天"
+
+scenario:
+  save-success: "{prefix}&a场景已保存! 分享码: &e{code}"
+  save-no-conversation: "{prefix}&c你没有正在进行的 AI 对话喵~ 请先使用 /le dialogue 开始对话"
+  save-name-invalid: "{prefix}&c场景名称不合法喵~ 仅允许中英文/数字/下划线，最长32字符"
+  save-prompt-too-long: "{prefix}&c场景 Prompt 过长喵~ ({length}/{max} 字符)，请精简后再试"
+  load-success: "{prefix}&a场景 '{name}' 已加载! 现在可以在 /le dialogue 中选择了喵~"
+  load-invalid: "{prefix}&c无效的场景码喵~ 请检查是否完整复制"
+  load-name-invalid: "{prefix}&c场景名称不合法喵~"
 
 duel:
   cannot-challenge-self: "{prefix}&c你不能挑战自己喵~"

@@ -9,6 +9,7 @@ com\letslearnenglish\minecraftplugin\gui\ScenarioSelectGUI.class
 com\letslearnenglish\minecraftplugin\data\DifficultWord.class
 com\letslearnenglish\minecraftplugin\listener\DuelListener.class
 com\letslearnenglish\minecraftplugin\core\progress\ProgressManagerImpl.class
+com\letslearnenglish\minecraftplugin\data\CheckInData.class
 com\letslearnenglish\minecraftplugin\core\ai\AIChatManager$AIChatCallback.class
 com\letslearnenglish\minecraftplugin\gui\DailyChallengeGUI.class
 com\letslearnenglish\minecraftplugin\util\MessageUtil.class
@@ -22,9 +23,11 @@ com\letslearnenglish\minecraftplugin\expansion\LLEPapiExpansion.class
 com\letslearnenglish\minecraftplugin\core\achievement\Achievement.class
 com\letslearnenglish\minecraftplugin\LetsLearnEnglish.class
 com\letslearnenglish\minecraftplugin\core\achievement\AchievementManager.class
+com\letslearnenglish\minecraftplugin\core\manager\CheckInManager.class
 com\letslearnenglish\minecraftplugin\gui\ProfileGUI.class
 com\letslearnenglish\minecraftplugin\core\word\WordLearningManager$QuizState.class
 com\letslearnenglish\minecraftplugin\gui\LearningCalendarGUI.class
+com\letslearnenglish\minecraftplugin\core\manager\CheckInManager$CheckInResult.class
 com\letslearnenglish\minecraftplugin\command\LearnCommand.class
 com\letslearnenglish\minecraftplugin\core\word\WordLearningManager.class
 com\letslearnenglish\minecraftplugin\core\duel\DuelManager$1.class
@@ -66,10 +69,12 @@ com\letslearnenglish\minecraftplugin\core\ai\AIChatManager$ScenarioConfig.class
 com\letslearnenglish\minecraftplugin\core\word\LearningSession.class
 com\letslearnenglish\minecraftplugin\gui\ProgressGUI.class
 com\letslearnenglish\minecraftplugin\core\SoundManager.class
+com\letslearnenglish\minecraftplugin\core\ai\ScenarioCodec.class
 com\letslearnenglish\minecraftplugin\core\manager\StatisticsHttpServer$DashboardHandler.class
 com\letslearnenglish\minecraftplugin\core\manager\DataExporter.class
 com\letslearnenglish\minecraftplugin\listener\ScenarioSelectListener.class
 com\letslearnenglish\minecraftplugin\gui\LeaderboardGUI.class
+com\letslearnenglish\minecraftplugin\core\ai\ScenarioCodec$DecodedScenario.class
 com\letslearnenglish\minecraftplugin\core\DailyChallengeManager$WordChallengeProgress.class
 com\letslearnenglish\minecraftplugin\core\duel\DuelRoom.class
 com\letslearnenglish\minecraftplugin\gui\ConfirmationGUI.class

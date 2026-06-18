@@ -38,6 +38,11 @@
 - `config.yml` `daily-challenges` 段新增 `word-count`（默认 5）和 `word-challenge-reward`（默认 100.0）配置项
 - i18n 新增 `daily-challenge.*` 消息键（中英双语）：header、word-done、word-pending、all-complete、complete-title 等
 - **单词发音助手（音标 + TTS）**：WordLearningGUI 当前单词物品 lore 中显示音标符号（如 /wɜːd/）；新增发音按钮（NOTE_BLOCK 材质，slot 14），点击播放 NOTE_BLOCK_PLING 提示音并异步下载 TTS 音频缓存；新增 TtsManager 管理 VoiceRSS API 音频下载与缓存清理；音频下载为可选功能，需配置 API 密钥
+- **每日签到系统**：`/le checkin` 命令进行每日签到，连续签到每日递增金币奖励（Day 1=10, Day 2=20, Day 3=30, Day 4=50, Day 5=70, Day 6=85, Day 7=100），第8天循环回第1天；断签自动重置为1天；基于服务器时区的自然日判断
+- 新增 `checkin_data` 数据库表：记录玩家上次签到日期和连续天数；DatabaseManager 新增 `getCheckInData()`、`updateCheckIn()`、`resetCheckInStreak()` 方法
+- 新增 CheckInData 数据类和 CheckInManager 管理器：处理签到逻辑、连击奖励计算（含 >7 天循环）、Vault 经济发放
+- LearnCommand 新增 `checkin` 子命令和 Tab 补全；LetsLearnEnglish 新增 `getCheckInManager()` 访问器
+- i18n 新增 `checkin.*` 消息键（中英双语）：success、already、streak-broken、streak-info
 - `config.yml` 新增 `tts` 配置段（enabled / cache-days / voicerss-api-key），控制发音功能开关和音频缓存策略
 - `config.yml` gui-layout.word-learning 新增 `pronunciation-button` 按钮槽位和材质配置
 - i18n 新增 `word.pronunciation-button`、`word.pronunciation-button-lore`、`word.phonetic-label`、`word.pronunciation-unavailable` 消息键（中英双语）
@@ -56,6 +61,7 @@
 - i18n 新增 `wrong-book.*` 段 18 个消息键（中英双语）和 `help.wrong` 帮助条目
 - 主菜单新增 `main-menu.wrong-book` / `main-menu.wrong-book-lore` i18n 键（中英双语）
 - **学习统计 HTTP 仪表盘**：基于 Java 内置 HttpServer 的 Web 管理面板，展示学习统计数据与 ECharts 图表；双重安全防护（IP 白名单 + CIDR 支持 + HTTP Basic Auth）；`GET /` 返回深色主题 HTML 仪表盘（含 7 日学习趋势折线图、每日活跃玩家柱状图、摘要卡片、60 秒自动刷新）；`GET /api/stats` 返回 JSON 格式统计数据
+- **自定义 AI 场景分享**：`/le save_scenario <名称>` 将当前 AI 对话的 System Prompt 编码为 Base64 分享码；`/le load_scenario <编码>` 解码并导入场景到 `ai_scenarios.yml`，自动热重载生效；ScenarioCodec 编解码器（Base64 含 null 分隔符）；场景名称校验（最长 32 字符，仅允许中英文/数字/下划线）；Prompt 长度限制（`config.yml` `scenario.max-prompt-length`，默认 2000）；AIChatManager 跟踪每玩家当前 System Prompt 用于导出
 - 新增 `StatisticsHttpServer` 类（core/manager/）：服务生命周期管理（start/stop）、IP CIDR 匹配、Basic Auth 认证、内联 HTML 仪表盘
 - `config.yml` 新增 `statistics-server` 配置段（enabled / port / ip-whitelist / auth），默认 disabled
 - DatabaseManager 新增 `getTotalWordCount()`、`getTodayActivePlayers()`、`getTotalSessions()`、`getTotalCoinsEarned()`、`getTotalCoinsSpent()`、`getLast7DaysStats()` 统计查询方法和 `DailyStats` 记录类

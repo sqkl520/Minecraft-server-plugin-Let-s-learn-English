@@ -1,6 +1,8 @@
 package com.letslearnenglish.minecraftplugin.command;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
+import com.letslearnenglish.minecraftplugin.core.ai.ScenarioCodec;
 import com.letslearnenglish.minecraftplugin.gui.ChatHistoryGUI;
 import com.letslearnenglish.minecraftplugin.gui.EnglishSquareGUI;
 import com.letslearnenglish.minecraftplugin.gui.LeaderboardGUI;
@@ -14,8 +16,11 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -37,7 +42,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     private final LetsLearnEnglish plugin;
 
     private static final List<String> SUBCOMMANDS = Arrays.asList(
-            "menu", "word", "dialogue", "progress", "review", "stats", "help", "square", "profile", "leaderboard", "challenge", "history", "duel", "wrong"
+            "menu", "word", "dialogue", "progress", "review", "stats", "help", "square", "profile", "leaderboard", "challenge", "history", "duel", "wrong", "checkin", "save_scenario", "load_scenario"
     );
 
     public LearnCommand(LetsLearnEnglish plugin) {
@@ -97,6 +102,15 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 break;
             case "wrong":
                 handleWrongCommand(player);
+                break;
+            case "checkin":
+                handleCheckinCommand(player);
+                break;
+            case "save_scenario":
+                handleSaveScenarioCommand(player, args);
+                break;
+            case "load_scenario":
+                handleLoadScenarioCommand(player, args);
                 break;
             case "help":
                 sendHelpMessage(player);
@@ -288,6 +302,152 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         new com.letslearnenglish.minecraftplugin.gui.WrongBookGUI(plugin).open(player, 1);
     }
 
+    private void handleCheckinCommand(Player player) {
+        com.letslearnenglish.minecraftplugin.core.manager.CheckInManager checkInManager =
+                plugin.getCheckInManager();
+        if (checkInManager == null) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "general.error", "message", "Check-in system is not available."));
+            return;
+        }
+
+        com.letslearnenglish.minecraftplugin.core.manager.CheckInManager.CheckInResult result =
+                checkInManager.checkIn(player);
+
+        if (result.success()) {
+            if (result.streakBroken()) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "checkin.streak-broken"));
+            }
+            String coinsStr = String.valueOf((int) result.coinsEarned());
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "checkin.success",
+                    "streak", String.valueOf(result.streak()),
+                    "coins", coinsStr));
+        } else {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "checkin.already"));
+        }
+    }
+
+    private void handleSaveScenarioCommand(Player player, String[] args) {
+        AIChatManager aiChatManager = plugin.getAIChatManager();
+
+        // Check active conversation
+        if (!aiChatManager.hasActiveConversation(player)) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "scenario.save-no-conversation"));
+            return;
+        }
+
+        // Check name argument
+        if (args.length < 2) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "general.error", "message", "Usage: /le save_scenario <name>"));
+            return;
+        }
+
+        String name = args[1];
+
+        // Validate name: max 32 chars, only Chinese/English/digits/underscore
+        if (name.length() > 32 || !name.matches("[\\u4e00-\\u9fa5a-zA-Z0-9_]+")) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "scenario.save-name-invalid"));
+            return;
+        }
+
+        // Get current system prompt
+        String systemPrompt = aiChatManager.getCurrentSystemPrompt(player);
+        if (systemPrompt == null) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "scenario.save-no-conversation"));
+            return;
+        }
+
+        // Validate prompt length
+        int maxLength = aiChatManager.getMaxPromptLength();
+        if (systemPrompt.length() > maxLength) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "scenario.save-prompt-too-long",
+                    "length", String.valueOf(systemPrompt.length()),
+                    "max", String.valueOf(maxLength)));
+            return;
+        }
+
+        // Encode and send
+        String code = ScenarioCodec.encode(name, systemPrompt);
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                "scenario.save-success", "code", code));
+    }
+
+    private void handleLoadScenarioCommand(Player player, String[] args) {
+        // Check code argument
+        if (args.length < 2) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "general.error", "message", "Usage: /le load_scenario <code>"));
+            return;
+        }
+
+        String code = args[1];
+
+        // Decode
+        ScenarioCodec.DecodedScenario decoded = ScenarioCodec.decode(code);
+        if (decoded == null) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "scenario.load-invalid"));
+            return;
+        }
+
+        String name = decoded.name();
+        String prompt = decoded.prompt();
+
+        // Validate name
+        if (name.length() > 32 || !name.matches("[\\u4e00-\\u9fa5a-zA-Z0-9_]+")) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "scenario.load-name-invalid"));
+            return;
+        }
+
+        // Validate prompt length
+        AIChatManager aiChatManager = plugin.getAIChatManager();
+        int maxLength = aiChatManager.getMaxPromptLength();
+        if (prompt.length() > maxLength) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "scenario.save-prompt-too-long",
+                    "length", String.valueOf(prompt.length()),
+                    "max", String.valueOf(maxLength)));
+            return;
+        }
+
+        // Write to ai_scenarios.yml in plugin data folder
+        File scenariosFile = new File(plugin.getDataFolder(), "ai_scenarios.yml");
+        YamlConfiguration config = YamlConfiguration.loadConfiguration(scenariosFile);
+
+        // Generate a safe key from the name
+        String key = name.toLowerCase().replaceAll("[^a-z0-9_]", "_");
+        if (key.isEmpty()) key = "custom";
+
+        config.set("scenarios." + key + ".display_name", name);
+        config.set("scenarios." + key + ".display_name_zh", name);
+        config.set("scenarios." + key + ".material", "PAPER");
+        config.set("scenarios." + key + ".prompt", prompt);
+
+        try {
+            config.save(scenariosFile);
+        } catch (IOException e) {
+            plugin.getLogger().warning("Failed to save imported scenario to ai_scenarios.yml: " + e.getMessage());
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "general.error", "message", "Failed to save scenario file."));
+            return;
+        }
+
+        // Hot reload scenarios
+        aiChatManager.reload();
+
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                "scenario.load-success", "name", name));
+    }
+
     private void sendHelpMessage(Player player) {
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.header"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.menu"));
@@ -300,6 +460,9 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.square"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.history"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.wrong"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.checkin"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.save_scenario"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.load_scenario"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.footer"));
     }
 
