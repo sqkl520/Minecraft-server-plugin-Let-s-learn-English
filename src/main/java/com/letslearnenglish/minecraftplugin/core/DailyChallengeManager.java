@@ -1,7 +1,10 @@
 package com.letslearnenglish.minecraftplugin.core;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
-import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import com.letslearnenglish.minecraftplugin.core.word.Word;
+import com.letslearnenglish.minecraftplugin.core.word.WordBank;
+import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
+import org.bukkit.entity.Player;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -15,7 +18,10 @@ import java.util.logging.Level;
 /**
  * Daily Challenge Manager
  *
- * Each day, every player gets 3 random challenges.
+ * Two challenge systems:
+ * 1. Behavioral challenges (ChallengeType enum) — task-based, e.g. "answer 10 words"
+ * 2. Word challenges — N random words selected from WordBank each day
+ *
  * Progress is tracked in the database and checked after relevant actions.
  */
 public class DailyChallengeManager {
@@ -62,11 +68,32 @@ public class DailyChallengeManager {
         public boolean isAllDone() { return completed && claimed; }
     }
 
-    private final LetsLearnEnglish plugin;
+    /**
+     * Word challenge progress info.
+     */
+    public static class WordChallengeProgress {
+        public final String wordId;
+        public final boolean completed;
 
-    public DailyChallengeManager(LetsLearnEnglish plugin) {
-        this.plugin = plugin;
+        public WordChallengeProgress(String wordId, boolean completed) {
+            this.wordId = wordId;
+            this.completed = completed;
+        }
     }
+
+    private final LetsLearnEnglish plugin;
+    private final WordManagerImpl wordManager;
+    private final Set<UUID> wordChallengeClaimedToday;
+
+    public DailyChallengeManager(LetsLearnEnglish plugin, WordManagerImpl wordManager) {
+        this.plugin = plugin;
+        this.wordManager = wordManager;
+        this.wordChallengeClaimedToday = new HashSet<>();
+    }
+
+    // ============================================================
+    //  Behavioral Challenges (existing)
+    // ============================================================
 
     /**
      * Check if the player has challenges for today. If not, assign 3 random ones.
@@ -83,7 +110,9 @@ public class DailyChallengeManager {
             stmt.setString(2, today);
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next() && rs.getInt(1) > 0) {
-                    return; // Already assigned
+                    // Already assigned — but also ensure word challenges are assigned
+                    ensureWordChallengesAssigned(playerId);
+                    return;
                 }
             }
         } catch (SQLException e) {
@@ -115,6 +144,9 @@ public class DailyChallengeManager {
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to assign daily challenges for " + playerId, e);
         }
+
+        // Also assign word challenges
+        ensureWordChallengesAssigned(playerId);
     }
 
     /**
@@ -162,7 +194,6 @@ public class DailyChallengeManager {
         String today = LocalDate.now().toString();
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
 
-        // First get current state
         String selectSql = "SELECT progress, completed, claimed FROM " + tablePrefix
                 + "daily_challenges WHERE uuid = ? AND challenge_date = ? AND challenge_id = ?";
         int currentProgress = 0;
@@ -180,18 +211,18 @@ public class DailyChallengeManager {
                     alreadyCompleted = rs.getBoolean("completed");
                     alreadyClaimed = rs.getBoolean("claimed");
                 } else {
-                    return; // No challenge of this type assigned today
+                    return;
                 }
             }
         } catch (SQLException e) {
             return;
         }
 
-        if (alreadyClaimed) return; // Already done
+        if (alreadyClaimed) return;
 
         int newProgress = currentProgress + increment;
         boolean nowCompleted = newProgress >= type.target;
-        if (alreadyCompleted) nowCompleted = true; // Don't un-complete
+        if (alreadyCompleted) nowCompleted = true;
 
         String updateSql = "UPDATE " + tablePrefix
                 + "daily_challenges SET progress = ?, completed = ? WHERE uuid = ? AND challenge_date = ? AND challenge_id = ?";
@@ -246,5 +277,161 @@ public class DailyChallengeManager {
             plugin.getLogger().log(Level.WARNING, "Failed to claim daily challenge reward", e);
             return 0;
         }
+    }
+
+    // ============================================================
+    //  Word-Bank-Based Daily Challenges (NEW)
+    // ============================================================
+
+    /**
+     * Get the configured word count for daily word challenges.
+     */
+    private int getWordCountConfig() {
+        return plugin.getConfigManager().getMainConfig().getInt("daily-challenges.word-count", 5);
+    }
+
+    /**
+     * Get the reward for completing all daily word challenges.
+     */
+    private double getWordChallengeReward() {
+        return plugin.getConfigManager().getMainConfig().getDouble("daily-challenges.word-challenge-reward", 100.0);
+    }
+
+    /**
+     * Ensure the player has word challenges assigned for today.
+     * Called on player join and when checking behavioral challenges.
+     */
+    private void ensureWordChallengesAssigned(UUID playerId) {
+        String today = LocalDate.now().toString();
+        List<String> existing = plugin.getDatabaseManager().getDailyChallengeWords(playerId, today);
+        if (!existing.isEmpty()) return;
+
+        // Needs assignment — pick random words from WordBank
+        int wordCount = getWordCountConfig();
+        List<Word> allWords = new ArrayList<>();
+        for (String difficulty : wordManager.getAvailableDifficulties()) {
+            WordBank bank = wordManager.getWordBank(difficulty);
+            if (bank != null) {
+                allWords.addAll(bank.getAllWords());
+            }
+        }
+
+        if (allWords.isEmpty()) return;
+
+        // Shuffle and pick up to wordCount
+        Collections.shuffle(allWords, ThreadLocalRandom.current());
+        int count = Math.min(wordCount, allWords.size());
+        List<String> selectedIds = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            selectedIds.add(allWords.get(i).getEnglish().toLowerCase());
+        }
+
+        plugin.getDatabaseManager().assignDailyChallengeWords(playerId, today, selectedIds);
+        plugin.getLogger().info("Assigned " + selectedIds.size()
+                + " daily challenge words to player " + playerId);
+    }
+
+    /**
+     * Called when a player answers a word correctly during learning.
+     * Checks if the word is part of today's challenge and marks it complete.
+     */
+    public void onWordCorrect(Player player, Word word) {
+        UUID playerId = player.getUniqueId();
+        String today = LocalDate.now().toString();
+        String wordId = word.getEnglish().toLowerCase();
+
+        // Check if this word is assigned as today's challenge
+        List<String> challengeWords = plugin.getDatabaseManager().getDailyChallengeWords(playerId, today);
+        if (!challengeWords.contains(wordId)) return;
+
+        // Mark it complete in DB (returns false if already completed)
+        boolean freshlyCompleted = plugin.getDatabaseManager().markDailyChallengeWordComplete(playerId, today, wordId);
+
+        // Only check all-done if this word was just now completed
+        if (freshlyCompleted && plugin.getDatabaseManager().isDailyChallengeWordsCompleted(playerId, today)) {
+            onAllWordChallengesComplete(player);
+        }
+    }
+
+    /**
+     * Called when all word challenges for today are completed.
+     * Opens the celebration GUI and gives reward.
+     */
+    private void onAllWordChallengesComplete(Player player) {
+        UUID playerId = player.getUniqueId();
+        wordChallengeClaimedToday.add(playerId);
+
+        double reward = getWordChallengeReward();
+        var eco = plugin.getEconomy();
+        if (eco != null) {
+            eco.depositPlayer(player, reward);
+        }
+
+        // Send celebration message
+        String lang = plugin.getPlayerLanguage(player);
+        var msgs = plugin.getConfigManager().getMessageConfig(lang);
+        String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                msgs.getString("daily-challenge.all-complete",
+                        "&6★ &aAll daily challenge words completed! &e+{reward} coins")
+                        .replace("{reward}", String.valueOf((int) reward)));
+        player.sendMessage(msg);
+
+        // Open celebration GUI
+        new com.letslearnenglish.minecraftplugin.gui.ChallengeCompleteGUI(plugin).open(player, reward);
+    }
+
+    /**
+     * Get today's word challenge progress for a player.
+     * Returns int[]{completed, total}.
+     */
+    public int[] getTodayWordProgress(Player player) {
+        String today = LocalDate.now().toString();
+        ensureWordChallengesAssigned(player.getUniqueId());
+        return plugin.getDatabaseManager().getDailyChallengeWordsProgress(player.getUniqueId(), today);
+    }
+
+    /**
+     * Get today's word challenge details (words and completion status).
+     */
+    public List<WordChallengeProgress> getTodayWordDetails(Player player) {
+        String today = LocalDate.now().toString();
+        UUID playerId = player.getUniqueId();
+        ensureWordChallengesAssigned(playerId);
+
+        List<String> wordIds = plugin.getDatabaseManager().getDailyChallengeWords(playerId, today);
+        List<WordChallengeProgress> result = new ArrayList<>();
+
+        for (String wordId : wordIds) {
+            boolean wordCompleted = checkSingleWordCompleted(playerId, today, wordId);
+            result.add(new WordChallengeProgress(wordId, wordCompleted));
+        }
+        return result;
+    }
+
+    private boolean checkSingleWordCompleted(UUID playerId, String date, String wordId) {
+        String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
+        String sql = "SELECT completed FROM " + tablePrefix
+                + "daily_challenge_words WHERE player_uuid = ? AND challenge_date = ? AND word_id = ?";
+        try (Connection conn = plugin.getDatabaseManager().getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, playerId.toString());
+            stmt.setString(2, date);
+            stmt.setString(3, wordId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getBoolean("completed");
+                }
+            }
+        } catch (SQLException e) {
+            // ignore
+        }
+        return false;
+    }
+
+    /**
+     * Clear claimed state for a player (called at midnight).
+     */
+    public void clearWordChallengeClaim(UUID playerId) {
+        wordChallengeClaimedToday.remove(playerId);
     }
 }

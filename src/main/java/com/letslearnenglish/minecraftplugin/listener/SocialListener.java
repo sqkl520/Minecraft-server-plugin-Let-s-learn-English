@@ -7,6 +7,7 @@ import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.RankingMod
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.gui.AchievementWallGUI;
 import com.letslearnenglish.minecraftplugin.gui.EnglishSquareGUI;
+import com.letslearnenglish.minecraftplugin.gui.LeaderboardGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.ProfileGUI;
 import org.bukkit.entity.Player;
@@ -26,6 +27,7 @@ public class SocialListener implements Listener {
 
     private final LetsLearnEnglish plugin;
     private EnglishSquareGUI lastSquareGui;
+    private LeaderboardGUI lastLeaderboardGui;
 
     /** Player head slots: rows 2-5, skipping first and last columns */
     private static final int[] SQUARE_PLAYER_SLOTS = {
@@ -47,6 +49,7 @@ public class SocialListener implements Listener {
                 && !title.contains("周榜") && !title.contains("月榜") && !title.contains("总榜")
                 && !title.contains("Weekly Ranking") && !title.contains("Monthly Ranking")
                 && !title.contains("All-Time Ranking")
+                && !title.contains("Leaderboard") && !title.contains("排行榜")
                 && !title.contains("'s Profile") && !title.contains("的主页")
                 && !title.contains("个人主页")
                 && !title.contains("Achievement Wall") && !title.contains("成就墙")) {
@@ -59,7 +62,9 @@ public class SocialListener implements Listener {
 
         int slot = event.getSlot();
 
-        if (title.contains("English Square") || title.contains("英语广场")) {
+        if (title.contains("Leaderboard") || title.contains("排行榜")) {
+            handleLeaderboardGUI(player, slot);
+        } else if (title.contains("English Square") || title.contains("英语广场")) {
             handleEnglishSquareGUI(player, slot, title);
         } else if (title.contains("'s Profile") || title.contains("的主页") || title.contains("个人主页")) {
             handleProfileGUI(player, slot, title);
@@ -182,6 +187,58 @@ public class SocialListener implements Listener {
                     () -> new ProfileGUI(plugin).open(player, player.getUniqueId()));
             backAction.run();
         }
+    }
+
+    /** Player head slots for LeaderboardGUI */
+    private static final int[] LEADERBOARD_ENTRY_SLOTS = {
+        10, 16, 19, 25, 28, 34, 37, 43, 46, 52
+    };
+
+    private void handleLeaderboardGUI(Player player, int slot) {
+        GuiNavigationManager nav = plugin.getGuiNavigationManager();
+
+        // Back button
+        if (slot == 49) {
+            SoundManager.playSound(player, "menu-click");
+            lastLeaderboardGui = null;
+            new MainMenu(plugin).open(player);
+            return;
+        }
+
+        // Tab buttons (slots 0, 1, 2)
+        if (slot == 0 || slot == 1 || slot == 2) {
+            SoundManager.playSound(player, "menu-click");
+            int tab = slot; // 0=coins, 1=words, 2=combo
+            lastLeaderboardGui = new LeaderboardGUI(plugin);
+            lastLeaderboardGui.open(player, tab);
+            return;
+        }
+
+        // Player head slots
+        int entryIndex = getLeaderboardSlotIndex(slot);
+        if (entryIndex < 0) return;
+
+        LeaderboardGUI gui = lastLeaderboardGui;
+        if (gui == null) return;
+
+        List<UUID> playerIds = gui.getDisplayedPlayerIds();
+        if (entryIndex >= playerIds.size()) return;
+
+        UUID targetId = playerIds.get(entryIndex);
+        SoundManager.playSound(player, "menu-click");
+        int currentTab = gui.getActiveTab();
+        nav.pushBack(player.getUniqueId(), () -> {
+            LeaderboardGUI backGui = new LeaderboardGUI(plugin);
+            backGui.open(player, currentTab);
+        });
+        new ProfileGUI(plugin).open(player, targetId);
+    }
+
+    private int getLeaderboardSlotIndex(int slot) {
+        for (int i = 0; i < LEADERBOARD_ENTRY_SLOTS.length; i++) {
+            if (LEADERBOARD_ENTRY_SLOTS[i] == slot) return i;
+        }
+        return -1;
     }
 
     private int getPlayerSlotIndexOnSquare(int slot) {

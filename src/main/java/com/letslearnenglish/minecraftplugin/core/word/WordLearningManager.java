@@ -103,11 +103,13 @@ public class WordLearningManager {
                 session.addScore(comboScore);
                 session.recordCorrect();
 
-                // Daily challenge hooks
+                // Daily challenge hooks (behavioral)
                 plugin.getDailyChallengeManager().updateProgress(id, ChallengeType.ANSWER_10, 1);
                 if (state.consecutiveCorrect >= 5) {
                     plugin.getDailyChallengeManager().completeChallenge(id, ChallengeType.COMBO_5);
                 }
+                // Daily challenge hooks (word-bank-based)
+                plugin.getDailyChallengeManager().onWordCorrect(player, currentWord);
 
                 RewardEngine rewards = plugin.getProgressManager().getRewardEngine();
                 if (state.isReviewMode) {

@@ -29,6 +29,7 @@ public class GUIUtils {
                 || title.contains("周榜") || title.contains("月榜") || title.contains("总榜")
                 || title.contains("Weekly Ranking") || title.contains("Monthly Ranking")
                 || title.contains("All-Time Ranking")
+                || title.contains("Leaderboard") || title.contains("排行榜")
                 || title.contains("'s Profile")
                 || title.contains("的主页")
                 || title.contains("个人主页")
@@ -43,6 +44,12 @@ public class GUIUtils {
                 || title.contains("学习日历")
                 || title.contains("Learning Calendar")
                 || title.contains("Daily Challenge")
-                || title.contains("每日挑战");
+                || title.contains("每日挑战")
+                || title.contains("Challenge Complete")
+                || title.contains("挑战完成")
+                || title.contains("Chat History")
+                || title.contains("聊天记录")
+                || title.contains("Conversation Details")
+                || title.contains("对话详情");
     }
 }

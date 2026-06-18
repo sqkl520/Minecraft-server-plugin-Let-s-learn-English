@@ -72,6 +72,14 @@ leaderboard:
   rank-entry: "&6#{rank} &7金币: &e{score}"
   selected: "&a已选中"
   switch-hint: "&7点击切换"
+  title: "&6&l排行榜 / Leaderboard"
+  tab-coins: "&e金币榜 / Coins"
+  tab-words: "&e单词榜 / Words"
+  tab-combo: "&e连击榜 / Combo"
+  empty: "&7暂无数据 / No data"
+  entry-coins: "&7金币: &e{score}"
+  entry-words: "&7已学单词: &e{score}"
+  entry-combo: "&7最长连击: &e{score}"
 
 progress:
   view: "{prefix}&a正在查看你的学习进度..."
@@ -84,6 +92,13 @@ admin:
   usage-reset: "用法: /lea reset <玩家名>"
   reset-pending: "已请求重置玩家 {player} 的数据 (功能开发中)"
   unknown-command: "未知子命令。输入 /lea help 查看帮助。"
+
+wordbank:
+  export-success: "{prefix}&a单词库 &e{difficulty} &a已导出！&7文件: &f{file} &7(共 {count} 个单词)"
+  export-failed: "{prefix}&c导出失败: {reason}"
+  import-summary: "{prefix}&a导入完成！&7新增: &e{imported} &7跳过(重复): &e{skipped} &7错误: &e{errors}"
+  import-failed: "{prefix}&c导入失败: {reason}"
+  validation-failed: "{prefix}&c验证失败！请检查以下错误:"
 
 language:
   button: "&e切换到 English"
@@ -103,6 +118,7 @@ help:
   stats: "&e/le stats &7- 查看学习统计"
   profile: "&e/le profile [玩家名] &7- 查看个人资料"
   square: "&e/le square &7- 进入英语广场"
+  history: "&e/le history &7- 查看 AI 对话历史"
   footer: "&6======================================"
 
 admin-help:
@@ -111,6 +127,8 @@ admin-help:
   export: "&e/lea export &7- 导出玩家数据"
   reset: "&e/lea reset <玩家名> &7- 重置玩家数据"
   info: "&e/lea info &7- 查看插件信息"
+  exportwordbank: "&e/lea exportwordbank <难度> &7- 导出单词库至YAML文件"
+  importwordbank: "&e/lea importwordbank <文件名> &7- 从YAML文件导入单词库"
   footer: "&6======================================"
 
 plugin-info:
@@ -154,6 +172,23 @@ daily:
   name-session-3: "勤学苦练"
   name-combo-5: "连击高手"
   name-ai-chat-5: "对话能手"
+
+daily-challenge:
+  header: "{prefix}&6===== 每日单词挑战 ===== &7({completed}/{total})"
+  no-words: "{prefix}&c今天没有单词挑战！请稍后再试喵~"
+  word-done: "  &a✔ &f{word} &7- 已完成"
+  word-pending: "  &8✖ &7{word} &7- 未完成"
+  all-complete-chat: "{prefix}&6★ &a你已完成今天所有单词挑战！奖励已发放喵~"
+  all-complete: "&6★ &a所有每日挑战单词已完成！&e+{reward} 金币"
+  complete-title: "&6&l挑战完成！"
+  player-head: "&e{player}"
+  player-head-lore: "&7完成了所有每日挑战单词！"
+  firework: "&6&l★ 恭喜！★"
+  firework-lore: "&7你完成了今天所有挑战单词！"
+  reward-title: "&e奖励: {reward} 金币"
+  reward-lore: "&7领取你辛苦赢得的奖励！"
+  claim-button: "&a&l领取奖励！"
+  claim-button-lore: "&7点击领取你的金币！"
 
 word-learning-gui:
   title: "单词学习 - {difficulty}"
@@ -255,3 +290,25 @@ profile:
   settings-show-in-square-on: "&a当前: 可见"
   settings-show-in-square-off: "&7当前: 隐藏"
   settings-toggle-hint: "&7点击切换"
+
+chat-history:
+  title: "&6&lAI 对话历史"
+  empty: "&7还没有对话记录呢~"
+  empty-lore: "&7使用 /le dialogue 开始 AI 对话吧"
+  back-button: "&c&l返回主菜单"
+  back-lore: "&7点击返回主菜单界面"
+  back-to-list: "&e← 返回列表"
+  back-to-list-lore: "&7返回对话会话列表"
+  prev-page: "&e← 上一页"
+  prev-page-lore: "&7第 {page} 页"
+  next-page: "&e下一页 →"
+  next-page-lore: "&7第 {page} 页"
+  page-indicator: "&7第 {current}/{total} 页"
+  session-date: "&7日期: &f{date}"
+  session-scenario: "&7场景: &e{scenario}"
+  session-preview: "&7首条消息: &f{msg}"
+  click-to-view: "&7点击查看完整对话"
+  session-title: "&6&l对话详情"
+  role-system: "&5[系统]"
+  role-user: "&a[你]"
+  role-assistant: "&b[AI]"

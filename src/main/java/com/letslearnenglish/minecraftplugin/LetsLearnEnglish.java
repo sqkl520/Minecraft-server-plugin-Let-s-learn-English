@@ -17,6 +17,7 @@ import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.listener.ChatAnswerListener;
+import com.letslearnenglish.minecraftplugin.listener.ChatHistoryListener;
 import com.letslearnenglish.minecraftplugin.listener.ChatScenarioListener;
 import com.letslearnenglish.minecraftplugin.listener.MainMenuListener;
 import com.letslearnenglish.minecraftplugin.listener.MiscGUIListener;
@@ -110,6 +111,11 @@ public final class LetsLearnEnglish extends JavaPlugin {
         this.databaseManager = new DatabaseManager(this, configManager);
         this.databaseManager.initialize();
 
+        // Clean up old AI chat history (older than 30 days) asynchronously
+        getServer().getScheduler().runTaskAsynchronously(this, () -> {
+            databaseManager.cleanupOldChatHistory(30);
+        });
+
         this.playerDataStore = new PlayerDataStore(this, databaseManager);
 
         this.wordManager = new WordManagerImpl(this, configManager, playerDataStore);
@@ -118,7 +124,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
         this.aiChatManager = new AIChatManager(this);
         this.chatScenarioListener = new ChatScenarioListener(this, aiChatManager);
         this.guiNavigationManager = new GuiNavigationManager();
-        this.dailyChallengeManager = new DailyChallengeManager(this);
+        this.dailyChallengeManager = new DailyChallengeManager(this, wordManager);
         this.progressManager = new ProgressManagerImpl(this, playerDataStore);
 
         this.adminCommandHandler = new AdminCommandHandler(this);
@@ -141,9 +147,10 @@ public final class LetsLearnEnglish extends JavaPlugin {
         registerCommands();
         startScheduledTasks();
 
-        // Load leaderboard from database
+        // Load leaderboard from database and refresh caches
         getServer().getScheduler().runTaskAsynchronously(this, () -> {
             progressManager.getLeaderboard().loadFromDB();
+            progressManager.getLeaderboard().refreshCache();
         });
 
         long loadTime = System.currentTimeMillis() - startTime;
@@ -202,6 +209,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new MiscGUIListener(this), this);
         getServer().getPluginManager().registerEvents(chatScenarioListener, this);
         getServer().getPluginManager().registerEvents(new ChatAnswerListener(this), this);
+        getServer().getPluginManager().registerEvents(new ChatHistoryListener(this), this);
         getServer().getPluginManager().registerEvents(soundManager, this);
     }
 
@@ -236,6 +244,11 @@ public final class LetsLearnEnglish extends JavaPlugin {
         if (configManager.getMainConfig().getBoolean("general.backup.enabled", true)) {
             scheduleDatabaseBackup();
         }
+
+        // Leaderboard cache refresh every 5 minutes
+        getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
+            progressManager.getLeaderboard().refreshCache();
+        }, 6000L, 6000L);
     }
 
     private void scheduleDailyReminders() {
