@@ -35,7 +35,7 @@ public class MiscGUIListener implements Listener {
 
         if (!title.contains("Privacy Settings") && !title.contains("隐私设置")
                 && !title.contains("Select Word Bank") && !title.contains("选择词库")
-                && !title.contains("学习日历") && !title.contains("Learning Calendar")
+                && !title.contains("过往学习") && !title.contains("Study History")
                 && !title.contains("Daily Challenge") && !title.contains("每日挑战")
                 && !title.contains("Challenge Complete") && !title.contains("挑战完成")) {
             return;
@@ -51,7 +51,7 @@ public class MiscGUIListener implements Listener {
             handlePrivacySettings(player, slot);
         } else if (title.contains("Select Word Bank") || title.contains("选择词库")) {
             handleWordBankSelect(player, slot);
-        } else if (title.contains("学习日历") || title.contains("Learning Calendar")) {
+        } else if (title.contains("过往学习") || title.contains("Study History")) {
             handleLearningCalendar(player, slot);
         } else if (title.contains("Daily Challenge") || title.contains("每日挑战")) {
             handleDailyChallenge(player, slot);
@@ -131,11 +131,8 @@ public class MiscGUIListener implements Listener {
                         if (eco != null) {
                             eco.depositPlayer(player, reward);
                         }
-                        String lang = plugin.getPlayerLanguage(player);
-                        var msgs = plugin.getConfigManager().getMessageConfig(lang);
-                        String msg = msgs.getString("daily.reward-claimed", "&a[Daily] &6Reward claimed! &e+{reward} coins")
-                                .replace("{reward}", String.valueOf((int) reward));
-                        player.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&', msg));
+                        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                                "daily.reward-claimed", "reward", String.valueOf((int) reward)));
                     }
                     new DailyChallengeGUI(plugin).open(player);
                 }
