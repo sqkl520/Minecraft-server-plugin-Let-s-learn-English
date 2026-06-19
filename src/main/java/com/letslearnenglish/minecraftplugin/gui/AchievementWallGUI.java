@@ -80,7 +80,7 @@ public class AchievementWallGUI {
 
         String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
                 messages.getString("gui.back-button", "Back to Menu"));
-        inv.setItem(49, createItem(Material.RED_STAINED_GLASS_PANE, backLabel,
+        inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE, backLabel,
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
                         messages.getString("gui.back-lore", "Return to the main menu")))));
 

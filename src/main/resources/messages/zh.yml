@@ -393,8 +393,8 @@ chat-history:
   session-item-format: "&b&l{scenario} &7- {date}"
 
 wrong-book:
-  title: "&c&l错题本 / Wrong Book"
-  title-page: "&c&l错题本 / Wrong Book | 第 {page} 页"
+  title: "&c&l错题本"
+  title-page: "&c&l错题本 | 第 {page} 页"
   empty: "&7还没有错题呢~"
   empty-lore: "&7答错3次的单词会自动出现在这里喵~"
   word-name: "&c{word}"

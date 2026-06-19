@@ -1,0 +1,47 @@
+# Ralph Progress Log — LetsLearnEnglish v1.0.7 迭代
+# 项目: LetsLearnEnglish
+# 分支: ralph/v1.0.7-iteration
+# 开始: 2026-06-19
+# ============================================================
+
+## 2026-06-19 — DONE: BUG-001
+摘要: 修复 WordBank 未解析 reward 字段，Word 类增加 10 参数构造器
+
+## 2026-06-19 — DONE: BUG-002
+摘要: ReviewScheduler 已掌握单词改为 30 天低频复习，新增 mastered-review-interval-days 配置项
+
+## 2026-06-19 — DONE: BUG-003
+摘要: AIChatManager 重构上下文裁剪为 trimContextByTokens()，System Prompt 固定首位
+
+## 2026-06-19 — DONE: FEAT-001
+摘要: Leaderboard 持久化 + LeaderboardGUI + DatabaseManager 排行榜查询
+
+## 2026-06-19 — DONE: FEAT-002
+摘要: 每日挑战关联真实词库 + DailyChallengeManager + ChallengeCompleteGUI
+
+## 2026-06-19 — DONE: FEAT-003
+摘要: AI 对话历史回顾 + ChatHistoryGUI + ai_chat_history 表
+
+## 2026-06-19 — DONE: FEAT-004
+摘要: 词库导入导出 + WordBankValidator + AdminCommandHandler 导出/导入方法
+
+## 2026-06-19 — DONE: FEAT-005
+摘要: StatisticsHttpServer HTTP 统计面板 + IP白名单 + Basic Auth
+
+## 2026-06-19 — DONE: FEAT-006
+摘要: TTS 发音 + Word.phonetic 字段 + TtsManager
+
+## 2026-06-19 — DONE: FEAT-007
+摘要: PvP 单词对决 + DuelManager + Scoreboard 实时比分
+
+## 2026-06-19 — DONE: FEAT-008
+摘要: 错题本 + WrongBookGUI + difficult_words 表
+
+## 2026-06-19 — DONE: FEAT-009
+摘要: 每日签到 + CheckInManager + 连续签到递增奖励
+
+## 2026-06-19 — DONE: FEAT-010
+摘要: AI 场景分享 + ScenarioCodec + Base64 编码
+
+## 2026-06-19 — DONE: BUG-004
+摘要: 修复错题本中文标题显示 "错题本/Wrong Book"，zh.yml wrong-book.title 和 wrong-book.title-page 移除英文后缀
