@@ -88,7 +88,10 @@ public class SocialListener implements Listener {
             List<UUID> raw = store.getActivePlayerIds();
             playerIds = new ArrayList<>();
             for (UUID id : raw) {
-                if (!id.equals(player.getUniqueId())) playerIds.add(id);
+                PlayerDataStore.PlayerStats s = store.getPlayerStats(id);
+                if (s.getTotalCorrect() + s.getTotalIncorrect() > 0) {
+                    playerIds.add(id);
+                }
             }
         }
         int page = extractPageFromTitle(title);

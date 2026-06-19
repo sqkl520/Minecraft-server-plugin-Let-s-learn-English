@@ -76,23 +76,22 @@ public class EnglishSquareGUI {
 
         List<LeaderboardEntry> rankedEntries;
         if (mode == RankingMode.ALL_PLAYERS) {
-            // Original mode: show active players
+            // Original mode: show active players (include self if answered at least once)
             List<UUID> allPlayers = store.getActivePlayerIds();
             currentPlayerIds = new ArrayList<>();
             for (UUID id : allPlayers) {
-                if (!id.equals(viewer.getUniqueId())) {
+                PlayerDataStore.PlayerStats s = store.getPlayerStats(id);
+                if (s.getTotalCorrect() + s.getTotalIncorrect() > 0) {
                     currentPlayerIds.add(id);
                 }
             }
             rankedEntries = Collections.emptyList();
         } else {
-            // Ranking mode: query leaderboard
+            // Ranking mode: query leaderboard (include self if has activity)
             rankedEntries = plugin.getProgressManager().getLeaderboard().getTopPlayers(mode, displayCount);
             currentPlayerIds = new ArrayList<>();
             for (LeaderboardEntry e : rankedEntries) {
-                if (!e.playerId.equals(viewer.getUniqueId())) {
-                    currentPlayerIds.add(e.playerId);
-                }
+                currentPlayerIds.add(e.playerId);
             }
         }
 

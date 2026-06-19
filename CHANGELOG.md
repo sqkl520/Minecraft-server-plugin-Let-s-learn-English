@@ -21,6 +21,10 @@
 - GuiNavigationManager 使用 `Map<UUID, Runnable>` 单槽存储导致多层 GUI 导航时 back 路径被覆盖；改为 `Map<UUID, Deque<Runnable>>` 栈结构，保证"从哪里进的就要从哪出"的导航正确性
 - AIChatManager 上下文裁剪可能误删 System Prompt；重构为按 token 估算精确裁剪，System Prompt 永远固定在消息列表首位不可删除
 - 错题本中文标题显示 "错题本/Wrong Book|第X页" 含英文后缀；修改 zh.yml `wrong-book.title` 和 `wrong-book.title-page`，中文模式下只显示中文
+- 英语广场（English Square）不显示自己；改为按答题活跃度过滤（totalCorrect+totalIncorrect>0），包含自己
+- 学习日历布局错误：列优先填充未做星期对齐导致日期错位；改为基于 LocalDate.getDayOfWeek() 的正确行列映射，每个日期总显示在对应星期列下
+- 学习日历颜色方案倒置：亮色=学得多改为深色=学得少（0→GRAY, 1-5→GREEN, 6-15→LIME, 16+→YELLOW），颜色指示图例从底行移至右侧列
+- 主菜单"学习日历"改为"过往学习"（zh.yml: 过往学习, en.yml: Study History），GUI 标题同步更新
 
 ### Added
 - `config.yml` review 段新增 `mastered-review-interval-days` 配置项（默认 30 天），控制已掌握单词低频复习周期

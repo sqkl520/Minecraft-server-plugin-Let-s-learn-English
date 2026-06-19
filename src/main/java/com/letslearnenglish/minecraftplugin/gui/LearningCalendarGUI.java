@@ -10,25 +10,57 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 /**
- * Learning Calendar GUI — GitHub contribution graph style.
+ * Study History GUI — GitHub contribution graph style.
+ *
+ * Layout (54 slots, 6 rows × 9 cols):
+ *   Row 0 (0-8):  Day-of-week labels at slots 1-7, Back button at slot 8
+ *   Rows 1-5 (9-53): Calendar grid
+ *     Columns 1-7 (slots 10-16, 19-25, 28-34, 37-43, 46-52): data cells
+ *     Column 8 (slots 17, 26, 35, 44): color legend (vertical, right side)
+ *
+ * Day-of-week alignment:
+ *   Column 1 = Monday, Column 2 = Tuesday, ..., Column 7 = Sunday
+ *   Each cell is placed in the correct day-of-week column so the
+ *   calendar always aligns properly regardless of the start date.
+ *
+ * Color scheme (darker = less learning):
+ *   0 words  → GRAY   (no activity)
+ *   1-5      → GREEN  (light learning, darker green)
+ *   6-15     → LIME   (moderate learning, brighter green)
+ *   16+      → YELLOW (heavy learning, brightest)
  */
 public class LearningCalendarGUI {
 
     private static final int GUI_SIZE = 54;
 
+    /**
+     * Data cell slots — column-major: column 0→6 = Monday→Sunday, row 0→4 = oldest→newest week.
+     *   Col 0 (Mon): 10, 19, 28, 37, 46
+     *   Col 1 (Tue): 11, 20, 29, 38, 47
+     *   Col 2 (Wed): 12, 21, 30, 39, 48
+     *   Col 3 (Thu): 13, 22, 31, 40, 49
+     *   Col 4 (Fri): 14, 23, 32, 41, 50
+     *   Col 5 (Sat): 15, 24, 33, 42, 51
+     *   Col 6 (Sun): 16, 25, 34, 43, 52
+     */
     private static final int[] DAY_SLOTS = {
-        10, 19, 28, 37, 46,
-        11, 20, 29, 38, 47,
-        12, 21, 30, 39, 48,
-        13, 22, 31, 40, 49,
-        14, 23, 32, 41, 50,
-        15, 24, 33, 42, 51,
-        16, 25, 34, 43, 52
+        10, 19, 28, 37, 46,   // Monday
+        11, 20, 29, 38, 47,   // Tuesday
+        12, 21, 30, 39, 48,   // Wednesday
+        13, 22, 31, 40, 49,   // Thursday
+        14, 23, 32, 41, 50,   // Friday
+        15, 24, 33, 42, 51,   // Saturday
+        16, 25, 34, 43, 52    // Sunday
     };
+
+    /** Legend slots — right side column (col 8, rows 1-4) */
+    private static final int[] LEGEND_SLOTS = { 17, 26, 35, 44 };
 
     private final LetsLearnEnglish plugin;
 
@@ -40,11 +72,11 @@ public class LearningCalendarGUI {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration msg = plugin.getConfigManager().getMessageConfig(lang);
 
-        String title = msg.getString("calendar.title", "&a&lLearning Calendar");
+        String title = msg.getString("calendar.title", "&a&lStudy History");
         title = ChatColor.translateAlternateColorCodes('&', title);
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
-        // Day-of-week labels
+        // ── Day-of-week labels (row 0, slots 1-7) ──
         Material labelMat = Material.WHITE_STAINED_GLASS_PANE;
         String[] labels = getDayLabels(msg);
         for (int d = 0; d < 7; d++) {
@@ -53,9 +85,12 @@ public class LearningCalendarGUI {
                     Collections.emptyList()));
         }
 
+        // ── Data ──
         Map<String, Integer> dayData = plugin.getPlayerDataStore().getSessionDays(player.getUniqueId(), 35);
         LocalDate today = LocalDate.now();
-        LocalDate startDate = today.minusDays(34);
+        LocalDate startDate = today.minusDays(34); // 35-day window including today
+        // Align grid start to Monday of startDate's week
+        LocalDate gridStart = startDate.with(DayOfWeek.MONDAY);
 
         String noActivity = getCalendarMsg(msg, lang, "legend-no-activity", "无学习记录", "No activity");
         String light = getCalendarMsg(msg, lang, "legend-light", "轻度学习", "Light");
@@ -64,24 +99,35 @@ public class LearningCalendarGUI {
         String todayMarker = getCalendarMsg(msg, lang, "today-marker", "&e★ 今天", "&e★ Today");
         String wordsUnit = getCalendarMsg(msg, lang, "words-unit", "词", "words");
 
-        for (int i = 0; i < 35; i++) {
-            LocalDate date = startDate.plusDays(i);
+        for (int slotIdx = 0; slotIdx < 35; slotIdx++) {
+            int slot = DAY_SLOTS[slotIdx];
+            int col = slotIdx / 5; // 0=Mon ... 6=Sun
+            int row = slotIdx % 5; // 0=oldest week ... 4=newest week
+
+            LocalDate date = gridStart.plusDays(row * 7L + col);
+
+            // Skip dates outside our 35-day window
+            if (date.isBefore(startDate) || date.isAfter(today)) {
+                continue;
+            }
+
             String dateStr = date.toString();
             int wordsCount = dayData.getOrDefault(dateStr, 0);
 
+            // Color: darker = less learning
             Material mat;
             String levelText;
             if (wordsCount == 0) {
                 mat = Material.GRAY_STAINED_GLASS_PANE;
                 levelText = noActivity;
             } else if (wordsCount <= 5) {
-                mat = Material.LIME_STAINED_GLASS_PANE;
+                mat = Material.GREEN_STAINED_GLASS_PANE;
                 levelText = light;
             } else if (wordsCount <= 15) {
-                mat = Material.GREEN_STAINED_GLASS_PANE;
+                mat = Material.LIME_STAINED_GLASS_PANE;
                 levelText = moderate;
             } else {
-                mat = Material.GREEN_STAINED_GLASS_PANE;
+                mat = Material.YELLOW_STAINED_GLASS_PANE;
                 levelText = heavy;
             }
 
@@ -95,28 +141,32 @@ public class LearningCalendarGUI {
                 lore.add(ChatColor.translateAlternateColorCodes('&', todayMarker));
             }
 
-            inv.setItem(DAY_SLOTS[i], createItem(mat, displayName, lore));
+            inv.setItem(slot, createItem(mat, displayName, lore));
         }
 
-        // Legend
-        inv.setItem(45, createItem(Material.GRAY_STAINED_GLASS_PANE,
+        // ── Color legend — right side column ──
+        // Slot 17 (row 1): 0 words — GRAY
+        inv.setItem(LEGEND_SLOTS[0], createItem(Material.GRAY_STAINED_GLASS_PANE,
                 ChatColor.translateAlternateColorCodes('&', "&70"),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
                         "&7" + noActivity))));
-        inv.setItem(46, createItem(Material.LIME_STAINED_GLASS_PANE,
-                ChatColor.translateAlternateColorCodes('&', "&a1-5"),
+        // Slot 26 (row 2): 1-5 words — GREEN (darker = less)
+        inv.setItem(LEGEND_SLOTS[1], createItem(Material.GREEN_STAINED_GLASS_PANE,
+                ChatColor.translateAlternateColorCodes('&', "&21-5"),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
                         "&7" + light))));
-        inv.setItem(47, createItem(Material.GREEN_STAINED_GLASS_PANE,
-                ChatColor.translateAlternateColorCodes('&', "&26-15"),
+        // Slot 35 (row 3): 6-15 words — LIME (brighter = more)
+        inv.setItem(LEGEND_SLOTS[2], createItem(Material.LIME_STAINED_GLASS_PANE,
+                ChatColor.translateAlternateColorCodes('&', "&a6-15"),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
                         "&7" + moderate))));
-        inv.setItem(48, createItem(Material.GREEN_STAINED_GLASS_PANE,
-                ChatColor.translateAlternateColorCodes('&', "&216+"),
+        // Slot 44 (row 4): 16+ words — YELLOW (brightest = heaviest)
+        inv.setItem(LEGEND_SLOTS[3], createItem(Material.YELLOW_STAINED_GLASS_PANE,
+                ChatColor.translateAlternateColorCodes('&', "&e16+"),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
                         "&7" + heavy))));
 
-        // Back button
+        // ── Back button ──
         String back = getCalendarMsg(msg, lang, "back", "返回", "Back");
         String backLore = getCalendarMsg(msg, lang, "back-lore", "&7返回来源页面", "&7Return to source page");
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE,
@@ -140,7 +190,6 @@ public class LearningCalendarGUI {
         if (val != null) {
             return ChatColor.translateAlternateColorCodes('&', val);
         }
-        // fallback based on language
         return ChatColor.translateAlternateColorCodes('&', "zh".equalsIgnoreCase(lang) ? zhFallback : enFallback);
     }
 
