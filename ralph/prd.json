@@ -1,0 +1,228 @@
+{
+  "project": "LetsLearnEnglish",
+  "branchName": "ralph/v1.0.7-iteration",
+  "description": "v1.0.7 迭代开发 — 3 Bug修复 + 10 新功能 + 1 新增 Bug 修复(错题本中文标题)",
+  "userStories": [
+    {
+      "id": "BUG-001",
+      "title": "WordBank 未解析 reward 字段",
+      "description": "修复 WordBank 加载 YAML 时忽略 reward 字段，导致单词自定义奖励永远为 0",
+      "acceptanceCriteria": [
+        "YAML 中为单词设置的 reward 能在答题后正确发放",
+        "Word.equals() 和 hashCode() 包含 reward 字段",
+        "mvn clean compile passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "dependencies": [],
+      "notes": "已完成：Word.java 10参数构造器，WordBank.java 读取reward，AdminCommandHandler 保存reward"
+    },
+    {
+      "id": "BUG-002",
+      "title": "ReviewScheduler 复习完所有间隔后永久排除单词",
+      "description": "修复 reviewCount >= reviewIntervalsSize 时直接 continue 导致单词永不出现",
+      "acceptanceCriteria": [
+        "已掌握所有间隔的单词在 mastered-review-interval-days 天后再次出现在复习列表",
+        "MASTERED 状态正确写入数据库",
+        "30 天周期可在 config.yml 中配置",
+        "mvn clean compile passes"
+      ],
+      "priority": 2,
+      "passes": true,
+      "dependencies": [],
+      "notes": "已完成：masteredReviewIntervalMs 配置项，低频复习池机制"
+    },
+    {
+      "id": "BUG-003",
+      "title": "AIChatManager 上下文裁剪可能误删 System Prompt",
+      "description": "重构上下文裁剪逻辑，System Prompt 永远固定在首位且不可删除",
+      "acceptanceCriteria": [
+        "上下文超长时 System Prompt 永远不会被移除",
+        "裁剪后消息列表仍以 user/assistant 交替格式正确",
+        "mvn clean compile passes"
+      ],
+      "priority": 3,
+      "passes": true,
+      "dependencies": [],
+      "notes": "已完成：trimContextByTokens() 方法，estimateTokens() 辅助方法，max-context-tokens 配置项"
+    },
+    {
+      "id": "BUG-004",
+      "title": "错题本中文标题不应显示英文 '/Wrong Book'",
+      "description": "在中文语言模式下，错题本 GUI 标题显示 '错题本/Wrong Book|第1页'，应只显示 '错题本|第1页'",
+      "acceptanceCriteria": [
+        "中文模式下错题本标题为 '错题本 | 第 X 页'",
+        "英文模式下错题本标题为 'Wrong Book | Page X'",
+        "zh.yml wrong-book.title 和 wrong-book.title-page 不含 '/Wrong Book'",
+        "mvn clean compile passes"
+      ],
+      "priority": 4,
+      "passes": true,
+      "dependencies": [],
+      "notes": "已修复：zh.yml wrong-book.title 和 wrong-book.title-page 移除 '/Wrong Book'"
+    },
+    {
+      "id": "FEAT-001",
+      "title": "排行榜系统持久化",
+      "description": "排行榜数据从内存缓存改为数据库持久化，支持金币榜/单词数榜/连击榜",
+      "acceptanceCriteria": [
+        "服务器重启后排行榜数据恢复",
+        "Tab 切换三种榜单正常",
+        "5 分钟缓存刷新不产生数据库压力",
+        "/le leaderboard 命令正常",
+        "mvn clean compile passes"
+      ],
+      "priority": 5,
+      "passes": true,
+      "dependencies": [],
+      "notes": "已完成：LeaderboardGUI, DatabaseManager 查询方法, Leaderboard 缓存层"
+    },
+    {
+      "id": "FEAT-002",
+      "title": "强化每日挑战（关联真实词库）",
+      "description": "每日 0 点从 WordBank 随机抽取 N 个单词作为每日挑战，完成后获得奖励",
+      "acceptanceCriteria": [
+        "每日挑战与真实词库联动",
+        "完成全部挑战后获得奖励",
+        "/le challenge 可查看今日进度",
+        "跨天后自动刷新新一批单词",
+        "mvn clean compile passes"
+      ],
+      "priority": 6,
+      "passes": true,
+      "dependencies": [],
+      "notes": "已完成：daily_challenge_words 表，DailyChallengeManager，ChallengeCompleteGUI"
+    },
+    {
+      "id": "FEAT-003",
+      "title": "AI 对话历史回顾",
+      "description": "持久化 AI 对话记录，提供 /le history GUI 分页浏览历史对话",
+      "acceptanceCriteria": [
+        "玩家可查看自己过往的 AI 对话内容",
+        "分页展示正常（每页 10 条）",
+        "展开查看完整上下文",
+        "30 天前数据自动清理",
+        "mvn clean compile passes"
+      ],
+      "priority": 7,
+      "passes": true,
+      "dependencies": [],
+      "notes": "已完成：ai_chat_history 表，ChatHistoryGUI，ChatHistoryListener"
+    },
+    {
+      "id": "FEAT-004",
+      "title": "词库导入导出（管理员工具）",
+      "description": "管理员可导出/导入词库 YAML，含校验和去重机制",
+      "acceptanceCriteria": [
+        "导出的 YAML 可通过 /lea import 完整导入",
+        "重复单词被跳过，不产生数据冲突",
+        "非法 YAML 被拒绝并给出明确错误提示",
+        "mvn clean compile passes"
+      ],
+      "priority": 8,
+      "passes": true,
+      "dependencies": [],
+      "notes": "已完成：WordBankValidator, AdminCommandHandler exportWordBank/importWordBank"
+    },
+    {
+      "id": "FEAT-005",
+      "title": "学习统计网页面板（HTTP 服务）",
+      "description": "内嵌 HTTP 服务器提供 JSON API 和 ECharts 可视化面板，IP白名单+Basic Auth 保护",
+      "acceptanceCriteria": [
+        "管理员浏览器可查看可视化数据",
+        "/api/stats 返回正确 JSON 数据",
+        "IP 不在白名单时返回 403",
+        "HTTP Basic Auth 认证失败返回 401",
+        "插件卸载时 HTTP 服务正确关闭",
+        "mvn clean compile passes"
+      ],
+      "priority": 9,
+      "passes": true,
+      "dependencies": [],
+      "notes": "已完成：StatisticsHttpServer, config.yml statistics-server 配置段"
+    },
+    {
+      "id": "FEAT-006",
+      "title": "单词发音辅助（音标 + TTS）",
+      "description": "Word 类增加 phonetic 字段，GUI 显示音标并支持 TTS 发音播放",
+      "acceptanceCriteria": [
+        "点击发音按钮播放单词正确读音",
+        "GUI 中正确显示音标",
+        "音频缓存 7 天后自动重新生成",
+        "无 TTS API 时优雅降级",
+        "mvn clean compile passes"
+      ],
+      "priority": 10,
+      "passes": true,
+      "dependencies": [],
+      "notes": "已完成：TtsManager, Word.phonetic 字段, config.yml tts 配置段"
+    },
+    {
+      "id": "FEAT-007",
+      "title": "PvP 单词实时对决（双人抢答）",
+      "description": "两人实时抢答单词对决，先得5分者胜，支持掉线30秒重连",
+      "acceptanceCriteria": [
+        "两名玩家可正常匹配并完成完整对局",
+        "奖励正确发放",
+        "Scoreboard 实时显示比分",
+        "掉线 30 秒内重连可恢复对局",
+        "超时未重连自动判负",
+        "mvn clean compile passes"
+      ],
+      "priority": 11,
+      "passes": true,
+      "dependencies": [],
+      "notes": "已完成：DuelManager, DuelRoom, DuelGUI, DuelListener"
+    },
+    {
+      "id": "FEAT-008",
+      "title": "错题本 / 难点词标记",
+      "description": "答错累计3次的单词自动加入错题本，支持移除和独立复习",
+      "acceptanceCriteria": [
+        "答错 3 次的单词自动加入错题本",
+        "错题本 GUI 正确展示所有错题",
+        "移除功能正常",
+        "重新练习独立于艾宾浩斯复习进度",
+        "服务器重启后错题本数据保留",
+        "mvn clean compile passes"
+      ],
+      "priority": 12,
+      "passes": true,
+      "dependencies": [],
+      "notes": "已完成：difficult_words 表，WrongBookGUI，WrongBookListener，DifficultWord"
+    },
+    {
+      "id": "FEAT-009",
+      "title": "每日签到系统",
+      "description": "连续签到奖励递增（第1天+10 ~ 第7天+100），断签重置，每日仅可签到一次",
+      "acceptanceCriteria": [
+        "跨天签到连续计数正确",
+        "断签后 streak_count 重置为 0",
+        "第 7 天正确发放 100 金币",
+        "第 8 天正确重置为 10 金币",
+        "每天仅可签到一次",
+        "mvn clean compile passes"
+      ],
+      "priority": 13,
+      "passes": true,
+      "dependencies": [],
+      "notes": "已完成：checkin_data 表，CheckInManager，CheckInData"
+    },
+    {
+      "id": "FEAT-010",
+      "title": "自定义 AI 场景分享",
+      "description": "玩家可导出/导入 AI 场景（Base64编码），支持跨玩家分享",
+      "acceptanceCriteria": [
+        "玩家可导出场景码分享给其他人",
+        "对方加载后立即可用（无需重启）",
+        "超长 Prompt 被拒绝（>2000 字符）",
+        "非法 Base64 被拒绝并提示错误",
+        "mvn clean compile passes"
+      ],
+      "priority": 14,
+      "passes": true,
+      "dependencies": [],
+      "notes": "已完成：ScenarioCodec, /le save_scenario, /le load_scenario"
+    }
+  ]
+}

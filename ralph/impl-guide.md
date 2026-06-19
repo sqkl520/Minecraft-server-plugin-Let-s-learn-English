@@ -1,237 +1,442 @@
-# 实现指南 — GUI Bug 修复
+# 实现指南 — v1.0.7 迭代开发
+
+> 本文档记录 PRD 中 13 个 Story 的实现细节，供后续维护和审查参考。
+> 所有 Story 均已完成实现。
 
 ---
 
-## US-001 — Learning Calendar 主菜单项缺少 i18n 翻译
+## BUG-001 — WordBank 未解析 reward 字段
 
 ### 目标
-补充 `main-menu.calendar` 和 `main-menu.calendar-lore` 两个 i18n 键值到中英文 message 文件，使主菜单中的"Learning Calendar"入口项能正确显示对应语言的文本。
-
-### 根因分析
-`MainMenu.java` 第 84-88 行使用 `messages.getString("main-menu.calendar", "&aLearning Calendar")` — 当 `zh.yml` 和 `en.yml` 均缺少该 key 时，始终回退到硬编码英文默认值 `"&aLearning Calendar"`。两个 message 文件（zh.yml / en.yml）的 `main-menu` 段都没有定义 `calendar` 和 `calendar-lore`。
+确保 YAML 词库中为单词设置的 `reward` 能够在答题后正确发放，修复 Word 构造器缺少 reward 参数的问题。
 
 ### 涉及文件
-- `src/main/resources/messages/zh.yml` — 修改（追加 2 个键值）
-- `src/main/resources/messages/en.yml` — 修改（追加 2 个键值）
+- `core/word/Word.java` — 新增 `reward` 字段和 `phonetic` 字段，扩展为 10 参数构造器
+- `core/word/WordBank.java` — 解析 YAML 中的 `reward` 字段并传入 10 参数构造器
 
 ### 实现要点
-1. 在 `zh.yml` 的 `main-menu:` 段末尾（`wrong-book-lore` 之后）追加：
-   ```yaml
-     calendar: "&a学习日历"
-     calendar-lore: "&7查看你的每日学习活动"
-   ```
-2. 在 `en.yml` 的 `main-menu:` 段末尾（`wrong-book-lore` 之后）追加：
-   ```yaml
-     calendar: "&aLearning Calendar"
-     calendar-lore: "&7View your daily learning activity"
-   ```
+- `Word.java` 第 24 行：新增 `private final double reward;`，默认值 0（表示使用全局配置）
+- `Word.java` 第 25-29 行：保留 9 参数构造器（向后兼容），内部调用 10 参数版本传入 `0.0`
+- `Word.java` 第 32-45 行：完整的 10 参数构造器
+- `Word.java` 第 97-107 行：`equals()` 和 `hashCode()` 包含 `reward` 字段
+- `WordBank.java` 第 78-86 行：解析 YAML 中 `reward` 数值并传入构造器
 
 ### 验收条件
-- [ ] 切换到中文后，主菜单第 9 槽显示中文"学习日历"
-- [ ] 切换到英文后，主菜单第 9 槽显示"Learning Calendar"
-- [ ] mvn clean compile passes
+- [x] YAML 中为单词设置的 reward 能在答题后正确发放
+- [x] `Word.equals()` 和 `hashCode()` 包含 reward 字段
+- [x] 编译通过
 
 ### 依赖
 无
 
 ---
 
-## US-002 — 错题本页面修复：标题拼接 / 装饰行 / 返回按钮位置
+## BUG-002 — ReviewScheduler 复习完所有间隔后永久排除单词
 
 ### 目标
-修复 WrongBookGUI 的三个问题：(A) 标题硬编码中文拼接"| Page N"导致语言混杂；(B) 首行红色玻璃装饰冗余；(C) 返回按钮从 slot 49 移到 slot 8 与其他 GUI 统一。
-
-### 根因分析
-
-**A — 标题拼接**: `WrongBookGUI.java` 第 51 行 `title = title + " | Page " + page;` 将英文 "Page" 硬编码拼接到标题末尾。`zh.yml` 的 `wrong-book.title` 已经是 `"&c&l错题本 / Wrong Book"`，拼接后变成 `"错题本 / Wrong Book | Page 1"`。需要将 "Page" 也纳入 i18n 或在标题模板中直接包含 `{page}` 占位符。
-
-**B — 装饰行冗余**: `WrongBookGUI.java` 第 70-72 行用红色玻璃填满首行（slot 0-8），但其他 GUI（ProfileGUI、LearningCalendarGUI、DailyChallengeGUI）均不使用整行纯色装饰。用户认为这是多余信息。
-
-**C — 返回按钮位置**: 当前返回按钮在 slot 49（底部中央）。其他 GUI 的返回按钮标准位置是 slot 8（右上角）—— ProfileGUI、EnglishSquareGUI、DailyChallengeGUI、LearningCalendarGUI、PrivacySettings 全部使用 slot 8。
+修复单词完成所有 Ebbinghaus 复习间隔后被永久排除的问题，改为进入以 30 天为周期的低频复习池。
 
 ### 涉及文件
-- `src/main/java/com/letslearnenglish/minecraftplugin/gui/WrongBookGUI.java` — 修改
-- `src/main/java/com/letslearnenglish/minecraftplugin/listener/WrongBookListener.java` — 修改
-- `src/main/resources/messages/zh.yml` — 修改（新增 `wrong-book.page-title` 键）
-- `src/main/resources/messages/en.yml` — 修改（新增 `wrong-book.page-title` 键）
+- `core/word/ReviewScheduler.java` — 核心修复
 
 ### 实现要点
-
-**A — 修复标题**:
-1. 在 `zh.yml` 的 `wrong-book` 段新增 `page-title: "&c&l错题本 | 第{page}页"`
-2. 在 `en.yml` 的 `wrong-book` 段新增 `page-title: "&c&lWrong Book | Page {page}"`
-3. 修改 `WrongBookGUI.open()` 标题构造逻辑：
-   ```java
-   String title = ChatColor.translateAlternateColorCodes('&',
-           messages.getString("wrong-book.page-title", "&c&lWrong Book | Page {page}")
-                   .replace("{page}", String.valueOf(page)));
-   ```
-4. 对应的 `WrongBookListener.extractPageFromTitle()` 需要适配新的标题格式（提取 `{page}` 占位符已被替换后的数字）
-
-**B — 去掉装饰行**:
-1. 删除或注释掉 `WrongBookGUI.open()` 第 70-72 行的首行填充代码块
-
-**C — 移动返回按钮**:
-1. 将 `BACK_SLOT` 常量从 `49` 改为 `8`
-2. 同步更新 `WrongBookListener.java` 的 `BACK_SLOT` 常量（当前为 `49`）
-3. 注意：slot 8 当前被装饰行占用，删除装饰行后该槽位空出，直接可用
+- 第 41 行：从 `config.yml` 读取 `word-system.review.mastered-review-interval-days`（默认 30 天）
+- 第 75-78 行：当 `reviewCount >= reviewIntervalsSize` 时，不再 `continue` 跳过，而是使用 `masteredReviewIntervalMs` 计算下次复习时间
+- 第 79-81 行：未完成的单词仍按标准 Ebbinghaus 间隔计算
+- 配置项 `config.yml` 第 108-111 行：`mastered-review-interval-days: 30`
 
 ### 验收条件
-- [ ] 中文模式下标题显示"错题本 | 第1页"（中文），不再包含英文 "Page"
-- [ ] 英文模式下标题显示"Wrong Book | Page 1"
-- [ ] 首行不再有红色玻璃装饰
-- [ ] 返回按钮在右上角（slot 8），与其他 GUI 风格一致
-- [ ] 翻页时 `extractPageFromTitle` 仍能正确解析页码
-- [ ] mvn clean compile passes
+- [x] 已掌握所有间隔的单词在 30 天后会再次出现在复习列表
+- [x] MASTERED 状态正确写入数据库
+- [x] 30 天周期可在 config.yml 中配置
+- [x] 编译通过
 
 ### 依赖
 无
 
 ---
 
-## US-003 — 页面切换按钮风格统一
+## BUG-003 — AIChatManager 上下文裁剪可能误删 System Prompt
 
 ### 目标
-统一所有带翻页功能的 GUI 的 prev/next 按钮样式（材料、标签格式、位置）。
-
-### 根因分析
-当前各 GUI 翻页按钮的对比：
-
-| GUI | Prev 槽位 | Next 槽位 | 材料 | 标签格式 |
-|-----|----------|----------|------|---------|
-| EnglishSquareGUI | 47（可配） | 51（可配） | ARROW（可配） | `← 上一页` / `下一页 →` (zh) |
-| WrongBookGUI | 47（固定） | 51（固定） | ARROW（固定） | 从 messages 读取 |
-| ChatHistoryGUI | 47（固定） | 51（固定） | ARROW（固定） | 从 messages 读取 |
-| LeaderboardGUI | 无翻页 | 无翻页 | — | — |
-
-槽位位置已基本统一（47/51），需要统一的是：
-1. WrongBookGUI 不支持 ConfigManager 的可配置槽位/材料 — 应改为可配置
-2. ChatHistoryGUI 也应支持 ConfigManager 可配置
-3. 所有 GUI 的翻页按钮 lore 格式 `/"Page {page}"` 在中文模式下应显示为 `/"{page}页"` 或 `/"第{page}页"`
+重构上下文裁剪逻辑，确保 System Prompt 永远固定在消息列表第一位且不可被删除。
 
 ### 涉及文件
-- `src/main/java/com/letslearnenglish/minecraftplugin/gui/WrongBookGUI.java` — 修改
-- `src/main/java/com/letslearnenglish/minecraftplugin/gui/ChatHistoryGUI.java` — 修改（可选，保持一致）
-- `src/main/java/com/letslearnenglish/minecraftplugin/listener/WrongBookListener.java` — 修改（槽位改为从 GUI 常量引用）
-- `src/main/java/com/letslearnenglish/minecraftplugin/listener/ChatHistoryListener.java` — 修改（同上）
-- `src/main/resources/messages/zh.yml` — 修改（统一 lore 占位符格式）
-- `src/main/resources/messages/en.yml` — 修改（同上）
+- `core/ai/AIChatManager.java` — 重构 `trimContextByTokens()` 方法
 
 ### 实现要点
-1. WrongBookGUI 翻页按钮的 slot 从硬编码改为调用 `ConfigManager.getGuiSlot("wrong-book", "prev-page", 47)` 和 `ConfigManager.getGuiSlot("wrong-book", "next-page", 51)`
-2. WrongBookGUI 翻页按钮的 material 改为 `ConfigManager.getGuiMaterial("wrong-book", "prev-page", Material.ARROW)` 和 `ConfigManager.getGuiMaterial("wrong-book", "next-page", Material.ARROW)`
-3. WrongBookListener 的 `PREV_SLOT` / `NEXT_SLOT` 常量改为引用 WrongBookGUI 的公共常量或通过方法获取（不能用 static final 因为取决于 config）
-4. 统一 page indicator 格式：EnglishSquareGUI 不使用 indicator；WrongBookGUI 使用 `Page {current}/{total}`（slot 48）；ChatHistoryGUI 使用 NAME_TAG（slot 45）。统一到 slot 48 并使用一致的 item 样式。
-5. ChatHistoryGUI 同样应用 ConfigManager 可配置化（其 slots 已经引用 `ChatHistoryGUI.PREV_PAGE_SLOT` / `NEXT_PAGE_SLOT` 公共常量，只需改为从 ConfigManager 读取）
+- 第 424-427 行：新增 `estimateTokens()` 辅助方法（1 token ≈ 4 字符估算）
+- 第 436-469 行：全新的 `trimContextByTokens()` 方法
+  - 计算所有消息的 token 总数
+  - Index 0 = System Prompt，始终跳过（`it.next()` 后从不删除它）
+  - 从最早的 user/assistant 对开始成对删除
+  - 确保裁剪后消息列表仍以 user/assistant 交替格式正确
+  - 最少保留 system + 1 对（即 3 条消息）
 
 ### 验收条件
-- [ ] WrongBookGUI 翻页按钮可通过 config.yml 的 `gui-layout.wrong-book.prev-page.*` / `next-page.*` 配置
-- [ ] ChatHistoryGUI 翻页按钮可通过 config.yml 的 `gui-layout.chat-history.prev-page.*` / `next-page.*` 配置
-- [ ] 所有翻页按钮的样式（标签、材料、lore 格式）保持一致
-- [ ] mvn clean compile passes
-
-### 依赖
-US-002（错题本改动与此 Story 的翻页按钮改动有重叠，建议 US-002 先改，US-003 在此基础上加配置化）
-
----
-
-## US-004 — GUI 导航栈：返回路径断裂
-
-### 目标
-修复 `GuiNavigationManager` 的单槽覆盖问题，使多层级导航（English Square → Profile → Achievement Wall → Profile → Back）能正确返回到 English Square 而非 MainMenu。
-
-### 根因分析
-
-`GuiNavigationManager` 当前实现：
-```java
-public class GuiNavigationManager {
-    private final Map<UUID, Runnable> profileBackActions = new ConcurrentHashMap<>();
-
-    public void pushBack(UUID playerId, Runnable action) {
-        profileBackActions.put(playerId, action);  // 覆盖！
-    }
-
-    public Runnable popBack(UUID playerId, Runnable fallback) {
-        Runnable action = profileBackActions.remove(playerId);  // 取出并删除
-        return (action != null) ? action : fallback;
-    }
-}
-```
-
-问题追踪（English Square → Profile → Achievement Wall → Profile → Back）：
-
-1. **English Square → 点击玩家头**: `pushBack(open EnglishSquare(page, mode))` → map = `{uuid: EnglishSquare back}`
-2. **Profile → 点击成就墙(slot 18)**: `pushBack(open Profile(targetId))` → map = `{uuid: Profile back}` —— **EnglishSquare 被覆盖！**
-3. **Achievement Wall → 点击返回(slot 49)**: `popBack(fallbackProfile)` → 取出 Profile back，执行 → 回到 Profile。map 变空。
-4. **Profile → 点击返回(slot 8)**: `popBack(fallbackMainMenu)` → map 为空 → 执行 fallback（MainMenu）。**用户期望回到 English Square。**
-
-### 涉及文件
-- `src/main/java/com/letslearnenglish/minecraftplugin/core/GuiNavigationManager.java` — 修改（核心改动）
-- `src/main/java/com/letslearnenglish/minecraftplugin/listener/SocialListener.java` — 无需改动（API 兼容）
-- `src/main/java/com/letslearnenglish/minecraftplugin/listener/MiscGUIListener.java` — 无需改动（API 兼容）
-- `src/main/java/com/letslearnenglish/minecraftplugin/listener/MainMenuListener.java` — 无需改动（API 兼容）
-
-### 实现要点
-
-1. 将 `GuiNavigationManager` 的内部数据结构从 `Map<UUID, Runnable>` 改为 `Map<UUID, Deque<Runnable>>`（使用 `ArrayDeque`）：
-   ```java
-   private final Map<UUID, Deque<Runnable>> navigationStacks = new ConcurrentHashMap<>();
-   ```
-
-2. 修改 `pushBack()` —— 使用 `computeIfAbsent` + `push`（栈顶推入）：
-   ```java
-   public void pushBack(UUID playerId, Runnable action) {
-       navigationStacks.computeIfAbsent(playerId, k -> new ArrayDeque<>()).push(action);
-   }
-   ```
-
-3. 修改 `popBack()` —— 使用 `poll`（栈顶弹出）：
-   ```java
-   public Runnable popBack(UUID playerId, Runnable fallback) {
-       Deque<Runnable> stack = navigationStacks.get(playerId);
-       if (stack != null && !stack.isEmpty()) {
-           Runnable action = stack.poll();  // 弹出栈顶
-           if (stack.isEmpty()) {
-               navigationStacks.remove(playerId);  // 清理空栈
-           }
-           return action;
-       }
-       return fallback;
-   }
-   ```
-
-4. 原有的 `pushBack`/`popBack` 方法签名保持不变，所有调用方（SocialListener、MiscGUIListener、MainMenuListener）无需修改。
-
-5. 需要添加 `import java.util.ArrayDeque;` 和 `import java.util.Deque;`
-
-### 验收条件
-- [ ] 路径 English Square → Profile → Achievement Wall → Profile → Back → **回到 English Square**（相同 page/mode）
-- [ ] 路径 English Square → Profile → Back → **回到 English Square**
-- [ ] 路径 MainMenu → LearningCalendar → Back → **回到 MainMenu**
-- [ ] 路径 MainMenu → DailyChallenge → Back → **回到 MainMenu**
-- [ ] 直接 `/le profile` 打开的 Profile 页面，点 Back → **回到 MainMenu**（无栈时的 fallback）
-- [ ] 多次进出不会导致内存泄漏（空栈被清理）
-- [ ] mvn clean compile passes
+- [x] 上下文超长时 System Prompt 永远不会被移除
+- [x] 裁剪后消息列表仍以 user/assistant 交替格式正确
+- [x] 编译通过
 
 ### 依赖
 无
 
 ---
 
-## 附录：各 GUI 返回按钮槽位汇总（修复后）
+## FEAT-001 — 排行榜系统持久化
 
-| GUI | 返回按钮槽位 | 备注 |
-|-----|------------|------|
-| MainMenu | — | 顶层 |
-| ProfileGUI | slot 8 | 已符合标准 |
-| ProfileSettings | slot 8 | 已符合标准 |
-| EnglishSquareGUI | slot 8 | 已符合标准 |
-| AchievementWallGUI | slot 49 | 待改为 slot 8（可选后续优化） |
-| LearningCalendarGUI | slot 8 | 已符合标准 |
-| DailyChallengeGUI | slot 8 | 已符合标准 |
-| ChallengeCompleteGUI | slot 8 | 已符合标准 |
-| WordBankSelectGUI | slot 8 | 已符合标准 |
-| WrongBookGUI | slot 8 | US-002 中修复 |
-| ChatHistoryGUI | slot 49 | 待改为 slot 8（可选后续优化） |
-| ScenarioSelectGUI | slot 8 | 已符合标准 |
-| LeaderboardGUI | slot 49 | 待改为 slot 8（可选后续优化） |
+### 目标
+将排行榜从纯内存改为数据库持久化，支持服务器重启后数据恢复，添加 Tab 切换三榜 GUI。
+
+### 涉及文件
+- `core/progress/Leaderboard.java` — 新建，排行榜核心逻辑
+- `gui/LeaderboardGUI.java` — 新建，Tab 切换三榜单 GUI
+- `data/DatabaseManager.java` — 新增排行榜查询方法
+- `LetsLearnEnglish.java` — DI 注册 + 启动时加载 + 5 分钟定时刷新
+
+### 实现要点
+- `Leaderboard.java`：`RankingMode` 枚举（WEEKLY/MONTHLY/ALL_TIME_COINS/ALL_PLAYERS），内存缓存 coinsCache/wordsCache/comboCache
+- `LeaderboardGUI.java`：三 Tab 切换（金币榜/单词榜/连击榜），点击玩家头像跳转 ProfileGUI
+- 启动时异步从 DB 加载 Top 10（`LetsLearnEnglish.java` 第 174-177 行）
+- 5 分钟定时缓存刷新（第 289-291 行）
+- 所有排名查询经过 `PlayerDataStore` 缓存层
+
+### 验收条件
+- [x] 服务器重启后排行榜数据恢复
+- [x] Tab 切换三种榜单正常
+- [x] 点击头像正确跳转玩家主页
+- [x] 5 分钟缓存刷新不产生数据库压力
+- [x] 编译通过
+
+### 依赖
+无
+
+---
+
+## FEAT-002 — 强化每日挑战（关联真实词库）
+
+### 目标
+将 DailyChallengeManager 从骨架升级为完整功能，每日从 WordBank 随机抽取单词，跟踪进度，完成后发放奖励。
+
+### 涉及文件
+- `core/DailyChallengeManager.java` — 核心逻辑（行为挑战 + 单词挑战）
+- `gui/DailyChallengeGUI.java` — 每日挑战 GUI
+- `gui/ChallengeCompleteGUI.java` — 完成庆祝 GUI
+- `data/DatabaseManager.java` — 新增 `daily_challenges` 和 `daily_challenge_words` 表操作
+- `LetsLearnEnglish.java` — DI 注册
+- `config.yml` — `daily-challenges.word-count: 5` 等配置
+
+### 实现要点
+- 两种挑战类型：行为挑战（ANSWER_10, SESSION_3, COMBO_5, AI_CHAT_5）+ 单词挑战（从词库随机抽 N 个）
+- `ensureWordChallengesAssigned()` 方法：每日首次触发时从 WordBank 随机选词
+- `onWordCorrect()` 方法：学习答对时检查是否为挑战单词，完成则标记
+- 全部单词完成后弹出 `ChallengeCompleteGUI` + 通过 Vault 发放金币
+- 跨天自动刷新（基于 `LocalDate.now()` 按自然日判断）
+
+### 验收条件
+- [x] 每日挑战与真实词库联动
+- [x] 完成全部挑战后获得奖励
+- [x] `/le challenge` 可查看今日进度
+- [x] 跨天后自动刷新新一批单词
+- [x] 编译通过
+
+### 依赖
+无
+
+---
+
+## FEAT-003 — AI 对话历史回顾
+
+### 目标
+持久化 AI 对话记录到数据库，提供 `/le history` GUI 分页查看历史，自动清理 30 天前数据。
+
+### 涉及文件
+- `core/ai/AIChatManager.java` — 写入 DB（startConversation + chatAsync 中异步 insertChatHistory）
+- `gui/ChatHistoryGUI.java` — 新建，分页展示历史
+- `listener/ChatHistoryListener.java` — 新建，GUI 事件处理
+- `data/ChatHistoryEntry.java` — 新建，数据模型
+- `data/DatabaseManager.java` — 新增 `ai_chat_history` 表 + `cleanupOldChatHistory()` 方法
+- `LetsLearnEnglish.java` — 第 127-129 行启动时异步清理
+
+### 实现要点
+- 表结构：player_uuid, session_id, role (system/user/assistant), content, timestamp
+- 每次 `startConversation()` 写入 system 消息（第 348-350 行）
+- 每次 `chatAsync()` 写入 user 和 assistant 消息（第 510-514 行、536-543 行）
+- ChatHistoryGUI：分页（每页 10 条），按 session 分组，点击展开查看完整上下文
+- 启动时异步执行 `cleanupOldChatHistory(30)` 清理超期数据
+
+### 验收条件
+- [x] 玩家可查看自己过往的 AI 对话内容
+- [x] 分页展示正常（每页 10 条）
+- [x] 展开查看完整上下文
+- [x] 30 天前数据自动清理
+- [x] 编译通过
+
+### 依赖
+无
+
+---
+
+## FEAT-004 — 词库导入导出（管理员工具）
+
+### 目标
+提供 `/lea exportwordbank` / `/lea importwordbank` 管理员命令，支持词库 YAML 导入导出。
+
+### 涉及文件
+- `core/manager/AdminCommandHandler.java` — `exportWordBank()` 和 `importWordBank()` 方法
+- `command/AdminCommand.java` — 命令路由
+- `core/word/WordBankValidator.java` — 新建，YAML 格式校验
+- `core/manager/DataExporter.java` — 已有，玩家数据导出
+
+### 实现要点
+- `exportWordBank()`：将 WordBank 序列化为 YAML，保存到 `plugins/LLEP/exports/` 目录，控制台输出绝对路径
+- `importWordBank()`：从 `exports/` 或插件数据文件夹读取 YAML，通过 `WordBankValidator.validate()` 校验格式
+- 合并策略：跳过重复单词（case-insensitive 英文名比较），保留现有，不覆盖
+- `WordBankValidator`：检查必填字段（english, chinese）、类型校验、格式合法性，防止恶意 YAML
+- 导入成功后刷新所有受影响 WordBank 的缓存
+
+### 验收条件
+- [x] 导出的 YAML 可通过 `/lea import` 完整导入且功能正常
+- [x] 重复单词被跳过，不产生数据冲突
+- [x] 非法 YAML 被拒绝并给出明确错误提示
+- [x] 控制台输出文件路径
+- [x] 编译通过
+
+### 依赖
+无
+
+---
+
+## FEAT-005 — 学习统计网页面板（HTTP 服务）
+
+### 目标
+提供嵌入式 HTTP 服务器，展示学习统计数据和 ECharts 可视化图表，IP 白名单 + HTTP Basic Auth 双重保护。
+
+### 涉及文件
+- `core/manager/StatisticsHttpServer.java` — 新建，基于 `com.sun.net.httpserver.HttpServer`
+- `LetsLearnEnglish.java` — 启动/关闭 HTTP 服务
+- `config.yml` — `statistics-server.*` 配置段
+
+### 实现要点
+- 使用 Java 内置 `HttpServer`（无需外部 HTTP 依赖），线程池大小 2
+- `GET /`：内嵌 HTML + ECharts CDN，展示近 7 天学习趋势折线图
+- `GET /api/stats`：返回 JSON（总单词数、今日活跃玩家、总学习次数、金币产出/消耗）
+- 安全层：`checkAccess()` 方法先检查 IP 白名单（支持 CIDR），再检查 HTTP Basic Auth
+- 白名单外 IP → 403，认证失败 → 401
+- `onEnable` 第 180-183 行：根据配置决定是否启动
+- `onDisable` 第 229-231 行：调用 `server.stop(0)` 优雅关闭
+
+### 验收条件
+- [x] 管理员浏览器访问 `http://服务器IP:8080` 可查看可视化数据
+- [x] `/api/stats` 返回正确 JSON 数据
+- [x] IP 不在白名单时返回 403
+- [x] HTTP Basic Auth 认证失败返回 401
+- [x] 插件卸载时 HTTP 服务正确关闭
+- [x] 编译通过
+
+### 依赖
+无
+
+---
+
+## FEAT-006 — 单词发音辅助（音标 + TTS）
+
+### 目标
+在 Word 类增加 phonetic 字段，GUI 中显示音标并提供发音按钮，支持 TTS 音频缓存。
+
+### 涉及文件
+- `core/word/Word.java` — 新增 `phonetic` 字段（第 17 行）
+- `core/ai/TtsManager.java` — 新建，TTS 管理（VoiceRSS API + 音频缓存）
+- `gui/WordLearningGUI.java` — 发音按钮（NOTE_BLOCK 材质，slot 14）
+- `config.yml` — `tts.enabled` / `tts.cache-days` / `tts.voicerss-api-key`
+- `LetsLearnEnglish.java` — DI 注册 + 启动时清理过期缓存
+
+### 实现要点
+- Word 构造器第 10 参数为 phonetic（YAML 可选），默认 null
+- TtsManager：使用 VoiceRSS API 生成 .wav，缓存到 `plugins/LLEP/audio/`
+- 缓存有效期 7 天（可配置），过期自动清理（第 155-158 行）
+- 无 API key 时优雅降级：仅显示音标，不播放音频
+- 由于 MC 客户端限制，音频播放使用 NOTE_BLOCK 音效作为提示音
+- WordLearningGUI 中 pronunciation-button（slot 14）配置在 `gui-layout.word-learning.pronunciation-button`
+
+### 验收条件
+- [x] 点击发音按钮，播放单词的正确读音
+- [x] GUI 中正确显示音标
+- [x] 音频缓存 7 天后自动重新生成
+- [x] 无 TTS API 时优雅降级（显示音标但不播放）
+- [x] 编译通过
+
+### 依赖
+BUG-001（Word 类 10 参数构造器已包含 phonetic）
+
+---
+
+## FEAT-007 — PvP 单词实时对决（双人抢答）
+
+### 目标
+实现 1v1 单词抢答对决，支持发起/接受/退出、实时比分板、掉线 30 秒宽限期。
+
+### 涉及文件
+- `core/duel/DuelManager.java` — 新建，单例管理匹配池、DuelRoom、掉线计时器
+- `core/duel/DuelRoom.java` — 新建，单局状态机
+- `gui/DuelGUI.java` — 新建，在线玩家列表 + 挑战确认弹窗
+- `listener/DuelGUIListener.java` — 新建，GUI 事件处理
+- `listener/DuelListener.java` — 新建，PlayerQuitEvent 掉线处理
+- `command/LearnCommand.java` — `/le duel <player|accept|quit>` 子命令
+
+### 实现要点
+- DuelManager 核心结构：
+  - `activeDuels: Map<UUID, DuelRoom>` — 活跃对局
+  - `busyPlayers: Set<UUID>` — 忙碌玩家集合
+  - `pendingRequests: Map<UUID, UUID>` — 待处理挑战
+  - `disconnectTimers: Map<UUID, DisconnectInfo>` — 掉线宽限期
+- 对局逻辑：随机出题 → 两人抢答 → 答对 +1 分 / 答错对方 +1 分 → 先得 5 分者胜
+- Scoreboard：使用 Bukkit Scoreboard API 实时显示比分
+- 掉线处理：PlayerQuitEvent → 记录断线时间 + 启动 30 秒倒计时 → 超时判负 / 重连恢复
+- 对局结束：RewardEngine 发放奖励（胜者多，败者少）
+
+### 验收条件
+- [x] 两名玩家可正常匹配并完成完整对局
+- [x] 奖励正确发放（胜者多，败者少）
+- [x] Scoreboard 实时显示比分
+- [x] 掉线 30 秒内重连可恢复对局
+- [x] 超时未重连自动判负
+- [x] `/le duel quit` 正常退出
+- [x] 编译通过
+
+### 依赖
+无
+
+---
+
+## FEAT-008 — 错题本 / 难点词标记
+
+### 目标
+答错累计 3 次的单词自动加入错题本，提供 GUI 查看、移除、重新练习功能，数据持久化。
+
+### 涉及文件
+- `gui/WrongBookGUI.java` — 新建，分页展示错题
+- `listener/WrongBookListener.java` — 新建，GUI 事件处理
+- `data/DifficultWord.java` — 新建，错题数据模型
+- `data/PlayerDataStore.java` — `difficultWordsCache` + `wrongCountCache`
+- `data/DatabaseManager.java` — `difficult_words` 表 CRUD 操作
+- `core/word/WordLearningManager.java` — 答错时调用 `incrementWrongCount()`
+- `command/LearnCommand.java` — `/le wrong` 子命令
+
+### 实现要点
+- 数据库表 `difficult_words`: player_uuid, word, wrong_count, added_at
+- PlayerDataStore 双层缓存：`wrongCountCache` (Map<UUID, Map<String, Integer>>) + `difficultWordsCache` (Map<UUID, Map<String, DifficultWord>>)
+- wrong_count 达到 3 时自动标记为 difficult（触发点：`WordLearningManager` 中答错逻辑）
+- WrongBookGUI：展示所有错题，每页显示可配置数量
+- "移除"按钮：调用 `DatabaseManager.removeDifficultWord()`
+- "重新练习"按钮：启动独立复习会话（不影响 Ebbinghaus 进度）
+- 数据通过 PlayerDataStore 缓存层同步到数据库，服务器重启后保留
+
+### 验收条件
+- [x] 答错 3 次的单词自动加入错题本
+- [x] 错题本 GUI 正确展示所有错题
+- [x] "移除"功能正常
+- [x] "重新练习"独立于艾宾浩斯复习进度
+- [x] 服务器重启后错题本数据保留
+- [x] 编译通过
+
+### 依赖
+无
+
+---
+
+## FEAT-009 — 每日签到系统
+
+### 目标
+实现连续签到奖励递增机制，第 1 天 +10 金币递增至第 7 天 +100，第 8 天重置，断签清零。
+
+### 涉及文件
+- `core/manager/CheckInManager.java` — 新建，签到逻辑
+- `data/CheckInData.java` — 新建，签到数据模型（record）
+- `data/DatabaseManager.java` — `checkin_data` 表 CRUD
+- `command/LearnCommand.java` — `/le checkin` 子命令
+
+### 实现要点
+- 奖励数组：`{0, 10, 20, 30, 50, 70, 85, 100}`（索引 = 连续天数）
+- 连续签到：`yesterday.equals(lastCheckinDate)` → streak+1
+- 断签：间隔 2+ 天无签到 → 重置 streak=1
+- 第 8 天起：`effectiveStreak = ((streak - 1) % 7) + 1`，循环奖励
+- 每天仅可签到一次：`today.equals(lastCheckinDate)` → 拒绝
+- 通过 Vault Economy 发放金币（需 `progress-system.rewards.types.money.enabled: true`）
+
+### 验收条件
+- [x] 跨天签到连续计数正确
+- [x] 断签后 streak_count 重置为 0（实际重置为 1）
+- [x] 第 7 天正确发放 100 金币
+- [x] 第 8 天正确重置为 10 金币
+- [x] 每天仅可签到一次
+- [x] 编译通过
+
+### 依赖
+无
+
+---
+
+## FEAT-010 — 自定义 AI 场景分享
+
+### 目标
+允许玩家导出当前 AI 会话的 System Prompt 为 Base64 分享码，其他玩家可导入并即时使用。
+
+### 涉及文件
+- `core/ai/ScenarioCodec.java` — 新建，Base64 编解码
+- `core/ai/AIChatManager.java` — `getCurrentSystemPrompt()`, `getMaxPromptLength()`, `reload()`, 场景热加载
+- `command/LearnCommand.java` — `/le save_scenario` / `/le load_scenario` 子命令
+
+### 实现要点
+- 编码格式：`Base64(场景名称 + "\0" + SystemPrompt内容)`
+- `save_scenario`：
+  - 验证名称：最长 32 字符，仅中英文/数字/下划线（正则 `[\u4e00-\u9fa5a-zA-Z0-9_]+`）
+  - 验证 Prompt 长度：最大 2000 字符（`scenario.max-prompt-length` 配置）
+  - 从 `playerSystemPrompts` 获取当前会话 System Prompt
+  - 编码为 Base64 输出给玩家
+- `load_scenario`：
+  - 解码 Base64 → 提取名称和 Prompt
+  - 再次校验名称和长度
+  - 写入 `ai_scenarios.yml`（plugin data folder），分配 key
+  - 调用 `AIChatManager.reload()` 热加载，无需重启服务器
+
+### 验收条件
+- [x] 玩家可导出场景码分享给其他人
+- [x] 对方加载后立即可用（无需重启）
+- [x] 超长 Prompt 被拒绝（>2000 字符）
+- [x] 非法 Base64 被拒绝并提示错误
+- [x] 编译通过
+
+### 依赖
+无
+
+---
+
+## 跨 Cutting 关注点
+
+### i18n 消息键
+所有新功能的消息键已在 `messages/zh.yml` 和 `messages/en.yml` 中添加，config-version 均为 5。主要包括：
+- `leaderboard.*` — 排行榜
+- `daily-challenge.*` — 每日挑战
+- `chat-history.*` — AI 对话历史
+- `wordbank.*` — 词库导入导出
+- `checkin.*` — 每日签到
+- `scenario.*` — 场景分享
+- `duel.*` — PvP 对决
+- `wrong-book.*` — 错题本
+
+### 配置项
+所有 PRD 要求的配置项已在 `config.yml`（config-version: 2）中添加：
+- `daily-challenges.word-count: 5`
+- `word-system.review.mastered-review-interval-days: 30`
+- `statistics-server.*`（enabled, port, ip-whitelist, auth）
+- `tts.*`（enabled, cache-days, voicerss-api-key）
+- `scenario.max-prompt-length: 2000`
+
+### 数据库 Schema
+`schema.sql` 包含全部 12 张表的 DDL，其中 4 张为 v1.0.7 新增（另含 daily_challenge_words 辅助表）。所有表使用 `{prefix}` 占位符以支持 SQLite/MySQL 双后端。
+
+### DI 容器
+`LetsLearnEnglish.java` 中已注册所有新增管理器：
+- `dailyChallengeManager`, `duelManager`, `checkInManager`, `ttsManager`, `statisticsHttpServer`
+- 所有 Listener 已注册（ChatHistoryListener, DuelGUIListener, DuelListener, WrongBookListener）

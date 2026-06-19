@@ -180,7 +180,7 @@ public class SocialListener implements Listener {
     }
 
     private void handleAchievementWall(Player player, int slot) {
-        if (slot == 49) {
+        if (slot == 8) {
             SoundManager.playSound(player, "menu-click");
             GuiNavigationManager nav = plugin.getGuiNavigationManager();
             Runnable backAction = nav.popBack(player.getUniqueId(),

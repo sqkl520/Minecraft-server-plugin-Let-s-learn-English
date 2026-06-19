@@ -20,6 +20,7 @@
 - ReviewScheduler 完成所有艾宾浩斯间隔后永久排除单词；改为将已掌握单词以 30 天周期重新加入低频复习池
 - GuiNavigationManager 使用 `Map<UUID, Runnable>` 单槽存储导致多层 GUI 导航时 back 路径被覆盖；改为 `Map<UUID, Deque<Runnable>>` 栈结构，保证"从哪里进的就要从哪出"的导航正确性
 - AIChatManager 上下文裁剪可能误删 System Prompt；重构为按 token 估算精确裁剪，System Prompt 永远固定在消息列表首位不可删除
+- 错题本中文标题显示 "错题本/Wrong Book|第X页" 含英文后缀；修改 zh.yml `wrong-book.title` 和 `wrong-book.title-page`，中文模式下只显示中文
 
 ### Added
 - `config.yml` review 段新增 `mastered-review-interval-days` 配置项（默认 30 天），控制已掌握单词低频复习周期
