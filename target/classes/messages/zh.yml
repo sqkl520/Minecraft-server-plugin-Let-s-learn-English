@@ -224,6 +224,8 @@ main-menu:
   daily-challenge-lore: "&7完成今日任务获取金币奖励"
   wrong-book: "&c错题本"
   wrong-book-lore: "&7复习你的困难单词"
+  calendar: "&e学习日历"
+  calendar-lore: "&7查看你的学习记录"
 
 daily:
   title: "&6&l每日挑战"
@@ -324,6 +326,13 @@ calendar:
   legend-heavy: "深入学习"
   today-marker: "&e★ 今天"
   words-unit: "词"
+  day-1: "周一"
+  day-2: "周二"
+  day-3: "周三"
+  day-4: "周四"
+  day-5: "周五"
+  day-6: "周六"
+  day-7: "周日"
 
 profile:
   title: "&e{player}的主页"
@@ -381,9 +390,11 @@ chat-history:
   role-system: "&5[系统]"
   role-user: "&a[你]"
   role-assistant: "&b[AI]"
+  session-item-format: "&b&l{scenario} &7- {date}"
 
 wrong-book:
   title: "&c&l错题本 / Wrong Book"
+  title-page: "&c&l错题本 / Wrong Book | 第 {page} 页"
   empty: "&7还没有错题呢~"
   empty-lore: "&7答错3次的单词会自动出现在这里喵~"
   word-name: "&c{word}"

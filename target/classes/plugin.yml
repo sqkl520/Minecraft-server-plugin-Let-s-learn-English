@@ -1,5 +1,5 @@
 name: LetsLearnEnglish
-version: 1.0.6-SNAPSHOT
+version: 1.0.7-SNAPSHOT
 main: com.letslearnenglish.minecraftplugin.LetsLearnEnglish
 api-version: "1.21"
 description: "Let's learn English! - A gamified English learning plugin for Minecraft (Velocity/BungeeCord compatible)"

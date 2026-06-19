@@ -1,12 +1,24 @@
 # Changelog
 
-## [1.0.7] - 2026-06-18
+## [1.0.7] - 2026-06-19
 
 ### Fixed
+- 主菜单"学习日历"按钮缺少中文 i18n 键（calendar/calendar-lore），改为从 zh.yml/en.yml 读取
+- 错题本标题硬编码 "Page N" 页数，改为 i18n 键 `wrong-book.title-page` 支持中英双语（第 {page} 页 / Page {page}）
+- 错题本顶部装饰行（9 格红色玻璃板）移除，只保留功能性物品
+- 错题本"返回"按钮从底部中央（slot 49）移至右上角（slot 8），与其他 GUI 统一
+- ChatHistoryGUI 列表视图"返回主菜单"按钮从 slot 49 移至 slot 8，与其他 GUI 统一
+- ChatHistoryGUI 分页按钮 lore 显示当前页而非目标页，改为显示目标页码（page-1/page+1）
+- ChatHistoryListener 分页导航使用 lore 提取页码后二次加减导致跳页错误，改为直接导航到目标页
+- WrongBookListener.extractPageFromTitle() 和 ChatHistoryListener.extractPageFromLore() 新增中文页码格式（"第 N 页"）解析支持
+- Calendar 中文星期标签从单字缩写（一/二/三）改为完整格式（周一/周二/.../周日）
+- ChatHistoryGUI 对话详情视图"返回列表"按钮从 slot 49 移至 slot 8，新增 `BACK_SLOT = 8` 常量统一管理
+- ChatHistoryListener 返回按钮槽位引用改为 `ChatHistoryGUI.BACK_SLOT`，避免魔法数字
 - WordBank 加载 YAML 时未解析 reward 字段，导致单词自定义奖励永远为 0；改为 10 参数构造器，读取 reward 并传递
 - Word.equals() 和 hashCode() 包含 reward 字段，确保带自定义奖励的单词正确参与相等性比较
 - AdminCommandHandler.saveWordBankToYaml() 保存单词时写入 reward 字段（仅当非零时），防止导出/重载后丢失奖励
 - ReviewScheduler 完成所有艾宾浩斯间隔后永久排除单词；改为将已掌握单词以 30 天周期重新加入低频复习池
+- GuiNavigationManager 使用 `Map<UUID, Runnable>` 单槽存储导致多层 GUI 导航时 back 路径被覆盖；改为 `Map<UUID, Deque<Runnable>>` 栈结构，保证"从哪里进的就要从哪出"的导航正确性
 - AIChatManager 上下文裁剪可能误删 System Prompt；重构为按 token 估算精确裁剪，System Prompt 永远固定在消息列表首位不可删除
 
 ### Added

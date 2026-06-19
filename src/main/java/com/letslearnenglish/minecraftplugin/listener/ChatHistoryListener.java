@@ -56,29 +56,29 @@ public class ChatHistoryListener implements Listener {
     }
 
     private void handleListViewClick(Player player, int slot, ItemStack item) {
-        if (slot == 49) {
-            // Back to main menu
+        if (slot == ChatHistoryGUI.BACK_SLOT) {
+            // Back to main menu (unified with other GUIs)
             SoundManager.playSound(player, "menu-click");
             new MainMenu(plugin).open(player);
             return;
         }
 
         if (slot == ChatHistoryGUI.PREV_PAGE_SLOT) {
-            // Previous page — lore stores the current page number
+            // Previous page — lore stores the target page number
             if (item != null && item.getType() == Material.ARROW) {
                 SoundManager.playSound(player, "menu-click");
-                int currentPage = extractPageFromLore(item);
-                new ChatHistoryGUI(plugin).open(player, Math.max(1, currentPage - 1));
+                int targetPage = extractPageFromLore(item);
+                new ChatHistoryGUI(plugin).open(player, targetPage);
             }
             return;
         }
 
         if (slot == ChatHistoryGUI.NEXT_PAGE_SLOT) {
-            // Next page — lore stores the current page number
+            // Next page — lore stores the target page number
             if (item != null && item.getType() == Material.ARROW) {
                 SoundManager.playSound(player, "menu-click");
-                int currentPage = extractPageFromLore(item);
-                new ChatHistoryGUI(plugin).open(player, currentPage + 1);
+                int targetPage = extractPageFromLore(item);
+                new ChatHistoryGUI(plugin).open(player, targetPage);
             }
             return;
         }
@@ -120,7 +120,7 @@ public class ChatHistoryListener implements Listener {
     }
 
     private void handleSessionViewClick(Player player, int slot) {
-        if (slot == 49) {
+        if (slot == ChatHistoryGUI.BACK_SLOT) {
             // Back to session list
             SoundManager.playSound(player, "menu-click");
 
@@ -145,7 +145,7 @@ public class ChatHistoryListener implements Listener {
     }
 
     /**
-     * Extract a page number from the item's lore (e.g., "Page 3").
+     * Extract a page number from the item's lore (e.g., "Page 3" or "第 3 页").
      */
     private int extractPageFromLore(ItemStack item) {
         if (item != null && item.hasItemMeta()) {
@@ -155,9 +155,20 @@ public class ChatHistoryListener implements Listener {
                 if (lore != null) {
                     for (String line : lore) {
                         String stripped = ChatColor.stripColor(line);
-                        if (stripped != null && stripped.startsWith("Page ")) {
+                        if (stripped == null) continue;
+                        // English format: "Page N"
+                        if (stripped.startsWith("Page ")) {
                             try {
                                 return Integer.parseInt(stripped.substring("Page ".length()).trim());
+                            } catch (NumberFormatException ignored) {
+                            }
+                        }
+                        // Chinese format: "第 N 页"
+                        if (stripped.startsWith("第 ") && stripped.contains(" 页")) {
+                            try {
+                                int start = "第 ".length();
+                                int end = stripped.indexOf(" 页");
+                                return Integer.parseInt(stripped.substring(start, end).trim());
                             } catch (NumberFormatException ignored) {
                             }
                         }
