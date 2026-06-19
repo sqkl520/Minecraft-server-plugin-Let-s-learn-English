@@ -224,7 +224,7 @@ main-menu:
   daily-challenge-lore: "&7完成今日任务获取金币奖励"
   wrong-book: "&c错题本"
   wrong-book-lore: "&7复习你的困难单词"
-  calendar: "&e学习日历"
+  calendar: "&e过往学习"
   calendar-lore: "&7查看你的学习记录"
 
 daily:
@@ -317,7 +317,7 @@ square:
   hidden-lore: "&7对方正在乱扔隐身喷溅药水..."
 
 calendar:
-  title: "&a&l学习日历"
+  title: "&a&l过往学习"
   back: "返回"
   back-lore: "&7返回来源页面"
   legend-no-activity: "无学习记录"

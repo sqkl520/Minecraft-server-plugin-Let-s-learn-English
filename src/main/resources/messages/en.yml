@@ -224,7 +224,7 @@ main-menu:
   daily-challenge-lore: "&7Complete today's tasks for coin rewards"
   wrong-book: "&cWrong Book"
   wrong-book-lore: "&7Review your difficult words"
-  calendar: "&eLearning Calendar"
+  calendar: "&eStudy History"
   calendar-lore: "&7View your learning history"
 
 daily:
@@ -317,7 +317,7 @@ square:
   hidden-lore: "&7The player is throwing invisibility splash potions everywhere..."
 
 calendar:
-  title: "&a&lLearning Calendar"
+  title: "&a&lStudy History"
   back: "Back"
   back-lore: "&7Return to source page"
   legend-no-activity: "No activity"
