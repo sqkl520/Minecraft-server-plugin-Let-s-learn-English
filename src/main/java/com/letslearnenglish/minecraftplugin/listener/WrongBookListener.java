@@ -29,7 +29,7 @@ import java.util.Map;
 public class WrongBookListener implements Listener {
 
     private static final int PREV_SLOT = 47;
-    private static final int BACK_SLOT = 49;
+    private static final int BACK_SLOT = 8;
     private static final int NEXT_SLOT = 51;
 
     private final LetsLearnEnglish plugin;
@@ -137,15 +137,35 @@ public class WrongBookListener implements Listener {
 
     /**
      * Extract the page number from the GUI title.
-     * Title format: "...Wrong Book... | Page N"
+     * Title format varies by language:
+     *   EN: "...Wrong Book | Page N"
+     *   ZH: "...错题本 / Wrong Book | 第 N 页"
      */
     private int extractPageFromTitle(String title) {
+        // Try English format first
         int idx = title.lastIndexOf("Page ");
         if (idx >= 0) {
             try {
-                return Integer.parseInt(title.substring(idx + 5).trim());
+                String afterPage = title.substring(idx + 5).trim();
+                // If there's a trailing char (e.g., "页"), strip it
+                if (!afterPage.isEmpty() && !Character.isDigit(afterPage.charAt(afterPage.length() - 1))) {
+                    afterPage = afterPage.substring(0, afterPage.length() - 1).trim();
+                }
+                return Integer.parseInt(afterPage);
             } catch (NumberFormatException e) {
                 // ignore
+            }
+        }
+        // Try Chinese format: "第 N 页"
+        idx = title.indexOf("第 ");
+        if (idx >= 0) {
+            int endIdx = title.indexOf(" 页", idx);
+            if (endIdx > idx) {
+                try {
+                    return Integer.parseInt(title.substring(idx + 2, endIdx).trim());
+                } catch (NumberFormatException e) {
+                    // ignore
+                }
             }
         }
         return 1;

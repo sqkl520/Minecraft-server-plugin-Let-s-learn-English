@@ -224,6 +224,8 @@ main-menu:
   daily-challenge-lore: "&7Complete today's tasks for coin rewards"
   wrong-book: "&cWrong Book"
   wrong-book-lore: "&7Review your difficult words"
+  calendar: "&eLearning Calendar"
+  calendar-lore: "&7View your learning history"
 
 daily:
   title: "&6&lDaily Challenges"
@@ -324,6 +326,13 @@ calendar:
   legend-heavy: "Heavy"
   today-marker: "&e★ Today"
   words-unit: "words"
+  day-1: "Mon"
+  day-2: "Tue"
+  day-3: "Wed"
+  day-4: "Thu"
+  day-5: "Fri"
+  day-6: "Sat"
+  day-7: "Sun"
 
 profile:
   title: "&e{player}'s Profile"
@@ -381,9 +390,11 @@ chat-history:
   role-system: "&5[System]"
   role-user: "&a[You]"
   role-assistant: "&b[AI]"
+  session-item-format: "&b&l{scenario} &7- {date}"
 
 wrong-book:
   title: "&c&lWrong Book / Difficult Words"
+  title-page: "&c&lWrong Book | Page {page}"
   empty: "&7No difficult words yet!"
   empty-lore: "&7Words you miss 3 times will appear here automatically"
   word-name: "&c{word}"

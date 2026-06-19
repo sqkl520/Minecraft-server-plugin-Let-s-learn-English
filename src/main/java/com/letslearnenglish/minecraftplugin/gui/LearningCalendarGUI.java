@@ -46,7 +46,7 @@ public class LearningCalendarGUI {
 
         // Day-of-week labels
         Material labelMat = Material.WHITE_STAINED_GLASS_PANE;
-        String[] labels = getDayLabels(lang);
+        String[] labels = getDayLabels(msg);
         for (int d = 0; d < 7; d++) {
             inv.setItem(1 + d, createItem(labelMat,
                     ChatColor.translateAlternateColorCodes('&', "&e&l" + labels[d]),
@@ -126,11 +126,13 @@ public class LearningCalendarGUI {
         player.openInventory(inv);
     }
 
-    private String[] getDayLabels(String lang) {
-        if ("zh".equalsIgnoreCase(lang)) {
-            return new String[]{"一", "二", "三", "四", "五", "六", "日"};
+    private String[] getDayLabels(FileConfiguration msg) {
+        String[] defaults = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+        String[] labels = new String[7];
+        for (int i = 1; i <= 7; i++) {
+            labels[i - 1] = msg.getString("calendar.day-" + i, defaults[i - 1]);
         }
-        return new String[]{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+        return labels;
     }
 
     private String getCalendarMsg(FileConfiguration msg, String lang, String key, String zhFallback, String enFallback) {

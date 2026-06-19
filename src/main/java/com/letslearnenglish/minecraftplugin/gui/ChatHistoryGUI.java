@@ -30,6 +30,7 @@ public class ChatHistoryGUI {
     private static final int SESSIONS_PER_PAGE = 10;
     private static final int SESSION_START_SLOT = 0;
 
+    public static final int BACK_SLOT = 8;
     public static final int PREV_PAGE_SLOT = 47;
     public static final int NEXT_PAGE_SLOT = 51;
 
@@ -67,10 +68,10 @@ public class ChatHistoryGUI {
             gui.setItem(i, bg.clone());
         }
 
-        // Back button (slot 49)
+        // Back button (upper-right corner, unified with other GUIs)
         String backLabel = msg.getString("chat-history.back-button", "&c&lBack to Menu");
         String backLore = msg.getString("chat-history.back-lore", "&7Click to return to main menu");
-        gui.setItem(49, createItem(Material.RED_STAINED_GLASS_PANE, backLabel, backLore));
+        gui.setItem(BACK_SLOT, createItem(Material.RED_STAINED_GLASS_PANE, backLabel, backLore));
 
         // Get sessions
         int totalSessions = plugin.getDatabaseManager().getChatHistoryCount(player.getUniqueId());
@@ -124,8 +125,10 @@ public class ChatHistoryGUI {
                 String clickHint = msg.getString("chat-history.click-to-view", "&7Click to view full conversation");
                 lore.add(ChatColor.translateAlternateColorCodes('&', clickHint));
 
+                String itemFormat = msg.getString("chat-history.session-item-format", "&b&l{scenario} &7- {date}");
                 gui.setItem(slot, createItemLore(Material.BOOK,
-                        "&b&l" + scenario + " &7- " + dateStr,
+                        ChatColor.translateAlternateColorCodes('&',
+                                itemFormat.replace("{scenario}", scenario).replace("{date}", dateStr)),
                         lore));
                 slot++;
             }
@@ -137,7 +140,7 @@ public class ChatHistoryGUI {
             String prevLore = msg.getString("chat-history.prev-page-lore", "&7Page {page}");
             gui.setItem(PREV_PAGE_SLOT, createItem(Material.ARROW,
                     prevLabel,
-                    prevLore.replace("{page}", String.valueOf(page))));
+                    prevLore.replace("{page}", String.valueOf(page - 1))));
         }
 
         // Next page button (slot 51)
@@ -146,7 +149,7 @@ public class ChatHistoryGUI {
             String nextLore = msg.getString("chat-history.next-page-lore", "&7Page {page}");
             gui.setItem(NEXT_PAGE_SLOT, createItem(Material.ARROW,
                     nextLabel,
-                    nextLore.replace("{page}", String.valueOf(page))));
+                    nextLore.replace("{page}", String.valueOf(page + 1))));
         }
 
         // Page indicator (slot 45)
@@ -183,10 +186,10 @@ public class ChatHistoryGUI {
             gui.setItem(i, bg.clone());
         }
 
-        // Back button (slot 49) — returns to session list
+        // Back button — returns to session list (unified slot with list view)
         String backLabel = msg.getString("chat-history.back-to-list", "&e← Back to List");
         String backLore = msg.getString("chat-history.back-to-list-lore", "&7Return to session list");
-        gui.setItem(49, createItem(Material.RED_STAINED_GLASS_PANE, backLabel, backLore));
+        gui.setItem(BACK_SLOT, createItem(Material.RED_STAINED_GLASS_PANE, backLabel, backLore));
 
         // Return page indicator (stored in lore for listener use)
         // We'll store the return page in a special item

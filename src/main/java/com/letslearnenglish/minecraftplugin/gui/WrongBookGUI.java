@@ -19,11 +19,11 @@ import java.util.*;
  * Wrong Book GUI — displays words the player has answered incorrectly 3+ times.
  *
  * 54-slot layout (6 rows):
- *   Top row (0-8): header decoration
+ *   Slot 8: Back to main menu (upper-right corner)
  *   Rows 1-5 (9-44): word entries (up to 45 per page)
  *   Bottom row (45-53): navigation
  *     Slot 47: Previous page
- *     Slot 49: Back to main menu
+ *     Slot 49: Page indicator
  *     Slot 51: Next page
  */
 public class WrongBookGUI {
@@ -31,8 +31,9 @@ public class WrongBookGUI {
     private static final int GUI_SIZE = 54;
     private static final int ITEMS_PER_PAGE = 45;
     private static final int PREV_SLOT = 47;
-    private static final int BACK_SLOT = 49;
+    private static final int BACK_SLOT = 8;
     private static final int NEXT_SLOT = 51;
+    private static final int PAGE_INDICATOR_SLOT = 49;
 
     private final LetsLearnEnglish plugin;
 
@@ -45,10 +46,8 @@ public class WrongBookGUI {
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("wrong-book.title", "&c&lWrong Book / Difficult Words"));
-
-        // Embed page number in title for listener extraction
-        title = title + " | Page " + page;
+                messages.getString("wrong-book.title-page", "&c&lWrong Book | Page {page}")
+                        .replace("{page}", String.valueOf(page)));
 
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
@@ -65,11 +64,6 @@ public class WrongBookGUI {
 
         int startIndex = (page - 1) * ITEMS_PER_PAGE;
         int endIndex = Math.min(startIndex + ITEMS_PER_PAGE, wordList.size());
-
-        // Fill top decoration row with glass
-        for (int i = 0; i < 9; i++) {
-            inv.setItem(i, createGlassPane(Material.RED_STAINED_GLASS_PANE));
-        }
 
         if (wordList.isEmpty()) {
             // Empty state
@@ -152,14 +146,14 @@ public class WrongBookGUI {
                             .replace("{total}", String.valueOf(totalPages))));
             pageIndicator.setItemMeta(piMeta);
         }
-        inv.setItem(BACK_SLOT - 1, pageIndicator); // slot 48
+        inv.setItem(PAGE_INDICATOR_SLOT, pageIndicator);
 
-        // Back button
+        // Back button (upper-right corner, unified with other GUIs)
         inv.setItem(BACK_SLOT, createItem(Material.RED_STAINED_GLASS_PANE,
                 ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("gui.back-button", "&cBack to Menu")),
+                        messages.getString("gui.back-button", "&e返回主菜单")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("gui.back-lore", "&7Return to the main menu")))));
+                        messages.getString("gui.back-lore", "&7回到主菜单界面")))));
 
         // Next page
         if (page < totalPages) {
