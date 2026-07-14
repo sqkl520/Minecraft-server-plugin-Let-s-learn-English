@@ -744,25 +744,38 @@ public class PlayerDataStore {
                 + "ORDER BY total_score DESC LIMIT ?";
 
         Connection conn = databaseManager.getConnection();
+
+        // Step 1: collect raw rows while ResultSet is open — no nested queries
+        List<Object[]> rawRows = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, count);
             try (ResultSet rs = stmt.executeQuery()) {
-                int rank = 1;
                 while (rs.next()) {
-                    UUID uuid = UUID.fromString(rs.getString("uuid"));
-                    // Derive correct/incorrect from word_progress for richer display
-                    PlayerStats stats = getPlayerStats(uuid);
-                    String name = rs.getString("player_name");
-                    if (name == null || name.isEmpty()) {
-                        name = getPlayerName(uuid);
-                    }
-                    entries.add(new LeaderboardEntry(uuid, name, rs.getLong("total_score"),
-                            stats.getTotalCorrect(), stats.getTotalIncorrect(),
-                            rs.getInt("total_sessions"), rank++));
+                    rawRows.add(new Object[]{
+                        rs.getString("uuid"),
+                        rs.getString("player_name"),
+                        rs.getLong("total_score"),
+                        rs.getInt("total_sessions")
+                    });
                 }
             }
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load ranked players", e);
+            return entries;
+        }
+
+        // Step 2: ResultSet closed — now safe to call getPlayerStats (opens new Statement)
+        int rank = 1;
+        for (Object[] row : rawRows) {
+            UUID uuid = UUID.fromString((String) row[0]);
+            PlayerStats stats = getPlayerStats(uuid);
+            String name = (String) row[1];
+            if (name == null || name.isEmpty()) {
+                name = getPlayerName(uuid);
+            }
+            entries.add(new LeaderboardEntry(uuid, name, (Long) row[2],
+                    stats.getTotalCorrect(), stats.getTotalIncorrect(),
+                    (Integer) row[3], rank++));
         }
         return entries;
     }
@@ -781,26 +794,40 @@ public class PlayerDataStore {
                 + "GROUP BY uuid ORDER BY period_score DESC LIMIT ?";
 
         Connection conn = databaseManager.getConnection();
+
+        // Step 1: collect raw rows while ResultSet is open — no nested queries
+        List<Object[]> rawRows = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, since.toString());
             stmt.setString(2, until.toString());
             stmt.setInt(3, count);
             try (ResultSet rs = stmt.executeQuery()) {
-                int rank = 1;
                 while (rs.next()) {
-                    UUID uuid = UUID.fromString(rs.getString("uuid"));
-                    String name = getPlayerName(uuid);
-                    long periodScore = rs.getLong("period_score");
-                    int periodCorrect = rs.getInt("total_correct");
-                    int periodWords = rs.getInt("total_words");
-                    int periodIncorrect = Math.max(0, periodWords - periodCorrect);
-                    int sessions = 0; // Not easily available from aggregated query
-                    entries.add(new LeaderboardEntry(uuid, name, periodScore,
-                            periodCorrect, periodIncorrect, sessions, rank++));
+                    rawRows.add(new Object[]{
+                        rs.getString("uuid"),
+                        rs.getLong("period_score"),
+                        rs.getInt("total_correct"),
+                        rs.getInt("total_words")
+                    });
                 }
             }
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load ranked players for period", e);
+            return entries;
+        }
+
+        // Step 2: ResultSet closed — now safe to call getPlayerName (opens new Statement)
+        int rank = 1;
+        for (Object[] row : rawRows) {
+            UUID uuid = UUID.fromString((String) row[0]);
+            String name = getPlayerName(uuid);
+            long periodScore = (Long) row[1];
+            int periodCorrect = (Integer) row[2];
+            int periodWords = (Integer) row[3];
+            int periodIncorrect = Math.max(0, periodWords - periodCorrect);
+            int sessions = 0; // Not easily available from aggregated query
+            entries.add(new LeaderboardEntry(uuid, name, periodScore,
+                    periodCorrect, periodIncorrect, sessions, rank++));
         }
         return entries;
     }

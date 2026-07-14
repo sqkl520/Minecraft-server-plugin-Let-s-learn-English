@@ -72,7 +72,7 @@ public class LearningCalendarGUI {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration msg = plugin.getConfigManager().getMessageConfig(lang);
 
-        String title = msg.getString("calendar.title", "&a&lStudy History");
+        String title = msg.getString("calendar.title", "");
         title = ChatColor.translateAlternateColorCodes('&', title);
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
@@ -92,12 +92,12 @@ public class LearningCalendarGUI {
         // Align grid start to Monday of startDate's week
         LocalDate gridStart = startDate.with(DayOfWeek.MONDAY);
 
-        String noActivity = getCalendarMsg(msg, lang, "legend-no-activity", "无学习记录", "No activity");
-        String light = getCalendarMsg(msg, lang, "legend-light", "轻度学习", "Light");
-        String moderate = getCalendarMsg(msg, lang, "legend-moderate", "适度学习", "Moderate");
-        String heavy = getCalendarMsg(msg, lang, "legend-heavy", "深入学习", "Heavy");
-        String todayMarker = getCalendarMsg(msg, lang, "today-marker", "&e★ 今天", "&e★ Today");
-        String wordsUnit = getCalendarMsg(msg, lang, "words-unit", "词", "words");
+        String noActivity = getCalendarMsg(msg, "legend-no-activity");
+        String light = getCalendarMsg(msg, "legend-light");
+        String moderate = getCalendarMsg(msg, "legend-moderate");
+        String heavy = getCalendarMsg(msg, "legend-heavy");
+        String todayMarker = getCalendarMsg(msg, "today-marker");
+        String wordsUnit = getCalendarMsg(msg, "words-unit");
 
         for (int slotIdx = 0; slotIdx < 35; slotIdx++) {
             int slot = DAY_SLOTS[slotIdx];
@@ -167,17 +167,25 @@ public class LearningCalendarGUI {
                         "&7" + heavy))));
 
         // ── Back button ──
-        String back = getCalendarMsg(msg, lang, "back", "返回", "Back");
-        String backLore = getCalendarMsg(msg, lang, "back-lore", "&7返回来源页面", "&7Return to source page");
+        String back = getCalendarMsg(msg, "back");
+        String backLore = getCalendarMsg(msg, "back-lore");
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE,
                 ChatColor.translateAlternateColorCodes('&', "&c" + back),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', backLore))));
+
+        // ── Fill remaining empty slots with filler panes to prevent item dragging ──
+        ItemStack filler = createItem(Material.GRAY_STAINED_GLASS_PANE, " ", Collections.emptyList());
+        for (int i = 0; i < GUI_SIZE; i++) {
+            if (inv.getItem(i) == null) {
+                inv.setItem(i, filler);
+            }
+        }
 
         player.openInventory(inv);
     }
 
     private String[] getDayLabels(FileConfiguration msg) {
-        String[] defaults = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+        String[] defaults = {"", "", "", "", "", "", ""};
         String[] labels = new String[7];
         for (int i = 1; i <= 7; i++) {
             labels[i - 1] = msg.getString("calendar.day-" + i, defaults[i - 1]);
@@ -185,12 +193,9 @@ public class LearningCalendarGUI {
         return labels;
     }
 
-    private String getCalendarMsg(FileConfiguration msg, String lang, String key, String zhFallback, String enFallback) {
-        String val = msg.getString("calendar." + key);
-        if (val != null) {
-            return ChatColor.translateAlternateColorCodes('&', val);
-        }
-        return ChatColor.translateAlternateColorCodes('&', "zh".equalsIgnoreCase(lang) ? zhFallback : enFallback);
+    private String getCalendarMsg(FileConfiguration msg, String key) {
+        return ChatColor.translateAlternateColorCodes('&',
+                msg.getString("calendar." + key, ""));
     }
 
     private ItemStack createItem(Material material, String name, List<String> lore) {
