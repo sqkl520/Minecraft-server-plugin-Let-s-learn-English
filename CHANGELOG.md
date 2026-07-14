@@ -3,6 +3,9 @@
 ## [1.0.7] - 2026-06-19
 
 ### Fixed
+- LearningCalendarGUI 空 slot 未填充，玩家可将背包物品拖入 GUI；改为在 openInventory 前遍历所有 54 格，对 null slot 填入灰色玻璃板占位
+- PlayerDataStore.getRankedPlayers() 在 ResultSet 迭代中调用 getPlayerStats() 触发嵌套 Statement，导致 SQLite "stmt pointer is closed"；改为两步法：先收集原始行，关闭 ResultSet 后再查 stats
+- PlayerDataStore.getRankedPlayersForPeriod() 同样在 ResultSet 内调用 getPlayerName()；同步改为两步法修复嵌套 Statement 问题
 - 主菜单"学习日历"按钮缺少中文 i18n 键（calendar/calendar-lore），改为从 zh.yml/en.yml 读取
 - 错题本标题硬编码 "Page N" 页数，改为 i18n 键 `wrong-book.title-page` 支持中英双语（第 {page} 页 / Page {page}）
 - 错题本顶部装饰行（9 格红色玻璃板）移除，只保留功能性物品
@@ -25,8 +28,7 @@
 - 学习日历布局错误：列优先填充未做星期对齐导致日期错位；改为基于 LocalDate.getDayOfWeek() 的正确行列映射，每个日期总显示在对应星期列下
 - 学习日历颜色方案倒置：亮色=学得多改为深色=学得少（0→GRAY, 1-5→GREEN, 6-15→LIME, 16+→YELLOW），颜色指示图例从底行移至右侧列
 - 主菜单"学习日历"改为"过往学习"（zh.yml: 过往学习, en.yml: Study History），GUI 标题同步更新
-- MiscGUIListener 标题匹配未同步更新导致过往学习 GUI 点击不被拦截，物品可随意移动；改为匹配新标题 "过往学习" / "Study History"
-- MiscGUIListener.handleDailyChallenge 硬编码英文 fallback 消息；改为通过 MessageUtil.getPlayerMessage() 读取 i18n
+- LearningCalendarGUI 移除 getCalendarMsg()/getDayLabels() 中的硬编码中英文 fallback 字符串，改为 msg.getString(key, "") 直接读取 i18n 配置
 
 ### Added
 - `config.yml` review 段新增 `mastered-review-interval-days` 配置项（默认 30 天），控制已掌握单词低频复习周期
