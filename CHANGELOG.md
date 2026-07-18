@@ -28,6 +28,7 @@
 - 学习日历布局错误：列优先填充未做星期对齐导致日期错位；改为基于 LocalDate.getDayOfWeek() 的正确行列映射，每个日期总显示在对应星期列下
 - 学习日历颜色方案倒置：亮色=学得多改为深色=学得少（0→GRAY, 1-5→GREEN, 6-15→LIME, 16+→YELLOW），颜色指示图例从底行移至右侧列
 - 主菜单"学习日历"改为"过往学习"（zh.yml: 过往学习, en.yml: Study History），GUI 标题同步更新
+- 过往学习按钮从主菜单 slot 9 移至个人主页左上角 slot 0（CLOCK 材质），主菜单不再显示该入口
 - LearningCalendarGUI 移除 getCalendarMsg()/getDayLabels() 中的硬编码中英文 fallback 字符串，改为 msg.getString(key, "") 直接读取 i18n 配置
 
 ### Added

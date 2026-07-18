@@ -81,12 +81,6 @@ public class MainMenu {
                 messages.getString("main-menu.wrong-book-lore", "&7Review your difficult words"));
         menu.setItem(14, createMenuItem(Material.BOOKSHELF, wrongName, wrongLore));
 
-        String calendarName = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("main-menu.calendar", "&aLearning Calendar"));
-        String calendarLore = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("main-menu.calendar-lore", "&7View your daily learning activity"));
-        menu.setItem(9, createMenuItem(Material.CLOCK, calendarName, calendarLore));
-
         String btnName = ChatColor.translateAlternateColorCodes('&',
                 messages.getString("language.button", "&eSwitch Language"));
         String btnLore = ChatColor.translateAlternateColorCodes('&',

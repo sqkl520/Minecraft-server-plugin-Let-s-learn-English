@@ -68,6 +68,14 @@ public class ProfileGUI {
 
         fillBorder(inv);
 
+        // 过往学习按钮 — slot 0 (left-top corner)
+        String calendarLabel = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("main-menu.calendar", ""));
+        String calendarLore = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("main-menu.calendar-lore", ""));
+        inv.setItem(0, createItem(Material.CLOCK, calendarLabel,
+                Collections.singletonList(calendarLore)));
+
         // Player head — slot 4
         ItemStack head = new ItemStack(Material.PLAYER_HEAD);
         if (head.getItemMeta() instanceof SkullMeta hm) {
@@ -263,7 +271,7 @@ public class ProfileGUI {
 
     private void fillBorder(Inventory inv) {
         ItemStack border = createItem(Material.BLACK_STAINED_GLASS_PANE, " ", Collections.emptyList());
-        int[] borderSlots = {0,1,2,3,5,6,7,9,10,16,17,19,20,21,22,23,24,25};
+        int[] borderSlots = {1,2,3,5,6,7,9,10,16,17,19,20,21,22,23,24,25};
         for (int slot : borderSlots) {
             inv.setItem(slot, border);
         }

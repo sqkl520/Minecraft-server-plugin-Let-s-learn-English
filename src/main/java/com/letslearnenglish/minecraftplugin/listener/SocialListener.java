@@ -8,6 +8,7 @@ import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.gui.AchievementWallGUI;
 import com.letslearnenglish.minecraftplugin.gui.EnglishSquareGUI;
 import com.letslearnenglish.minecraftplugin.gui.LeaderboardGUI;
+import com.letslearnenglish.minecraftplugin.gui.LearningCalendarGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.ProfileGUI;
 import org.bukkit.entity.Player;
@@ -162,6 +163,15 @@ public class SocialListener implements Listener {
     private void handleProfileGUI(Player player, int slot, String title) {
         GuiNavigationManager nav = plugin.getGuiNavigationManager();
 
+        if (slot == 0) {
+            SoundManager.playSound(player, "menu-click");
+            UUID targetId = extractTargetIdFromTitle(player, title);
+            UUID finalTargetId = targetId;
+            nav.pushBack(player.getUniqueId(),
+                    () -> new ProfileGUI(plugin).open(player, finalTargetId));
+            new LearningCalendarGUI(plugin).open(player);
+            return;
+        }
         if (slot == 8) {
             SoundManager.playSound(player, "menu-click");
             Runnable backAction = nav.popBack(player.getUniqueId(),
