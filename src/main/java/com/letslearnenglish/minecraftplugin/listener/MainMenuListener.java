@@ -4,7 +4,6 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.gui.ConfirmationGUI;
 import com.letslearnenglish.minecraftplugin.gui.DailyChallengeGUI;
-import com.letslearnenglish.minecraftplugin.gui.LearningCalendarGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.WordBankSelectGUI;
 import org.bukkit.Bukkit;
@@ -64,12 +63,6 @@ public class MainMenuListener implements Listener {
             case 17 -> {
                 SoundManager.playSound(player, "menu-click");
                 player.performCommand("le square");
-            }
-            case 9 -> {
-                SoundManager.playSound(player, "menu-click");
-                plugin.getGuiNavigationManager().pushBack(player.getUniqueId(),
-                        () -> new MainMenu(plugin).open(player));
-                new LearningCalendarGUI(plugin).open(player);
             }
             case 10 -> {
                 SoundManager.playSound(player, "menu-click");
