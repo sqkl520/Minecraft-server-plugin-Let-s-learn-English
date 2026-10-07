@@ -14,7 +14,8 @@ import java.util.UUID;
  * PlaceholderAPI expansion for Let's Learn English!
  *
  * Provides these placeholders (all support both zh/en players):
- *   %lle_score%          — total coins
+ *   %lle_score%          — total learning score
+ *   %lle_coins_earned%   — lifetime coins earned
  *   %lle_rank%           — rank text ("#1" or "未上榜"/"Unranked")
  *   %lle_words%          — total words attempted
  *   %lle_accuracy%       — accuracy percentage (e.g. "85.3%")
@@ -78,6 +79,7 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
 
         return switch (params) {
             case "score" -> String.valueOf(stats.getTotalScore());
+            case "coins_earned" -> String.valueOf(plugin.getDatabaseManager().getCoinsEarned(playerId));
             case "rank" -> {
                 int rank = plugin.getProgressManager().getLeaderboard().getPlayerRank(playerId);
                 yield rank > 0 ? "#" + rank : getUnrankedText(offlinePlayer);
@@ -106,18 +108,18 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
     }
 
     private String getUnrankedText(OfflinePlayer player) {
+        // 在线玩家按其自身语言取，离线玩家没有语言信息，退回服务端默认语言
         if (player.isOnline() && player.getPlayer() != null) {
-            String lang = plugin.getPlayerLanguage(player.getPlayer());
-            return "zh".equalsIgnoreCase(lang) ? "未上榜" : "Unranked";
+            return plugin.getMessageUtil().getPlayerMessage(player.getPlayer(), "placeholder.rank-unranked");
         }
-        return "Unranked";
+        return plugin.getMessageUtil().getMessage("placeholder.rank-unranked");
     }
 
     private int getStreak(UUID playerId, String column) {
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
         String sql = "SELECT " + column + " FROM " + tablePrefix + "player_data WHERE uuid = ?";
-        try (java.sql.Connection conn = plugin.getDatabaseManager().getConnection();
-             java.sql.PreparedStatement stmt = conn.prepareStatement(sql)) {
+        java.sql.Connection conn = plugin.getDatabaseManager().getConnection();
+        try (java.sql.PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             try (java.sql.ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {

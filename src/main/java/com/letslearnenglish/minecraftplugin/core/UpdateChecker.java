@@ -2,7 +2,6 @@ package com.letslearnenglish.minecraftplugin.core;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 
 import java.io.BufferedReader;
@@ -148,26 +147,23 @@ public class UpdateChecker {
 
         String current = plugin.getDescription().getVersion().replace("-SNAPSHOT", "");
 
+        // 空行仅作视觉分隔，内容全部走 i18n
         player.sendMessage("");
-        player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                "&6&l===== Let's Learn English! Update Available ====="));
-        player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                "&7Current: &fv" + current));
-        player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                "&7Latest: &a&lv" + latestVersion));
-        player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                "&7Download: &b&n" + GITHUB_RELEASES_URL));
-        player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                "&7(Use &e/lea ignore-update &7to dismiss this message)"));
-        player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                "&6=================================================="));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "update.header"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "update.current",
+                "version", current));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "update.latest",
+                "version", latestVersion));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "update.download",
+                "url", GITHUB_RELEASES_URL));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "update.dismiss-hint"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "update.footer"));
         player.sendMessage("");
     }
 
     public void dismiss(Player player) {
         dismissedPlayers.add(player.getUniqueId());
-        player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                "&aUpdate notification dismissed. You will not be reminded again this session."));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "update.dismissed"));
     }
 
     private boolean isNewer(String latest, String current) {

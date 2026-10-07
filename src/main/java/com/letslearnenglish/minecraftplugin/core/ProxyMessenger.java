@@ -165,8 +165,7 @@ public class ProxyMessenger implements PluginMessageListener {
 
         String defaultLang = plugin.getConfigManager().getMainConfig().getString("general.language", "zh");
         org.bukkit.configuration.file.FileConfiguration messages = plugin.getConfigManager().getMessageConfig(defaultLang);
-        String template = messages.getString("dialogue.proxy-achievement",
-                "&8[&b英语学习&8] &6成就解锁: &e{achievement} &6- 由 &f{player} &6在另一个子服获得！");
+        String template = messages.getString("dialogue.proxy-achievement");
         String msg = template.replace("{achievement}", achievementName).replace("{player}", playerName);
         msg = org.bukkit.ChatColor.translateAlternateColorCodes('&', msg);
         Bukkit.broadcastMessage(msg);

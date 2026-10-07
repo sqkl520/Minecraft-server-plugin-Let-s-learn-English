@@ -73,8 +73,7 @@ public class WordLearningListener implements Listener {
         int timeout = wlManager.getAnswerTimeout();
 
         player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-learning-gui.answer-prompt",
-                        "&eSpell: &f{chinese} &7({seconds}s)")
+                messages.getString("word-learning-gui.answer-prompt")
                         .replace("{chinese}", currentWord.getChinese())
                         .replace("{seconds}", String.valueOf(timeout))));
 
@@ -84,25 +83,26 @@ public class WordLearningListener implements Listener {
     private void handleWordLearningGUI(Player player, int slot) {
         WordLearningManager wlManager = plugin.getWordLearningManager();
         int pronSlot = plugin.getConfigManager().getGuiSlot("word-learning", "pronunciation-button", 14);
+        // 槽位一律读 gui-layout 配置，避免管理员改配置后「按钮渲染在 A、监听器判定 B」
+        int backSlot = plugin.getConfigManager().getGuiSlot("word-learning", "back-button", 8);
+        int stopSlot = plugin.getConfigManager().getGuiSlot("word-learning", "stop-button", 16);
+        int startSlot = plugin.getConfigManager().getGuiSlot("word-learning", "start-button", 22);
 
-        if (slot == 8) {
+        if (slot == backSlot) {
             if (wlManager.hasActiveQuiz(player.getUniqueId())) {
                 SoundManager.playSound(player, "incorrect");
-                String lang = plugin.getPlayerLanguage(player);
-                player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                        "zh".equalsIgnoreCase(lang)
-                                ? "&c答题中无法返回主菜单！请先完成或停止当前答题会话"
-                                : "&cCannot return to menu while answering! Finish or stop the current session first"));
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "word-learning-gui.cannot-return"));
             } else {
                 SoundManager.playSound(player, "menu-click");
                 new MainMenu(plugin).open(player);
             }
         } else if (slot == pronSlot) {
             handlePronunciationButton(player, wlManager);
-        } else if (slot == 16) {
+        } else if (slot == stopSlot) {
             SoundManager.playSound(player, "menu-click");
             handleStopSession(player, wlManager);
-        } else if (slot == 22) {
+        } else if (slot == startSlot) {
             SoundManager.playSound(player, "menu-click");
             startAnswerForCurrentWord(player, wlManager);
             player.closeInventory();
@@ -115,8 +115,7 @@ public class WordLearningListener implements Listener {
             SoundManager.playSound(player, "incorrect");
             String lang = plugin.getPlayerLanguage(player);
             var messages = plugin.getConfigManager().getMessageConfig(lang);
-            String msg = messages.getString("word.pronunciation-unavailable",
-                    "&7TTS not available");
+            String msg = messages.getString("word.pronunciation-unavailable");
             player.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
             return;
         }
@@ -132,7 +131,7 @@ public class WordLearningListener implements Listener {
             if (phonetic != null && !phonetic.isEmpty()) {
                 String lang = plugin.getPlayerLanguage(player);
                 var messages = plugin.getConfigManager().getMessageConfig(lang);
-                String phoneticLabel = messages.getString("word.phonetic-label", "Phonetic");
+                String phoneticLabel = messages.getString("word.phonetic-label");
                 player.sendMessage(ChatColor.translateAlternateColorCodes('&',
                         "&d" + english + " &7" + phoneticLabel + ": &f" + phonetic));
             }
@@ -152,7 +151,6 @@ public class WordLearningListener implements Listener {
         player.closeInventory();
 
         player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-learning-gui.session-ended",
-                        "&aLearning session ended!")));
+                messages.getString("word-learning-gui.session-ended")));
     }
 }

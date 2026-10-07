@@ -11,7 +11,17 @@
 - **单词学习答题系统** —— GUI 展示中文词义 → 关闭 GUI → 聊天栏倒计时拼写英文单词
 - **回合制 Combo 连胜系统** —— 连续答对产生递增倍率（1.0x → 3.0x），答错/超时重置
 - **基于艾宾浩斯遗忘曲线** —— 智能间隔复习机制，自动安排复习计划
-- **情景对话练习** —— 模拟真实场景（餐厅、机场、购物等）的英语对话
+- **AI 情景对话系统** —— 基于 DeepSeek API 的智能英语情景对话，支持 6 个场景
+- **错题本系统** —— 答错 3 次自动收录，支持独立复习和移除
+- **每日单词挑战** —— 每日随机从词库选词挑战，完成后获得奖励
+- **每日签到系统** —— 连续签到递增金币奖励，断签重置
+- **PvP 单词对决** —— 双人实时抢答对决，先得 5 分者胜，支持掉线重连
+- **排行榜系统** —— 金币榜 / 单词榜 / 连击榜，数据库持久化
+- **学习统计 HTTP 仪表盘** —— 基于 ECharts 的 Web 管理面板，IP 白名单 + Basic Auth 防护
+- **AI 对话历史回顾** —— 持久化对话记录，分页浏览历史会话
+- **词库导入导出** —— 管理员可导入/导出 YAML 词库，含校验和去重
+- **单词发音辅助** —— 音标显示 + 发音提示音（VoiceRSS API 音频已下载缓存，客户端播放需资源包支持）
+- **自定义 AI 场景分享** —— Base64 编码分享自定义场景，即时热加载
 - **学习进度追踪** —— 可视化学习统计、排行榜与成就系统
 - **图形化菜单** —— 直观的 GUI 操作界面，配合操作音效
 - **多语言支持** —— 主菜单内二次确认切换中英文界面，可自定义消息前缀
@@ -22,18 +32,41 @@
 
 ## 命令
 
+### 玩家命令 `/le`（别名 `/learn`、`/english`）
+
 | 命令 | 说明 |
 |------|------|
 | `/le menu` | 打开主菜单 |
-| `/le word` | 单词学习 |
-| `/le dialogue` | 情景对话 |
-| `/le progress` | 查看学习进度 |
-| `/le review` | 开始复习 |
+| `/le word [难度] [模式]` | 开始单词学习（难度：beginner / intermediate / advanced；模式：spelling / choice / fill_blank） |
+| `/le review` | 复习待复习单词 |
+| `/le dialogue [场景]` | 开始 AI 情景对话 |
+| `/le progress` | 查看个人主页 |
+| `/le profile [玩家名]` | 查看个人资料 |
+| `/le stats` | 查看学习统计 |
+| `/le square` | 进入英语广场 |
+| `/le leaderboard` | 查看排行榜（金币榜 / 单词榜 / 连击榜） |
+| `/le challenge` | 查看今日挑战进度 |
+| `/le history` | 查看 AI 对话历史 |
+| `/le duel <玩家名>` | 发起单词对决（`/le duel accept` 接受，`/le duel quit` 退出） |
+| `/le wrong` | 查看错题本 |
+| `/le checkin` | 每日签到获取金币 |
+| `/le save_scenario <名称>` | 导出当前 AI 场景为分享码 |
+| `/le load_scenario <编码>` | 导入分享的场景码 |
 | `/le help` | 查看帮助 |
-| `/lea reload` | 热重载配置文件 |
-| `/lea reset <玩家>` | 重置玩家学习数据 |
-| `/lea addword <单词/中文释义/难度>` | 添加单词 |
-| `/lea removeword <单词>` | 删除单词 |
+
+### 管理员命令 `/lea`（别名 `/learnadmin`，权限 `letslearnenglish.admin`）
+
+| 命令 | 说明 |
+|------|------|
+| `/lea reload` | 热重载所有配置、词库、音效缓存 |
+| `/lea reset <玩家名>` | 重置玩家学习数据 |
+| `/lea info` | 查看插件信息 |
+| `/lea export` | 导出玩家数据 |
+| `/lea exportwordbank <难度>` | 导出单词库至 YAML 文件 |
+| `/lea importwordbank <文件名.yml>` | 从 YAML 文件导入单词库（文件需放在 `plugins/LetsLearnEnglish/exports/`） |
+| `/lea broadcast <消息>` | 通过代理向所有子服广播（需 Velocity / BungeeCord） |
+| `/lea ignore-update` | 忽略本次更新提醒 |
+| `/lea help` | 查看管理帮助 |
 
 ## 安装
 

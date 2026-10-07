@@ -8,6 +8,8 @@ import org.bukkit.entity.Player;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * CheckIn Manager
@@ -18,6 +20,7 @@ import java.time.format.DateTimeFormatter;
 public class CheckInManager {
 
     private final LetsLearnEnglish plugin;
+    private final ConcurrentHashMap<UUID, Object> playerLocks = new ConcurrentHashMap<>();
 
     /**
      * Streak-based coin rewards.
@@ -39,6 +42,13 @@ public class CheckInManager {
      * @return CheckInResult with success flag, streak, coins earned, and message key
      */
     public CheckInResult checkIn(Player player) {
+        Object lock = playerLocks.computeIfAbsent(player.getUniqueId(), ignored -> new Object());
+        synchronized (lock) {
+            return checkInLocked(player);
+        }
+    }
+
+    private CheckInResult checkInLocked(Player player) {
         // 1. Get today's date in server timezone
         String today = LocalDate.now().format(DATE_FORMAT);
 
@@ -73,13 +83,18 @@ public class CheckInManager {
             coinsEarned = STREAK_REWARDS[effectiveStreak];
         }
 
-        // 8. Give coins via Vault if available
-        giveCoins(player, coinsEarned);
+        // Claim in the database first. This makes a crash unable to produce a second claim.
+        if (!plugin.getDatabaseManager().updateCheckIn(player.getUniqueId(), today, newStreak)) {
+            return new CheckInResult(false, data == null ? 0 : data.getStreakCount(), 0, false);
+        }
 
-        // 9. Update database
-        plugin.getDatabaseManager().updateCheckIn(player.getUniqueId(), today, newStreak);
+        // Vault is external to the database, so a failed payment cannot roll back the claim.
+        boolean paid = giveCoins(player, coinsEarned);
+        if (paid) {
+            plugin.getDatabaseManager().recordCoinsEarned(player.getUniqueId(), coinsEarned);
+        }
 
-        return new CheckInResult(true, newStreak, coinsEarned, streakBroken);
+        return new CheckInResult(true, newStreak, paid ? coinsEarned : 0, streakBroken);
     }
 
     /**

@@ -165,7 +165,7 @@ public class Leaderboard {
     }
 
     /**
-     * Get the cached coins leaderboard (top players by total_score).
+     * Get the cached coins leaderboard (top players by lifetime coins earned).
      */
     public List<LeaderboardEntry> getCachedCoinsLeaderboard() {
         return coinsCache;

@@ -84,19 +84,21 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                 if (args.length > 1) {
                     plugin.getAdminCommandHandler().exportWordBank(args[1], sender);
                 } else {
-                    sender.sendMessage(ChatColor.RED + "Usage: /lea exportwordbank <difficulty>");
-                    sender.sendMessage(ChatColor.GRAY
-                            + "Available difficulties: "
-                            + String.join(", ", plugin.getWordManager().getAvailableDifficulties()));
+                    sender.sendMessage(plugin.getMessageUtil()
+                            .getSenderMessage(sender, "admin.usage-exportwordbank"));
+                    sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                            "admin.available-difficulties", "list",
+                            String.join(", ", plugin.getWordManager().getAvailableDifficulties())));
                 }
                 break;
             case "importwordbank":
                 if (args.length > 1) {
                     plugin.getAdminCommandHandler().importWordBank(args[1], sender);
                 } else {
-                    sender.sendMessage(ChatColor.RED + "Usage: /lea importwordbank <filename.yml>");
-                    sender.sendMessage(ChatColor.GRAY
-                            + "Place file in plugins/LetsLearnEnglish/exports/ first.");
+                    sender.sendMessage(plugin.getMessageUtil()
+                            .getSenderMessage(sender, "admin.usage-importwordbank"));
+                    sender.sendMessage(plugin.getMessageUtil()
+                            .getSenderMessage(sender, "admin.importwordbank-hint"));
                 }
                 break;
             default:
@@ -118,26 +120,29 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
         if (sender instanceof Player player) {
             plugin.getUpdateChecker().dismiss(player);
         } else {
-            sender.sendMessage("This command can only be used by a player.");
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "admin.player-only"));
         }
     }
 
     private void handleBroadcast(CommandSender sender, String[] args) {
         if (plugin.getProxyMessenger() == null || !plugin.getProxyMessenger().isRegistered()) {
-            sender.sendMessage(ChatColor.RED + "Proxy messaging is not available. "
-                    + "This server must be running behind Velocity or BungeeCord.");
+            sender.sendMessage(plugin.getMessageUtil()
+                    .getSenderMessage(sender, "admin.proxy-unavailable"));
             return;
         }
         if (args.length < 2) {
-            sender.sendMessage(ChatColor.RED + "Usage: /lea broadcast <message>");
-            sender.sendMessage(ChatColor.GRAY + "Sends a message to all servers via the proxy.");
+            sender.sendMessage(plugin.getMessageUtil()
+                    .getSenderMessage(sender, "admin.usage-broadcast"));
+            sender.sendMessage(plugin.getMessageUtil()
+                    .getSenderMessage(sender, "admin.broadcast-hint"));
             return;
         }
         String message = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
+        // 广播前缀走 i18n（服务端默认语言），消息本身通过代理发给所有子服
         String formatted = ChatColor.translateAlternateColorCodes('&',
-                "&8[&bLE&8] &eServer Announcement: &f" + message);
+                plugin.getMessageUtil().getMessage("admin.broadcast-prefix") + message);
         plugin.getProxyMessenger().sendGlobalMessage(formatted);
-        sender.sendMessage(ChatColor.GREEN + "Global broadcast sent to all servers.");
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "admin.broadcast-sent"));
         plugin.getLogger().info("Global broadcast sent by " + sender.getName() + ": " + message);
     }
 
@@ -176,10 +181,11 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "admin-help.importwordbank"));
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "admin-help.ignore-update"));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "admin-help.broadcast"));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "admin-help.footer"));
-        // broadcast 帮助（不在语言文件中，直接输出）
-        sender.sendMessage(ChatColor.YELLOW + "/lea broadcast <message>"
-                + ChatColor.GRAY + " - Send a message to all servers via proxy");
     }
 
     @Override

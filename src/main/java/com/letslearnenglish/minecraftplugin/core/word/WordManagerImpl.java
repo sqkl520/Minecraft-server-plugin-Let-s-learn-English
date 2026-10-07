@@ -125,23 +125,6 @@ public class WordManagerImpl {
     }
 
     /**
-     * Get a player's active learning session.
-     */
-    public LearningSession getSession(UUID playerId) {
-        return activeSessions.get(playerId);
-    }
-
-    /**
-     * Get a player's mastery level for a specific word (0.0 ~ 1.0).
-     */
-    public double getWordMastery(UUID playerId, String word) {
-        return playerDataStore.getWordMastery(playerId, word);
-    }
-
-    /**
-     * Get the word bank for a specific difficulty.
-     */
-    /**
      * Look up a word by its English name across all word banks.
      * Returns null if the word is not found in any bank.
      */
@@ -149,6 +132,9 @@ public class WordManagerImpl {
         return globalWordIndex.get(english.toLowerCase());
     }
 
+    /**
+     * Get the word bank for a specific difficulty.
+     */
     public WordBank getWordBank(String difficulty) {
         return wordBanks.get(difficulty);
     }

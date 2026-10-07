@@ -22,7 +22,7 @@ import java.util.logging.Level;
  */
 public class ConfigManager {
 
-    private static final int MESSAGE_CONFIG_VERSION = 5;
+    private static final int MESSAGE_CONFIG_VERSION = 6;
 
     private final LetsLearnEnglish plugin;
     private final Map<String, FileConfiguration> configCache;

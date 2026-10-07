@@ -37,7 +37,7 @@ public class DailyChallengeGUI {
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("daily.title", "&6&lDaily Challenges"));
+                messages.getString("daily.title"));
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
         List<ChallengeProgress> challenges = plugin.getDailyChallengeManager().getTodayChallenges(player.getUniqueId());
@@ -51,27 +51,27 @@ public class DailyChallengeGUI {
             String status;
             if (cp.claimed) {
                 mat = Material.LIME_DYE;
-                status = messages.getString("daily.claimed", "&aClaimed!");
+                status = messages.getString("daily.claimed");
             } else if (cp.completed) {
                 mat = Material.GOLD_INGOT;
-                status = messages.getString("daily.completed", "&6Click to claim!");
+                status = messages.getString("daily.completed");
             } else {
                 mat = Material.PAPER;
-                status = messages.getString("daily.in-progress", "&7In progress");
+                status = messages.getString("daily.in-progress");
             }
 
-            String desc = messages.getString(type.descKey, type.id)
+            String desc = messages.getString(type.descKey)
                     .replace("{target}", String.valueOf(type.target));
             List<String> lore = new ArrayList<>();
             lore.add(ChatColor.translateAlternateColorCodes('&', "&7" + desc));
             lore.add(ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("daily.progress", "&7Progress: &f{progress}/{target}")
+                    messages.getString("daily.progress")
                             .replace("{progress}", String.valueOf(cp.progress))
                             .replace("{target}", String.valueOf(type.target))));
             lore.add(ChatColor.translateAlternateColorCodes('&', status));
             if (!cp.claimed) {
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily.reward-hint", "&7Reward: &e{reward} coins")
+                        messages.getString("daily.reward-hint")
                                 .replace("{reward}", String.valueOf((int) type.reward))));
             }
 
@@ -83,9 +83,9 @@ public class DailyChallengeGUI {
         // Back button
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("gui.back-button", "Back to Menu")),
+                        messages.getString("gui.back-button")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
-                        messages.getString("gui.back-lore", "Return to the main menu")))));
+                        messages.getString("gui.back-lore")))));
 
         player.openInventory(inv);
     }
@@ -97,7 +97,7 @@ public class DailyChallengeGUI {
             case COMBO_5 -> "daily.name-combo-5";
             case AI_CHAT_5 -> "daily.name-ai-chat-5";
         };
-        return ChatColor.translateAlternateColorCodes('&', messages.getString(key, type.id));
+        return ChatColor.translateAlternateColorCodes('&', messages.getString(key));
     }
 
     private ItemStack createItem(Material material, String name, List<String> lore) {

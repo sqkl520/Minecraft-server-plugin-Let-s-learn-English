@@ -57,6 +57,7 @@ public class RewardEngine {
 
         EconomyResponse response = eco.depositPlayer(player, amount);
         if (response.transactionSuccess()) {
+            plugin.getDatabaseManager().recordCoinsEarned(player.getUniqueId(), amount);
             String msg = plugin.getMessageUtil().getPlayerMessage(player,
                     "progress.money-reward",
                     "amount", eco.format(amount));
@@ -92,6 +93,7 @@ public class RewardEngine {
 
         EconomyResponse response = eco.depositPlayer(player, totalAmount);
         if (response.transactionSuccess()) {
+            plugin.getDatabaseManager().recordCoinsEarned(player.getUniqueId(), totalAmount);
             String msg = plugin.getMessageUtil().getPlayerMessage(player,
                     "progress.money-session-bonus",
                     "amount", eco.format(totalAmount));
@@ -137,6 +139,7 @@ public class RewardEngine {
 
         EconomyResponse response = eco.depositPlayer(player, amount);
         if (response.transactionSuccess()) {
+            plugin.getDatabaseManager().recordCoinsEarned(player.getUniqueId(), amount);
             String msg = plugin.getMessageUtil().getPlayerMessage(player,
                     "progress.money-review-reward",
                     "amount", eco.format(amount));
@@ -168,6 +171,7 @@ public class RewardEngine {
 
         EconomyResponse response = eco.withdrawPlayer(player, penaltyAmount);
         if (response.transactionSuccess()) {
+            plugin.getDatabaseManager().recordCoinsSpent(player.getUniqueId(), penaltyAmount);
             String msg = plugin.getMessageUtil().getPlayerMessage(player,
                     "progress.money-review-penalty",
                     "amount", eco.format(penaltyAmount));
@@ -177,48 +181,6 @@ public class RewardEngine {
         } else {
             plugin.getLogger().warning("Failed to withdraw penalty money for "
                     + player.getName() + ": " + response.errorMessage);
-        }
-    }
-
-    /**
-     * Give a reward to a player for completing a learning session.
-     *
-     * @param player      the player to reward
-     * @param score       the score achieved
-     * @param accuracy    the accuracy rate (0.0 - 1.0)
-     */
-    public void giveSessionReward(Player player, int score, double accuracy) {
-        if (!plugin.getConfigManager().getMainConfig()
-                .getBoolean("progress-system.rewards.enabled", true)) {
-            return;
-        }
-
-        giveExpReward(player, score);
-    }
-
-    /**
-     * Give experience points as a reward.
-     */
-    private void giveExpReward(Player player, int score) {
-        if (!plugin.getConfigManager().getMainConfig()
-                .getBoolean("progress-system.rewards.types.exp.enabled", true)) {
-            return;
-        }
-
-        int expAmount = Math.max(1, score / 2);
-        player.giveExp(expAmount);
-    }
-
-    /**
-     * Give a reward for unlocking an achievement.
-     */
-    public void giveAchievementReward(Player player, Achievement achievement) {
-        String message = plugin.getMessageUtil().getPlayerMessage(player,
-                "achievement.unlocked",
-                "name", achievement.getName(),
-                "description", achievement.getDescription());
-        if (message != null && !message.isEmpty()) {
-            player.sendMessage(message);
         }
     }
 }

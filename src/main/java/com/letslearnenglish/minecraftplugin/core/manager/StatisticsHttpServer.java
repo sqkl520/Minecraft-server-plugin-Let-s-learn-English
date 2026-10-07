@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
 import java.util.logging.Level;
 
 /**
@@ -32,11 +33,13 @@ public class StatisticsHttpServer {
     private final LetsLearnEnglish plugin;
     private final DatabaseManager databaseManager;
     private HttpServer server;
-    private boolean running;
+    private volatile boolean running;
+    private ExecutorService executor;
     private final Gson gson;
 
     // Config values — read once at construction
     private final int port;
+    private final String bindAddress;
     private final List<String> ipWhitelist;
     private final String authUsername;
     private final String authPassword;
@@ -48,6 +51,7 @@ public class StatisticsHttpServer {
 
         var config = plugin.getConfigManager().getMainConfig();
         this.port = config.getInt("statistics-server.port", 8080);
+        this.bindAddress = config.getString("statistics-server.bind-address", "127.0.0.1");
         this.ipWhitelist = config.getStringList("statistics-server.ip-whitelist");
         this.authUsername = config.getString("statistics-server.auth.username", "admin");
         this.authPassword = config.getString("statistics-server.auth.password", "changeme");
@@ -58,15 +62,20 @@ public class StatisticsHttpServer {
      */
     public void start() {
         try {
-            server = HttpServer.create(new InetSocketAddress(port), 0);
-            server.setExecutor(Executors.newFixedThreadPool(2));
+            server = HttpServer.create(new InetSocketAddress(bindAddress, port), 0);
+            executor = Executors.newFixedThreadPool(2, runnable -> {
+                Thread thread = new Thread(runnable, "lle-statistics-http");
+                thread.setDaemon(true);
+                return thread;
+            });
+            server.setExecutor(executor);
 
             server.createContext("/", new DashboardHandler());
             server.createContext("/api/stats", new StatsHandler());
 
             server.start();
             running = true;
-            plugin.getLogger().info("Statistics HTTP dashboard started on port " + port
+            plugin.getLogger().info("Statistics HTTP dashboard started on " + bindAddress + ":" + port
                     + " (whitelist: " + ipWhitelist.size() + " entries)");
         } catch (IOException e) {
             plugin.getLogger().log(Level.SEVERE,
@@ -81,6 +90,10 @@ public class StatisticsHttpServer {
     public void stop() {
         if (server != null) {
             server.stop(0);
+            if (executor != null) {
+                executor.shutdownNow();
+                executor = null;
+            }
             running = false;
             plugin.getLogger().info("Statistics HTTP dashboard stopped.");
         }

@@ -21,15 +21,18 @@ import java.util.UUID;
 /**
  * Leaderboard GUI — a 54-slot inventory showing top players by coins, words learned, or combo.
  *
- * Row 0: Tab buttons (Coins / Words / Combo) + back button
+ * Row 0: Tab buttons (Coins / Words / Combo) + back button (slot 8)
  * Rows 1-5: Top 10 entries with player heads, rank, name, and score
  */
 public class LeaderboardGUI {
 
     private static final int GUI_SIZE = 54;
 
-    /** Slots for the top 10 entries: 2 per row across rows 1-5 */
-    private static final int[] ENTRY_SLOTS = {
+    /**
+     * Slots for the top 10 entries: 2 per row across rows 1-5.
+     * 注意：不得包含 {@link #BACK_SLOT}（slot 8，第一行）—— 否则返回键会被玩家头像覆盖。
+     */
+    public static final int[] ENTRY_SLOTS = {
         10, 16,  // Rank 1, 2
         19, 25,  // Rank 3, 4
         28, 34,  // Rank 5, 6
@@ -37,10 +40,12 @@ public class LeaderboardGUI {
         46, 52   // Rank 9, 10
     };
 
-    private static final int TAB_COINS_SLOT = 0;
-    private static final int TAB_WORDS_SLOT = 1;
-    private static final int TAB_COMBO_SLOT = 2;
-    private static final int BACK_SLOT = 49;
+    /** 三个榜单切换标签页槽位（监听器直接引用，避免两处魔法数字漂移）。 */
+    public static final int TAB_COINS_SLOT = 0;
+    public static final int TAB_WORDS_SLOT = 1;
+    public static final int TAB_COMBO_SLOT = 2;
+    /** 返回主菜单按钮 —— 与其余 GUI 统一在右上角 slot 8。 */
+    public static final int BACK_SLOT = 8;
 
     private final LetsLearnEnglish plugin;
     private int activeTab; // 0=coins, 1=words, 2=combo
@@ -75,15 +80,15 @@ public class LeaderboardGUI {
         switch (tab) {
             case 1:
                 entries = plugin.getProgressManager().getLeaderboard().getCachedWordsLeaderboard();
-                subtabLabel = messages.getString("leaderboard.tab-words", "&e单词榜 / Words");
+                subtabLabel = messages.getString("leaderboard.tab-words");
                 break;
             case 2:
                 entries = plugin.getProgressManager().getLeaderboard().getCachedComboLeaderboard();
-                subtabLabel = messages.getString("leaderboard.tab-combo", "&e连击榜 / Combo");
+                subtabLabel = messages.getString("leaderboard.tab-combo");
                 break;
             default:
                 entries = plugin.getProgressManager().getLeaderboard().getCachedCoinsLeaderboard();
-                subtabLabel = messages.getString("leaderboard.tab-coins", "&e金币榜 / Coins");
+                subtabLabel = messages.getString("leaderboard.tab-coins");
                 break;
         }
 
@@ -93,17 +98,17 @@ public class LeaderboardGUI {
         }
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("leaderboard.title", "&6&l排行榜 / Leaderboard")
+                messages.getString("leaderboard.title")
                         + " | " + ChatColor.stripColor(ChatColor.translateAlternateColorCodes('&', subtabLabel)));
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
         // ---- Tab buttons (slots 0, 1, 2) ----
         addTabButton(inv, cm, messages, TAB_COINS_SLOT, 0, "tab-coins",
-                Material.GOLD_INGOT, "leaderboard.tab-coins", "&e金币榜 / Coins");
+                Material.GOLD_INGOT, "leaderboard.tab-coins");
         addTabButton(inv, cm, messages, TAB_WORDS_SLOT, 1, "tab-words",
-                Material.BOOK, "leaderboard.tab-words", "&e单词榜 / Words");
+                Material.BOOK, "leaderboard.tab-words");
         addTabButton(inv, cm, messages, TAB_COMBO_SLOT, 2, "tab-combo",
-                Material.DIAMOND_SWORD, "leaderboard.tab-combo", "&e连击榜 / Combo");
+                Material.DIAMOND_SWORD, "leaderboard.tab-combo");
 
         // ---- Top 10 entries ----
         int displayCount = Math.min(entries.size(), ENTRY_SLOTS.length);
@@ -119,22 +124,20 @@ public class LeaderboardGUI {
                 String scoreLabel;
                 switch (tab) {
                     case 1:
-                        scoreLabel = messages.getString("leaderboard.entry-words",
-                                "&7已学单词: &e{score}");
+                        scoreLabel = messages.getString("leaderboard.entry-words");
                         break;
                     case 2:
-                        scoreLabel = messages.getString("leaderboard.entry-combo",
-                                "&7最长连击: &e{score}");
+                        scoreLabel = messages.getString("leaderboard.entry-combo");
                         break;
                     default:
-                        scoreLabel = messages.getString("leaderboard.entry-coins",
-                                "&7金币: &e{score}");
+                        scoreLabel = messages.getString("leaderboard.entry-coins");
                         break;
                 }
                 lore.add(ChatColor.translateAlternateColorCodes('&',
                         scoreLabel.replace("{score}", String.valueOf(entry.score))));
                 lore.add("");
-                lore.add(ChatColor.translateAlternateColorCodes('&', "&7点击查看玩家主页"));
+                lore.add(ChatColor.translateAlternateColorCodes('&',
+                        messages.getString("leaderboard.click-hint")));
                 meta.setLore(lore);
                 head.setItemMeta(meta);
             }
@@ -144,34 +147,33 @@ public class LeaderboardGUI {
         // ---- Empty state ----
         if (entries.isEmpty()) {
             String emptyLabel = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("leaderboard.empty", "&7暂无数据 / No data"));
+                    messages.getString("leaderboard.empty"));
             ItemStack emptyItem = createItem(Material.BARRIER, emptyLabel, Collections.emptyList());
             inv.setItem(22, emptyItem);
         }
 
-        // ---- Back button (slot 49) ----
+        // ---- Back button (slot 8) ----
         String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
-                messages.getString("gui.back-button", "Back to Menu"));
+                messages.getString("gui.back-button"));
         int backSlot = cm.getGuiSlot("leaderboard", "back-button", BACK_SLOT);
         Material backMaterial = cm.getGuiMaterial("leaderboard", "back-button", Material.RED_STAINED_GLASS_PANE);
         inv.setItem(backSlot, createItem(backMaterial, backLabel,
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
-                        messages.getString("gui.back-lore", "Return to the main menu")))));
+                        messages.getString("gui.back-lore")))));
 
         player.openInventory(inv);
     }
 
     private void addTabButton(Inventory inv, ConfigManager cm, FileConfiguration messages,
                               int defaultSlot, int tabIndex, String configKey,
-                              Material defaultMaterial, String messageKey, String fallback) {
+                              Material defaultMaterial, String messageKey) {
         int slot = cm.getGuiSlot("leaderboard", configKey, defaultSlot);
         Material mat = cm.getGuiMaterial("leaderboard", configKey, defaultMaterial);
         boolean selected = (activeTab == tabIndex);
         Material displayMat = selected ? Material.LIME_STAINED_GLASS_PANE : mat;
         String label = ChatColor.translateAlternateColorCodes('&',
-                (selected ? "&a&l" : "&7") + messages.getString(messageKey, fallback));
-        String hint = messages.getString(selected ? "leaderboard.selected" : "leaderboard.switch-hint",
-                selected ? "&aSelected" : "&7Click to switch");
+                (selected ? "&a&l" : "&7") + messages.getString(messageKey));
+        String hint = messages.getString(selected ? "leaderboard.selected" : "leaderboard.switch-hint");
         inv.setItem(slot, createItem(displayMat, label,
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', hint))));
     }

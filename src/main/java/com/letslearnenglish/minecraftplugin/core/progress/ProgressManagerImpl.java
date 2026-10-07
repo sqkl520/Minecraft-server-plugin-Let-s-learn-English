@@ -39,8 +39,8 @@ public class ProgressManagerImpl {
     private void loadStreakData(UUID playerId, PlayerProgress progress) {
         String sql = "SELECT current_streak, longest_streak FROM "
                 + databaseManager.getTablePrefix() + "player_data WHERE uuid = ?";
-        try (Connection conn = databaseManager.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        Connection conn = databaseManager.getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {

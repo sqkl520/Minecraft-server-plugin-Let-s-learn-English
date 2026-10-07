@@ -129,7 +129,10 @@ public class MiscGUIListener implements Listener {
                     if (reward > 0) {
                         var eco = plugin.getEconomy();
                         if (eco != null) {
-                            eco.depositPlayer(player, reward);
+                            var response = eco.depositPlayer(player, reward);
+                            if (response.transactionSuccess()) {
+                                plugin.getDatabaseManager().recordCoinsEarned(player.getUniqueId(), reward);
+                            }
                         }
                         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                                 "daily.reward-claimed", "reward", String.valueOf((int) reward)));

@@ -1,7 +1,6 @@
 package com.letslearnenglish.minecraftplugin.gui;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
@@ -100,11 +99,11 @@ public class EnglishSquareGUI {
         if (page > totalPages) page = totalPages;
 
         // Title always contains "English Square" / "英语广场" so listener always matches
-        String baseTitle = messages.getString("square.title", "&d&l英语广场 - 第{page}页");
+        String baseTitle = messages.getString("square.title");
         String modeLabel = switch (mode) {
-            case WEEKLY -> messages.getString("leaderboard.mode-weekly", "&e周榜");
-            case MONTHLY -> messages.getString("leaderboard.mode-monthly", "&e月榜");
-            case ALL_TIME_COINS -> messages.getString("leaderboard.mode-alltime", "&e总榜");
+            case WEEKLY -> messages.getString("leaderboard.mode-weekly");
+            case MONTHLY -> messages.getString("leaderboard.mode-monthly");
+            case ALL_TIME_COINS -> messages.getString("leaderboard.mode-alltime");
             default -> "";
         };
         String title = ChatColor.translateAlternateColorCodes('&',
@@ -113,14 +112,14 @@ public class EnglishSquareGUI {
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
         // ---- Mode toggle buttons (slots 2-5) ----
-        addModeButton(inv, cm, messages, lang, 2, RankingMode.WEEKLY, "mode-weekly", Material.CLOCK,
-                "leaderboard.mode-weekly", "&e周榜");
-        addModeButton(inv, cm, messages, lang, 3, RankingMode.MONTHLY, "mode-monthly", Material.BOOK,
-                "leaderboard.mode-monthly", "&e月榜");
-        addModeButton(inv, cm, messages, lang, 4, RankingMode.ALL_TIME_COINS, "mode-alltime", Material.GOLD_INGOT,
-                "leaderboard.mode-alltime", "&e总榜");
-        addModeButton(inv, cm, messages, lang, 5, RankingMode.ALL_PLAYERS, "mode-all", Material.PLAYER_HEAD,
-                "leaderboard.mode-all", "&e广场");
+        addModeButton(inv, cm, messages, 2, RankingMode.WEEKLY, "mode-weekly", Material.CLOCK,
+                "leaderboard.mode-weekly");
+        addModeButton(inv, cm, messages, 3, RankingMode.MONTHLY, "mode-monthly", Material.BOOK,
+                "leaderboard.mode-monthly");
+        addModeButton(inv, cm, messages, 4, RankingMode.ALL_TIME_COINS, "mode-alltime", Material.GOLD_INGOT,
+                "leaderboard.mode-alltime");
+        addModeButton(inv, cm, messages, 5, RankingMode.ALL_PLAYERS, "mode-all", Material.PLAYER_HEAD,
+                "leaderboard.mode-all");
 
         // ---- Player heads ----
         int startIdx = (page - 1) * PLAYERS_PER_PAGE;
@@ -130,7 +129,7 @@ public class EnglishSquareGUI {
             int slot = PLAYER_SLOTS[i - startIdx];
             UUID targetId = currentPlayerIds.get(i);
             String targetName = store.getPlayerName(targetId);
-            if (targetName == null) targetName = "Unknown";
+            if (targetName == null) targetName = messages.getString("profile.unknown-player");
 
             ItemStack head = new ItemStack(Material.PLAYER_HEAD);
             if (head.getItemMeta() instanceof SkullMeta meta) {
@@ -141,7 +140,7 @@ public class EnglishSquareGUI {
                 if (mode == RankingMode.ALL_PLAYERS) {
                     PlayerDataStore.PlayerStats stats = store.getPlayerStats(targetId);
                     lore.add(ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("square.player-info", "&7答对: &a{correct} &7答错: &c{incorrect}")
+                            messages.getString("square.player-info")
                                     .replace("{correct}", String.valueOf(stats.getTotalCorrect()))
                                     .replace("{incorrect}", String.valueOf(stats.getTotalIncorrect()))));
                 } else {
@@ -149,18 +148,18 @@ public class EnglishSquareGUI {
                     LeaderboardEntry entry = findEntry(rankedEntries, targetId);
                     if (entry != null) {
                         lore.add(ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("leaderboard.rank-entry", "&6#{rank} &7金币: &e{score}")
+                                messages.getString("leaderboard.rank-entry")
                                         .replace("{rank}", String.valueOf(entry.rank))
                                         .replace("{score}", String.valueOf(entry.score))));
                         lore.add(ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("square.player-info", "&7答对: &a{correct} &7答错: &c{incorrect}")
+                                messages.getString("square.player-info")
                                         .replace("{correct}", String.valueOf(entry.correct))
                                         .replace("{incorrect}", String.valueOf(entry.incorrect))));
                     }
                 }
                 lore.add("");
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("square.click-hint", "&7点击查看个人主页")));
+                        messages.getString("square.click-hint")));
                 meta.setLore(lore);
                 head.setItemMeta(meta);
             }
@@ -172,9 +171,9 @@ public class EnglishSquareGUI {
         if (pageFull) {
             if (page > 1) {
                 String prevLabel = ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("square.prev-page", "&e← 上一页"));
+                        messages.getString("square.prev-page"));
                 String prevLore = ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("square.prev-page-lore", "&7第 {page} 页")
+                        messages.getString("square.prev-page-lore")
                                 .replace("{page}", String.valueOf(page - 1)));
                 int prevSlot = cm.getGuiSlot("english-square", "prev-page", 47);
                 Material prevMaterial = cm.getGuiMaterial("english-square", "prev-page", Material.ARROW);
@@ -183,9 +182,9 @@ public class EnglishSquareGUI {
             }
             if (page < totalPages) {
                 String nextLabel = ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("square.next-page", "&e下一页 →"));
+                        messages.getString("square.next-page"));
                 String nextLore = ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("square.next-page-lore", "&7第 {page} 页")
+                        messages.getString("square.next-page-lore")
                                 .replace("{page}", String.valueOf(page + 1)));
                 int nextSlot = cm.getGuiSlot("english-square", "next-page", 51);
                 Material nextMaterial = cm.getGuiMaterial("english-square", "next-page", Material.ARROW);
@@ -196,16 +195,16 @@ public class EnglishSquareGUI {
 
         // ---- Back button ----
         String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
-                messages.getString("gui.back-button", "Back to Menu"));
+                messages.getString("gui.back-button"));
         int backSlot = cm.getGuiSlot("english-square", "back-button", 8);
         Material backMaterial = cm.getGuiMaterial("english-square", "back-button", Material.RED_STAINED_GLASS_PANE);
         inv.setItem(backSlot, createItem(backMaterial, backLabel,
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
-                        messages.getString("gui.back-lore", "Return to the main menu")))));
+                        messages.getString("gui.back-lore")))));
 
         if (currentPlayerIds.isEmpty()) {
             String emptyLabel = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("square.empty", "&7还没有人答过题呢~"));
+                    messages.getString("square.empty"));
             int emptySlot = cm.getGuiSlot("english-square", "empty-icon", 22);
             Material emptyMaterial = cm.getGuiMaterial("english-square", "empty-icon", Material.BOOK);
             inv.setItem(emptySlot, createItem(emptyMaterial, emptyLabel, Collections.emptyList()));
@@ -216,17 +215,17 @@ public class EnglishSquareGUI {
         String ownInfo;
         if (mode == RankingMode.ALL_PLAYERS) {
             ownInfo = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("square.player-info", "&7答对: &a{correct} &7答错: &c{incorrect}")
+                    messages.getString("square.player-info")
                             .replace("{correct}", String.valueOf(ownStats.getTotalCorrect()))
                             .replace("{incorrect}", String.valueOf(ownStats.getTotalIncorrect())));
         } else {
             ownInfo = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("leaderboard.rank-entry", "&7金币: &e{score}")
+                    messages.getString("leaderboard.rank-entry")
                             .replace("{rank}", "-")
-                            .replace("{score}", String.valueOf(ownStats.getTotalScore())));
+                            .replace("{score}", String.valueOf(plugin.getDatabaseManager().getCoinsEarned(viewer.getUniqueId()))));
         }
         String ownClickHint = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("square.click-hint", "&7点击查看个人主页"));
+                messages.getString("square.click-hint"));
         ItemStack ownHead = new ItemStack(Material.PLAYER_HEAD);
         if (ownHead.getItemMeta() instanceof SkullMeta ownMeta) {
             ownMeta.setOwningPlayer(Bukkit.getOfflinePlayer(viewer.getUniqueId()));
@@ -244,16 +243,15 @@ public class EnglishSquareGUI {
     }
 
     private void addModeButton(Inventory inv, ConfigManager cm, FileConfiguration messages,
-                                String lang, int defaultSlot, RankingMode mode, String configKey,
-                                Material defaultMaterial, String messageKey, String fallback) {
+                                int defaultSlot, RankingMode mode, String configKey,
+                                Material defaultMaterial, String messageKey) {
         int slot = cm.getGuiSlot("english-square", configKey, defaultSlot);
         Material mat = cm.getGuiMaterial("english-square", configKey, defaultMaterial);
         boolean selected = (currentMode == mode);
         Material displayMat = selected ? Material.LIME_DYE : mat;
         String label = ChatColor.translateAlternateColorCodes('&',
-                (selected ? "&a&l" : "&7") + messages.getString(messageKey, fallback));
-        String hint = messages.getString(selected ? "leaderboard.selected" : "leaderboard.switch-hint",
-                selected ? "&aSelected" : "&7Click to switch");
+                (selected ? "&a&l" : "&7") + messages.getString(messageKey));
+        String hint = messages.getString(selected ? "leaderboard.selected" : "leaderboard.switch-hint");
         inv.setItem(slot, createItem(displayMat, label,
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', hint))));
     }
@@ -269,14 +267,13 @@ public class EnglishSquareGUI {
         ConfigManager cm = plugin.getConfigManager();
         FileConfiguration messages = cm.getMessageConfig(plugin.getPlayerLanguage(viewer));
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("square.title", "English Square"));
+                messages.getString("square.title"));
         Inventory inv = Bukkit.createInventory(null, 27, title);
 
         String jokeName = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("square.hidden-title", "&b&k??? &r&b??? &k???"));
+                messages.getString("square.hidden-title"));
         String jokeLore = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("square.hidden-lore",
-                        "&7The player is throwing invisibility splash potions everywhere..."));
+                messages.getString("square.hidden-lore"));
 
         ItemStack potion = new ItemStack(Material.POTION);
         ItemMeta meta = potion.getItemMeta();
@@ -288,12 +285,12 @@ public class EnglishSquareGUI {
         inv.setItem(13, potion);
 
         String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
-                messages.getString("gui.back-button", "Back to Menu"));
+                messages.getString("gui.back-button"));
         int backSlot = cm.getGuiSlot("english-square", "back-button", 8);
         Material backMaterial = cm.getGuiMaterial("english-square", "back-button", Material.RED_STAINED_GLASS_PANE);
         inv.setItem(backSlot, createItem(backMaterial, backLabel,
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
-                        messages.getString("gui.back-lore", "Return to the main menu")))));
+                        messages.getString("gui.back-lore")))));
 
         viewer.openInventory(inv);
     }

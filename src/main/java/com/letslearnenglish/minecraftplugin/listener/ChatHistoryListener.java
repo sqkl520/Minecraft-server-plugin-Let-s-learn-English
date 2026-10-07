@@ -2,10 +2,8 @@ package com.letslearnenglish.minecraftplugin.listener;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
-import com.letslearnenglish.minecraftplugin.data.ChatHistoryEntry;
 import com.letslearnenglish.minecraftplugin.gui.ChatHistoryGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -13,11 +11,16 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 
-import java.util.List;
+import java.util.Arrays;
 
 /**
  * Listener for AI Chat History GUI interactions.
+ *
+ * 会话身份 / 返回页码一律从物品的 {@link PersistentDataContainer} 读取 ——
+ * 这些是内部数据，写进物品名或 lore 会让玩家悬停就看到硬编码英文。
  */
 public class ChatHistoryListener implements Listener {
 
@@ -64,59 +67,67 @@ public class ChatHistoryListener implements Listener {
         }
 
         if (slot == ChatHistoryGUI.PREV_PAGE_SLOT) {
-            // Previous page — lore stores the target page number
+            // Previous page — 目标页码存在箭头的 PersistentDataContainer 里
             if (item != null && item.getType() == Material.ARROW) {
                 SoundManager.playSound(player, "menu-click");
-                int targetPage = extractPageFromLore(item);
+                int targetPage = readPage(item);
                 new ChatHistoryGUI(plugin).open(player, targetPage);
             }
             return;
         }
 
         if (slot == ChatHistoryGUI.NEXT_PAGE_SLOT) {
-            // Next page — lore stores the target page number
+            // Next page — 同上
             if (item != null && item.getType() == Material.ARROW) {
                 SoundManager.playSound(player, "menu-click");
-                int targetPage = extractPageFromLore(item);
+                int targetPage = readPage(item);
                 new ChatHistoryGUI(plugin).open(player, targetPage);
             }
             return;
         }
 
-        // Session item click (slots 0-9, 18-27 etc — any slot with a BOOK)
-        if (slot >= 0 && slot < 45 && item != null && item.getType() == Material.BOOK) {
-            ItemMeta meta = item.getItemMeta();
-            if (meta != null && meta.hasDisplayName()) {
-                // Find the session ID from the item lore
-                // The session ID is implicit in the position — we need to map it.
-                // Re-query to find which session this slot corresponds to.
+        // Session item click
+        // 槽位必须先落在 ChatHistoryGUI.SESSION_SLOTS 内（binarySearch，数组保持升序）
+        if (Arrays.binarySearch(ChatHistoryGUI.SESSION_SLOTS, slot) < 0) return;
+        if (item == null || item.getType() != Material.BOOK) return;
 
-                // Extract current page from the page indicator (slot 45)
-                int currentPage = 1;
-                ItemStack pageItem = player.getOpenInventory().getItem(45);
-                if (pageItem != null && pageItem.hasItemMeta()) {
-                    ItemMeta pageMeta = pageItem.getItemMeta();
-                    if (pageMeta != null && pageMeta.hasDisplayName()) {
-                        currentPage = extractPageFromIndicator(
-                                ChatColor.stripColor(pageMeta.getDisplayName()));
-                    }
-                }
+        // 会话身份由条目 PersistentDataContainer 里的 session id 决定 ——
+        // 不要用 slot 反算下标后再查库：翻页期间若有新会话插入，下标会指向错误的会话
+        String sessionId = readSessionId(item);
+        if (sessionId == null || sessionId.isEmpty()) return;
 
-                // Calculate which session index this slot represents
-                int sessionIndex = slot; // Slots 0-9 map directly
-                int pageSize = 10;
+        SoundManager.playSound(player, "menu-click");
+        // 返回页码直接读页码指示器的 PDC，同样不查库
+        new ChatHistoryGUI(plugin).openSession(player, sessionId, extractCurrentPage(player));
+    }
 
-                // Get sessions for this page
-                List<ChatHistoryEntry> sessions =
-                        plugin.getDatabaseManager().getChatSessions(player.getUniqueId(), currentPage, pageSize);
+    /** 从物品的 PersistentDataContainer 取出会话身份。 */
+    private String readSessionId(ItemStack item) {
+        PersistentDataContainer pdc = readPdc(item);
+        return pdc == null ? null : pdc.get(ChatHistoryGUI.sessionIdKey(plugin), PersistentDataType.STRING);
+    }
 
-                if (sessionIndex >= 0 && sessionIndex < sessions.size()) {
-                    String sessionId = sessions.get(sessionIndex).getSessionId();
-                    SoundManager.playSound(player, "menu-click");
-                    new ChatHistoryGUI(plugin).openSession(player, sessionId, currentPage);
-                }
-            }
-        }
+    /** 从物品的 PersistentDataContainer 取出目标页码，取不到时回到第 1 页。 */
+    private int readPage(ItemStack item) {
+        PersistentDataContainer pdc = readPdc(item);
+        if (pdc == null) return 1;
+        Integer page = pdc.get(ChatHistoryGUI.returnPageKey(plugin), PersistentDataType.INTEGER);
+        return page == null ? 1 : page;
+    }
+
+    private PersistentDataContainer readPdc(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) return null;
+        ItemMeta meta = item.getItemMeta();
+        return meta == null ? null : meta.getPersistentDataContainer();
+    }
+
+    /**
+     * 从页码指示器（slot 45）读出当前页码，用于返回列表时保持在同一页。
+     */
+    private int extractCurrentPage(Player player) {
+        ItemStack pageItem = player.getOpenInventory().getItem(ChatHistoryGUI.PAGE_INDICATOR_SLOT);
+        int page = readPage(pageItem);
+        return page < 1 ? 1 : page;
     }
 
     private void handleSessionViewClick(Player player, int slot) {
@@ -124,79 +135,11 @@ public class ChatHistoryListener implements Listener {
             // Back to session list
             SoundManager.playSound(player, "menu-click");
 
-            // Extract return page from hidden item at slot 53
-            int returnPage = 1;
-            ItemStack hiddenItem = player.getOpenInventory().getItem(53);
-            if (hiddenItem != null && hiddenItem.hasItemMeta()) {
-                ItemMeta meta = hiddenItem.getItemMeta();
-                if (meta != null && meta.hasDisplayName()) {
-                    String displayName = ChatColor.stripColor(meta.getDisplayName());
-                    if (displayName != null && displayName.startsWith("ReturnPage: ")) {
-                        try {
-                            returnPage = Integer.parseInt(displayName.substring("ReturnPage: ".length()).trim());
-                        } catch (NumberFormatException ignored) {
-                        }
-                    }
-                }
-            }
+            // 返回页码存在 slot 53 标记物品的 PersistentDataContainer 里
+            ItemStack hiddenItem = player.getOpenInventory().getItem(ChatHistoryGUI.RETURN_PAGE_SLOT);
+            int returnPage = readPage(hiddenItem);
 
             new ChatHistoryGUI(plugin).open(player, returnPage);
         }
-    }
-
-    /**
-     * Extract a page number from the item's lore (e.g., "Page 3" or "第 3 页").
-     */
-    private int extractPageFromLore(ItemStack item) {
-        if (item != null && item.hasItemMeta()) {
-            ItemMeta meta = item.getItemMeta();
-            if (meta != null && meta.hasLore()) {
-                List<String> lore = meta.getLore();
-                if (lore != null) {
-                    for (String line : lore) {
-                        String stripped = ChatColor.stripColor(line);
-                        if (stripped == null) continue;
-                        // English format: "Page N"
-                        if (stripped.startsWith("Page ")) {
-                            try {
-                                return Integer.parseInt(stripped.substring("Page ".length()).trim());
-                            } catch (NumberFormatException ignored) {
-                            }
-                        }
-                        // Chinese format: "第 N 页"
-                        if (stripped.startsWith("第 ") && stripped.contains(" 页")) {
-                            try {
-                                int start = "第 ".length();
-                                int end = stripped.indexOf(" 页");
-                                return Integer.parseInt(stripped.substring(start, end).trim());
-                            } catch (NumberFormatException ignored) {
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return 1;
-    }
-
-    private int extractPageFromIndicator(String indicator) {
-        if (indicator == null) return 1;
-        // Format: "Page 1/3"
-        int slashIdx = indicator.indexOf('/');
-        int startIdx = -1;
-        for (int i = 0; i < indicator.length(); i++) {
-            if (Character.isDigit(indicator.charAt(i))) {
-                startIdx = i;
-                break;
-            }
-        }
-        if (startIdx >= 0) {
-            int endIdx = slashIdx > startIdx ? slashIdx : indicator.length();
-            try {
-                return Integer.parseInt(indicator.substring(startIdx, endIdx).trim());
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        return 1;
     }
 }

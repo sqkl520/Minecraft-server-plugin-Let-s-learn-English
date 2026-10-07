@@ -35,7 +35,7 @@ public class AchievementWallGUI {
         String lang = plugin.getPlayerLanguage(viewer);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                "zh".equalsIgnoreCase(lang) ? "&6&l成就墙" : "&6&lAchievement Wall");
+                messages.getString("achievement-wall.title"));
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
         FileConfiguration achConfig = loadAchievementConfig();
@@ -60,14 +60,14 @@ public class AchievementWallGUI {
 
             if (isUnlocked) {
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        "zh".equalsIgnoreCase(lang) ? "&6✔ 已解锁" : "&6✔ Unlocked"));
+                        messages.getString("profile.achievement-unlocked")));
             } else {
-                String timeLeft = getTimeLeftString(achConfig, a, lang);
+                String timeLeft = getTimeLeftString(achConfig, a, messages);
                 if (timeLeft != null && !timeLeft.isEmpty()) {
                     lore.add(ChatColor.translateAlternateColorCodes('&', timeLeft));
                 }
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        "zh".equalsIgnoreCase(lang) ? "&8🔒 未解锁" : "&8🔒 Locked"));
+                        messages.getString("profile.achievement-locked")));
             }
 
             inv.setItem(slot, createItem(mat, name, lore));
@@ -79,10 +79,10 @@ public class AchievementWallGUI {
         }
 
         String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
-                messages.getString("gui.back-button", "Back to Menu"));
+                messages.getString("gui.back-button"));
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE, backLabel,
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
-                        messages.getString("gui.back-lore", "Return to the main menu")))));
+                        messages.getString("gui.back-lore")))));
 
         viewer.openInventory(inv);
     }
@@ -100,7 +100,8 @@ public class AchievementWallGUI {
         return config.getBoolean("achievements." + a.getId() + ".enabled", true);
     }
 
-    private String getTimeLeftString(FileConfiguration config, Achievement a, String lang) {
+    private String getTimeLeftString(FileConfiguration config, Achievement a,
+                                      FileConfiguration messages) {
         if (config == null) return null;
         if (!config.getBoolean("achievements." + a.getId() + ".time-limit.enabled", false)) return null;
 
@@ -117,18 +118,15 @@ public class AchievementWallGUI {
 
             if (now.before(start)) {
                 long diff = start.getTime() - now.getTime();
-                return "zh".equalsIgnoreCase(lang)
-                        ? "&7⏳ 距开放: " + formatDuration(diff)
-                        : "&7⏳ Opens in: " + formatDuration(diff);
+                return messages.getString("achievement-wall.time-opens")
+                        .replace("{time}", formatDuration(diff));
             }
             if (now.after(end)) {
-                return "zh".equalsIgnoreCase(lang)
-                        ? "&7⏰ 已过期" : "&7⏰ Expired";
+                return messages.getString("achievement-wall.time-expired");
             }
             long diff = end.getTime() - now.getTime();
-            return "zh".equalsIgnoreCase(lang)
-                    ? "&7⏳ 剩余: " + formatDuration(diff)
-                    : "&7⏳ Remaining: " + formatDuration(diff);
+            return messages.getString("achievement-wall.time-remaining")
+                    .replace("{time}", formatDuration(diff));
         } catch (Exception e) {
             return null;
         }

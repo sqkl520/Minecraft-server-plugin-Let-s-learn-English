@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 5
+config-version: 6
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -14,6 +14,15 @@ general:
   data-saved: "{prefix}&aPlayer data saved!"
   unknown-command: "{prefix}&cUnknown command. Use /le help for help."
   error: "{prefix}&cError: {message}"
+
+error:
+  scenario-unavailable: "&cThe AI scenario chat feature is currently unavailable."
+  player-not-found: "&cThat player could not be found."
+  duel-unavailable: "&cThe duel system is currently unavailable."
+  checkin-unavailable: "&cThe check-in system is currently unavailable."
+  usage-save-scenario: "&cUsage: /le save_scenario <name>"
+  usage-load-scenario: "&cUsage: /le load_scenario <code>"
+  scenario-save-failed: "&cFailed to save the scenario file."
 
 word:
   session-start: "{prefix}&aStarting new learning session! Difficulty: &e{difficulty}&a, Mode: &e{mode}"
@@ -26,6 +35,7 @@ word:
   pronunciation-button-lore: "&7Click to play pronunciation cue"
   phonetic-label: "&7Phonetic"
   pronunciation-unavailable: "&7TTS not available"
+  mode-review: "Review"
 
 review:
   notification: "{prefix}&6You have &e{count} &6words due for review! Type &e/le review &6to start"
@@ -35,6 +45,9 @@ review:
 dialogue:
   started: "{prefix}&aAI Scenario Chat started! Scenario: &e{scenario}"
   instructions: "{prefix}&7Talk to the AI in chat. Type &egoodbye &7or &ebye &7to exit."
+  started-with-difficulty: "{prefix}&aAI scenario started! Scenario: &e{scenario} &7| Difficulty: &e{difficulty}"
+  chat-hint: "{prefix}&7Type anything to chat with AI, use &f& &7+ message to talk to other players (e.g. &f& Hello!&7)"
+  exit-hint: "{prefix}&7Type &fbye &7to exit"
   ended: "{prefix}&aScenario chat ended. Thanks for practicing!"
   return-menu: "{prefix}&7Type &f/le menu &7to return to menu"
   you-label: "&7[You] &f"
@@ -42,6 +55,11 @@ dialogue:
   ai-label: "&b[English AI] &f"
   error-label: "&c[Error] &7"
   ai-unavailable: "&c[AI] &7AI service is not configured. &f/le menu &7to return."
+  ai-not-configured: "{prefix}&cAI service is not configured. Please contact the server admin."
+  cooldown: "{prefix}&ePlease wait {seconds} seconds before sending another message."
+  no-active-conversation: "{prefix}&cNo active conversation. Use /le dialogue to start one."
+  request-failed: "{prefix}&cAI service is temporarily unavailable. Please try again later."
+  request-in-progress: "{prefix}&eYour previous AI message is still processing. Please wait."
   proxy-achievement: "{prefix}&6Achievement unlocked: &e{achievement} &6- by &f{player} &6on another server!"
   scenario-title: "&b&lScenario Select"
   back-to-menu: "&c&lBack to Menu"
@@ -55,12 +73,20 @@ dialogue:
   api-reload: "&5&lReload API Key"
   api-configured: "&aAPI Status: Configured"
   api-not-configured: "&cAPI Status: Not configured"
+  api-reload-success: "{prefix}&a[AI] API key reloaded. AI chat is available!"
+  api-reload-failed: "{prefix}&c[AI] API key not configured or invalid. AI chat unavailable."
 
 achievement:
   unlock-title: "&6&lAchievement Unlocked!"
   unlock-format: "&b&l✧ {title} &f- {name}"
   unlocked: "{prefix}&6Achievement Unlocked: &e{name} &6- {description}"
   progress: "{prefix}&7Achievement progress: &e{name} &7({current}/{target})"
+
+achievement-wall:
+  title: "&6&lAchievement Wall"
+  time-opens: "&7⏳ Opens in: {time}"
+  time-expired: "&7⏰ Expired"
+  time-remaining: "&7⏳ Remaining: {time}"
 
 leaderboard:
   header: "&6&l===== English Learning Leaderboard ====="
@@ -84,9 +110,14 @@ leaderboard:
   entry-coins: "&7Coins: &e{score}"
   entry-words: "&7Words Learned: &e{score}"
   entry-combo: "&7Longest Combo: &e{score}"
+  click-hint: "&7Click to view player profile"
 
 progress:
   view: "{prefix}&aViewing your learning progress..."
+  money-reward: "{prefix}&aAnswer reward: &e{amount} &acoins"
+  money-session-bonus: "{prefix}&aSession complete bonus: &e{amount} &acoins"
+  money-review-reward: "{prefix}&aReview reward: &e{amount} &acoins"
+  money-review-penalty: "{prefix}&cReview wrong-answer penalty: &e{amount} &ccoins"
 
 admin:
   export-start: "{prefix}&aStarting player data export..."
@@ -95,6 +126,16 @@ admin:
   word-add: "{prefix}&aAdded word &e{word} &ato &e{difficulty} &aword bank"
   usage-reset: "Usage: /lea reset <player>"
   reset-pending: "Player data reset for: {player} (feature pending)"
+  usage-exportwordbank: "{prefix}&cUsage: /lea exportwordbank <difficulty>"
+  available-difficulties: "{prefix}&7Available difficulties: &e{list}"
+  usage-importwordbank: "{prefix}&cUsage: /lea importwordbank <filename.yml>"
+  importwordbank-hint: "{prefix}&7Place the file in plugins/LetsLearnEnglish/exports/ first."
+  player-only: "{prefix}&cThis command can only be used by a player."
+  proxy-unavailable: "{prefix}&cProxy messaging is not available. This server must be running behind Velocity or BungeeCord."
+  usage-broadcast: "{prefix}&cUsage: /lea broadcast <message>"
+  broadcast-hint: "{prefix}&7Sends a message to all servers via the proxy."
+  broadcast-sent: "{prefix}&aGlobal broadcast sent to all servers."
+  broadcast-prefix: "&8[&bLE&8] &eServer Announcement: &f"
   unknown-command: "Unknown subcommand. Use /lea help for help."
 
 wordbank:
@@ -103,6 +144,24 @@ wordbank:
   import-summary: "{prefix}&aImport complete! &7Imported: &e{imported} &7Skipped (duplicates): &e{skipped} &7Errors: &e{errors}"
   import-failed: "{prefix}&cImport failed: {reason}"
   validation-failed: "{prefix}&cValidation failed! Check these errors:"
+  reason-unknown-difficulty: "Unknown difficulty: {difficulty}"
+  reason-io-error: "IO error: {error}"
+  reason-file-not-found: "File not found: {file}"
+  reason-no-words-list: "No words list found"
+  validation-more-errors: "&7... and &e{count} &7more errors"
+  validation-error-line: "&c  - {error}"
+
+placeholder:
+  rank-unranked: "Unranked"
+
+update:
+  header: "&6&l===== Let's Learn English! Update Available ====="
+  current: "&7Current: &fv{version}"
+  latest: "&7Latest: &a&lv{version}"
+  download: "&7Download: &b&n{url}"
+  dismiss-hint: "&7(Use &e/lea ignore-update &7to dismiss this message)"
+  footer: "&6=================================================="
+  dismissed: "&aUpdate notification dismissed. You will not be reminded again this session."
 
 language:
   button: "&eSwitch to \u4e2d\u6587"
@@ -111,6 +170,8 @@ language:
   confirm-item: "&c&lReally?"
   confirm-lore: "&7Click again to confirm"
   switched: "{prefix}&aLanguage switched to English!"
+  cancel-item: "&a&lCancel"
+  cancel-lore: "&7Click to close and return to the main menu"
 
 help:
   header: "&6===== Let's Learn English! Help ====="
@@ -122,6 +183,8 @@ help:
   stats: "&e/le stats &7- View learning statistics"
   profile: "&e/le profile [player] &7- View player profile"
   square: "&e/le square &7- Enter English Square"
+  leaderboard: "&e/le leaderboard &7- View the leaderboard"
+  challenge: "&e/le challenge &7- View today's challenge progress"
   history: "&e/le history &7- View AI chat history"
   duel: "&e/le duel <player> &7- Challenge a player to a word duel"
   wrong: "&e/le wrong &7- View your Wrong Book"
@@ -133,7 +196,7 @@ help:
 checkin:
   success: "{prefix}&aCheck-in successful! Streak: &e{streak} &adays, earned &e{coins} &acoins!"
   already: "{prefix}&eYou've already checked in today! Come back tomorrow~"
-  streak-broken: "{prefix}&cStreak broken... &7Streak has been reset to &e1 &7day"
+  streak-broken: "{prefix}&cStreak broken... &7The old streak is now &e0&7; today's check-in starts a new streak at &e1&7."
   streak-info: "{prefix}&7Current streak: &e{streak} &7days"
 
 scenario:
@@ -196,6 +259,8 @@ admin-help:
   info: "&e/lea info &7- Show plugin info"
   exportwordbank: "&e/lea exportwordbank <difficulty> &7- Export word bank to YAML"
   importwordbank: "&e/lea importwordbank <filename> &7- Import word bank from YAML"
+  ignore-update: "&e/lea ignore-update &7- Ignore this update reminder"
+  broadcast: "&e/lea broadcast <message> &7- Broadcast to all servers via proxy"
   footer: "&6======================================"
 
 plugin-info:
@@ -271,6 +336,7 @@ word-learning-gui:
   current-word-lore-1: "Close this GUI and type the English in chat"
   current-word-lore-2: ""
   progress: "Progress: {current}/{total}"
+  score: "&7Score: &e{score}"
   session-complete: "&6★ &aSession complete! &7Correct: &e{correct}&7/&e{total} &7Accuracy: &e{accuracy}% &7Score: &e{score}"
   answer-broadcast: "&7{player} &7answered: &f{answer}"
   session-ended: "&aLearning session ended!"
@@ -279,13 +345,14 @@ word-learning-gui:
   combo-active: "Streak: {count} ({multiplier}x)"
   stop-button: "Stop Session"
   stop-lore: "End the current learning session"
-  time-up: "&c⏱ Time's up! Correct answer: &e{answer}"
+  timeout: "&c⏱ Time's up! Correct answer: &e{answer}"
   countdown-urgent: "&c⏳ {seconds}s remaining!"
-  countdown: "&e⏳ {seconds}s remaining..."
-  correct-answer: "&a✔ Correct! &7(+&e{score}&7)"
-  correct-answer-combo: "&a✔ Correct! &7(+&e{score}&7) &6✨ {combo}x combo! ({multiplier}x)"
-  wrong-answer: "&c✖ Wrong! Answer: &e{answer}"
+  countdown-normal: "&e⏳ {seconds}s remaining..."
+  correct: "&a✔ Correct! &7(+&e{score}&7){combo}"
+  combo-message: "&6✨ {count}x combo! ({multiplier}x)"
+  incorrect: "&c✖ Wrong! Answer: &e{answer}"
   session-stopped: "&aSession stopped! &7Correct: &e{correct}&7/&e{total} &7Score: &e{score}"
+  cannot-return: "&cCannot return to menu while answering! Finish or stop the current session first"
 
 dialogue-gui:
   title: "Dialogue - {scene}"
@@ -315,6 +382,13 @@ square:
   next-page-lore: "&7Page {page}"
   hidden-title: "&b&k??? &r&b??? &k???"
   hidden-lore: "&7The player is throwing invisibility splash potions everywhere..."
+
+word-bank:
+  title: "&a&lSelect Word Bank"
+  click-hint: "&7Click to select this word bank"
+  difficulty-beginner: "Beginner"
+  difficulty-intermediate: "Intermediate"
+  difficulty-advanced: "Advanced"
 
 calendar:
   title: "&a&lStudy History"
@@ -357,6 +431,8 @@ profile:
   achievement-locked: "&8🔒 Locked"
   settings-button: "&eSettings"
   settings-lore: "&7Privacy settings"
+  settings-locked: "&8Settings (Locked)"
+  settings-locked-lore: "&7You can only change your own settings"
   settings-title: "&ePrivacy Settings"
   settings-show-answers: "Answers visible to others"
   settings-show-answers-on: "&aCurrent: Visible"
@@ -391,6 +467,7 @@ chat-history:
   role-user: "&a[You]"
   role-assistant: "&b[AI]"
   session-item-format: "&b&l{scenario} &7- {date}"
+  unknown-date: "Unknown"
 
 wrong-book:
   title: "&c&lWrong Book / Difficult Words"
@@ -407,6 +484,7 @@ wrong-book:
   auto-add: "&cThis word has been added to your Wrong Book! Use &e/le wrong &cto review it."
   practice-start: "&6★ Practice Mode: &eType the English word for: &f{chinese}"
   practice-cancel-hint: "&7(Type &ecancel &7to stop)"
+  practice-cancelled: "&7Practice cancelled."
   practice-correct: "&aCorrect! Wrong count reduced to &e{count}"
   practice-removed: "&aCorrect! The word has been removed from your Wrong Book!"
   practice-incorrect: "&cWrong! The correct answer is: &e{word}"

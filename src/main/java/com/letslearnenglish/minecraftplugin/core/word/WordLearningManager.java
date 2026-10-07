@@ -193,8 +193,7 @@ public class WordLearningManager {
             org.bukkit.configuration.file.FileConfiguration messages = plugin.getConfigManager()
                     .getMessageConfig(plugin.getPlayerLanguage(player));
             String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("wrong-book.auto-add",
-                            "&cThis word has been added to your Wrong Book! Use &e/le wrong &cto review it."));
+                    messages.getString("wrong-book.auto-add"));
             player.sendMessage(msg);
         }
     }
@@ -244,8 +243,7 @@ public class WordLearningManager {
                 AnswerResult timeoutResult = handleTimeout(player);
                 if (timeoutResult != null) {
                     player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("word-learning-gui.timeout",
-                                    "&c\u23f1 Time's up! Correct answer: &e{answer}")
+                            messages.getString("word-learning-gui.timeout")
                                     .replace("{answer}", timeoutResult.correctAnswer)));
                     if (timeoutResult.sessionComplete) {
                         showSessionComplete(player, timeoutResult);
@@ -255,13 +253,11 @@ public class WordLearningManager {
                 }
             } else if (remaining[0] <= 5) {
                 player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("word-learning-gui.countdown-urgent",
-                                "&c\u23f3 {seconds}s remaining!")
+                        messages.getString("word-learning-gui.countdown-urgent")
                                 .replace("{seconds}", String.valueOf(remaining[0]))));
             } else {
                 player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("word-learning-gui.countdown-normal",
-                                "&e\u23f3 {seconds}s remaining...")
+                        messages.getString("word-learning-gui.countdown-normal")
                                 .replace("{seconds}", String.valueOf(remaining[0]))));
             }
         }, 20L, 20L);
@@ -309,8 +305,7 @@ public class WordLearningManager {
 
         FileConfiguration messages = getMessages(player);
         player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-learning-gui.session-stopped",
-                        "&aSession stopped! &7Correct: &e{correct}&7/&e{total} &7Score: &e{score}")
+                messages.getString("word-learning-gui.session-stopped")
                         .replace("{correct}", String.valueOf(correct))
                         .replace("{total}", String.valueOf(total))
                         .replace("{score}", String.valueOf(score))));
@@ -370,8 +365,7 @@ public class WordLearningManager {
     public void showSessionComplete(Player player, AnswerResult result) {
         FileConfiguration messages = getMessages(player);
         String msg = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-learning-gui.session-complete",
-                        "&6\u2605 &aSession complete! &7Correct: &e{correct}&7/&e{total} &7Accuracy: &e{accuracy}% &7Score: &e{score}")
+                messages.getString("word-learning-gui.session-complete")
                         .replace("{correct}", String.valueOf(result.correctCount))
                         .replace("{total}", String.valueOf(result.totalWords))
                         .replace("{accuracy}", String.format("%.1f", result.accuracy * 100))
@@ -455,13 +449,11 @@ public class WordLearningManager {
             if (newCount <= 0) {
                 store.removeDifficultWord(playerId, word);
                 String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.practice-removed",
-                                "&aCorrect! The word has been removed from your Wrong Book!"));
+                        messages.getString("wrong-book.practice-removed"));
                 player.sendMessage(msg);
             } else {
                 String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.practice-correct",
-                                "&aCorrect! Wrong count reduced to &e{count}&a.")
+                        messages.getString("wrong-book.practice-correct")
                                 .replace("{count}", String.valueOf(newCount)));
                 player.sendMessage(msg);
             }
@@ -469,8 +461,7 @@ public class WordLearningManager {
             org.bukkit.configuration.file.FileConfiguration messages = plugin.getConfigManager()
                     .getMessageConfig(plugin.getPlayerLanguage(player));
             String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("wrong-book.practice-incorrect",
-                            "&cWrong! The correct answer is: &e{word}")
+                    messages.getString("wrong-book.practice-incorrect")
                             .replace("{word}", word));
             player.sendMessage(msg);
         }

@@ -39,7 +39,7 @@ public class DuelGUI {
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("duel.gui-title", "&6&lWord Duel / 单词对决"));
+                messages.getString("duel.gui-title"));
 
         // Truncate title if too long (max 32 chars for Minecraft)
         if (title.length() > 32) {
@@ -76,13 +76,13 @@ public class DuelGUI {
             int slot = p1Slots[i];
             Material mat = i < score1 ? Material.GREEN_WOOL : Material.GRAY_STAINED_GLASS;
             String label = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("duel.score-point", "&aScore Point"));
+                    messages.getString("duel.score-point"));
             inv.setItem(slot, createItem(mat, label));
         }
 
         // Player 1 info (slot 9)
         String p1Label = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("duel.player-score", "&a{player}: &f{score}")
+                messages.getString("duel.player-score")
                         .replace("{player}", p1Name)
                         .replace("{score}", String.valueOf(score1)));
         inv.setItem(9, createItem(Material.PLAYER_HEAD, p1Label));
@@ -101,13 +101,13 @@ public class DuelGUI {
             int slot = p2Slots[i];
             Material mat = i < score2 ? Material.RED_WOOL : Material.GRAY_STAINED_GLASS;
             String label = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("duel.score-point", "&cScore Point"));
+                    messages.getString("duel.score-point"));
             inv.setItem(slot, createItem(mat, label));
         }
 
         // Player 2 info (slot 17)
         String p2Label = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("duel.player-score", "&c{player}: &f{score}")
+                messages.getString("duel.player-score")
                         .replace("{player}", p2Name)
                         .replace("{score}", String.valueOf(score2)));
         String headOwner = p2Name;
@@ -117,26 +117,26 @@ public class DuelGUI {
         Word currentWord = room.getCurrentWord();
         if (currentWord != null) {
             String wordLabel = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("duel.current-word", "&eCurrent Word: &f{chinese}")
+                    messages.getString("duel.current-word")
                             .replace("{chinese}", currentWord.getChinese()));
             String wordHint1 = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("duel.type-answer-hint", "&7Type your answer in chat!"));
+                    messages.getString("duel.type-answer-hint"));
             String wordHint2 = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("duel.first-correct-wins", "&7First correct answer wins the point!"));
+                    messages.getString("duel.first-correct-wins"));
             inv.setItem(13, createItem(Material.BOOK, wordLabel, wordHint1, wordHint2));
         } else {
             String waitLabel = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("duel.waiting-word", "&7Loading word..."));
+                    messages.getString("duel.waiting-word"));
             inv.setItem(13, createItem(Material.BOOK, waitLabel));
         }
 
         // --- Quit button (slot 22) ---
         String quitLabel = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("duel.quit-button", "&c&lQuit Duel"));
+                messages.getString("duel.quit-button"));
         String quitLore1 = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("duel.quit-lore", "&7Forfeit the duel"));
+                messages.getString("duel.quit-lore"));
         String quitLore2 = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("duel.quit-hint", "&7Or use /le duel quit"));
+                messages.getString("duel.quit-hint"));
         inv.setItem(22, createItem(Material.BARRIER, quitLabel, quitLore1, quitLore2));
     }
 

@@ -37,7 +37,7 @@ public class ScenarioSelectGUI {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration msg = plugin.getConfigManager().getMessageConfig(lang);
 
-        String title = msg.getString("dialogue.scenario-title", "&b&lScenario Select");
+        String title = msg.getString("dialogue.scenario-title");
         title = ChatColor.translateAlternateColorCodes('&', title);
 
         Inventory gui = Bukkit.createInventory(null, GUI_SIZE, title);
@@ -54,14 +54,14 @@ public class ScenarioSelectGUI {
         }
 
         // 返回按钮 (slot 8)
-        String backLabel = msg.getString("dialogue.back-to-menu", "&c&lBack to Menu");
-        String backLore = msg.getString("dialogue.back-lore", "&7Click to go back");
+        String backLabel = msg.getString("dialogue.back-to-menu");
+        String backLore = msg.getString("dialogue.back-lore");
         gui.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE, backLabel, backLore));
 
         // 场景按钮 (slots 10-16)
         int slot = 10;
-        String clickStart = msg.getString("dialogue.click-start", "&7Click to start this scenario");
-        String systemPrompt = msg.getString("dialogue.system-prompt", "&eSystem Prompt:");
+        String clickStart = msg.getString("dialogue.click-start");
+        String systemPrompt = msg.getString("dialogue.system-prompt");
         for (ScenarioConfig sc : plugin.getAIChatManager().getScenarioConfigs().values()) {
             if (slot > 16) break;
             List<String> lore = new ArrayList<>();
@@ -85,8 +85,8 @@ public class ScenarioSelectGUI {
         // 难度选择按钮 (slots 18, 19, 20)
         String currentDiff = plugin.getAIChatManager().getPlayerDifficulty(player);
         int diffSlot = DIFFICULTY_SLOT_START;
-        String diffSelected = msg.getString("dialogue.diff-selected", "&aCurrently Selected");
-        String diffSelect = msg.getString("dialogue.diff-select", "&7Click to select this difficulty");
+        String diffSelected = msg.getString("dialogue.diff-selected");
+        String diffSelect = msg.getString("dialogue.diff-select");
         for (DifficultyConfig dc : plugin.getAIChatManager().getDifficulties().values()) {
             if (diffSlot > 20) break;
             boolean selected = dc.key.equals(currentDiff);
@@ -105,17 +105,17 @@ public class ScenarioSelectGUI {
         }
 
         // 难度分隔标签 (slot 22)
-        String diffLabel = msg.getString("dialogue.difficulty-label", "&eDifficulty");
-        String diffLore = msg.getString("dialogue.difficulty-lore", "&7Choose your difficulty level");
+        String diffLabel = msg.getString("dialogue.difficulty-label");
+        String diffLore = msg.getString("dialogue.difficulty-lore");
         gui.setItem(22, createItem(Material.NAME_TAG, diffLabel, diffLore));
 
         // 刷新 API 密钥按钮 (slot 26) — 仅管理员可见
         if (player.hasPermission("letslearnenglish.admin")) {
             boolean apiAvailable = plugin.getAIChatManager().isAvailable();
-            String apiReload = msg.getString("dialogue.api-reload", "&5&lReload API Key");
+            String apiReload = msg.getString("dialogue.api-reload");
             String apiStatus = apiAvailable
-                    ? msg.getString("dialogue.api-configured", "&aAPI Status: Configured")
-                    : msg.getString("dialogue.api-not-configured", "&cAPI Status: Not configured");
+                    ? msg.getString("dialogue.api-configured")
+                    : msg.getString("dialogue.api-not-configured");
             gui.setItem(26, createItem(
                     apiAvailable ? Material.ENCHANTED_BOOK : Material.WRITABLE_BOOK,
                     apiReload, apiStatus));

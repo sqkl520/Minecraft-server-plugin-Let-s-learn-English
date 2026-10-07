@@ -1,7 +1,7 @@
 # 开发计划 — v1.0.7 迭代开发
 
 ## 项目信息
-- PRD：`tasks/prd-v1.0.7-iteration.md`
+- PRD：`ralph/prd.json`
 - 主类：`com.letslearnenglish.minecraftplugin.LetsLearnEnglish`
 - 总 Story 数：13 (3 Bug + 10 Feature)
 - 创建时间：2026-06-19

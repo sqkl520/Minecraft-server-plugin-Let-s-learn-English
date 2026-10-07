@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 5
+config-version: 6
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -14,6 +14,15 @@ general:
   data-saved: "{prefix}&a玩家数据已保存！"
   unknown-command: "{prefix}&c未知命令。输入 /le help 查看帮助。"
   error: "{prefix}&c错误: {message}"
+
+error:
+  scenario-unavailable: "&cAI 情景对话功能当前不可用。"
+  player-not-found: "&c找不到该玩家。"
+  duel-unavailable: "&c对决系统当前不可用。"
+  checkin-unavailable: "&c签到系统当前不可用。"
+  usage-save-scenario: "&c用法: /le save_scenario <名称>"
+  usage-load-scenario: "&c用法: /le load_scenario <编码>"
+  scenario-save-failed: "&c保存场景文件失败。"
 
 word:
   session-start: "{prefix}&a开始新的学习会话！难度: &e{difficulty}&a, 模式: &e{mode}"
@@ -26,6 +35,7 @@ word:
   pronunciation-button-lore: "&7点击播放发音提示音"
   phonetic-label: "音标 / Phonetic"
   pronunciation-unavailable: "&7发音功能未启用 / TTS not available"
+  mode-review: "复习"
 
 review:
   notification: "{prefix}&6你有 &e{count} &6个单词需要复习！输入 &e/le review &6开始复习"
@@ -35,6 +45,9 @@ review:
 dialogue:
   started: "{prefix}&aAI 情景对话已开启！ 场景: &e{scenario}"
   instructions: "{prefix}&7请在聊天栏与 AI 对话。输入 &e再见 &7或 &ebye &7退出。"
+  started-with-difficulty: "{prefix}&aAI 情景对话已开启！ 场景: &e{scenario} &7| 难度: &e{difficulty}"
+  chat-hint: "{prefix}&7在聊天栏输入任意文字与 AI 对话，输入 &f& &7+ 消息与其他玩家聊天（例：&f& Hello!&7）"
+  exit-hint: "{prefix}&7输入 &f再见 &7或 &fbye &7退出对话"
   ended: "{prefix}&a情景对话已结束。感谢练习！"
   return-menu: "{prefix}&7输入 &f/le menu &7返回主菜单"
   you-label: "&7[You] &f"
@@ -42,6 +55,11 @@ dialogue:
   ai-label: "&b[English AI] &f"
   error-label: "&c[Error] &7"
   ai-unavailable: "&c[AI] &7AI 服务未配置。&f/le menu &7返回主菜单。"
+  ai-not-configured: "{prefix}&cAI 服务未配置，请联系服务器管理员。"
+  cooldown: "{prefix}&e请等待 {seconds} 秒后再发送消息。"
+  no-active-conversation: "{prefix}&c当前没有进行中的对话，请先使用 /le dialogue 开始。"
+  request-failed: "{prefix}&cAI 服务暂时不可用，请稍后再试。"
+  request-in-progress: "{prefix}&e上一条 AI 消息仍在处理中，请稍候。"
   proxy-achievement: "{prefix}&6成就解锁: &e{achievement} &6- 由 &f{player} &6在另一个子服获得！"
   scenario-title: "&b&l场景选择"
   back-to-menu: "&c&l返回主菜单"
@@ -55,12 +73,20 @@ dialogue:
   api-reload: "&5&l刷新 API 密钥"
   api-configured: "&aAPI 状态: 已配置"
   api-not-configured: "&cAPI 状态: 未配置"
+  api-reload-success: "{prefix}&a[AI] API 密钥已重新加载，AI 对话可用！"
+  api-reload-failed: "{prefix}&c[AI] API 密钥未配置或无效，AI 对话不可用。"
 
 achievement:
   unlock-title: "&6&l成就解锁！"
   unlock-format: "&b&l✧ {title} &f- {name}"
   unlocked: "{prefix}&6成就解锁: &e{name} &6- {description}"
   progress: "{prefix}&7成就进度: &e{name} &7({current}/{target})"
+
+achievement-wall:
+  title: "&6&l成就墙"
+  time-opens: "&7⏳ 距开放: {time}"
+  time-expired: "&7⏰ 已过期"
+  time-remaining: "&7⏳ 剩余: {time}"
 
 leaderboard:
   header: "&6&l===== 英语学习排行榜 ====="
@@ -84,9 +110,14 @@ leaderboard:
   entry-coins: "&7金币: &e{score}"
   entry-words: "&7已学单词: &e{score}"
   entry-combo: "&7最长连击: &e{score}"
+  click-hint: "&7点击查看玩家主页"
 
 progress:
   view: "{prefix}&a正在查看你的学习进度..."
+  money-reward: "{prefix}&a答题奖励 &e{amount} &a金币"
+  money-session-bonus: "{prefix}&a会话完成奖励 &e{amount} &a金币"
+  money-review-reward: "{prefix}&a复习奖励 &e{amount} &a金币"
+  money-review-penalty: "{prefix}&c复习答错惩罚 &e{amount} &c金币"
 
 admin:
   export-start: "{prefix}&a开始导出玩家数据..."
@@ -95,6 +126,16 @@ admin:
   word-add: "{prefix}&a已添加单词 &e{word} &a到 &e{difficulty} &a单词库"
   usage-reset: "用法: /lea reset <玩家名>"
   reset-pending: "已请求重置玩家 {player} 的数据 (功能开发中)"
+  usage-exportwordbank: "{prefix}&c用法: /lea exportwordbank <难度>"
+  available-difficulties: "{prefix}&7可选难度: &e{list}"
+  usage-importwordbank: "{prefix}&c用法: /lea importwordbank <文件名.yml>"
+  importwordbank-hint: "{prefix}&7请先把文件放到 plugins/LetsLearnEnglish/exports/ 目录"
+  player-only: "{prefix}&c此命令只能由玩家使用。"
+  proxy-unavailable: "{prefix}&c代理消息不可用。服务器必须运行在 Velocity 或 BungeeCord 之后。"
+  usage-broadcast: "{prefix}&c用法: /lea broadcast <消息>"
+  broadcast-hint: "{prefix}&7通过代理向所有子服发送消息。"
+  broadcast-sent: "{prefix}&a全局广播已发送到所有子服。"
+  broadcast-prefix: "&8[&bLE&8] &e服务器公告: &f"
   unknown-command: "未知子命令。输入 /lea help 查看帮助。"
 
 wordbank:
@@ -103,6 +144,24 @@ wordbank:
   import-summary: "{prefix}&a导入完成！&7新增: &e{imported} &7跳过(重复): &e{skipped} &7错误: &e{errors}"
   import-failed: "{prefix}&c导入失败: {reason}"
   validation-failed: "{prefix}&c验证失败！请检查以下错误:"
+  reason-unknown-difficulty: "找不到难度: {difficulty}"
+  reason-io-error: "文件读写错误: {error}"
+  reason-file-not-found: "找不到文件: {file}"
+  reason-no-words-list: "未找到 words 列表"
+  validation-more-errors: "&7... 还有 &e{count} &7条错误"
+  validation-error-line: "&c  - {error}"
+
+placeholder:
+  rank-unranked: "未上榜"
+
+update:
+  header: "&6&l===== 一起学英语！有新版本可用 ====="
+  current: "&7当前版本: &fv{version}"
+  latest: "&7最新版本: &a&lv{version}"
+  download: "&7下载地址: &b&n{url}"
+  dismiss-hint: "&7(使用 &e/lea ignore-update &7忽略此消息)"
+  footer: "&6=================================================="
+  dismissed: "&a已忽略更新提醒。本次会话不会再提示。"
 
 language:
   button: "&e切换到 English"
@@ -111,6 +170,8 @@ language:
   confirm-item: "&c&l真的吗？"
   confirm-lore: "&7再次点击确认切换"
   switched: "{prefix}&a语言已切换为中文！"
+  cancel-item: "&a&l取消"
+  cancel-lore: "&7点击关闭并返回主菜单"
 
 help:
   header: "&6===== 英语学习 帮助 ====="
@@ -122,6 +183,8 @@ help:
   stats: "&e/le stats &7- 查看学习统计"
   profile: "&e/le profile [玩家名] &7- 查看个人资料"
   square: "&e/le square &7- 进入英语广场"
+  leaderboard: "&e/le leaderboard &7- 查看排行榜"
+  challenge: "&e/le challenge &7- 查看今日挑战进度"
   history: "&e/le history &7- 查看 AI 对话历史"
   duel: "&e/le duel <玩家名> &7- 发起单词对决"
   wrong: "&e/le wrong &7- 查看错题本"
@@ -133,7 +196,7 @@ help:
 checkin:
   success: "{prefix}&a签到成功! 连续签到 &e{streak} &a天，获得 &e{coins} &a金币!"
   already: "{prefix}&e你今天已经签到过了喵~ 明天再来吧!"
-  streak-broken: "{prefix}&c断签了... &7连续签到已重置为 &e1 &7天"
+  streak-broken: "{prefix}&c发生断签... &7旧连续签到已归零，今天签到后重新计为 &e1 &7天"
   streak-info: "{prefix}&7当前连续签到 &e{streak} &7天"
 
 scenario:
@@ -196,6 +259,8 @@ admin-help:
   info: "&e/lea info &7- 查看插件信息"
   exportwordbank: "&e/lea exportwordbank <难度> &7- 导出单词库至YAML文件"
   importwordbank: "&e/lea importwordbank <文件名> &7- 从YAML文件导入单词库"
+  ignore-update: "&e/lea ignore-update &7- 忽略本次更新提醒"
+  broadcast: "&e/lea broadcast <消息> &7- 通过代理向全服广播"
   footer: "&6======================================"
 
 plugin-info:
@@ -271,6 +336,7 @@ word-learning-gui:
   current-word-lore-1: "关闭此界面后，在聊天栏输入英文"
   current-word-lore-2: ""
   progress: "进度: {current}/{total}"
+  score: "&7分数: &e{score}"
   session-complete: "&6★ &a学习会话完成！ &7正确: &e{correct}&7/&e{total} &7正确率: &e{accuracy}% &7分数: &e{score}"
   answer-broadcast: "&7{player} &7回答了: &f{answer}"
   session-ended: "&a学习会话已结束！"
@@ -279,13 +345,14 @@ word-learning-gui:
   combo-active: "连胜: {count}次 ({multiplier}x)"
   stop-button: "停止当前回合"
   stop-lore: "结束当前学习回合并结算分数"
-  time-up: "&c⏱ 时间到！ 正确答案: &e{answer}"
+  timeout: "&c⏱ 时间到！ 正确答案: &e{answer}"
   countdown-urgent: "&c⏳ 还剩 {seconds} 秒！"
-  countdown: "&e⏳ 还剩 {seconds} 秒..."
-  correct-answer: "&a✔ 正确！ &7(+&e{score}&7)"
-  correct-answer-combo: "&a✔ 正确！ &7(+&e{score}&7) &6✨ {combo}x 连击！ ({multiplier}x)"
-  wrong-answer: "&c✖ 错误！ 答案是: &e{answer}"
+  countdown-normal: "&e⏳ 还剩 {seconds} 秒..."
+  correct: "&a✔ 正确！ &7(+&e{score}&7){combo}"
+  combo-message: "&6✨ {count}x 连击！ ({multiplier}x)"
+  incorrect: "&c✖ 错误！ 答案是: &e{answer}"
   session-stopped: "&a会话已停止！ &7正确: &e{correct}&7/&e{total} &7分数: &e{score}"
+  cannot-return: "&c答题中无法返回主菜单！请先完成或停止当前答题会话"
 
 dialogue-gui:
   title: "情景对话 - {scene}"
@@ -315,6 +382,13 @@ square:
   next-page-lore: "&7第 {page} 页"
   hidden-title: "&b&k??? &r&b??? &k???"
   hidden-lore: "&7对方正在乱扔隐身喷溅药水..."
+
+word-bank:
+  title: "&a&l选择词库"
+  click-hint: "&7点击选择此词库开始答题"
+  difficulty-beginner: "初级"
+  difficulty-intermediate: "中级"
+  difficulty-advanced: "高级"
 
 calendar:
   title: "&a&l过往学习"
@@ -357,6 +431,8 @@ profile:
   achievement-locked: "&8🔒 未解锁"
   settings-button: "&e设置"
   settings-lore: "&7隐私设置"
+  settings-locked: "&8设置 (已锁定)"
+  settings-locked-lore: "&7只能修改自己的设置"
   settings-title: "&e隐私设置"
   settings-show-answers: "答题记录对他人可见"
   settings-show-answers-on: "&a当前: 可见"
@@ -391,6 +467,7 @@ chat-history:
   role-user: "&a[你]"
   role-assistant: "&b[AI]"
   session-item-format: "&b&l{scenario} &7- {date}"
+  unknown-date: "未知"
 
 wrong-book:
   title: "&c&l错题本"
@@ -407,6 +484,7 @@ wrong-book:
   auto-add: "&c这个单词已经被加入你的错题本喵！输入 &e/le wrong &c来复习喵~"
   practice-start: "&6★ 练习模式: &e请输入中文对应的英文单词: &f{chinese}"
   practice-cancel-hint: "&7(输入 &ecancel &7取消)"
+  practice-cancelled: "&7已取消练习。"
   practice-correct: "&a拼写正确！错误次数已降至 &e{count}"
   practice-removed: "&a拼写正确！这个单词已从错题本中移除喵~"
   practice-incorrect: "&c拼写错误！正确答案是: &e{word}"

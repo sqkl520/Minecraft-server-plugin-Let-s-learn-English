@@ -11,7 +11,17 @@ A Minecraft server plugin designed for the unmotivated — it forces you to lear
 - **Word Learning & Answer System** —— GUI shows Chinese meaning → close GUI → type English spelling in chat with countdown timer
 - **Combo Streak System** —— Consecutive correct answers earn increasing multipliers (1.0x → 3.0x), reset on wrong answer or timeout
 - **Ebbinghaus Forgetting Curve** —— Smart spaced-repetition review scheduling
-- **Dialogue Practice** —— Simulated real-life conversations (restaurant, airport, shopping, etc.)
+- **AI Scenario Chat** —— Intelligent English conversation via DeepSeek API, 6 scenarios supported
+- **Wrong Book System** —— Auto-collect words answered wrong 3+ times, with independent practice and removal
+- **Daily Word Challenge** —— Random daily words from the bank, earn rewards on completion
+- **Daily Check-in System** —— Consecutive check-ins with increasing coin rewards, streak resets on gap
+- **PvP Word Duel** —— Real-time 1v1 word quiz battle, first to 5 points wins, with disconnect protection
+- **Leaderboard System** —— Coins / Words / Combo leaderboards, database-persisted
+- **Learning Stats HTTP Dashboard** —— ECharts-based web admin panel with IP whitelist + Basic Auth
+- **AI Chat History** —— Persistent conversation records, paginated history browser
+- **Word Bank Import/Export** —— Admin YAML import/export with validation and deduplication
+- **Word Pronunciation Helper** —— Phonetic display + pronunciation cue (VoiceRSS audio is downloaded and cached; client-side playback requires a resource pack)
+- **Custom AI Scene Sharing** —— Base64-encoded custom scene sharing, instant hot-reload
 - **Progress Tracking** —— Visual learning statistics, leaderboard, and achievement system
 - **GUI Menu** —— Intuitive graphical interface with sound effects
 - **Multi-language Support** —— Two-step confirmation to switch between Chinese and English UI, with customizable message prefix
@@ -22,18 +32,41 @@ A Minecraft server plugin designed for the unmotivated — it forces you to lear
 
 ## Commands
 
+### Player commands `/le` (aliases `/learn`, `/english`)
+
 | Command | Description |
 |---------|-------------|
 | `/le menu` | Open main menu |
-| `/le word` | Word learning |
-| `/le dialogue` | Dialogue practice |
-| `/le progress` | View learning progress |
-| `/le review` | Start review |
+| `/le word [difficulty] [mode]` | Start word learning (difficulty: beginner / intermediate / advanced; mode: spelling / choice / fill_blank) |
+| `/le review` | Review due words |
+| `/le dialogue [scenario]` | Start AI scenario dialogue |
+| `/le progress` | View your profile |
+| `/le profile [player]` | View a player's profile |
+| `/le stats` | View learning statistics |
+| `/le square` | Enter the English Square |
+| `/le leaderboard` | View leaderboards (coins / words / combo) |
+| `/le challenge` | View today's challenge progress |
+| `/le history` | Browse AI chat history |
+| `/le duel <player>` | Challenge a player to a word duel (`/le duel accept` to accept, `/le duel quit` to quit) |
+| `/le wrong` | Open the wrong-answer book |
+| `/le checkin` | Daily check-in for coins |
+| `/le save_scenario <name>` | Export the current AI scenario as a share code |
+| `/le load_scenario <code>` | Import a shared scenario code |
 | `/le help` | View help |
-| `/lea reload` | Hot-reload configuration |
-| `/lea reset <player>` | Reset player's learning data |
-| `/lea addword <word/meaning/difficulty>` | Add a word |
-| `/lea removeword <word>` | Remove a word |
+
+### Admin commands `/lea` (alias `/learnadmin`, permission `letslearnenglish.admin`)
+
+| Command | Description |
+|---------|-------------|
+| `/lea reload` | Hot-reload all configs, word banks and sound cache |
+| `/lea reset <player>` | Reset a player's learning data |
+| `/lea info` | View plugin information |
+| `/lea export` | Export player data |
+| `/lea exportwordbank <difficulty>` | Export a word bank to YAML |
+| `/lea importwordbank <file.yml>` | Import a word bank from YAML (place the file in `plugins/LetsLearnEnglish/exports/`) |
+| `/lea broadcast <message>` | Broadcast to all servers via proxy (requires Velocity / BungeeCord) |
+| `/lea ignore-update` | Dismiss the update notice |
+| `/lea help` | View admin help |
 
 ## Installation
 

@@ -491,7 +491,7 @@ public class DuelManager {
         FileConfiguration msgs = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                msgs.getString("duel.scoreboard-title", "&6&lWord Duel / 单词对决"));
+                msgs.getString("duel.scoreboard-title"));
 
         org.bukkit.scoreboard.Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
         org.bukkit.scoreboard.Objective obj = board.registerNewObjective("duel", "dummy", title);
@@ -521,7 +521,7 @@ public class DuelManager {
         obj.getScore(" ").setScore(lineNum--);
 
         // Target score line
-        String targetLine = msgs.getString("duel.scoreboard-target", "&7First to 5");
+        String targetLine = msgs.getString("duel.scoreboard-target");
         obj.getScore(ChatColor.translateAlternateColorCodes('&', targetLine)).setScore(lineNum);
 
         player.setScoreboard(board);
@@ -564,7 +564,7 @@ public class DuelManager {
         FileConfiguration msgs = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                msgs.getString("duel.scoreboard-title-grace", "&c&lDuel &7({seconds}s)")
+                msgs.getString("duel.scoreboard-title-grace")
                         .replace("{seconds}", String.valueOf(remainingSeconds)));
         obj.setDisplayName(title);
     }
@@ -638,6 +638,6 @@ public class DuelManager {
     private String getRawMsg(Player player, String key) {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration msgs = plugin.getConfigManager().getMessageConfig(lang);
-        return msgs.getString(key, key);
+        return msgs.getString(key);
     }
 }

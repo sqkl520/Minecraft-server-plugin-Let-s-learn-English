@@ -28,46 +28,49 @@ public class WordBankSelectGUI {
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                "zh".equalsIgnoreCase(lang) ? "&a&l选择词库" : "&a&lSelect Word Bank");
+                messages.getString("word-bank.title"));
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+
+        String clickHint = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("word-bank.click-hint"));
 
         int slot = 10;
         for (String bankName : availableBanks) {
             if (slot > 16) break;
-            String displayName = getDisplayName(bankName, lang);
+            String displayName = getDisplayName(bankName, messages);
             inv.setItem(slot, createItem(Material.BOOK,
                     ChatColor.translateAlternateColorCodes('&', "&e" + displayName),
-                    Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                            "zh".equalsIgnoreCase(lang) ? "&7点击选择此词库开始答题" : "&7Click to select this word bank"))));
+                    Collections.singletonList(clickHint)));
             slot++;
         }
 
         String backLabel = ChatColor.translateAlternateColorCodes('&', "&c" +
-                messages.getString("gui.back-button", "Back to Menu"));
+                messages.getString("gui.back-button"));
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE, backLabel,
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
-                        messages.getString("gui.back-lore", "Return to the main menu")))));
+                        messages.getString("gui.back-lore")))));
 
         player.openInventory(inv);
     }
 
-    private String getDisplayName(String bankKey, String lang) {
-        switch (bankKey.toLowerCase()) {
-            case "beginner":
-                return "zh".equals(lang) ? "初级" : "Beginner";
-            case "intermediate":
-                return "zh".equals(lang) ? "中级" : "Intermediate";
-            case "advanced":
-                return "zh".equals(lang) ? "高级" : "Advanced";
-            default:
-                String[] parts = bankKey.split("_");
-                StringBuilder sb = new StringBuilder();
-                for (String p : parts) {
-                    if (p.length() > 0)
-                        sb.append(Character.toUpperCase(p.charAt(0))).append(p.substring(1)).append(" ");
-                }
-                return sb.toString().trim();
+    /**
+     * 词库显示名：先查 messages 里的 {@code word-bank.difficulty-<key>}，
+     * 缺失时回退到「首字母大写化」的 key（纯装饰性兜底，不构成硬编码文案）。
+     */
+    private String getDisplayName(String bankKey, FileConfiguration messages) {
+        String lower = bankKey.toLowerCase();
+        String key = "word-bank.difficulty-" + lower;
+        String configured = messages.getString(key);
+        if (configured != null && !configured.isEmpty()) {
+            return configured;
         }
+        String[] parts = bankKey.split("_");
+        StringBuilder sb = new StringBuilder();
+        for (String p : parts) {
+            if (p.length() > 0)
+                sb.append(Character.toUpperCase(p.charAt(0))).append(p.substring(1)).append(" ");
+        }
+        return sb.toString().trim();
     }
 
     private ItemStack createItem(Material material, String name, List<String> lore) {

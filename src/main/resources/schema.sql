@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS {prefix}player_data (
     total_words_learned INT DEFAULT 0,
     total_sessions INT DEFAULT 0,
     total_score BIGINT DEFAULT 0,
+    total_coins_earned BIGINT DEFAULT 0,
+    total_coins_spent BIGINT DEFAULT 0,
     current_streak INT DEFAULT 0,
     longest_streak INT DEFAULT 0,
     last_login BIGINT,
