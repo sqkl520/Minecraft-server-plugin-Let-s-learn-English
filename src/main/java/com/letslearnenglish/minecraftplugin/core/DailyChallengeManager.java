@@ -104,8 +104,8 @@ public class DailyChallengeManager {
         String checkSql = "SELECT COUNT(*) FROM " + tablePrefix
                 + "daily_challenges WHERE uuid = ? AND challenge_date = ?";
 
-        try (Connection conn = plugin.getDatabaseManager().getConnection();
-             PreparedStatement stmt = conn.prepareStatement(checkSql)) {
+        Connection conn = plugin.getDatabaseManager().getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(checkSql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, today);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -132,8 +132,8 @@ public class DailyChallengeManager {
                     + "daily_challenges (uuid, challenge_date, challenge_id, progress, completed, claimed) VALUES (?, ?, ?, 0, 0, 0)";
         }
 
-        try (Connection conn = plugin.getDatabaseManager().getConnection();
-             PreparedStatement stmt = conn.prepareStatement(insertSql)) {
+        Connection insertConn = plugin.getDatabaseManager().getConnection();
+        try (PreparedStatement stmt = insertConn.prepareStatement(insertSql)) {
             for (ChallengeType ct : picked) {
                 stmt.setString(1, playerId.toString());
                 stmt.setString(2, today);
@@ -159,8 +159,8 @@ public class DailyChallengeManager {
         String sql = "SELECT challenge_id, progress, completed, claimed FROM " + tablePrefix
                 + "daily_challenges WHERE uuid = ? AND challenge_date = ?";
 
-        try (Connection conn = plugin.getDatabaseManager().getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        Connection conn = plugin.getDatabaseManager().getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, today);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -200,8 +200,8 @@ public class DailyChallengeManager {
         boolean alreadyCompleted = false;
         boolean alreadyClaimed = false;
 
-        try (Connection conn = plugin.getDatabaseManager().getConnection();
-             PreparedStatement stmt = conn.prepareStatement(selectSql)) {
+        Connection conn = plugin.getDatabaseManager().getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(selectSql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, today);
             stmt.setString(3, type.id);
@@ -226,8 +226,8 @@ public class DailyChallengeManager {
 
         String updateSql = "UPDATE " + tablePrefix
                 + "daily_challenges SET progress = ?, completed = ? WHERE uuid = ? AND challenge_date = ? AND challenge_id = ?";
-        try (Connection conn = plugin.getDatabaseManager().getConnection();
-             PreparedStatement stmt = conn.prepareStatement(updateSql)) {
+        Connection updateConn = plugin.getDatabaseManager().getConnection();
+        try (PreparedStatement stmt = updateConn.prepareStatement(updateSql)) {
             stmt.setInt(1, newProgress);
             stmt.setBoolean(2, nowCompleted);
             stmt.setString(3, playerId.toString());
@@ -247,8 +247,8 @@ public class DailyChallengeManager {
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
         String updateSql = "UPDATE " + tablePrefix
                 + "daily_challenges SET completed = 1 WHERE uuid = ? AND challenge_date = ? AND challenge_id = ? AND claimed = 0";
-        try (Connection conn = plugin.getDatabaseManager().getConnection();
-             PreparedStatement stmt = conn.prepareStatement(updateSql)) {
+        Connection conn = plugin.getDatabaseManager().getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(updateSql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, today);
             stmt.setString(3, type.id);
@@ -266,8 +266,8 @@ public class DailyChallengeManager {
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
         String updateSql = "UPDATE " + tablePrefix
                 + "daily_challenges SET claimed = 1 WHERE uuid = ? AND challenge_date = ? AND challenge_id = ? AND completed = 1 AND claimed = 0";
-        try (Connection conn = plugin.getDatabaseManager().getConnection();
-             PreparedStatement stmt = conn.prepareStatement(updateSql)) {
+        Connection conn = plugin.getDatabaseManager().getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(updateSql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, today);
             stmt.setString(3, type.id);
@@ -364,15 +364,17 @@ public class DailyChallengeManager {
         double reward = getWordChallengeReward();
         var eco = plugin.getEconomy();
         if (eco != null) {
-            eco.depositPlayer(player, reward);
+            var response = eco.depositPlayer(player, reward);
+            if (response.transactionSuccess()) {
+                plugin.getDatabaseManager().recordCoinsEarned(playerId, reward);
+            }
         }
 
         // Send celebration message
         String lang = plugin.getPlayerLanguage(player);
         var msgs = plugin.getConfigManager().getMessageConfig(lang);
         String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                msgs.getString("daily-challenge.all-complete",
-                        "&6★ &aAll daily challenge words completed! &e+{reward} coins")
+                msgs.getString("daily-challenge.all-complete")
                         .replace("{reward}", String.valueOf((int) reward)));
         player.sendMessage(msg);
 
@@ -412,8 +414,8 @@ public class DailyChallengeManager {
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
         String sql = "SELECT completed FROM " + tablePrefix
                 + "daily_challenge_words WHERE player_uuid = ? AND challenge_date = ? AND word_id = ?";
-        try (Connection conn = plugin.getDatabaseManager().getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        Connection conn = plugin.getDatabaseManager().getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, date);
             stmt.setString(3, wordId);

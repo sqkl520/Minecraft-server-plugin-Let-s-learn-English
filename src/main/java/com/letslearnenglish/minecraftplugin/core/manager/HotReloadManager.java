@@ -23,11 +23,15 @@ public class HotReloadManager {
      */
     public void reloadAll() {
         configManager.reloadAllConfigs();
-        plugin.getWordManager().loadAllWordBanks();
+        reloadWordBanks();
         plugin.getPlayerDataStore().clearCache();
         plugin.getPlayerDataStore().clearProfileCache();
         if (plugin.getAchievementManager() != null) {
             plugin.getAchievementManager().clearCache();
+        }
+        // 音效缓存读取 config.yml 的 gui.sounds.*，必须放在 config 重载之后刷新
+        if (plugin.getSoundManager() != null) {
+            plugin.getSoundManager().reloadSoundCache();
         }
         plugin.getLogger().info("All configurations hot-reloaded successfully.");
     }

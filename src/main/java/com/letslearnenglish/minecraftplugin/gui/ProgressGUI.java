@@ -29,7 +29,7 @@ public class ProgressGUI {
                 .getPlayerProgress(player.getUniqueId());
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("progress-gui.title", "Learning Progress"));
+                messages.getString("progress-gui.title"));
 
         Inventory inv = Bukkit.createInventory(null, 27, title);
 
@@ -51,19 +51,18 @@ public class ProgressGUI {
         inv.setItem(14, createStatItem(Material.CLOCK,
                 messages.getString("progress-gui.current-streak"),
                 progress.getCurrentStreak()
-                        + messages.getString("progress-gui.days-suffix", " days")));
+                        + messages.getString("progress-gui.days-suffix")));
 
         inv.setItem(15, createStatItem(Material.DIAMOND,
                 messages.getString("progress-gui.longest-streak"),
                 progress.getLongestStreak()
-                        + messages.getString("progress-gui.days-suffix", " days")));
+                        + messages.getString("progress-gui.days-suffix")));
 
         // 回到主菜单按钮 — slot 8 (右上角)
         String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
-                messages.getString("gui.back-button", "Back to Menu"));
+                messages.getString("gui.back-button"));
         String backLore = ChatColor.translateAlternateColorCodes('&', "&7" +
-                messages.getString("gui.back-lore",
-                        "Return to the main menu"));
+                messages.getString("gui.back-lore"));
         inv.setItem(8, createInfoItem(Material.RED_STAINED_GLASS_PANE, backLabel, backLore));
 
         player.openInventory(inv);

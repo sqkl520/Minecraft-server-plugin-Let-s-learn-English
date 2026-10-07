@@ -372,7 +372,7 @@ public class PlayerDataStore {
                 PlayerStats stats = playerStatsCache.get(playerId);
                 if (stats != null) {
                     String statsSql = databaseManager.isSQLite()
-                            ? "INSERT OR REPLACE INTO " + tablePrefix + "player_data (uuid, total_words_learned, total_sessions, total_score, updated_at) VALUES (?, ?, ?, ?, ?)"
+                            ? "INSERT INTO " + tablePrefix + "player_data (uuid, total_words_learned, total_sessions, total_score, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(uuid) DO UPDATE SET total_words_learned=excluded.total_words_learned, total_sessions=excluded.total_sessions, total_score=excluded.total_score, updated_at=excluded.updated_at"
                             : "INSERT INTO " + tablePrefix + "player_data (uuid, total_words_learned, total_sessions, total_score, updated_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE total_words_learned=VALUES(total_words_learned), total_sessions=VALUES(total_sessions), total_score=VALUES(total_score), updated_at=VALUES(updated_at)";
                     try (PreparedStatement statsStmt = conn.prepareStatement(statsSql)) {
                         statsStmt.setString(1, playerId.toString());
@@ -765,13 +765,15 @@ public class PlayerDataStore {
         }
 
         // Step 2: ResultSet closed — now safe to call getPlayerStats (opens new Statement)
+        // 注意：此处不能调用任何 Bukkit API（如 getPlayerName），因为本方法会在插件启动的异步任务里被调用。
+        // 因此 player_name 为空时直接回落到 uuid.toString()。
         int rank = 1;
         for (Object[] row : rawRows) {
             UUID uuid = UUID.fromString((String) row[0]);
             PlayerStats stats = getPlayerStats(uuid);
             String name = (String) row[1];
             if (name == null || name.isEmpty()) {
-                name = getPlayerName(uuid);
+                name = uuid.toString();
             }
             entries.add(new LeaderboardEntry(uuid, name, (Long) row[2],
                     stats.getTotalCorrect(), stats.getTotalIncorrect(),
@@ -787,11 +789,15 @@ public class PlayerDataStore {
     public List<LeaderboardEntry> getRankedPlayersForPeriod(int count, LocalDate since, LocalDate until) {
         List<LeaderboardEntry> entries = new ArrayList<>();
         String tablePrefix = databaseManager.getTablePrefix();
-        String sql = "SELECT uuid, SUM(score) as period_score, "
-                + "SUM(correct_count) as total_correct, SUM(words_count) as total_words "
-                + "FROM " + tablePrefix + "player_sessions "
-                + "WHERE session_date >= ? AND session_date <= ? "
-                + "GROUP BY uuid ORDER BY period_score DESC LIMIT ?";
+        // LEFT JOIN player_data 直接取 player_name，避免回落到 Bukkit API（本方法可能在异步线程被调用）。
+        // player_name 用 MAX() 包住以兼容 MySQL 的 ONLY_FULL_GROUP_BY。
+        String sql = "SELECT s.uuid AS uuid, MAX(p.player_name) AS player_name, "
+                + "SUM(s.score) as period_score, "
+                + "SUM(s.correct_count) as total_correct, SUM(s.words_count) as total_words "
+                + "FROM " + tablePrefix + "player_sessions s "
+                + "LEFT JOIN " + tablePrefix + "player_data p ON p.uuid = s.uuid "
+                + "WHERE s.session_date >= ? AND s.session_date <= ? "
+                + "GROUP BY s.uuid ORDER BY period_score DESC LIMIT ?";
 
         Connection conn = databaseManager.getConnection();
 
@@ -805,6 +811,7 @@ public class PlayerDataStore {
                 while (rs.next()) {
                     rawRows.add(new Object[]{
                         rs.getString("uuid"),
+                        rs.getString("player_name"),
                         rs.getLong("period_score"),
                         rs.getInt("total_correct"),
                         rs.getInt("total_words")
@@ -816,14 +823,18 @@ public class PlayerDataStore {
             return entries;
         }
 
-        // Step 2: ResultSet closed — now safe to call getPlayerName (opens new Statement)
+        // Step 2: ResultSet closed — 此处不能调用任何 Bukkit API（如 getPlayerName），
+        // 因为本方法会在插件启动的异步任务里被调用；player_name 为空时回落到 uuid.toString()。
         int rank = 1;
         for (Object[] row : rawRows) {
             UUID uuid = UUID.fromString((String) row[0]);
-            String name = getPlayerName(uuid);
-            long periodScore = (Long) row[1];
-            int periodCorrect = (Integer) row[2];
-            int periodWords = (Integer) row[3];
+            String name = (String) row[1];
+            if (name == null || name.isEmpty()) {
+                name = uuid.toString();
+            }
+            long periodScore = (Long) row[2];
+            int periodCorrect = (Integer) row[3];
+            int periodWords = (Integer) row[4];
             int periodIncorrect = Math.max(0, periodWords - periodCorrect);
             int sessions = 0; // Not easily available from aggregated query
             entries.add(new LeaderboardEntry(uuid, name, periodScore,

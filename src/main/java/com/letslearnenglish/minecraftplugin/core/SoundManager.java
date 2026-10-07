@@ -11,15 +11,17 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class SoundManager implements Listener {
 
     private final LetsLearnEnglish plugin;
     private final VersionAdapter versionAdapter;
-    private final Map<String, Sound> soundCache = new HashMap<>();
-    private boolean enabled;
+    // 音效缓存热重载时整体重建，且可能被异步线程读取（异步聊天触发的成就解锁音效走此路径），
+    // 故改用 ConcurrentHashMap；enabled 同样跨线程读写，用 volatile
+    private final Map<String, Sound> soundCache = new ConcurrentHashMap<>();
+    private volatile boolean enabled;
 
     public SoundManager(LetsLearnEnglish plugin) {
         this.plugin = plugin;

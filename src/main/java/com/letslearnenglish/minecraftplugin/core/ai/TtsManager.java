@@ -31,7 +31,8 @@ public class TtsManager {
     private final File cacheDir;
     private final int cacheDays;
     private boolean enabled;
-    private String apiKey;
+    // API Key：构造时由主线程写入，下载失败时可能被 commonPool 线程置 null，故用 volatile 保证跨线程可见性
+    private volatile String apiKey;
 
     public TtsManager(LetsLearnEnglish plugin) {
         this.plugin = plugin;

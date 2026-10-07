@@ -92,6 +92,8 @@ public class DatabaseManager {
                         "  total_words_learned INT DEFAULT 0," +
                         "  total_sessions INT DEFAULT 0," +
                         "  total_score BIGINT DEFAULT 0," +
+                        "  total_coins_earned BIGINT DEFAULT 0," +
+                        "  total_coins_spent BIGINT DEFAULT 0," +
                         "  current_streak INT DEFAULT 0," +
                         "  longest_streak INT DEFAULT 0," +
                         "  last_login BIGINT," +
@@ -99,6 +101,9 @@ public class DatabaseManager {
                         "  updated_at BIGINT" +
                         ")"
         );
+
+        addColumnIfMissing(tablePrefix + "player_data", "total_coins_earned", "BIGINT DEFAULT 0");
+        addColumnIfMissing(tablePrefix + "player_data", "total_coins_spent", "BIGINT DEFAULT 0");
 
         executeUpdate(
                 "CREATE TABLE IF NOT EXISTS " + tablePrefix + "word_progress (" +
@@ -486,13 +491,11 @@ public class DatabaseManager {
     //  Leaderboard queries
     // ============================================================
 
-    /**
-     * Get top players by total_score (coins) from player_data table.
-     */
+    /** Get top players by lifetime coins earned. */
     public List<LeaderboardEntry> getTopCoins(int limit) {
         List<LeaderboardEntry> entries = new ArrayList<>();
-        String sql = "SELECT uuid, player_name, total_score FROM " + tablePrefix
-                + "player_data ORDER BY total_score DESC LIMIT ?";
+        String sql = "SELECT uuid, player_name, total_coins_earned FROM " + tablePrefix
+                + "player_data ORDER BY total_coins_earned DESC LIMIT ?";
         try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
             stmt.setInt(1, limit);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -503,7 +506,7 @@ public class DatabaseManager {
                     if (name == null || name.isEmpty()) {
                         name = uuid.toString();
                     }
-                    entries.add(new LeaderboardEntry(uuid, name, rs.getLong("total_score"),
+                    entries.add(new LeaderboardEntry(uuid, name, rs.getLong("total_coins_earned"),
                             0, 0, 0, rank++));
                 }
             }
@@ -580,8 +583,8 @@ public class DatabaseManager {
         List<String> words = new ArrayList<>();
         String sql = "SELECT word_id FROM " + tablePrefix
                 + "daily_challenge_words WHERE player_uuid = ? AND challenge_date = ?";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        Connection conn = getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, date);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -608,8 +611,8 @@ public class DatabaseManager {
             insertSql = "INSERT IGNORE INTO " + tablePrefix
                     + "daily_challenge_words (player_uuid, challenge_date, word_id) VALUES (?, ?, ?)";
         }
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(insertSql)) {
+        Connection conn = getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(insertSql)) {
             for (String wordId : wordIds) {
                 stmt.setString(1, playerId.toString());
                 stmt.setString(2, date);
@@ -632,8 +635,8 @@ public class DatabaseManager {
         String sql = "UPDATE " + tablePrefix
                 + "daily_challenge_words SET completed = TRUE, completed_at = CURRENT_TIMESTAMP"
                 + " WHERE player_uuid = ? AND challenge_date = ? AND word_id = ? AND completed = FALSE";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        Connection conn = getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, date);
             stmt.setString(3, wordId);
@@ -651,8 +654,8 @@ public class DatabaseManager {
     public boolean isDailyChallengeWordsCompleted(UUID playerId, String date) {
         String sql = "SELECT COUNT(*) as total, SUM(CASE WHEN completed THEN 1 ELSE 0 END) as done FROM "
                 + tablePrefix + "daily_challenge_words WHERE player_uuid = ? AND challenge_date = ?";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        Connection conn = getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, date);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -676,8 +679,8 @@ public class DatabaseManager {
     public int[] getDailyChallengeWordsProgress(UUID playerId, String date) {
         String sql = "SELECT COUNT(*) as total, SUM(CASE WHEN completed THEN 1 ELSE 0 END) as done FROM "
                 + tablePrefix + "daily_challenge_words WHERE player_uuid = ? AND challenge_date = ?";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        Connection conn = getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, date);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -707,8 +710,8 @@ public class DatabaseManager {
         } else {
             upsertSql = "INSERT INTO " + tablePrefix + "difficult_words (player_uuid, word, wrong_count) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE wrong_count = wrong_count + 1";
         }
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(upsertSql)) {
+        Connection conn = getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(upsertSql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, word.toLowerCase());
             stmt.executeUpdate();
@@ -726,8 +729,8 @@ public class DatabaseManager {
      */
     public int getWrongCount(UUID playerId, String word) {
         String sql = "SELECT wrong_count FROM " + tablePrefix + "difficult_words WHERE player_uuid = ? AND word = ?";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        Connection conn = getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, word.toLowerCase());
             try (ResultSet rs = stmt.executeQuery()) {
@@ -749,8 +752,8 @@ public class DatabaseManager {
         List<DifficultWord> words = new ArrayList<>();
         String sql = "SELECT word, wrong_count, added_at FROM " + tablePrefix
                 + "difficult_words WHERE player_uuid = ? ORDER BY added_at DESC";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        Connection conn = getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
@@ -773,8 +776,8 @@ public class DatabaseManager {
      */
     public void removeDifficultWord(UUID playerId, String word) {
         String sql = "DELETE FROM " + tablePrefix + "difficult_words WHERE player_uuid = ? AND word = ?";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        Connection conn = getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, word.toLowerCase());
             stmt.executeUpdate();
@@ -790,8 +793,8 @@ public class DatabaseManager {
      */
     public boolean decrementWrongCount(UUID playerId, String word) {
         String sql = "UPDATE " + tablePrefix + "difficult_words SET wrong_count = wrong_count - 1 WHERE player_uuid = ? AND word = ? AND wrong_count > 0";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        Connection conn = getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, word.toLowerCase());
             int rows = stmt.executeUpdate();
@@ -808,8 +811,8 @@ public class DatabaseManager {
      */
     public void clearWrongCount(UUID playerId, String word) {
         String sql = "UPDATE " + tablePrefix + "difficult_words SET wrong_count = 0 WHERE player_uuid = ? AND word = ?";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        Connection conn = getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, word.toLowerCase());
             stmt.executeUpdate();
@@ -833,8 +836,8 @@ public class DatabaseManager {
      */
     public int getTotalWordCount() {
         String sql = "SELECT COUNT(DISTINCT word) FROM " + tablePrefix + "word_progress";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql);
+        Connection conn = getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql);
              ResultSet rs = stmt.executeQuery()) {
             if (rs.next()) {
                 return rs.getInt(1);
@@ -852,8 +855,8 @@ public class DatabaseManager {
         String today = LocalDate.now().toString();
         String sql = "SELECT COUNT(DISTINCT uuid) FROM " + tablePrefix
                 + "player_sessions WHERE session_date = ?";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        Connection conn = getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, today);
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
@@ -871,8 +874,8 @@ public class DatabaseManager {
      */
     public int getTotalSessions() {
         String sql = "SELECT COUNT(*) FROM " + tablePrefix + "learning_log";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql);
+        Connection conn = getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql);
              ResultSet rs = stmt.executeQuery()) {
             if (rs.next()) {
                 return rs.getInt(1);
@@ -884,12 +887,12 @@ public class DatabaseManager {
     }
 
     /**
-     * Sum total score (coins earned) from all players.
+     * Sum lifetime coins earned from all players.
      */
     public long getTotalCoinsEarned() {
-        String sql = "SELECT COALESCE(SUM(total_score), 0) FROM " + tablePrefix + "player_data";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql);
+        String sql = "SELECT COALESCE(SUM(total_coins_earned), 0) FROM " + tablePrefix + "player_data";
+        Connection conn = getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql);
              ResultSet rs = stmt.executeQuery()) {
             if (rs.next()) {
                 return rs.getLong(1);
@@ -901,11 +904,54 @@ public class DatabaseManager {
     }
 
     /**
-     * Total coins spent. Currently not tracked separately in the database;
-     * spending happens via Vault economy, which is external.
+     * Sum coin spending recorded by this plugin.
      */
     public long getTotalCoinsSpent() {
-        return 0L;
+        String sql = "SELECT COALESCE(SUM(total_coins_spent), 0) FROM " + tablePrefix + "player_data";
+        try (PreparedStatement stmt = getConnection().prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+            return rs.next() ? rs.getLong(1) : 0L;
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to query total coins spent", e);
+            return 0L;
+        }
+    }
+
+    public void recordCoinsEarned(UUID playerId, double amount) {
+        adjustCoins(playerId, "total_coins_earned", amount);
+    }
+
+    public void recordCoinsSpent(UUID playerId, double amount) {
+        adjustCoins(playerId, "total_coins_spent", amount);
+    }
+
+    private void adjustCoins(UUID playerId, String column, double amount) {
+        if (amount <= 0 || !(column.equals("total_coins_earned") || column.equals("total_coins_spent"))) return;
+        String sql = "INSERT INTO " + tablePrefix + "player_data (uuid, " + column + ", updated_at) VALUES (?, ?, ?) "
+                + (isSQLite()
+                ? "ON CONFLICT(uuid) DO UPDATE SET " + column + " = COALESCE(" + column + ", 0) + excluded." + column + ", updated_at = excluded.updated_at"
+                : "ON DUPLICATE KEY UPDATE " + column + " = COALESCE(" + column + ", 0) + VALUES(" + column + "), updated_at = VALUES(updated_at)");
+        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+            stmt.setString(1, playerId.toString());
+            stmt.setLong(2, Math.round(amount));
+            stmt.setLong(3, System.currentTimeMillis());
+            stmt.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to record coin transaction for " + playerId, e);
+        }
+    }
+
+    public long getCoinsEarned(UUID playerId) {
+        String sql = "SELECT total_coins_earned FROM " + tablePrefix + "player_data WHERE uuid = ?";
+        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+            stmt.setString(1, playerId.toString());
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : 0L;
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to query coins for " + playerId, e);
+            return 0L;
+        }
     }
 
     /**
@@ -929,8 +975,8 @@ public class DatabaseManager {
                 + "FROM " + tablePrefix + "player_sessions "
                 + "WHERE session_date >= ? "
                 + "GROUP BY session_date";
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sessionsSql)) {
+        Connection conn = getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sessionsSql)) {
             stmt.setString(1, today.minusDays(6).toString());
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
@@ -960,8 +1006,7 @@ public class DatabaseManager {
                     + "WHERE started_at >= ? "
                     + "GROUP BY day";
         }
-        try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(logSql)) {
+        try (PreparedStatement stmt = conn.prepareStatement(logSql)) {
             long sevenDaysAgoMillis = today.minusDays(6).atStartOfDay(
                     java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
             stmt.setLong(1, sevenDaysAgoMillis);
@@ -1016,7 +1061,7 @@ public class DatabaseManager {
     /**
      * Update (UPSERT) a player's check-in data.
      */
-    public void updateCheckIn(UUID playerId, String date, int streakCount) {
+    public boolean updateCheckIn(UUID playerId, String date, int streakCount) {
         String sql;
         if (isSQLite()) {
             sql = "INSERT OR REPLACE INTO " + tablePrefix
@@ -1032,9 +1077,11 @@ public class DatabaseManager {
             stmt.setString(2, date);
             stmt.setInt(3, streakCount);
             stmt.executeUpdate();
+            return true;
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING,
                     "Failed to update check-in data for " + playerId, e);
+            return false;
         }
     }
 
@@ -1072,5 +1119,14 @@ public class DatabaseManager {
 
     public String getTablePrefix() {
         return tablePrefix;
+    }
+
+    private void addColumnIfMissing(String table, String column, String definition) throws SQLException {
+        try {
+            executeUpdate("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
+        } catch (SQLException e) {
+            String message = e.getMessage() == null ? "" : e.getMessage().toLowerCase(java.util.Locale.ROOT);
+            if (!message.contains("duplicate") && !message.contains("already exists")) throw e;
+        }
     }
 }

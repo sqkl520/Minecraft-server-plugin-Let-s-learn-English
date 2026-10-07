@@ -317,6 +317,19 @@ gui-layout:
     mode-all:
       slot: 5
       material: "PLAYER_HEAD"
+  leaderboard:
+    back-button:
+      slot: 8
+      material: "RED_STAINED_GLASS_PANE"
+    tab-coins:
+      slot: 0
+      material: "GOLD_INGOT"
+    tab-words:
+      slot: 1
+      material: "BOOK"
+    tab-combo:
+      slot: 2
+      material: "DIAMOND_SWORD"
   profile:
     border-material: "BLACK_STAINED_GLASS_PANE"
     back-button:
@@ -448,6 +461,8 @@ difficulty-settings:
 statistics-server:
   # 是否启用统计 HTTP 服务器
   enabled: false
+  # 默认仅允许本机访问；需要局域网访问时显式改为服务器内网地址
+  bind-address: "127.0.0.1"
   # 监听端口
   port: 8080
   # IP 白名单（支持 CIDR 表示法，如 192.168.1.0/24）

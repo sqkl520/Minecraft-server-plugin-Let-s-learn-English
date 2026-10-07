@@ -2,10 +2,10 @@ package com.letslearnenglish.minecraftplugin.listener;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
-import com.letslearnenglish.minecraftplugin.data.DifficultWord;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.WrongBookGUI;
 import org.bukkit.ChatColor;
+import org.bukkit.Material;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -14,9 +14,7 @@ import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.ItemStack;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.Arrays;
 
 /**
  * Listener for the Wrong Book GUI.
@@ -25,12 +23,10 @@ import java.util.Map;
  * - Left click: Remove word from wrong book
  * - Shift+click: Practice word (starts mini quiz via chat)
  * - Navigation (prev/next page, back to menu)
+ *
+ * 槽位一律引用 {@link WrongBookGUI} 的常量，不在本类重复魔法数字。
  */
 public class WrongBookListener implements Listener {
-
-    private static final int PREV_SLOT = 47;
-    private static final int BACK_SLOT = 8;
-    private static final int NEXT_SLOT = 51;
 
     private final LetsLearnEnglish plugin;
 
@@ -53,7 +49,7 @@ public class WrongBookListener implements Listener {
         int slot = event.getSlot();
         ClickType clickType = event.getClick();
 
-        if (slot == BACK_SLOT) {
+        if (slot == WrongBookGUI.BACK_SLOT) {
             SoundManager.playSound(player, "menu-click");
             new MainMenu(plugin).open(player);
             return;
@@ -63,20 +59,22 @@ public class WrongBookListener implements Listener {
         int currentPage = extractPageFromTitle(title);
         if (currentPage < 1) currentPage = 1;
 
-        if (slot == PREV_SLOT && event.getCurrentItem().getType() == org.bukkit.Material.ARROW) {
+        if (slot == WrongBookGUI.PREV_SLOT && event.getCurrentItem().getType() == Material.ARROW) {
             SoundManager.playSound(player, "menu-click");
             new WrongBookGUI(plugin).open(player, currentPage - 1);
             return;
         }
-        if (slot == NEXT_SLOT && event.getCurrentItem().getType() == org.bukkit.Material.ARROW) {
+        if (slot == WrongBookGUI.NEXT_SLOT && event.getCurrentItem().getType() == Material.ARROW) {
             SoundManager.playSound(player, "menu-click");
             new WrongBookGUI(plugin).open(player, currentPage + 1);
             return;
         }
 
-        // Word entries are in rows 1-5 (slots 9-44)
+        // Word entries：槽位必须在 WrongBookGUI.WORD_SLOTS 内（与 GUI 共用同一份槽位真相，
+        // 不要再手写 9-44 这种区间，否则会再次漂移出「点了没反应」的单词）
         ItemStack clicked = event.getCurrentItem();
-        if (clicked.getType() == org.bukkit.Material.PAPER && slot >= 9 && slot <= 44) {
+        if (clicked.getType() == Material.PAPER
+                && Arrays.binarySearch(WrongBookGUI.WORD_SLOTS, slot) >= 0) {
             String itemName = clicked.getItemMeta() != null ? clicked.getItemMeta().getDisplayName() : "";
             // Extract word from display name (which contains color codes)
             String word = extractWordFromDisplayName(itemName);
@@ -100,8 +98,7 @@ public class WrongBookListener implements Listener {
         SoundManager.playSound(player, "menu-click");
 
         String msg = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("wrong-book.removed",
-                        "&a'{word}' has been removed from your Wrong Book!")
+                messages.getString("wrong-book.removed")
                         .replace("{word}", word));
         player.sendMessage(msg);
 
@@ -124,14 +121,12 @@ public class WrongBookListener implements Listener {
         String chinese = wordInfo != null ? wordInfo.getChinese() : word;
 
         String msg = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("wrong-book.practice-start",
-                        "&6★ Practice Mode: &eType the English word for: &f{chinese}")
+                messages.getString("wrong-book.practice-start")
                         .replace("{chinese}", chinese));
         player.sendMessage(msg);
 
         String cancelMsg = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("wrong-book.practice-cancel-hint",
-                        "&7(Type &ecancel &7to stop)"));
+                messages.getString("wrong-book.practice-cancel-hint"));
         player.sendMessage(cancelMsg);
     }
 

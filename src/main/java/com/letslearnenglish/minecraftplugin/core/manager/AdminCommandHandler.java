@@ -8,7 +8,6 @@ import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
@@ -54,7 +53,8 @@ public class AdminCommandHandler {
         dataStore.unloadPlayerData(playerId);
 
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
-        try (Connection conn = plugin.getDatabaseManager().getConnection()) {
+        Connection conn = plugin.getDatabaseManager().getConnection();
+        try {
             for (String table : PLAYER_TABLES) {
                 try (PreparedStatement stmt = conn.prepareStatement(
                         "DELETE FROM " + tablePrefix + table + " WHERE uuid = ?")) {
@@ -80,8 +80,8 @@ public class AdminCommandHandler {
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
         String sql = "SELECT uuid FROM " + tablePrefix
                 + "player_data WHERE player_name = ?";
-        try (Connection conn = plugin.getDatabaseManager().getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        Connection conn = plugin.getDatabaseManager().getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerName);
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
@@ -150,7 +150,8 @@ public class AdminCommandHandler {
         WordBank bank = wordManager.getWordBank(difficulty);
         if (bank == null) {
             String msg = plugin.getMessageUtil().getSenderMessage(sender, "wordbank.export-failed",
-                    "reason", "Unknown difficulty: " + difficulty);
+                    "reason", plugin.getMessageUtil().getSenderMessage(sender,
+                            "wordbank.reason-unknown-difficulty", "difficulty", difficulty));
             sender.sendMessage(msg);
             plugin.getLogger().warning("Admin: Export failed - unknown difficulty: " + difficulty);
             return;
@@ -206,7 +207,8 @@ public class AdminCommandHandler {
             plugin.getLogger().log(Level.SEVERE,
                     "Failed to save exported word bank: " + exportFile.getAbsolutePath(), e);
             String msg = plugin.getMessageUtil().getSenderMessage(sender, "wordbank.export-failed",
-                    "reason", "IO error: " + e.getMessage());
+                    "reason", plugin.getMessageUtil().getSenderMessage(sender,
+                            "wordbank.reason-io-error", "error", String.valueOf(e.getMessage())));
             sender.sendMessage(msg);
             return;
         }
@@ -243,7 +245,8 @@ public class AdminCommandHandler {
         }
         if (!importFile.exists()) {
             String msg = plugin.getMessageUtil().getSenderMessage(sender, "wordbank.import-failed",
-                    "reason", "File not found: " + fileName);
+                    "reason", plugin.getMessageUtil().getSenderMessage(sender,
+                            "wordbank.reason-file-not-found", "file", fileName));
             sender.sendMessage(msg);
             plugin.getLogger().warning("Admin: Import failed - file not found: " + fileName);
             return;
@@ -266,11 +269,14 @@ public class AdminCommandHandler {
             int shown = 0;
             for (String error : result.errors()) {
                 if (shown >= 15) {
-                    sender.sendMessage(ChatColor.GRAY + "... and "
-                            + (result.errors().size() - 15) + " more errors");
+                    sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                            "wordbank.validation-more-errors",
+                            "count", String.valueOf(result.errors().size() - 15)));
                     break;
                 }
-                sender.sendMessage(ChatColor.RED + "  - " + error);
+                // {error} 是校验器产出的原始文本，按数据注入，不做翻译
+                sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                        "wordbank.validation-error-line", "error", error));
                 shown++;
             }
             return;
@@ -281,7 +287,8 @@ public class AdminCommandHandler {
         List<?> rawList = config.getList("words");
         if (rawList == null) {
             String msg = plugin.getMessageUtil().getSenderMessage(sender, "wordbank.import-failed",
-                    "reason", "No words list found");
+                    "reason", plugin.getMessageUtil().getSenderMessage(sender,
+                            "wordbank.reason-no-words-list"));
             sender.sendMessage(msg);
             return;
         }

@@ -8,10 +8,10 @@ import com.letslearnenglish.minecraftplugin.gui.EnglishSquareGUI;
 import com.letslearnenglish.minecraftplugin.gui.LeaderboardGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.ProfileGUI;
-import com.letslearnenglish.minecraftplugin.gui.ProgressGUI;
 import com.letslearnenglish.minecraftplugin.gui.ScenarioSelectGUI;
 import com.letslearnenglish.minecraftplugin.gui.WordBankSelectGUI;
 import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
+import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -153,7 +153,8 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     private void handleDialogueCommand(Player player, String[] args) {
         if (plugin.getChatScenarioListener() == null) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "general.error", "message", "Chat scenario is not available."));
+                    "general.error", "message",
+                    plugin.getMessageUtil().getPlayerMessage(player, "error.scenario-unavailable")));
             return;
         }
         if (plugin.getChatScenarioListener().isInScenarioMode(player)) {
@@ -167,8 +168,13 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             String scenario = args[1].toLowerCase();
             plugin.getChatScenarioListener().addPlayer(player);
             plugin.getAIChatManager().startConversation(player, scenario);
+            // 场景名走 ai_scenarios.yml 的 display_name / display_name_zh，与 GUI 入口保持一致
+            // （原先直接塞原始 key，玩家会看到 airport 这样的英文标识符）
+            AIChatManager.ScenarioConfig sc = plugin.getAIChatManager().getScenarioConfigs().get(scenario);
+            boolean zh = "zh".equalsIgnoreCase(plugin.getPlayerLanguage(player));
+            String scenarioName = (sc != null) ? sc.getDisplayName(zh) : scenario;
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "dialogue.started", "scenario", scenario));
+                    "dialogue.started", "scenario", scenarioName));
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "dialogue.instructions"));
         } else {
@@ -192,8 +198,10 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             if (session != null) {
                 new com.letslearnenglish.minecraftplugin.gui.WordLearningGUI(plugin)
                         .openWithMessage(player, "review", "review");
+                // {difficulty}/{mode} 的值走 i18n 键，不再写死中文
+                String reviewLabel = plugin.getMessageUtil().getPlayerMessage(player, "word.mode-review");
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                        "word.session-start", "difficulty", "复习", "mode", "复习"));
+                        "word.session-start", "difficulty", reviewLabel, "mode", reviewLabel));
             }
         } else {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
@@ -221,7 +229,8 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 new ProfileGUI(plugin).open(player, target.getUniqueId());
             } else {
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                        "general.error", "message", "Player not found"));
+                        "general.error", "message",
+                        plugin.getMessageUtil().getPlayerMessage(player, "error.player-not-found")));
             }
         } else {
             new ProfileGUI(plugin).open(player, player.getUniqueId());
@@ -270,7 +279,8 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         com.letslearnenglish.minecraftplugin.core.duel.DuelManager duelManager = plugin.getDuelManager();
         if (duelManager == null) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "general.error", "message", "Duel system is not available."));
+                    "general.error", "message",
+                    plugin.getMessageUtil().getPlayerMessage(player, "error.duel-unavailable")));
             return;
         }
 
@@ -291,7 +301,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             Player target = plugin.getServer().getPlayer(sub);
             if (target == null) {
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                        "general.error", "message", "Player " + sub + " is not online."));
+                        "duel.player-offline"));
                 return;
             }
             duelManager.sendDuelRequest(player, target);
@@ -307,7 +317,8 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 plugin.getCheckInManager();
         if (checkInManager == null) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "general.error", "message", "Check-in system is not available."));
+                    "general.error", "message",
+                    plugin.getMessageUtil().getPlayerMessage(player, "error.checkin-unavailable")));
             return;
         }
 
@@ -343,7 +354,8 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         // Check name argument
         if (args.length < 2) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "general.error", "message", "Usage: /le save_scenario <name>"));
+                    "general.error", "message",
+                    plugin.getMessageUtil().getPlayerMessage(player, "error.usage-save-scenario")));
             return;
         }
 
@@ -384,7 +396,8 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         // Check code argument
         if (args.length < 2) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "general.error", "message", "Usage: /le load_scenario <code>"));
+                    "general.error", "message",
+                    plugin.getMessageUtil().getPlayerMessage(player, "error.usage-load-scenario")));
             return;
         }
 
@@ -437,7 +450,8 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         } catch (IOException e) {
             plugin.getLogger().warning("Failed to save imported scenario to ai_scenarios.yml: " + e.getMessage());
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "general.error", "message", "Failed to save scenario file."));
+                    "general.error", "message",
+                    plugin.getMessageUtil().getPlayerMessage(player, "error.scenario-save-failed")));
             return;
         }
 
@@ -458,7 +472,10 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.stats"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.profile"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.square"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.leaderboard"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.challenge"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.history"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.duel"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.wrong"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.checkin"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.save_scenario"));
@@ -470,43 +487,55 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         List<String> completions = new ArrayList<>();
 
-        if (args.length == 1) {
-            for (String sub : SUBCOMMANDS) {
-                if (sub.startsWith(args[0].toLowerCase())) {
-                    completions.add(sub);
+        // 二级补全：与 SUBCOMMANDS 中有参数的子命令一一对应
+        // word [难度] [模式] / dialogue [场景] / duel <玩家名|accept|quit>
+        // profile [玩家名] / save_scenario、load_scenario 为自由文本，无候选
+        if (args.length >= 2 && "word".equalsIgnoreCase(args[0])) {
+            if (args.length == 2) {
+                for (String diff : plugin.getWordManager().getAvailableDifficulties()) {
+                    if (diff.toLowerCase().startsWith(args[1].toLowerCase())) {
+                        completions.add(diff);
+                    }
+                }
+            } else if (args.length == 3) {
+                for (String mode : Arrays.asList("spelling", "choice", "fill_blank")) {
+                    if (mode.startsWith(args[2].toLowerCase())) {
+                        completions.add(mode);
+                    }
                 }
             }
         } else if (args.length == 2 && "dialogue".equalsIgnoreCase(args[0])) {
             for (String scenario : plugin.getAIChatManager().getAvailableScenarios()) {
-                if (scenario.startsWith(args[1].toLowerCase())) {
+                if (scenario.toLowerCase().startsWith(args[1].toLowerCase())) {
                     completions.add(scenario);
-                }
-            }
-        } else if (args.length == 2 && "word".equalsIgnoreCase(args[0])) {
-            for (String diff : plugin.getWordManager().getAvailableDifficulties()) {
-                if (diff.startsWith(args[1].toLowerCase())) {
-                    completions.add(diff);
-                }
-            }
-        } else if (args.length == 3 && "word".equalsIgnoreCase(args[0])) {
-            for (String mode : Arrays.asList("spelling", "choice", "fill_blank")) {
-                if (mode.startsWith(args[2].toLowerCase())) {
-                    completions.add(mode);
                 }
             }
         } else if (args.length == 2 && "duel".equalsIgnoreCase(args[0])) {
             String input = args[1].toLowerCase();
-            // Suggest accept/quit sub-commands
+            // 子命令：accept / quit
             for (String sub : Arrays.asList("accept", "quit")) {
                 if (sub.startsWith(input)) {
                     completions.add(sub);
                 }
             }
-            // Also suggest online player names (excluding self)
-            for (Player p : org.bukkit.Bukkit.getOnlinePlayers()) {
+            for (Player p : Bukkit.getOnlinePlayers()) {
                 if (!p.getName().equals(sender.getName())
                         && p.getName().toLowerCase().startsWith(input)) {
                     completions.add(p.getName());
+                }
+            }
+        } else if (args.length == 2 && "profile".equalsIgnoreCase(args[0])) {
+            String input = args[1].toLowerCase();
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                if (!p.getName().equals(sender.getName())
+                        && p.getName().toLowerCase().startsWith(input)) {
+                    completions.add(p.getName());
+                }
+            }
+        } else if (args.length == 1) {
+            for (String sub : SUBCOMMANDS) {
+                if (sub.startsWith(args[0].toLowerCase())) {
+                    completions.add(sub);
                 }
             }
         }

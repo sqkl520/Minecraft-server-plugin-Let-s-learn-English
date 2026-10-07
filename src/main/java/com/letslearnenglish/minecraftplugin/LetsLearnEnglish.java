@@ -42,6 +42,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
@@ -266,9 +269,14 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     private void startScheduledTasks() {
         int saveInterval = configManager.getMainConfig().getInt("general.auto-save-interval", 5);
-        getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
-            getServer().getOnlinePlayers().forEach(p -> playerDataStore.savePlayerData(p.getUniqueId()));
-            getServer().getOnlinePlayers().forEach(p -> playerDataStore.saveProfileSettings(p.getUniqueId()));
+        getServer().getScheduler().runTaskTimer(this, () -> {
+            List<UUID> onlinePlayerIds = getServer().getOnlinePlayers().stream()
+                    .map(Player::getUniqueId)
+                    .toList();
+            getServer().getScheduler().runTaskAsynchronously(this, () -> {
+                onlinePlayerIds.forEach(playerId -> playerDataStore.savePlayerData(playerId));
+                onlinePlayerIds.forEach(playerId -> playerDataStore.saveProfileSettings(playerId));
+            });
         }, saveInterval * 1200L, saveInterval * 1200L);
 
         if (configManager.getMainConfig().getBoolean("word-system.review.enabled", true)) {
@@ -369,9 +377,24 @@ public final class LetsLearnEnglish extends JavaPlugin {
         File backupFile = new File(backupDir, dbFileName + "." + timestamp + ".bak");
 
         try {
+            // Flush SQLite WAL pages before copying the database file.
+            try (PreparedStatement stmt = databaseManager.getConnection()
+                    .prepareStatement("PRAGMA wal_checkpoint(TRUNCATE)")) {
+                stmt.execute();
+            }
             Files.copy(dbFile.toPath(), backupFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            try (PreparedStatement stmt = databaseManager.getConnection()
+                    .prepareStatement("PRAGMA quick_check")) {
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (!rs.next() || !"ok".equalsIgnoreCase(rs.getString(1))) {
+                        Files.deleteIfExists(backupFile.toPath());
+                        getLogger().warning("Database backup rejected: source quick_check failed.");
+                        return;
+                    }
+                }
+            }
             getLogger().info("Database backup created: " + backupFile.getName());
-        } catch (IOException e) {
+        } catch (IOException | SQLException e) {
             getLogger().warning("Failed to create database backup: " + e.getMessage());
             return;
         }

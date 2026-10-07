@@ -1,7 +1,6 @@
 package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
-import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.achievement.AchievementManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
@@ -39,25 +38,23 @@ public class ProfileGUI {
         boolean isOwn = viewer.getUniqueId().equals(targetId);
         FileConfiguration messages = plugin.getConfigManager()
                 .getMessageConfig(plugin.getPlayerLanguage(viewer));
-        ConfigManager cm = plugin.getConfigManager();
-        String lang = plugin.getPlayerLanguage(viewer);
 
         PlayerDataStore store = plugin.getPlayerDataStore();
         String targetName = store.getPlayerName(targetId);
         if (targetName == null) {
             Player targetPlayer = Bukkit.getPlayer(targetId);
             targetName = targetPlayer != null ? targetPlayer.getName()
-                    : messages.getString("profile.unknown-player", "Unknown");
+                    : messages.getString("profile.unknown-player");
         }
 
         String title;
         if (isOwn) {
             title = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("profile.title", "&e{player}'s Profile")
+                    messages.getString("profile.title")
                             .replace("{player}", viewer.getName()));
         } else {
             title = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("profile.viewing-title", "&b{name}'s Profile")
+                    messages.getString("profile.viewing-title")
                             .replace("{name}", targetName));
         }
 
@@ -81,7 +78,7 @@ public class ProfileGUI {
         if (head.getItemMeta() instanceof SkullMeta hm) {
             hm.setOwningPlayer(Bukkit.getOfflinePlayer(targetId));
             hm.setDisplayName(ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("profile.head-name-color", "&6&l") + targetName));
+                    messages.getString("profile.head-name-color") + targetName));
             head.setItemMeta(hm);
         }
         inv.setItem(4, head);
@@ -91,7 +88,8 @@ public class ProfileGUI {
         int totalCorrect = stats.getTotalCorrect();
         int totalIncorrect = stats.getTotalIncorrect();
         int sessions = stats.getTotalSessions();
-        long score = stats.getTotalScore();
+        double coins = plugin.getEconomy() == null ? 0.0
+                : plugin.getEconomy().getBalance(Bukkit.getOfflinePlayer(targetId));
         int accuracy = totalWords > 0 ? (int) ((double) totalCorrect / totalWords * 100) : 0;
         int unlockedCount = am.getUnlockedCount(targetId);
         int totalAchievements = Achievement.values().length;
@@ -99,14 +97,13 @@ public class ProfileGUI {
         // Words learned — slot 11
         inv.setItem(11, createInfoItem(Material.BOOK,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("profile.stats-words-label", "Words Learned")),
+                        messages.getString("profile.stats-words-label")),
                 Arrays.asList(
                         ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("profile.stats-words-value", "&f{words}")
+                                messages.getString("profile.stats-words-value")
                                         .replace("{words}", String.valueOf(totalWords))),
                         ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("profile.stats-words-detail",
-                                        "&7Correct: {correct} | Wrong: {incorrect}")
+                                messages.getString("profile.stats-words-detail")
                                         .replace("{correct}", String.valueOf(totalCorrect))
                                         .replace("{incorrect}", String.valueOf(totalIncorrect)))
                 )));
@@ -114,10 +111,10 @@ public class ProfileGUI {
         // Accuracy — slot 12
         inv.setItem(12, createInfoItem(Material.EXPERIENCE_BOTTLE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("profile.stats-accuracy-label", "Accuracy")),
+                        messages.getString("profile.stats-accuracy-label")),
                 Collections.singletonList(
                         ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("profile.stats-accuracy-value", "&f{accuracy}%")
+                                messages.getString("profile.stats-accuracy-value")
                                         .replace("{accuracy}", String.valueOf(accuracy)))
                 )));
 
@@ -125,65 +122,65 @@ public class ProfileGUI {
         int age = ps.getAge();
         inv.setItem(13, createInfoItem(Material.CAKE,
                 ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("profile.age", "&eAge: &f{age}")
+                        messages.getString("profile.age")
                                 .replace("{age}", String.valueOf(age))),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("profile.age-hint", "&7You cannot set your age here~")))));
+                        messages.getString("profile.age-hint")))));
 
         // Sessions — slot 14
         inv.setItem(14, createInfoItem(Material.CLOCK,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("profile.stats-sessions-label", "Sessions")),
+                        messages.getString("profile.stats-sessions-label")),
                 Collections.singletonList(
                         ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("profile.stats-sessions-value", "&f{sessions}")
+                                messages.getString("profile.stats-sessions-value")
                                         .replace("{sessions}", String.valueOf(sessions)))
                 )));
 
         // Coins — slot 15 (centered with other stats)
         inv.setItem(15, createInfoItem(Material.GOLD_INGOT,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("profile.stats-coins-label", "Coins")),
+                        messages.getString("profile.stats-coins-label")),
                 Collections.singletonList(
                         ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("profile.stats-coins-value", "&f{coins}")
-                                        .replace("{coins}", String.valueOf(score)))
+                                messages.getString("profile.stats-coins-value")
+                                        .replace("{coins}", plugin.getEconomy() == null ? "0"
+                                                : plugin.getEconomy().format(coins)))
                 )));
 
         // Achievement wall button — slot 18 (bottom-left) with count
-        String achWallLabel = ChatColor.translateAlternateColorCodes('&',
-                "zh".equalsIgnoreCase(lang) ? "&e&l成就墙" : "&e&lAchievement Wall");
-        String achWallCount = ChatColor.translateAlternateColorCodes('&',
-                "zh".equalsIgnoreCase(lang)
-                        ? "&7已解锁: &f" + unlockedCount + "&7/&f" + totalAchievements
-                        : "&7Unlocked: &f" + unlockedCount + "&7/&f" + totalAchievements);
+        String achWallLabel = ChatColor.translateAlternateColorCodes('&', "&e&l" +
+                messages.getString("profile.stats-achievements-label"));
+        String achWallCount = plugin.getMessageUtil().getPlayerMessage(viewer,
+                "profile.stats-achievements-value",
+                "unlocked", String.valueOf(unlockedCount),
+                "total", String.valueOf(totalAchievements));
+        String achWallHint = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("profile.achievements-hint"));
         inv.setItem(18, createItem(Material.PAINTING, achWallLabel,
-                Arrays.asList(
-                        achWallCount,
-                        ChatColor.translateAlternateColorCodes('&',
-                                "zh".equalsIgnoreCase(lang) ? "&7点击查看全部成就" : "&7Click to view all achievements"))));
+                Arrays.asList(achWallCount, achWallHint)));
 
         // Back button — slot 8
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("gui.back-button", "Back to Menu")),
+                        messages.getString("gui.back-button")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
-                        messages.getString("gui.back-lore", "Return to the main menu")))));
+                        messages.getString("gui.back-lore")))));
 
         // Settings button — slot 26 (bottom-right, only own)
         if (isOwn) {
             inv.setItem(26, createItem(Material.COMPARATOR,
                     ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("profile.settings-button", "&eSettings")),
+                            messages.getString("profile.settings-button")),
                     Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("profile.settings-lore", "&7Privacy settings")))));
+                            messages.getString("profile.settings-lore")))));
         } else {
             // 别人主页 — 显示灰色玻璃板表示设置不可用
             inv.setItem(26, createItem(Material.GRAY_STAINED_GLASS_PANE,
                     ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("profile.settings-locked", "&8Settings (Locked)")),
+                            messages.getString("profile.settings-locked")),
                     Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("profile.settings-locked-lore", "&7只能修改自己的设置")))));
+                            messages.getString("profile.settings-locked-lore")))));
         }
 
         viewer.openInventory(inv);
@@ -195,9 +192,8 @@ public class ProfileGUI {
     public void openSettings(Player viewer) {
         FileConfiguration messages = plugin.getConfigManager()
                 .getMessageConfig(plugin.getPlayerLanguage(viewer));
-        String lang = plugin.getPlayerLanguage(viewer);
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("profile.settings-title", "Privacy Settings"));
+                messages.getString("profile.settings-title"));
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
         UUID playerId = viewer.getUniqueId();
@@ -222,13 +218,13 @@ public class ProfileGUI {
         inv.setItem(11, createItem(
                 showAnswersOn ? Material.LIME_DYE : Material.GRAY_DYE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("profile.settings-show-answers", "Answers visible to others")),
+                        messages.getString("profile.settings-show-answers")),
                 Arrays.asList(
                         ChatColor.translateAlternateColorCodes('&', showAnswersOn
-                                ? messages.getString("profile.settings-show-answers-on", "&aCurrent: Visible")
-                                : messages.getString("profile.settings-show-answers-off", "&7Current: Hidden")),
+                                ? messages.getString("profile.settings-show-answers-on")
+                                : messages.getString("profile.settings-show-answers-off")),
                         ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("profile.settings-toggle-hint", "&7Click to toggle"))
+                                messages.getString("profile.settings-toggle-hint"))
                 )));
 
         // Show results toggle — slot 13
@@ -236,13 +232,13 @@ public class ProfileGUI {
         inv.setItem(13, createItem(
                 showResultsOn ? Material.LIME_DYE : Material.GRAY_DYE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("profile.settings-show-results", "Results visible to others")),
+                        messages.getString("profile.settings-show-results")),
                 Arrays.asList(
                         ChatColor.translateAlternateColorCodes('&', showResultsOn
-                                ? messages.getString("profile.settings-show-results-on", "&aCurrent: Visible")
-                                : messages.getString("profile.settings-show-results-off", "&7Current: Hidden")),
+                                ? messages.getString("profile.settings-show-results-on")
+                                : messages.getString("profile.settings-show-results-off")),
                         ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("profile.settings-toggle-hint", "&7Click to toggle"))
+                                messages.getString("profile.settings-toggle-hint"))
                 )));
 
         // Show in square toggle — slot 15
@@ -250,21 +246,21 @@ public class ProfileGUI {
         inv.setItem(15, createItem(
                 showInSquareOn ? Material.LIME_DYE : Material.GRAY_DYE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("profile.settings-show-in-square", "Visible in English Square")),
+                        messages.getString("profile.settings-show-in-square")),
                 Arrays.asList(
                         ChatColor.translateAlternateColorCodes('&', showInSquareOn
-                                ? messages.getString("profile.settings-show-in-square-on", "&aCurrent: Visible")
-                                : messages.getString("profile.settings-show-in-square-off", "&7Current: Hidden")),
+                                ? messages.getString("profile.settings-show-in-square-on")
+                                : messages.getString("profile.settings-show-in-square-off")),
                         ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("profile.settings-toggle-hint", "&7Click to toggle"))
+                                messages.getString("profile.settings-toggle-hint"))
                 )));
 
         // Back button — slot 8
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("gui.back-button", "Back to Menu")),
+                        messages.getString("gui.back-button")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
-                        messages.getString("gui.back-lore", "Return to the main menu")))));
+                        messages.getString("gui.back-lore")))));
 
         viewer.openInventory(inv);
     }

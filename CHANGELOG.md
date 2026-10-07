@@ -1,8 +1,66 @@
 # Changelog
 
-## [1.0.7] - 2026-06-19
+## [1.0.7] - 2026-10-07
+
+> 本版本包含两批改动：v1.0.7 迭代开发（13 个 Story）+ 全项目只读扫描后的缺陷修复批次（中文服止血 / 并发收口 / 仓库卫生）。
+
+### Refactored
+- 彻底分离学习分数与金币统计：新增 `total_coins_earned`/`total_coins_spent`，金币榜、成就和金币奖励记账不再读取 `total_score`
+- 统计 HTTP 服务默认绑定 `127.0.0.1`，可通过 `statistics-server.bind-address` 显式开放到内网地址
+- SQLite 自动备份执行 WAL checkpoint 和 quick_check，并将玩家数据保存从 `INSERT OR REPLACE` 改为保留金币字段的冲突更新
+- 每日挑战和单词挑战的 Vault 金币奖励也纳入独立金币累计统计
+- 修复 DatabaseManager 使用共享 JDBC Connection 时被 try-with-resources 意外关闭的问题，查询只关闭 Statement/ResultSet
+- 修复自动保存任务在异步线程访问 Bukkit 在线玩家集合的问题，改为主线程快照 UUID 后异步持久化
+- 为 AI 对话上下文增加按玩家同步保护，并使用不可变请求快照，避免主线程与 HTTP 回调并发修改 ArrayDeque
+- 统计 HTTP 服务保存并关闭专用 ExecutorService，running 状态改为 volatile，避免插件停用后线程泄漏
+- 增加 AI 单玩家请求进行中保护，避免连续输入导致 API 响应乱序
+- **[缺陷修复批次]** GUI 槽位定义收敛为单一真相：`ChatHistoryGUI.SESSION_SLOTS`、`WrongBookGUI.WORD_SLOTS`、`LeaderboardGUI.ENTRY_SLOTS`/`BACK_SLOT`/`TAB_*_SLOT` 全部提为 `public static final` 常量，监听器引用常量而不再各写一份魔法数字（此前 GUI 与监听器各有一份槽位表，改一处就会静默错位）
+- **[缺陷修复批次]** `SocialListener` / `WordLearningListener` 里 8 处硬编码槽位改为读 `gui-layout` 配置（`english-square` 的 back/prev-page/next-page/四个模式键、`word-learning` 的 back/stop/start、`leaderboard` 的 back/三个 tab）—— 与「GUI 渲染读配置、监听器判定写死数字」这一 D-03/D-04/D-05/D-06 的同一根因同源，配置一旦改动点击就会静默失效
+- **[缺陷修复批次]** `config.yml` `gui-layout` 新增 `leaderboard` 段（`back-button` / `tab-coins` / `tab-words` / `tab-combo`，值 8/0/1/2）
+- **[缺陷修复批次]** `SocialListener.handleLeaderboardGUI` 原先 `int tab = slot;` 直接把槽位当 tab 下标，配置一挪就会打开错误的榜单；改为按槽位显式映射到 tab 序号
+- **[缺陷修复批次]** `SocialListener` 的页码解析改调 `GUIUtils.extractPageFromTitle()`，`LeaderboardGUI` 的 `ENTRY_SLOTS` 重复数组与 `SocialListener` 的副本一并删除
+- **[缺陷修复批次]** `PlayerDataStore.getRankedPlayers()` / `getRankedPlayersForPeriod()` 不再调用 Bukkit API：`player_name` 为空时回落到 `uuid.toString()`；后者 SQL 改为 `LEFT JOIN player_data` 取 `MAX(p.player_name)`，兼容 MySQL `ONLY_FULL_GROUP_BY`（原实现在插件启动的异步任务里调用 `Bukkit.getOfflinePlayer()`，属未定义行为）
+- **[缺陷修复批次]** `RewardEngine` 删除从未接线的经验奖励链与成就奖励方法（`giveSessionReward`/`giveExpReward`/`giveAchievementReward`，均零调用者），文件 228 → 186 行
+- **[缺陷修复批次]** `WordManagerImpl` 删除零调用方法 `getSession()`/`getWordMastery()`，并修正 `getWordBank` 挂错的 javadoc
+- **[缺陷修复批次]** `AIChatManager` 9 个配置字段（`apiKey`/`apiUrl`/`model`/`maxContextTokens`/`timeoutSeconds`/`rateLimitSeconds`/`maxInputLength`/`maxPromptLength`/`debug`）补 `volatile`；删除零读者的死字段 `maxContextPairs`
+- **[缺陷修复批次]** `SoundManager.soundCache` 由 `HashMap` 改为 `ConcurrentHashMap`、`enabled` 加 `volatile`（`playSound` 存在异步可达路径：`AIChatManager.endConversation` → `AchievementManager.tryUnlock`，会与 `reloadSoundCache()` 的 clear+重建竞态）
+- **[缺陷修复批次]** `HotReloadManager.reloadAll()` 补调 `reloadWordBanks()`（消除重复代码）与 `SoundManager.reloadSoundCache()`（此前是死方法），`/lea reload` 现在会刷新音效缓存
+- **[缺陷修复批次]** `ProfileGUI` 金币统计卡改为显示真实 Vault 余额（原实现把 `stats-coins-value` 的 `{coins}` 塞进了 `getTotalScore()`，同文件已算好的余额从未使用）；无 Vault 时显示 `0`
+- **[缺陷修复批次]** `ConfirmationGUI` 两阶段统一由 `showConfirmPage()` 生成，取消按钮抽为 `CANCEL_SLOT`/`CONFIRM_SLOT` 常量，物品构建抽为带 `Material` 参数的 `createItem()`
 
 ### Fixed
+- **[缺陷修复批次]** 中文服「单词对决」退出按钮完全失效：`DuelGUIListener` 的标题判定写死 `&6&lWord Duel`，而中文标题是 `&6&l单词对决`，默认语言为 zh 时判据不命中；改为读取 `duel.gui-title` 配置比对（依次尝试玩家语言 → zh → en），并保留 `contains` 回退。文件里算了却从未使用的 `duelTitleZh`/`duelTitleEn` 死变量一并清理
+- **[缺陷修复批次]** 对决界面 barrier 可被拖走：原 `return` 位于 `setCancelled(true)` 之前，未取消路径可达；改为判定命中后立刻 `setCancelled(true)`
+- **[缺陷修复批次]** 补齐 `InventoryDragEvent` 处理（`DuelGUIListener` 与 `MainMenuListener`）：拖拽是独立事件，`InventoryClickEvent` 的 `setCancelled` 拦不住，此前展示用玻璃板/绿宝石可被拖进玩家背包；只在拖拽触及界面上半部分时取消，不影响玩家整理自己背包
+- **[缺陷修复批次]** 中文服英语广场翻页永远停在第 1 页：`extractPageFromTitle()` 按空格切分找 `"Page"` 词元，中文标题 `英语广场 - 第1/3页` 切不出该词元而返回默认值 1；新增 `GUIUtils.extractPageFromTitle()` 用正则取标题中第一个整数，覆盖 `Page 2` / `第2页` / `第 2 / 3 页` 等格式
+- **[缺陷修复批次]** 英语广场/个人主页的玩家名子串误配：`extractTargetIdFromTitle()` 改用「最长匹配」避免 `Bob` 命中 `Bobby`；解析失败改为返回 `null` + 记录 warning，不再静默回落到查看者自己；候选集合并入排行榜与广场的展示列表，修复排行榜上离线玩家主页解析失败的问题
+- **[缺陷修复批次]** 个人主页 slot 26「设置」在查看他人主页时可修改查看者自己的隐私设置；改为仅当 `targetId` 为本人时才打开设置页（他人主页该槽位本就是「设置已锁定」）
+- **[缺陷修复批次]** AI 对话历史第 9 条会话点不开：会话条目从 slot 0 起连占 0~9，第 9 条覆盖了 `BACK_SLOT = 8`，而监听器优先判断返回键；会话起始槽改为 9，`SESSION_SLOTS` 显式列出
+- **[缺陷修复批次]** 对话历史点开的会话可能与所选不符：原实现在点击时重查数据库并用 slot 反算下标，翻页期间若有新会话插入会指向错误会话；改为在条目 lore 写入 `SessionID` 标记，监听器据此定位，不再查库
+- **[缺陷修复批次]** 错题本每页最后 9 个单词显示正常但点不动：槽位映射产出 slot 9~53，而监听器只接受 `slot <= 44`；改为 GUI 与监听器共用 `WORD_SLOTS`（9~46 + 48/50/52/53，避开 47/49/51 导航键），每页容量由数组长度推导
+- **[缺陷修复批次]** 错题本单词网格空槽裸露、玩家可拖入物品；改为开界面前统一填充灰色玻璃板占位（填充顺序：占位 → 单词 → 导航键）
+- **[缺陷修复批次]** 答题反馈永不本地化（5 组键名错位，被硬编码英文兜底掩盖）：代码请求 `word-learning-gui.correct`/`incorrect`/`combo-message`/`timeout`/`countdown-normal`，而 yml 里是 `correct-answer`/`wrong-answer`/`correct-answer-combo`/`time-up`/`countdown`；yml 键名统一改为代码请求名，并按占位符契约调整 `correct`（注入 `{score}`+`{combo}`）与 `combo-message`（改为无前导空格的片段，占位符 `{count}`/`{multiplier}`）
+- **[缺陷修复批次]** 玩家屏幕出现红色 `Missing message: progress.money-reward`：`progress` 段只有 `view` 一个键，而 `RewardEngine` 请求 4 个 `money-*` 键；补齐 `money-reward`/`money-session-bonus`/`money-review-reward`/`money-review-penalty`
+- **[缺陷修复批次]** `/le help` 漏掉 3 个命令（`leaderboard`/`challenge`/`duel`），其中 `help.duel` 的翻译早已写好却从未被打印；按 `SUBCOMMANDS` 顺序补齐，并新增 `help.leaderboard`/`help.challenge`
+- **[缺陷修复批次]** 错题本练习模式输入 `cancel` 的反馈 `"&7Practice cancelled."` 是裸硬编码英文，中英玩家都只看得到英文；改为走 `wrong-book.practice-cancelled`
+- **[缺陷修复批次]** 确认界面没有取消路径，玩家只能按 ESC 退出；新增 slot 22 barrier 取消按钮（`language.cancel-item`/`cancel-lore`），`MainMenuListener` 增加对应分支
+- **[缺陷修复批次]** 确认界面语言读错：`open()` 硬编码读 `en` 配置、`openSecond()` 硬编码读 `zh`，导致英文玩家在第二阶段看到中文按钮；改为按 `plugin.getPlayerLanguage(player)` 读取，`applySwitch()` 改用 `MessageUtil.getPlayerMessage()`（切换后按新语言播报，前缀正确解析）
+- **[缺陷修复批次]** 排行榜返回键是全项目唯一没统一到 slot 8 的 GUI（`BACK_SLOT = 49`，监听器还硬编码 `slot == 49`）；统一为 slot 8 并改用常量引用
+- **[缺陷修复批次]** 学习日历任何语言都不播打开音效：`GUIUtils.isPluginGUI()` 白名单仍写 `学习日历`/`Learning Calendar`，而实际标题早已改为 `过往学习`/`Study History`；同时修正 zh 版对话历史标题漂移（`聊天记录` → `对话历史`）
+- **[缺陷修复批次]** `ProfileGUI` 成就墙按钮整块使用硬编码中英三元表达式，玩家可见文本绕开 i18n；改用 `profile.stats-achievements-label`/`.stats-achievements-value`/`.achievements-hint`（走 `getPlayerMessage` 以正确替换 `{unlocked}`/`{total}`）
+- **[缺陷修复批次]** `ProfileGUI` 的 `profile.settings-locked`/`settings-locked-lore` 带 fallback 参数，其中后者是硬编码中文 `"&7只能修改自己的设置"`，英文玩家会看到中文；去掉 fallback
+- **[缺陷修复批次]** `AdminCommand` 整块裸英文字符串直接发给玩家（usage / 提示 / 广播前缀）；全部改走 i18n（`admin.usage-exportwordbank`、`admin.available-difficulties`、`admin.usage-importwordbank`、`admin.importwordbank-hint`、`admin.player-only`、`admin.proxy-unavailable`、`admin.usage-broadcast`、`admin.broadcast-hint`、`admin.broadcast-sent`、`admin.broadcast-prefix`），管理帮助补齐 `ignore-update` 与 `broadcast` 两行
+- **[缺陷修复批次]** `LearnCommand` 的 Tab 补全补齐缺失的 `profile` 玩家名补全；`dialogue` 场景名与 `word` 难度比对补 `toLowerCase()`；`args.length == 1` 分支移到末尾，避免挡住 `>= 2` 的分支
+- **[缺陷修复批次]** 全项目清理 `getString(key, "硬编码兜底")` 的 fallback 参数，共 177 处（从 180 处降到仅剩 3 处空串豁免）：`ChatAnswerListener`、`WordLearningManager`、`ProfileGUI`、`LeaderboardGUI`、`ChatHistoryGUI`、`WrongBookGUI`、`WrongBookListener`、`WordLearningListener`、`LearnCommand`、`SocialListener`、`DuelManager`、`DuelGUI`、`MainMenu`、`EnglishSquareGUI`、`ScenarioSelectGUI`、`WordBankSelectGUI`、`WordLearningGUI`、`DailyChallengeGUI`、`ChallengeCompleteGUI`、`AchievementWallGUI`、`AchievementManager`、`DailyChallengeManager`、`ProxyMessenger`、`ProgressGUI`。fallback 会掩盖键名错误，本批次 5 组键名错位即因此被隐藏数月；`LeaderboardGUI.addTabButton()` 与 `EnglishSquareGUI.addModeButton()` 的 `String fallback` 形参一并从签名移除
+- **[缺陷修复批次]** 清除整句硬编码玩家可见文本（未走 messages 的裸字符串与中英三元表达式）：`LeaderboardGUI` 的「点击查看玩家主页」、`ChatHistoryGUI` 的 `"Unknown"`、`WordLearningListener` 的「答题中无法返回主菜单」、`AchievementWallGUI` 的标题/已解锁/未解锁/时间提示、`WordBankSelectGUI` 的标题/提示/三档难度名、`WordLearningGUI` 的 `Score:`、`EnglishSquareGUI` 的 `"Unknown"` 玩家名、`LearnCommand` 的 7 处错误消息与 `"复习"` 占位符值
+- **[缺陷修复批次]** `messages/*.yml` 的 `config-version` 由 5 升至 6（`ConfigManager.MESSAGE_CONFIG_VERSION` 同步）：本批次新增 21 个消息键，若不升版本，已部署服务器不会覆盖旧的消息文件，新键取不到会返回 null 并引发 NPE
+- **[缺陷修复批次]** `ChatHistoryGUI` 改用 `ItemMeta.getPersistentDataContainer()` 存放会话 ID 与返回页码，取代原先「解析物品 lore/displayName 文本反推内部数据」的做法（`ChatColor.stripColor(line).startsWith("SessionID: ")` 这类文本即协议的实现，译文一改就静默失效）；`ChatHistoryListener` 侧同步改读 PDC，删除约 60 行脆弱解析代码
+- **[缺陷修复批次]** `ScenarioSelectListener` 整块绕开 i18n（同功能的 `ChatScenarioListener` 全程走 `dialogue.*` 键，只有这个类用中英三元硬编码）：AI 未配置提示、对话开启三条消息、AI 标签、`/lea` 刷新结果全部改走 `dialogue.*`；`formatScenarioName()` 的 6 个硬编码场景名 `switch` 整块删除，改查 `ai_scenarios.yml` 的 `display_name` / `display_name_zh`（顺带统一了 GUI 与聊天栏的场景名显示，原先 GUI 显示「机场值机」而聊天栏回报「airport」）
+- **[缺陷修复批次]** `/le dialogue <场景>` 命令路径把**原始 key**（如 `airport`）塞进 `dialogue.started` 的 `{scenario}`，走命令入口的玩家看到英文标识符，与 GUI 入口不一致；改为同样查 `ai_scenarios.yml` 的展示名
+- **[缺陷修复批次]** `LLEPapiExpansion` 的 `%lle_rank%` 未上榜文本用中英三元硬编码；改为走 `placeholder.rank-unranked`（在线玩家按自身语言解析，离线玩家按服务端默认语言）
+- **[缺陷修复批次]** `AdminCommandHandler` 的导入/导出失败消息把硬编码英文注入 `{reason}` 占位符（共 4 处：找不到难度、IO 错误、找不到文件、未找到 words 列表）；改为内层 `wordbank.reason-*` 键 + `MessageUtil` 解析。校验失败的逐条错误行（`"  - " + error`、`"... and N more errors"`）也改走 `wordbank.validation-error-line` / `validation-more-errors`
+- **[缺陷修复批次]** `UpdateChecker` 的更新可用横幅（7 行）与忽略提示为硬编码英文；改为走 `update.*` 段 7 个键，`ChatColor` import 随之移除
+- 修复签到同一玩家并发重复领取：按玩家串行化签到流程；断签提示明确旧连续签到归零，重新签到从 1 开始
 - LearningCalendarGUI 空 slot 未填充，玩家可将背包物品拖入 GUI；改为在 openInventory 前遍历所有 54 格，对 null slot 填入灰色玻璃板占位
 - PlayerDataStore.getRankedPlayers() 在 ResultSet 迭代中调用 getPlayerStats() 触发嵌套 Statement，导致 SQLite "stmt pointer is closed"；改为两步法：先收集原始行，关闭 ResultSet 后再查 stats
 - PlayerDataStore.getRankedPlayersForPeriod() 同样在 ResultSet 内调用 getPlayerName()；同步改为两步法修复嵌套 Statement 问题
@@ -88,6 +146,18 @@
 - `config.yml` 新增 `statistics-server` 配置段（enabled / port / ip-whitelist / auth），默认 disabled
 - DatabaseManager 新增 `getTotalWordCount()`、`getTodayActivePlayers()`、`getTotalSessions()`、`getTotalCoinsEarned()`、`getTotalCoinsSpent()`、`getLast7DaysStats()` 统计查询方法和 `DailyStats` 记录类
 - `LetsLearnEnglish.onEnable()` 读取 `statistics-server.enabled` 配置，按需启动 HTTP 服务器；`onDisable()` 优雅停止
+- **[缺陷修复批次]** i18n 新增 54 个叶子键 + 5 组键改名（zh/en 各 401 个可寻址消息键，键集、顺序、占位符多重集逐一对应）：
+  - 金币奖励 4 键：`progress.money-reward` / `money-session-bonus` / `money-review-reward` / `money-review-penalty`
+  - 新增 `error:` 段 7 键：`scenario-unavailable` / `player-not-found` / `duel-unavailable` / `checkin-unavailable` / `usage-save-scenario` / `usage-load-scenario` / `scenario-save-failed`
+  - 新增 `achievement-wall:` 段 4 键：`title` / `time-opens` / `time-expired` / `time-remaining`
+  - 新增 `word-bank:` 段 5 键：`title` / `click-hint` / `difficulty-beginner` / `difficulty-intermediate` / `difficulty-advanced`
+  - `profile.settings-locked` / `settings-locked-lore`；`help.leaderboard` / `challenge`；`admin-help.ignore-update` / `broadcast`
+  - `admin:` 段 10 键：`usage-exportwordbank` / `available-difficulties` / `usage-importwordbank` / `importwordbank-hint` / `player-only` / `proxy-unavailable` / `usage-broadcast` / `broadcast-hint` / `broadcast-sent` / `broadcast-prefix`
+  - `language.cancel-item` / `cancel-lore`；`wrong-book.practice-cancelled`；`word.mode-review`；`word-learning-gui.cannot-return` / `score`；`leaderboard.click-hint`；`chat-history.unknown-date`
+  - 5 组键改名（旧名删除，新名 = 代码实际请求名）：`word-learning-gui.time-up`→`timeout`、`countdown`→`countdown-normal`、`correct-answer`→`correct`、`correct-answer-combo`→`combo-message`、`wrong-answer`→`incorrect`
+- **[缺陷修复批次]** `GUIUtils` 新增 `extractPageFromTitle(String)`：正则提取标题中第一个整数，覆盖中英双语页码格式，`Pattern` 提为 `static final` 常量避免重复编译
+- **[缺陷修复批次]** `ConfirmationGUI` 新增 `CONFIRM_SLOT`/`CANCEL_SLOT` 常量；`ChatHistoryGUI` 新增 `SESSION_SLOTS`/`PAGE_INDICATOR_SLOT`/`RETURN_PAGE_SLOT`；`WrongBookGUI` 新增 `WORD_SLOTS`；`LeaderboardGUI` 的 `BACK_SLOT`/`ENTRY_SLOTS`/`TAB_*_SLOT` 提为 `public static final`
+- **[缺陷修复批次]** `DuelGUIListener` 新增 `QUIT_SLOT` 常量与 `isDuelGUI()` 判定方法
 
 ## [1.0.6] - 2026-05-30
 

@@ -55,8 +55,8 @@ public class ChatAnswerListener implements Listener {
             if (answer.trim().equalsIgnoreCase("cancel")) {
                 wlManager.cancelPractice(player.getUniqueId());
                 Bukkit.getScheduler().runTask(plugin, () -> {
-                    player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                            "&7Practice cancelled."));
+                    player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                            "wrong-book.practice-cancelled"));
                     new com.letslearnenglish.minecraftplugin.gui.WrongBookGUI(plugin).open(player, 1);
                 });
                 return;
@@ -81,8 +81,7 @@ public class ChatAnswerListener implements Listener {
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(playerLang);
 
         String broadcastMsg = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-learning-gui.answer-broadcast",
-                        "&7{player} &7answered: &f{answer}")
+                messages.getString("word-learning-gui.answer-broadcast")
                         .replace("{player}", player.getName())
                         .replace("{answer}", answer));
 
@@ -114,14 +113,12 @@ public class ChatAnswerListener implements Listener {
                 String comboMsg = "";
                 if (result.consecutiveCorrect > 1) {
                     comboMsg = " " + ChatColor.translateAlternateColorCodes('&',
-                            msgs.getString("word-learning-gui.combo-message",
-                                    "&6\u2728 {count}x combo! ({multiplier}x)")
+                            msgs.getString("word-learning-gui.combo-message")
                                     .replace("{count}", String.valueOf(result.consecutiveCorrect))
                                     .replace("{multiplier}", String.valueOf(result.comboMultiplier)));
                 }
                 player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                        msgs.getString("word-learning-gui.correct",
-                                "&a\u2714 Correct! &7(+&e{score}&7){combo}")
+                        msgs.getString("word-learning-gui.correct")
                                 .replace("{score}", String.valueOf(result.comboScore))
                                 .replace("{combo}", comboMsg)));
 
@@ -130,8 +127,7 @@ public class ChatAnswerListener implements Listener {
             } else {
                 SoundManager.playSound(player, "incorrect");
                 player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                        msgs.getString("word-learning-gui.incorrect",
-                                "&c\u2716 Wrong! Answer: &e{answer}")
+                        msgs.getString("word-learning-gui.incorrect")
                                 .replace("{answer}", result.correctAnswer)));
             }
 

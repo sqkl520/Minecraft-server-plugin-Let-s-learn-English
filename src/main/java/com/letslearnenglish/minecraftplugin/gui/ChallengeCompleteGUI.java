@@ -40,7 +40,7 @@ public class ChallengeCompleteGUI {
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("daily-challenge.complete-title", "&6&lChallenge Complete!"));
+                messages.getString("daily-challenge.complete-title"));
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
         // Fill with decorative glass
@@ -56,12 +56,11 @@ public class ChallengeCompleteGUI {
         if (skullMeta != null) {
             skullMeta.setOwningPlayer(player);
             skullMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("daily-challenge.player-head",
-                            "&e" + player.getName())));
+                    messages.getString("daily-challenge.player-head")
+                            .replace("{player}", player.getName())));
             List<String> headLore = new ArrayList<>();
             headLore.add(ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("daily-challenge.player-head-lore",
-                            "&7All daily challenge words completed!")));
+                    messages.getString("daily-challenge.player-head-lore")));
             skullMeta.setLore(headLore);
             head.setItemMeta(skullMeta);
         }
@@ -70,41 +69,35 @@ public class ChallengeCompleteGUI {
         // Fireworks / celebration item (slot 13)
         ItemStack firework = createItem(Material.FIREWORK_ROCKET,
                 ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily-challenge.firework",
-                                "&6&l★ Congratulations! ★")),
+                        messages.getString("daily-challenge.firework")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily-challenge.firework-lore",
-                                "&7You completed all today's challenge words!"))));
+                        messages.getString("daily-challenge.firework-lore"))));
         inv.setItem(13, firework);
 
         // Reward display (slot 15)
         String rewardStr = String.valueOf((int) reward);
         ItemStack rewardItem = createItem(Material.GOLD_INGOT,
                 ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily-challenge.reward-title",
-                                "&eReward: {reward} coins")
+                        messages.getString("daily-challenge.reward-title")
                                 .replace("{reward}", rewardStr)),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily-challenge.reward-lore",
-                                "&7Claim your hard-earned reward!"))));
+                        messages.getString("daily-challenge.reward-lore"))));
         inv.setItem(15, rewardItem);
 
         // Claim reward button (slot 22)
         ItemStack claimBtn = createItem(Material.EMERALD,
                 ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily-challenge.claim-button",
-                                "&a&lClaim Reward!")),
+                        messages.getString("daily-challenge.claim-button")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily-challenge.claim-button-lore",
-                                "&7Click to receive your coins!"))));
+                        messages.getString("daily-challenge.claim-button-lore"))));
         inv.setItem(22, claimBtn);
 
         // Back button (slot 8)
         ItemStack backBtn = createItem(Material.RED_STAINED_GLASS_PANE,
                 ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("gui.back-button", "&eBack to Menu")),
+                        messages.getString("gui.back-button")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("gui.back-lore", "&7Return to the main menu"))));
+                        messages.getString("gui.back-lore"))));
         inv.setItem(8, backBtn);
 
         SoundManager.playSound(player, "complete");

@@ -20,20 +20,42 @@ import java.util.*;
  *
  * 54-slot layout (6 rows):
  *   Slot 8: Back to main menu (upper-right corner)
- *   Rows 1-5 (9-44): word entries (up to 45 per page)
- *   Bottom row (45-53): navigation
+ *   Word entries: 见 {@link #WORD_SLOTS}（第二行起 + 底行避开导航键的剩余槽位）
+ *   Bottom row (45-53) navigation:
  *     Slot 47: Previous page
  *     Slot 49: Page indicator
  *     Slot 51: Next page
+ *
+ * 槽位定义（唯一真相，本类的常量供监听器判定点击，不要在别处再写魔法数字）：
+ * 单词槽位与返回键/导航键槽位**不允许有交集**。
  */
 public class WrongBookGUI {
 
     private static final int GUI_SIZE = 54;
-    private static final int ITEMS_PER_PAGE = 45;
-    private static final int PREV_SLOT = 47;
-    private static final int BACK_SLOT = 8;
-    private static final int NEXT_SLOT = 51;
-    private static final int PAGE_INDICATOR_SLOT = 49;
+
+    public static final int PREV_SLOT = 47;
+    public static final int BACK_SLOT = 8;
+    public static final int NEXT_SLOT = 51;
+    public static final int PAGE_INDICATOR_SLOT = 49;
+
+    /**
+     * 单词条目占用的槽位（显式列出，方便一眼看懂）。
+     * 第二行到第五行 = 9-44；第六行取 45/46/48/50/52/53，
+     * 已避开 BACK_SLOT(8) / PREV_SLOT(47) / PAGE_INDICATOR_SLOT(49) / NEXT_SLOT(51)。
+     *
+     * 必须保持升序 —— {@link com.letslearnenglish.minecraftplugin.listener.WrongBookListener}
+     * 用 Arrays.binarySearch 判定点击。
+     */
+    public static final int[] WORD_SLOTS = {
+            9, 10, 11, 12, 13, 14, 15, 16, 17,
+            18, 19, 20, 21, 22, 23, 24, 25, 26,
+            27, 28, 29, 30, 31, 32, 33, 34, 35,
+            36, 37, 38, 39, 40, 41, 42, 43, 44,
+            45, 46, 48, 50, 52, 53
+    };
+
+    /** 每页单词数 = 可用槽位数（36 + 6 = 42），避免出现「显示了却点不动」的单词。 */
+    private static final int ITEMS_PER_PAGE = WORD_SLOTS.length;
 
     private final LetsLearnEnglish plugin;
 
@@ -46,10 +68,17 @@ public class WrongBookGUI {
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("wrong-book.title-page", "&c&lWrong Book | Page {page}")
+                messages.getString("wrong-book.title-page")
                         .replace("{page}", String.valueOf(page)));
 
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+
+        // 先用灰色玻璃板铺满全部槽位，防止玩家把物品拖进空槽
+        // （单词与导航键随后覆盖，填充顺序：占位 -> 单词 -> 导航键）
+        ItemStack filler = createGlassPane(Material.GRAY_STAINED_GLASS_PANE);
+        for (int i = 0; i < GUI_SIZE; i++) {
+            inv.setItem(i, filler.clone());
+        }
 
         Map<String, DifficultWord> difficultWords = plugin.getPlayerDataStore()
                 .getDifficultWordsData(player.getUniqueId());
@@ -71,9 +100,8 @@ public class WrongBookGUI {
             ItemMeta bookMeta = book.getItemMeta();
             if (bookMeta != null) {
                 bookMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.empty", "&7No difficult words!")));
-                String emptyLore = messages.getString("wrong-book.empty-lore",
-                        "&7Keep learning — words you miss 3 times will appear here");
+                        messages.getString("wrong-book.empty")));
+                String emptyLore = messages.getString("wrong-book.empty-lore");
                 bookMeta.setLore(Collections.singletonList(
                         ChatColor.translateAlternateColorCodes('&', emptyLore)));
                 book.setItemMeta(bookMeta);
@@ -81,7 +109,6 @@ public class WrongBookGUI {
             inv.setItem(22, book);
         } else {
             // Populate word entries
-            int slot = 0;
             for (int i = startIndex; i < endIndex; i++) {
                 Map.Entry<String, DifficultWord> entry = wordList.get(i);
                 String wordKey = entry.getKey();
@@ -91,35 +118,31 @@ public class WrongBookGUI {
                 Word wordInfo = plugin.getWordManager().getWord(wordKey);
                 String chinese = wordInfo != null ? wordInfo.getChinese() : "?";
 
-                // Skip the first row (decorative), so slots are 9-53 (rows 1-5)
-                // Map linear index to inventory slot: skip row 0 (slots 0-8)
-                int row = slot / 9;
-                int col = slot % 9;
-                slot++;
-                int invSlot = (row + 1) * 9 + col;
-
-                if (invSlot >= GUI_SIZE) break;
+                // 槽位一律从 WORD_SLOTS 取（已避开返回键与导航键），不再自己算 (row+1)*9+col
+                int slotIndex = i - startIndex;
+                if (slotIndex >= WORD_SLOTS.length) break;
+                int invSlot = WORD_SLOTS[slotIndex];
 
                 Material mat = Material.PAPER;
                 String itemName = ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.word-name", "&c{word}")
+                        messages.getString("wrong-book.word-name")
                                 .replace("{word}", wordKey));
                 List<String> lore = new ArrayList<>();
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.word-chinese", "&7Chinese: &f{chinese}")
+                        messages.getString("wrong-book.word-chinese")
                                 .replace("{chinese}", chinese)));
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.word-count", "&7Wrong count: &c{count}")
+                        messages.getString("wrong-book.word-count")
                                 .replace("{count}", String.valueOf(dw.getWrongCount()))));
                 SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm");
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.word-date", "&7Added: &f{date}")
+                        messages.getString("wrong-book.word-date")
                                 .replace("{date}", sdf.format(new Date(dw.getAddedAt())))));
                 lore.add("");
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.click-remove", "&cClick to remove from book")));
+                        messages.getString("wrong-book.click-remove")));
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.shift-practice", "&eShift+Click to practice")));
+                        messages.getString("wrong-book.shift-practice")));
 
                 inv.setItem(invSlot, createItem(mat, itemName, lore));
             }
@@ -130,9 +153,9 @@ public class WrongBookGUI {
         if (page > 1) {
             inv.setItem(PREV_SLOT, createItem(Material.ARROW,
                     ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("wrong-book.prev-page", "&e← Previous Page")),
+                            messages.getString("wrong-book.prev-page")),
                     Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("wrong-book.prev-page-lore", "&7Page {page}")
+                            messages.getString("wrong-book.prev-page-lore")
                                     .replace("{page}", String.valueOf(page - 1))))));
         }
 
@@ -141,7 +164,7 @@ public class WrongBookGUI {
         ItemMeta piMeta = pageIndicator.getItemMeta();
         if (piMeta != null) {
             piMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("wrong-book.page-indicator", "&7Page {current}/{total}")
+                    messages.getString("wrong-book.page-indicator")
                             .replace("{current}", String.valueOf(page))
                             .replace("{total}", String.valueOf(totalPages))));
             pageIndicator.setItemMeta(piMeta);
@@ -151,26 +174,21 @@ public class WrongBookGUI {
         // Back button (upper-right corner, unified with other GUIs)
         inv.setItem(BACK_SLOT, createItem(Material.RED_STAINED_GLASS_PANE,
                 ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("gui.back-button", "&e返回主菜单")),
+                        messages.getString("gui.back-button")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("gui.back-lore", "&7回到主菜单界面")))));
+                        messages.getString("gui.back-lore")))));
 
         // Next page
         if (page < totalPages) {
             inv.setItem(NEXT_SLOT, createItem(Material.ARROW,
                     ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("wrong-book.next-page", "&eNext Page →")),
+                            messages.getString("wrong-book.next-page")),
                     Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("wrong-book.next-page-lore", "&7Page {page}")
+                            messages.getString("wrong-book.next-page-lore")
                                     .replace("{page}", String.valueOf(page + 1))))));
         }
 
-        // Bottom decoration
-        for (int i = 45; i < 54; i++) {
-            if (inv.getItem(i) == null) {
-                inv.setItem(i, createGlassPane(Material.GRAY_STAINED_GLASS_PANE));
-            }
-        }
+        // 底行剩余空槽已在开头的占位填充里铺好玻璃板，无需再补
 
         player.openInventory(inv);
     }

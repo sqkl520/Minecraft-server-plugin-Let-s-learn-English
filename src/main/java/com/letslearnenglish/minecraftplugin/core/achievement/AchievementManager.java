@@ -60,8 +60,8 @@ public class AchievementManager {
         Set<String> unlocked = new HashSet<>();
         String sql = "SELECT achievement_id FROM "
                 + plugin.getDatabaseManager().getTablePrefix() + "achievements WHERE uuid = ?";
-        try (Connection conn = plugin.getDatabaseManager().getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        Connection conn = plugin.getDatabaseManager().getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
@@ -143,8 +143,8 @@ public class AchievementManager {
                     + "ON DUPLICATE KEY UPDATE unlocked_at=VALUES(unlocked_at)";
         }
 
-        try (Connection conn = plugin.getDatabaseManager().getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        Connection conn = plugin.getDatabaseManager().getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, achievement.getId());
             stmt.setLong(3, System.currentTimeMillis());
@@ -158,10 +158,8 @@ public class AchievementManager {
         if (player != null && player.isOnline()) {
             FileConfiguration messages = plugin.getConfigManager()
                     .getMessageConfig(plugin.getPlayerLanguage(player));
-            String title = messages.getString("achievement.unlock-title",
-                    "&6&lAchievement Unlocked!");
-            String fmt = messages.getString("achievement.unlock-format",
-                    "&b&l✧ {title} &f- {name}");
+            String title = messages.getString("achievement.unlock-title");
+            String fmt = messages.getString("achievement.unlock-format");
             String name = achievement.getDisplayName(plugin.getPlayerLanguage(player));
             String desc = achievement.getDisplayDesc(plugin.getPlayerLanguage(player));
             player.sendMessage(ChatColor.translateAlternateColorCodes('&',
@@ -237,7 +235,7 @@ public class AchievementManager {
         if (totalSessions >= 50) tryUnlock(playerId, Achievement.SESSIONS_50);
 
         checkDailyStreak(playerId);
-        long totalCoins = stats.getTotalScore();
+        long totalCoins = plugin.getDatabaseManager().getCoinsEarned(playerId);
         if (totalCoins >= 500) tryUnlock(playerId, Achievement.COINS_500);
         if (totalCoins >= 5000) tryUnlock(playerId, Achievement.COINS_5000);
     }
@@ -264,8 +262,8 @@ public class AchievementManager {
         String daySql = "SELECT session_date FROM "
                 + plugin.getDatabaseManager().getTablePrefix()
                 + "player_sessions WHERE uuid = ? ORDER BY session_date DESC";
-        try (Connection conn = plugin.getDatabaseManager().getConnection();
-             PreparedStatement stmt = conn.prepareStatement(daySql)) {
+        Connection conn = plugin.getDatabaseManager().getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(daySql)) {
             stmt.setString(1, playerId.toString());
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {

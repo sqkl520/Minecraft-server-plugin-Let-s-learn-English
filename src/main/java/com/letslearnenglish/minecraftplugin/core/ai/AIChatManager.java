@@ -51,18 +51,21 @@ public class AIChatManager {
     private final LetsLearnEnglish plugin;
     private final Gson gson = new Gson();
 
-    private String apiUrl;
-    private String apiKey;
-    private String model;
-    private int maxContextPairs;
-    private int maxContextTokens;
-    private int timeoutSeconds;
-    private int rateLimitSeconds;
-    private int maxInputLength;
-    private int maxPromptLength;
-    private boolean debug;
+    // 以下配置字段在构造 / 热重载时由主线程写入，但会被异步线程读取
+    // （chatAsync 可由 AsyncPlayerChatEvent 触发，HTTP 请求在 supplyAsync 中执行），
+    // 因此统一加 volatile 保证跨线程可见性
+    private volatile String apiUrl;
+    private volatile String apiKey;
+    private volatile String model;
+    private volatile int maxContextTokens;
+    private volatile int timeoutSeconds;
+    private volatile int rateLimitSeconds;
+    private volatile int maxInputLength;
+    private volatile int maxPromptLength;
+    private volatile boolean debug;
 
     private final Map<UUID, Long> lastRequestTime = new ConcurrentHashMap<>();
+    private final Set<UUID> pendingRequests = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Deque<MessagePair>> conversationContexts = new ConcurrentHashMap<>();
     private final Map<UUID, Integer> conversationCount = new ConcurrentHashMap<>();
 
@@ -149,7 +152,6 @@ public class AIChatManager {
         org.bukkit.configuration.file.FileConfiguration config = plugin.getConfigManager().getMainConfig();
         this.apiUrl = config.getString("ai-chat.api-url", DEFAULT_API_URL);
         this.model = config.getString("ai-chat.model", DEFAULT_MODEL);
-        this.maxContextPairs = config.getInt("ai-chat.max-context-pairs", 6);
         this.maxContextTokens = config.getInt("ai-chat.max-context-tokens", DEFAULT_MAX_CONTEXT_TOKENS);
         this.timeoutSeconds = config.getInt("ai-chat.timeout-seconds", 15);
         this.rateLimitSeconds = config.getInt("ai-chat.rate-limit-seconds", 3);
@@ -391,6 +393,7 @@ public class AIChatManager {
     public void endConversation(Player player) {
         conversationContexts.remove(player.getUniqueId());
         lastRequestTime.remove(player.getUniqueId());
+        pendingRequests.remove(player.getUniqueId());
         activeSessionIds.remove(player.getUniqueId());
         playerSystemPrompts.remove(player.getUniqueId());
 
@@ -474,14 +477,16 @@ public class AIChatManager {
 
     public void chatAsync(Player player, String input, AIChatCallback callback) {
         if (!isAvailable()) {
-            callback.onResponse(null, "AI service is not configured. Please contact server admin.");
+            callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
+                    player, "dialogue.ai-not-configured"));
             return;
         }
 
         int cooldown = getRemainingCooldown(player);
         if (cooldown > 0) {
             debugLog("[" + player.getName() + "] 限流拒绝 — 剩余冷却 " + cooldown + "s");
-            callback.onResponse(null, "Please wait " + cooldown + "s before sending another message.");
+            callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
+                    player, "dialogue.cooldown", "seconds", String.valueOf(cooldown)));
             return;
         }
 
@@ -495,33 +500,41 @@ public class AIChatManager {
 
         Deque<MessagePair> context = conversationContexts.get(player.getUniqueId());
         if (context == null) {
-            callback.onResponse(null, "No active conversation. Use /le dialogue to start one.");
+            callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
+                    player, "dialogue.no-active-conversation"));
+            return;
+        }
+
+        if (!pendingRequests.add(player.getUniqueId())) {
+            callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
+                    player, "dialogue.request-in-progress"));
             return;
         }
 
         debugLog("[" + player.getName() + "] 用户输入(" + sanitized.length() + "字符): "
                 + sanitized.substring(0, Math.min(100, sanitized.length())).replace("\n", "\\n"));
 
-        context.add(new MessagePair("user", sanitized));
-
-        // Write user message to DB asynchronously
         final String sessionId = activeSessionIds.get(player.getUniqueId());
         final UUID playerId = player.getUniqueId();
         final String finalSanitized = sanitized;
+
+        JsonObject requestBody;
+        synchronized (context) {
+            context.add(new MessagePair("user", sanitized));
+            trimContextByTokens(context);
+            requestBody = buildRequestBody(new ArrayDeque<>(context));
+        }
+
+        // Write user message to DB asynchronously
         if (sessionId != null) {
             CompletableFuture.runAsync(() -> {
                 plugin.getDatabaseManager().insertChatHistory(playerId, sessionId, "user", finalSanitized);
             });
         }
 
-        // Trim context by estimated token count — system prompt (index 0) is NEVER removed.
-        // Only remove complete user/assistant pairs from the oldest end of the conversation.
-        trimContextByTokens(context);
-
-        JsonObject requestBody = buildRequestBody(context);
-
         debugLog("[" + player.getName() + "] 发送 API 请求 — model=" + model
-                + " messages=" + context.size() + " body-size=" + gson.toJson(requestBody).length() + "B");
+                + " messages=" + requestBody.getAsJsonArray("messages").size()
+                + " body-size=" + gson.toJson(requestBody).length() + "B");
 
         CompletableFuture.supplyAsync(() -> {
             try {
@@ -533,7 +546,10 @@ public class AIChatManager {
                         + (response != null ? response.length() : 0) + "字符): "
                         + (response != null ? response.substring(0, Math.min(150, response.length())).replace("\n", "\\n") : "null"));
                 if (response != null) {
-                    context.add(new MessagePair("assistant", response));
+                    synchronized (context) {
+                        context.add(new MessagePair("assistant", response));
+                        trimContextByTokens(context);
+                    }
                     // Write AI response to DB asynchronously (sessionId captured from enclosing scope)
                     if (sessionId != null) {
                         try {
@@ -549,13 +565,16 @@ public class AIChatManager {
                 throw new CompletionException(e);
             }
         }).thenAcceptAsync(responseText -> {
+            pendingRequests.remove(playerId);
             callback.onResponse(responseText, null);
         }, runnable -> plugin.getServer().getScheduler().runTask(plugin, runnable))
         .exceptionally(throwable -> {
+            pendingRequests.remove(playerId);
             Throwable cause = (throwable instanceof CompletionException) ? throwable.getCause() : throwable;
             plugin.getLogger().log(Level.WARNING, "AI API request failed for " + player.getName(), cause);
             plugin.getServer().getScheduler().runTask(plugin, () ->
-                    callback.onResponse(null, "AI service is temporarily unavailable. Please try again later."));
+                    callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
+                            player, "dialogue.request-failed")));
             return null;
         });
     }
@@ -647,6 +666,7 @@ public class AIChatManager {
         conversationContexts.clear();
         playerDifficulties.clear();
         lastRequestTime.clear();
+        pendingRequests.clear();
         conversationCount.clear();
         activeSessionIds.clear();
         playerSystemPrompts.clear();

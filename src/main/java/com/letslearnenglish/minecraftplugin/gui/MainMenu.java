@@ -33,7 +33,7 @@ public class MainMenu {
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("gui.main-menu-title", "&6&lLet's Learn English!"));
+                messages.getString("gui.main-menu-title"));
         int size = plugin.getConfigManager().getMainConfig().getInt("gui.menu-size", 27);
 
         Inventory menu = Bukkit.createInventory(null, size, title);
@@ -45,46 +45,46 @@ public class MainMenu {
         }
 
         String wordName = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("main-menu.word-learning", "&aWord Learning"));
+                messages.getString("main-menu.word-learning"));
         String wordLore = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("main-menu.word-learning-lore", "&7Practice vocabulary with various modes"));
+                messages.getString("main-menu.word-learning-lore"));
         String dialogueName = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("main-menu.dialogue-practice", "&bAI Scenario Chat"));
+                messages.getString("main-menu.dialogue-practice"));
         String dialogueLore = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("main-menu.dialogue-practice-lore", "&7Practice English with AI scenarios"));
+                messages.getString("main-menu.dialogue-practice-lore"));
         String progressName = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("main-menu.progress-stats", "&eProfile"));
+                messages.getString("main-menu.progress-stats"));
         String progressLore = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("main-menu.progress-stats-lore", "&7View your personal profile"));
+                messages.getString("main-menu.progress-stats-lore"));
 
         menu.setItem(cm.getGuiSlot("main-menu", "word-learning", 11), createMenuItem(cm.getGuiMaterial("main-menu", "word-learning", Material.BOOK), wordName, wordLore));
         menu.setItem(cm.getGuiSlot("main-menu", "dialogue-practice", 13), createMenuItem(cm.getGuiMaterial("main-menu", "dialogue-practice", Material.PAPER), dialogueName, dialogueLore));
         menu.setItem(cm.getGuiSlot("main-menu", "personal-profile", 15), createMenuItem(cm.getGuiMaterial("main-menu", "personal-profile", Material.DIAMOND), progressName, progressLore));
 
         String squareName = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("main-menu.square", "&dEnglish Square"));
+                messages.getString("main-menu.square"));
         String squareLore = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("main-menu.square-lore", "&7See other learners' progress"));
+                messages.getString("main-menu.square-lore"));
         menu.setItem(cm.getGuiSlot("main-menu", "english-square", 17), createMenuItem(cm.getGuiMaterial("main-menu", "english-square", Material.PLAYER_HEAD), squareName, squareLore));
 
         String dailyName = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("main-menu.daily-challenge", "&6Daily Challenge"));
+                messages.getString("main-menu.daily-challenge"));
         String dailyLore = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("main-menu.daily-challenge-lore", "&7Complete today's tasks for rewards"));
+                messages.getString("main-menu.daily-challenge-lore"));
         menu.setItem(cm.getGuiSlot("main-menu", "daily-challenge", 10),
                 createMenuItem(cm.getGuiMaterial("main-menu", "daily-challenge", Material.WRITABLE_BOOK),
                         dailyName, dailyLore));
 
         String wrongName = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("main-menu.wrong-book", "&cWrong Book"));
+                messages.getString("main-menu.wrong-book"));
         String wrongLore = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("main-menu.wrong-book-lore", "&7Review your difficult words"));
+                messages.getString("main-menu.wrong-book-lore"));
         menu.setItem(14, createMenuItem(Material.BOOKSHELF, wrongName, wrongLore));
 
         String btnName = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("language.button", "&eSwitch Language"));
+                messages.getString("language.button"));
         String btnLore = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("language.button-lore", "&7Click to switch"));
+                messages.getString("language.button-lore"));
         menu.setItem(cm.getGuiSlot("main-menu", "language-toggle", 18), createMenuItem(cm.getGuiMaterial("main-menu", "language-toggle", Material.RED_BED), btnName, btnLore));
 
         SoundManager.playSound(player, "menu-open");
