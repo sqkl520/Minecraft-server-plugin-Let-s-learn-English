@@ -1,0 +1,38 @@
+# ---- Maven build output ----
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# ---- IDE ----
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.code-workspace
+.settings/
+.classpath
+.project
+nbproject/
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Backups / leftovers ----
+*.bak
+*.orig
+*.rej
+*~
+
+# ---- Runtime / secrets (never commit) ----
+# API key storage lives in the plugin data folder, but keep it out if copied here
+ai_config.yml
+
+# ---- Build/test scratch ----
+build.log
+jacoco.exec
+.tmp-*/
+
+# ---- Claude Code agent state (belongs in the parent dir, not the source repo) ----
+.claude/
