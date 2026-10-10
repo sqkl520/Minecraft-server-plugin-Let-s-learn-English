@@ -105,6 +105,8 @@
                 <filtering>false</filtering>
                 <excludes>
                     <exclude>plugin.yml</exclude>
+                    <!-- 评审用词库样本，不随插件打包（详见 resources/words/README.md） -->
+                    <exclude>words/sample-*.yml</exclude>
                 </excludes>
             </resource>
         </resources>
@@ -146,6 +148,38 @@
                         <goals>
                             <goal>report</goal>
                         </goals>
+                    </execution>
+                    <!--
+                        Coverage gate (safety net). STARTING FLOOR ONLY.
+                        Line coverage is ~4% today: most code is Bukkit-coupled and not yet
+                        unit-tested, so the minimum is deliberately pinned very low (1%) just to
+                        prove the gate runs green. Ratchet this up one notch every release as real
+                        coverage grows. Do NOT jump to 50 percent, that would fail the build immediately.
+                        Bound to the `verify` phase on purpose: it never fires during the team's
+                        fast `mvn clean package -DskipTests` build, and jacoco:check skips cleanly
+                        when execution data is absent (e.g. `verify -DskipTests`). Run `mvn verify`
+                        to exercise the gate.
+                    -->
+                    <execution>
+                        <id>check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.01</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

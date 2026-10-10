@@ -152,4 +152,99 @@ public class MessageUtil {
 
         return ChatColor.translateAlternateColorCodes('&', message);
     }
+
+    // ============================================================
+    //  Null-safe helpers (Phase 0 i18n safety baseline)
+    // ============================================================
+
+    /**
+     * Fixed, visible placeholder returned when a message key cannot be resolved.
+     * It intentionally surfaces the offending key (instead of a plausible-looking
+     * sentence) so a missing key is obvious in-game rather than silently masked.
+     */
+    private static final String MISSING_KEY_PLACEHOLDER = "&c[?%s]";
+
+    /**
+     * Null-safe message lookup using the server's default language.
+     *
+     * <p>Unlike {@link #getMessage(String, String...)} this method is hardened against
+     * every failure mode: a missing message config, a missing key, or null placeholders.
+     * It never returns {@code null} and never throws — on any miss it logs a WARNING and
+     * returns a visible diagnostic placeholder ({@code &c[?key]}). Callers that currently
+     * read raw values via {@code FileConfiguration#getString} (which can return null and
+     * trigger an NPE) can adopt this helper for a guaranteed-visible fallback.
+     *
+     * @param key          the message key (e.g. "word.correct")
+     * @param placeholders optional key-value pairs for substitution
+     * @return the formatted message, or a visible placeholder — never null
+     */
+    public String getMessageSafe(String key, String... placeholders) {
+        return formatSafe(configManager.getMessageConfig(), resolveDefaultLang(), key, placeholders);
+    }
+
+    /**
+     * Null-safe message lookup resolved in the player's current language.
+     * Behaves like {@link #getMessageSafe(String, String...)} but uses the player's language.
+     *
+     * @param player       the target player (null falls back to the default language)
+     * @param key          the message key
+     * @param placeholders optional key-value pairs for substitution
+     * @return the formatted message, or a visible placeholder — never null
+     */
+    public String getPlayerMessageSafe(Player player, String key, String... placeholders) {
+        String lang = (player != null) ? plugin.getPlayerLanguage(player) : resolveDefaultLang();
+        return formatSafe(configManager.getMessageConfig(lang), lang, key, placeholders);
+    }
+
+    /**
+     * @return true if the message file for {@code lang} defines {@code key}; never throws
+     *         on a null config. Backs the startup i18n audit in {@link ConfigManager}.
+     */
+    public boolean hasMessageKey(String lang, String key) {
+        FileConfiguration messageConfig = configManager.getMessageConfig(lang);
+        return messageConfig != null && key != null && messageConfig.isSet(key);
+    }
+
+    private String resolveDefaultLang() {
+        FileConfiguration mainConfig = configManager.getMainConfig();
+        return (mainConfig != null) ? mainConfig.getString("general.language", "en") : "en";
+    }
+
+    /**
+     * Shared null-safe formatter: resolves the key, falls back to a visible placeholder on any
+     * miss (logging a WARNING), then applies {prefix}, placeholder substitution and '&' colours.
+     * Guaranteed non-null; never throws.
+     */
+    private String formatSafe(FileConfiguration messageConfig, String lang, String key, String... placeholders) {
+        if (key == null) {
+            plugin.getLogger().warning("Null message key requested.");
+            return ChatColor.translateAlternateColorCodes('&', String.format(MISSING_KEY_PLACEHOLDER, "null"));
+        }
+        if (messageConfig == null) {
+            plugin.getLogger().warning("Message config unavailable while resolving key: " + key);
+            return ChatColor.translateAlternateColorCodes('&', String.format(MISSING_KEY_PLACEHOLDER, key));
+        }
+
+        String message = messageConfig.getString(key);
+        if (message == null) {
+            plugin.getLogger().warning("Missing message key: " + key + " (lang=" + lang + ")");
+            return ChatColor.translateAlternateColorCodes('&', String.format(MISSING_KEY_PLACEHOLDER, key));
+        }
+
+        message = message.replace("{prefix}", resolvePrefix(messageConfig, lang));
+
+        if (placeholders != null) {
+            if (placeholders.length % 2 != 0) {
+                plugin.getLogger().warning("Odd number of placeholder arguments for key: " + key
+                        + " (length=" + placeholders.length + ")");
+            }
+            for (int i = 0; i < placeholders.length - 1; i += 2) {
+                if (placeholders[i] != null && placeholders[i + 1] != null) {
+                    message = message.replace("{" + placeholders[i] + "}", placeholders[i + 1]);
+                }
+            }
+        }
+
+        return ChatColor.translateAlternateColorCodes('&', message);
+    }
 }

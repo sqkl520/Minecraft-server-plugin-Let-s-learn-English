@@ -44,24 +44,26 @@ public class DatabaseManager {
      * Initialize database connection and table structure.
      */
     public void initialize() {
-        FileConfiguration config = configManager.getMainConfig();
-        String type = config.getString("database.type", "sqlite");
-        this.tablePrefix = config.getString("database.mysql.table-prefix", "lle_");
+        synchronized (connectionLock) {
+            FileConfiguration config = configManager.getMainConfig();
+            String type = config.getString("database.type", "sqlite");
+            this.tablePrefix = config.getString("database.mysql.table-prefix", "lle_");
 
-        try {
-            if ("mysql".equalsIgnoreCase(type)) {
-                initializeMySQL(config);
-                this.isSQLite = false;
-            } else {
-                initializeSQLite();
-                this.isSQLite = true;
+            try {
+                if ("mysql".equalsIgnoreCase(type)) {
+                    initializeMySQL(config);
+                    this.isSQLite = false;
+                } else {
+                    initializeSQLite();
+                    this.isSQLite = true;
+                }
+
+                createTables();
+                plugin.getLogger().info("Database initialized (type: " + type + ")");
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.SEVERE, "Database initialization failed! Plugin may not function correctly.", e);
+                throw new RuntimeException("Failed to initialize database. Check your database configuration.", e);
             }
-
-            createTables();
-            plugin.getLogger().info("Database initialized (type: " + type + ")");
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.SEVERE, "Database initialization failed! Plugin may not function correctly.", e);
-            throw new RuntimeException("Failed to initialize database. Check your database configuration.", e);
         }
     }
 
@@ -284,8 +286,10 @@ public class DatabaseManager {
      * Execute an update statement.
      */
     public void executeUpdate(String sql) throws SQLException {
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-            stmt.executeUpdate();
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.executeUpdate();
+            }
         }
     }
 
@@ -299,15 +303,17 @@ public class DatabaseManager {
     public void insertChatHistory(UUID playerUuid, String sessionId, String role, String content) {
         String sql = "INSERT INTO " + tablePrefix + "ai_chat_history"
                 + " (player_uuid, session_id, role, content) VALUES (?, ?, ?, ?)";
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-            stmt.setString(1, playerUuid.toString());
-            stmt.setString(2, sessionId);
-            stmt.setString(3, role);
-            stmt.setString(4, content);
-            stmt.executeUpdate();
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to insert chat history for player " + playerUuid, e);
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerUuid.toString());
+                stmt.setString(2, sessionId);
+                stmt.setString(3, role);
+                stmt.setString(4, content);
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to insert chat history for player " + playerUuid, e);
+            }
         }
     }
 
@@ -321,25 +327,27 @@ public class DatabaseManager {
                 + " WHERE player_uuid = ?"
                 + " ORDER BY timestamp DESC"
                 + " LIMIT ? OFFSET ?";
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-            stmt.setString(1, playerUuid.toString());
-            stmt.setInt(2, pageSize);
-            stmt.setInt(3, (page - 1) * pageSize);
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    entries.add(new ChatHistoryEntry(
-                            rs.getInt("id"),
-                            rs.getString("player_uuid"),
-                            rs.getString("session_id"),
-                            rs.getString("role"),
-                            rs.getString("content"),
-                            rs.getTimestamp("timestamp")
-                    ));
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerUuid.toString());
+                stmt.setInt(2, pageSize);
+                stmt.setInt(3, (page - 1) * pageSize);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        entries.add(new ChatHistoryEntry(
+                                rs.getInt("id"),
+                                rs.getString("player_uuid"),
+                                rs.getString("session_id"),
+                                rs.getString("role"),
+                                rs.getString("content"),
+                                rs.getTimestamp("timestamp")
+                        ));
+                    }
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to get chat history for player " + playerUuid, e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to get chat history for player " + playerUuid, e);
         }
         return entries;
     }
@@ -353,24 +361,26 @@ public class DatabaseManager {
                 + " FROM " + tablePrefix + "ai_chat_history"
                 + " WHERE player_uuid = ? AND session_id = ?"
                 + " ORDER BY timestamp ASC";
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-            stmt.setString(1, playerUuid.toString());
-            stmt.setString(2, sessionId);
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    entries.add(new ChatHistoryEntry(
-                            rs.getInt("id"),
-                            rs.getString("player_uuid"),
-                            rs.getString("session_id"),
-                            rs.getString("role"),
-                            rs.getString("content"),
-                            rs.getTimestamp("timestamp")
-                    ));
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerUuid.toString());
+                stmt.setString(2, sessionId);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        entries.add(new ChatHistoryEntry(
+                                rs.getInt("id"),
+                                rs.getString("player_uuid"),
+                                rs.getString("session_id"),
+                                rs.getString("role"),
+                                rs.getString("content"),
+                                rs.getTimestamp("timestamp")
+                        ));
+                    }
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to get chat session " + sessionId + " for player " + playerUuid, e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to get chat session " + sessionId + " for player " + playerUuid, e);
         }
         return entries;
     }
@@ -388,27 +398,29 @@ public class DatabaseManager {
                 + " GROUP BY session_id"
                 + " ORDER BY last_time DESC"
                 + " LIMIT ? OFFSET ?";
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-            stmt.setString(1, playerUuid.toString());
-            stmt.setInt(2, pageSize);
-            stmt.setInt(3, (page - 1) * pageSize);
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    // Use a ChatHistoryEntry with session_id as the primary identifier
-                    // timestamp = last_time for display, content = placeholder (to be filled)
-                    entries.add(new ChatHistoryEntry(
-                            0,
-                            playerUuid.toString(),
-                            rs.getString("session_id"),
-                            "session",
-                            "",
-                            rs.getTimestamp("last_time")
-                    ));
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerUuid.toString());
+                stmt.setInt(2, pageSize);
+                stmt.setInt(3, (page - 1) * pageSize);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        // Use a ChatHistoryEntry with session_id as the primary identifier
+                        // timestamp = last_time for display, content = placeholder (to be filled)
+                        entries.add(new ChatHistoryEntry(
+                                0,
+                                playerUuid.toString(),
+                                rs.getString("session_id"),
+                                "session",
+                                "",
+                                rs.getTimestamp("last_time")
+                        ));
+                    }
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to get chat sessions for player " + playerUuid, e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to get chat sessions for player " + playerUuid, e);
         }
         return entries;
     }
@@ -423,22 +435,24 @@ public class DatabaseManager {
                 + " AND role IN ('system', 'user')"
                 + " ORDER BY timestamp ASC"
                 + " LIMIT 2";
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-            stmt.setString(1, playerUuid.toString());
-            stmt.setString(2, sessionId);
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    String role = rs.getString("role");
-                    if ("system".equals(role) && result[0] == null) {
-                        result[0] = rs.getString("content");
-                    } else if ("user".equals(role) && result[1] == null) {
-                        result[1] = rs.getString("content");
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerUuid.toString());
+                stmt.setString(2, sessionId);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        String role = rs.getString("role");
+                        if ("system".equals(role) && result[0] == null) {
+                            result[0] = rs.getString("content");
+                        } else if ("user".equals(role) && result[1] == null) {
+                            result[1] = rs.getString("content");
+                        }
                     }
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to get session preview for " + sessionId, e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to get session preview for " + sessionId, e);
         }
         return result;
     }
@@ -449,16 +463,18 @@ public class DatabaseManager {
     public int getChatHistoryCount(UUID playerUuid) {
         String sql = "SELECT COUNT(DISTINCT session_id) FROM " + tablePrefix
                 + "ai_chat_history WHERE player_uuid = ?";
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-            stmt.setString(1, playerUuid.toString());
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt(1);
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerUuid.toString());
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getInt(1);
+                    }
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to count chat history for player " + playerUuid, e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to count chat history for player " + playerUuid, e);
         }
         return 0;
     }
@@ -475,15 +491,17 @@ public class DatabaseManager {
         }
         String sql = "DELETE FROM " + tablePrefix + "ai_chat_history"
                 + " WHERE timestamp < " + dateExpr;
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-            int deleted = stmt.executeUpdate();
-            if (deleted > 0) {
-                plugin.getLogger().info("Cleaned up " + deleted
-                        + " old AI chat history records (older than " + daysToKeep + " days).");
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                int deleted = stmt.executeUpdate();
+                if (deleted > 0) {
+                    plugin.getLogger().info("Cleaned up " + deleted
+                            + " old AI chat history records (older than " + daysToKeep + " days).");
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to clean up old chat history", e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to clean up old chat history", e);
         }
     }
 
@@ -496,22 +514,24 @@ public class DatabaseManager {
         List<LeaderboardEntry> entries = new ArrayList<>();
         String sql = "SELECT uuid, player_name, total_coins_earned FROM " + tablePrefix
                 + "player_data ORDER BY total_coins_earned DESC LIMIT ?";
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-            stmt.setInt(1, limit);
-            try (ResultSet rs = stmt.executeQuery()) {
-                int rank = 1;
-                while (rs.next()) {
-                    UUID uuid = UUID.fromString(rs.getString("uuid"));
-                    String name = rs.getString("player_name");
-                    if (name == null || name.isEmpty()) {
-                        name = uuid.toString();
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setInt(1, limit);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    int rank = 1;
+                    while (rs.next()) {
+                        UUID uuid = UUID.fromString(rs.getString("uuid"));
+                        String name = rs.getString("player_name");
+                        if (name == null || name.isEmpty()) {
+                            name = uuid.toString();
+                        }
+                        entries.add(new LeaderboardEntry(uuid, name, rs.getLong("total_coins_earned"),
+                                0, 0, 0, rank++));
                     }
-                    entries.add(new LeaderboardEntry(uuid, name, rs.getLong("total_coins_earned"),
-                            0, 0, 0, rank++));
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to query top coins", e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to query top coins", e);
         }
         return entries;
     }
@@ -523,22 +543,24 @@ public class DatabaseManager {
         List<LeaderboardEntry> entries = new ArrayList<>();
         String sql = "SELECT uuid, player_name, total_words_learned FROM " + tablePrefix
                 + "player_data ORDER BY total_words_learned DESC LIMIT ?";
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-            stmt.setInt(1, limit);
-            try (ResultSet rs = stmt.executeQuery()) {
-                int rank = 1;
-                while (rs.next()) {
-                    UUID uuid = UUID.fromString(rs.getString("uuid"));
-                    String name = rs.getString("player_name");
-                    if (name == null || name.isEmpty()) {
-                        name = uuid.toString();
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setInt(1, limit);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    int rank = 1;
+                    while (rs.next()) {
+                        UUID uuid = UUID.fromString(rs.getString("uuid"));
+                        String name = rs.getString("player_name");
+                        if (name == null || name.isEmpty()) {
+                            name = uuid.toString();
+                        }
+                        entries.add(new LeaderboardEntry(uuid, name, rs.getLong("total_words_learned"),
+                                0, 0, 0, rank++));
                     }
-                    entries.add(new LeaderboardEntry(uuid, name, rs.getLong("total_words_learned"),
-                            0, 0, 0, rank++));
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to query top words learned", e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to query top words learned", e);
         }
         return entries;
     }
@@ -550,23 +572,25 @@ public class DatabaseManager {
         List<LeaderboardEntry> entries = new ArrayList<>();
         String sql = "SELECT uuid, player_name, longest_streak FROM " + tablePrefix
                 + "player_data ORDER BY longest_streak DESC LIMIT ?";
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-            stmt.setInt(1, limit);
-            try (ResultSet rs = stmt.executeQuery()) {
-                int rank = 1;
-                while (rs.next()) {
-                    UUID uuid = UUID.fromString(rs.getString("uuid"));
-                    String name = rs.getString("player_name");
-                    if (name == null || name.isEmpty()) {
-                        name = uuid.toString();
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setInt(1, limit);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    int rank = 1;
+                    while (rs.next()) {
+                        UUID uuid = UUID.fromString(rs.getString("uuid"));
+                        String name = rs.getString("player_name");
+                        if (name == null || name.isEmpty()) {
+                            name = uuid.toString();
+                        }
+                        int combo = rs.getInt("longest_streak");
+                        entries.add(new LeaderboardEntry(uuid, name, combo,
+                                0, 0, 0, rank++));
                     }
-                    int combo = rs.getInt("longest_streak");
-                    entries.add(new LeaderboardEntry(uuid, name, combo,
-                            0, 0, 0, rank++));
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to query top combo", e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to query top combo", e);
         }
         return entries;
     }
@@ -583,18 +607,20 @@ public class DatabaseManager {
         List<String> words = new ArrayList<>();
         String sql = "SELECT word_id FROM " + tablePrefix
                 + "daily_challenge_words WHERE player_uuid = ? AND challenge_date = ?";
-        Connection conn = getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            stmt.setString(2, date);
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    words.add(rs.getString("word_id"));
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        words.add(rs.getString("word_id"));
+                    }
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to load daily challenge words for " + playerId, e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to load daily challenge words for " + playerId, e);
         }
         return words;
     }
@@ -611,18 +637,20 @@ public class DatabaseManager {
             insertSql = "INSERT IGNORE INTO " + tablePrefix
                     + "daily_challenge_words (player_uuid, challenge_date, word_id) VALUES (?, ?, ?)";
         }
-        Connection conn = getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(insertSql)) {
-            for (String wordId : wordIds) {
-                stmt.setString(1, playerId.toString());
-                stmt.setString(2, date);
-                stmt.setString(3, wordId);
-                stmt.addBatch();
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try (PreparedStatement stmt = conn.prepareStatement(insertSql)) {
+                for (String wordId : wordIds) {
+                    stmt.setString(1, playerId.toString());
+                    stmt.setString(2, date);
+                    stmt.setString(3, wordId);
+                    stmt.addBatch();
+                }
+                stmt.executeBatch();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to assign daily challenge words for " + playerId, e);
             }
-            stmt.executeBatch();
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to assign daily challenge words for " + playerId, e);
         }
     }
 
@@ -635,16 +663,18 @@ public class DatabaseManager {
         String sql = "UPDATE " + tablePrefix
                 + "daily_challenge_words SET completed = TRUE, completed_at = CURRENT_TIMESTAMP"
                 + " WHERE player_uuid = ? AND challenge_date = ? AND word_id = ? AND completed = FALSE";
-        Connection conn = getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            stmt.setString(2, date);
-            stmt.setString(3, wordId);
-            return stmt.executeUpdate() > 0;
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to mark daily challenge word complete for " + playerId, e);
-            return false;
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                stmt.setString(3, wordId);
+                return stmt.executeUpdate() > 0;
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to mark daily challenge word complete for " + playerId, e);
+                return false;
+            }
         }
     }
 
@@ -654,20 +684,22 @@ public class DatabaseManager {
     public boolean isDailyChallengeWordsCompleted(UUID playerId, String date) {
         String sql = "SELECT COUNT(*) as total, SUM(CASE WHEN completed THEN 1 ELSE 0 END) as done FROM "
                 + tablePrefix + "daily_challenge_words WHERE player_uuid = ? AND challenge_date = ?";
-        Connection conn = getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            stmt.setString(2, date);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    int total = rs.getInt("total");
-                    int done = rs.getInt("done");
-                    return total > 0 && total == done;
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        int total = rs.getInt("total");
+                        int done = rs.getInt("done");
+                        return total > 0 && total == done;
+                    }
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to check daily challenge words completion for " + playerId, e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to check daily challenge words completion for " + playerId, e);
         }
         return false;
     }
@@ -679,18 +711,20 @@ public class DatabaseManager {
     public int[] getDailyChallengeWordsProgress(UUID playerId, String date) {
         String sql = "SELECT COUNT(*) as total, SUM(CASE WHEN completed THEN 1 ELSE 0 END) as done FROM "
                 + tablePrefix + "daily_challenge_words WHERE player_uuid = ? AND challenge_date = ?";
-        Connection conn = getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            stmt.setString(2, date);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return new int[]{rs.getInt("done"), rs.getInt("total")};
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return new int[]{rs.getInt("done"), rs.getInt("total")};
+                    }
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to get daily challenge words progress for " + playerId, e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to get daily challenge words progress for " + playerId, e);
         }
         return new int[]{0, 0};
     }
@@ -710,14 +744,16 @@ public class DatabaseManager {
         } else {
             upsertSql = "INSERT INTO " + tablePrefix + "difficult_words (player_uuid, word, wrong_count) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE wrong_count = wrong_count + 1";
         }
-        Connection conn = getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(upsertSql)) {
-            stmt.setString(1, playerId.toString());
-            stmt.setString(2, word.toLowerCase());
-            stmt.executeUpdate();
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to increment wrong count for " + playerId + " / " + word, e);
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try (PreparedStatement stmt = conn.prepareStatement(upsertSql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, word.toLowerCase());
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to increment wrong count for " + playerId + " / " + word, e);
+            }
         }
 
         // Read back the new count
@@ -729,18 +765,20 @@ public class DatabaseManager {
      */
     public int getWrongCount(UUID playerId, String word) {
         String sql = "SELECT wrong_count FROM " + tablePrefix + "difficult_words WHERE player_uuid = ? AND word = ?";
-        Connection conn = getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            stmt.setString(2, word.toLowerCase());
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt("wrong_count");
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, word.toLowerCase());
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getInt("wrong_count");
+                    }
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to get wrong count for " + playerId + " / " + word, e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to get wrong count for " + playerId + " / " + word, e);
         }
         return 0;
     }
@@ -752,21 +790,23 @@ public class DatabaseManager {
         List<DifficultWord> words = new ArrayList<>();
         String sql = "SELECT word, wrong_count, added_at FROM " + tablePrefix
                 + "difficult_words WHERE player_uuid = ? ORDER BY added_at DESC";
-        Connection conn = getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    String word = rs.getString("word");
-                    int wrongCount = rs.getInt("wrong_count");
-                    Timestamp ts = rs.getTimestamp("added_at");
-                    long addedAt = ts != null ? ts.getTime() : System.currentTimeMillis();
-                    words.add(new DifficultWord(word, wrongCount, addedAt));
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        String word = rs.getString("word");
+                        int wrongCount = rs.getInt("wrong_count");
+                        Timestamp ts = rs.getTimestamp("added_at");
+                        long addedAt = ts != null ? ts.getTime() : System.currentTimeMillis();
+                        words.add(new DifficultWord(word, wrongCount, addedAt));
+                    }
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to get difficult words for " + playerId, e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to get difficult words for " + playerId, e);
         }
         return words;
     }
@@ -776,14 +816,16 @@ public class DatabaseManager {
      */
     public void removeDifficultWord(UUID playerId, String word) {
         String sql = "DELETE FROM " + tablePrefix + "difficult_words WHERE player_uuid = ? AND word = ?";
-        Connection conn = getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            stmt.setString(2, word.toLowerCase());
-            stmt.executeUpdate();
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to remove difficult word for " + playerId + " / " + word, e);
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, word.toLowerCase());
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to remove difficult word for " + playerId + " / " + word, e);
+            }
         }
     }
 
@@ -793,16 +835,18 @@ public class DatabaseManager {
      */
     public boolean decrementWrongCount(UUID playerId, String word) {
         String sql = "UPDATE " + tablePrefix + "difficult_words SET wrong_count = wrong_count - 1 WHERE player_uuid = ? AND word = ? AND wrong_count > 0";
-        Connection conn = getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            stmt.setString(2, word.toLowerCase());
-            int rows = stmt.executeUpdate();
-            return rows > 0;
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to decrement wrong count for " + playerId + " / " + word, e);
-            return false;
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, word.toLowerCase());
+                int rows = stmt.executeUpdate();
+                return rows > 0;
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to decrement wrong count for " + playerId + " / " + word, e);
+                return false;
+            }
         }
     }
 
@@ -811,14 +855,16 @@ public class DatabaseManager {
      */
     public void clearWrongCount(UUID playerId, String word) {
         String sql = "UPDATE " + tablePrefix + "difficult_words SET wrong_count = 0 WHERE player_uuid = ? AND word = ?";
-        Connection conn = getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            stmt.setString(2, word.toLowerCase());
-            stmt.executeUpdate();
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to clear wrong count for " + playerId + " / " + word, e);
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, word.toLowerCase());
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to clear wrong count for " + playerId + " / " + word, e);
+            }
         }
     }
 
@@ -836,14 +882,16 @@ public class DatabaseManager {
      */
     public int getTotalWordCount() {
         String sql = "SELECT COUNT(DISTINCT word) FROM " + tablePrefix + "word_progress";
-        Connection conn = getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-            if (rs.next()) {
-                return rs.getInt(1);
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try (PreparedStatement stmt = conn.prepareStatement(sql);
+                 ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to query total word count", e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to query total word count", e);
         }
         return 0;
     }
@@ -855,16 +903,18 @@ public class DatabaseManager {
         String today = LocalDate.now().toString();
         String sql = "SELECT COUNT(DISTINCT uuid) FROM " + tablePrefix
                 + "player_sessions WHERE session_date = ?";
-        Connection conn = getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, today);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt(1);
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, today);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getInt(1);
+                    }
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to query today active players", e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to query today active players", e);
         }
         return 0;
     }
@@ -874,14 +924,16 @@ public class DatabaseManager {
      */
     public int getTotalSessions() {
         String sql = "SELECT COUNT(*) FROM " + tablePrefix + "learning_log";
-        Connection conn = getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-            if (rs.next()) {
-                return rs.getInt(1);
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try (PreparedStatement stmt = conn.prepareStatement(sql);
+                 ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to query total sessions", e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to query total sessions", e);
         }
         return 0;
     }
@@ -891,14 +943,16 @@ public class DatabaseManager {
      */
     public long getTotalCoinsEarned() {
         String sql = "SELECT COALESCE(SUM(total_coins_earned), 0) FROM " + tablePrefix + "player_data";
-        Connection conn = getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-            if (rs.next()) {
-                return rs.getLong(1);
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try (PreparedStatement stmt = conn.prepareStatement(sql);
+                 ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getLong(1);
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to query total coins earned", e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to query total coins earned", e);
         }
         return 0L;
     }
@@ -908,12 +962,14 @@ public class DatabaseManager {
      */
     public long getTotalCoinsSpent() {
         String sql = "SELECT COALESCE(SUM(total_coins_spent), 0) FROM " + tablePrefix + "player_data";
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-            return rs.next() ? rs.getLong(1) : 0L;
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to query total coins spent", e);
-            return 0L;
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql);
+                 ResultSet rs = stmt.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : 0L;
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to query total coins spent", e);
+                return 0L;
+            }
         }
     }
 
@@ -931,26 +987,30 @@ public class DatabaseManager {
                 + (isSQLite()
                 ? "ON CONFLICT(uuid) DO UPDATE SET " + column + " = COALESCE(" + column + ", 0) + excluded." + column + ", updated_at = excluded.updated_at"
                 : "ON DUPLICATE KEY UPDATE " + column + " = COALESCE(" + column + ", 0) + VALUES(" + column + "), updated_at = VALUES(updated_at)");
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            stmt.setLong(2, Math.round(amount));
-            stmt.setLong(3, System.currentTimeMillis());
-            stmt.executeUpdate();
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to record coin transaction for " + playerId, e);
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setLong(2, Math.round(amount));
+                stmt.setLong(3, System.currentTimeMillis());
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to record coin transaction for " + playerId, e);
+            }
         }
     }
 
     public long getCoinsEarned(UUID playerId) {
         String sql = "SELECT total_coins_earned FROM " + tablePrefix + "player_data WHERE uuid = ?";
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next() ? rs.getLong(1) : 0L;
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                try (ResultSet rs = stmt.executeQuery()) {
+                    return rs.next() ? rs.getLong(1) : 0L;
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to query coins for " + playerId, e);
+                return 0L;
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to query coins for " + playerId, e);
-            return 0L;
         }
     }
 
@@ -976,20 +1036,22 @@ public class DatabaseManager {
                 + "WHERE session_date >= ? "
                 + "GROUP BY session_date";
         Connection conn = getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(sessionsSql)) {
-            stmt.setString(1, today.minusDays(6).toString());
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    String date = rs.getString("session_date");
-                    int[] data = dailyData.get(date);
-                    if (data != null) {
-                        data[1] = rs.getInt("players");
-                        data[2] = rs.getInt("words");
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = conn.prepareStatement(sessionsSql)) {
+                stmt.setString(1, today.minusDays(6).toString());
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        String date = rs.getString("session_date");
+                        int[] data = dailyData.get(date);
+                        if (data != null) {
+                            data[1] = rs.getInt("players");
+                            data[2] = rs.getInt("words");
+                        }
                     }
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to query daily player stats", e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to query daily player stats", e);
         }
 
         // Query learning_log for daily session counts
@@ -1006,21 +1068,23 @@ public class DatabaseManager {
                     + "WHERE started_at >= ? "
                     + "GROUP BY day";
         }
-        try (PreparedStatement stmt = conn.prepareStatement(logSql)) {
-            long sevenDaysAgoMillis = today.minusDays(6).atStartOfDay(
-                    java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
-            stmt.setLong(1, sevenDaysAgoMillis);
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    String day = rs.getString("day");
-                    int[] data = dailyData.get(day);
-                    if (data != null) {
-                        data[0] = rs.getInt("cnt");
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = conn.prepareStatement(logSql)) {
+                long sevenDaysAgoMillis = today.minusDays(6).atStartOfDay(
+                        java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+                stmt.setLong(1, sevenDaysAgoMillis);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        String day = rs.getString("day");
+                        int[] data = dailyData.get(day);
+                        if (data != null) {
+                            data[0] = rs.getInt("cnt");
+                        }
                     }
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to query daily session counts", e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to query daily session counts", e);
         }
 
         List<DailyStats> result = new ArrayList<>();
@@ -1042,18 +1106,20 @@ public class DatabaseManager {
     public CheckInData getCheckInData(UUID playerId) {
         String sql = "SELECT last_checkin_date, streak_count FROM " + tablePrefix
                 + "checkin_data WHERE player_uuid = ?";
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    String lastDate = rs.getString("last_checkin_date");
-                    int streak = rs.getInt("streak_count");
-                    return new CheckInData(lastDate, streak);
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        String lastDate = rs.getString("last_checkin_date");
+                        int streak = rs.getInt("streak_count");
+                        return new CheckInData(lastDate, streak);
+                    }
                 }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to get check-in data for " + playerId, e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to get check-in data for " + playerId, e);
         }
         return null;
     }
@@ -1072,16 +1138,18 @@ public class DatabaseManager {
                     + "ON DUPLICATE KEY UPDATE last_checkin_date = VALUES(last_checkin_date), "
                     + "streak_count = VALUES(streak_count)";
         }
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            stmt.setString(2, date);
-            stmt.setInt(3, streakCount);
-            stmt.executeUpdate();
-            return true;
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to update check-in data for " + playerId, e);
-            return false;
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                stmt.setInt(3, streakCount);
+                stmt.executeUpdate();
+                return true;
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to update check-in data for " + playerId, e);
+                return false;
+            }
         }
     }
 
@@ -1090,12 +1158,14 @@ public class DatabaseManager {
      */
     public void resetCheckInStreak(UUID playerId) {
         String sql = "UPDATE " + tablePrefix + "checkin_data SET streak_count = 0 WHERE player_uuid = ?";
-        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            stmt.executeUpdate();
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to reset check-in streak for " + playerId, e);
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to reset check-in streak for " + playerId, e);
+            }
         }
     }
 
@@ -1103,13 +1173,15 @@ public class DatabaseManager {
      * Shutdown the database connection.
      */
     public void shutdown() {
-        try {
-            if (connection != null && !connection.isClosed()) {
-                connection.close();
-                plugin.getLogger().info("Database connection closed.");
+        synchronized (connectionLock) {
+            try {
+                if (connection != null && !connection.isClosed()) {
+                    connection.close();
+                    plugin.getLogger().info("Database connection closed.");
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Error closing database connection", e);
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING, "Error closing database connection", e);
         }
     }
 
@@ -1119,6 +1191,24 @@ public class DatabaseManager {
 
     public String getTablePrefix() {
         return tablePrefix;
+    }
+
+    /**
+     * Expose the serialization monitor that guards the single shared Connection.
+     *
+     * <p>M16 band-aid: every method in this class that touches the shared
+     * connection now runs inside {@code synchronized (connectionLock)}, so all
+     * access routed through DatabaseManager is serialized. However, several
+     * classes still obtain the raw connection via {@link #getConnection()} and
+     * run their own SQL off this lock (PlayerDataStore, DailyChallengeManager,
+     * AchievementManager, AdminCommandHandler, ProgressManagerImpl,
+     * LLEPapiExpansion). Until those are migrated (Phase 1+), they MUST wrap
+     * their statement execution in
+     * {@code synchronized (databaseManager.getConnectionLock()) { ... }} on this
+     * same monitor to fully guarantee single-threaded connection use.
+     */
+    public Object getConnectionLock() {
+        return connectionLock;
     }
 
     private void addColumnIfMissing(String table, String column, String definition) throws SQLException {

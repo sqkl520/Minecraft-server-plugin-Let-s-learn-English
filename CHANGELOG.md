@@ -4,6 +4,15 @@
 
 > 本版本包含两批改动：v1.0.7 迭代开发（13 个 Story）+ 全项目只读扫描后的缺陷修复批次（中文服止血 / 并发收口 / 仓库卫生）。
 
+### Added
+- **[测试安全网]** 新增 `WordLearningManagerComboTest`：以纯逻辑单测锁定连击倍率表（0~2 连=1.0x、3~4=1.5x、5~6=2.0x、7~9=2.5x、≥10=3.0x，含负数回落 1.0x），直接测真实的 `WordLearningManager.getComboMultiplier(int)`（倍率表实际在此类，非 RewardEngine），构造器用 Mockito mock 的插件实例满足，不拉起任何 Bukkit 运行时
+- **[测试安全网]** JaCoCo 新增 `check` 门禁（绑定 `verify` 阶段，BUNDLE 行覆盖最低 0.01=1%）：这是起步地板，当前行覆盖约 4%，后续逐版本上调；故意不在 `package -DskipTests` 快速构建触发，运行 `mvn verify` 才校验
+- **[Phase 0 安全基线]** `MessageUtil` 新增 null-safe 取消息 helper：`getMessageSafe(key, ...)` / `getPlayerMessageSafe(player, key, ...)` 在 message 配置缺失、key 缺失或占位符为 null 时，统一记 WARNING 并回落到可见诊断占位串 `&c[?key]`，绝不返回 null 或抛 NPE；配套 `hasMessageKey(lang, key)` 供启动审计使用。仅新增 API、不重构现有调用点，不改既有行为
+- **[Phase 0 安全基线]** `ConfigManager.validateRequiredKeys()`：插件启动时（`onEnable` 载入 config 与 messages 后调用一次）扫描预期必填的 config key 与 i18n key，缺失则打 WARNING（`[Config Audit]` / `[i18n Audit]`）。纯告警，绝不改控制流、不禁用任何功能、不改写配置
+- **[Phase 0 安全基线]** 新增 `tasks/dead-config-audit.md` 死配置审计清单：以全路径 grep 查证，确认 `word-system.modes.*`（H6：整棵子树死，模式硬编码于 `WordManagerImpl.VALID_MODES`）、`word-system.daily-limit`、`daily-challenges.rewards.*` / `challenges-per-day`、`difficulty-settings.*`、`proxy.*` 等共 21 条必查死配置，另记录约 17 条额外死配置（含模块级 `enabled` 开关族从不 gating）。仅审计不删除
+- **[Phase 0 词库流水线]** 新增 `scripts/gen-words.js` 词库生成与自检脚本（零第三方依赖，位于 resources 之外不进 JAR；支持 `generate` 与 `check <file>`，镜像 `WordBankValidator` 规则并校验 YAML 往返一致性），并产出 50 词 beginner 评审样本 `resources/words/sample-beginner.yml`（未激活，pom 已排除出 JAR；待人工抽查音标后提升为正式词库）；`resources/words/README.md` 记录词表来源与许可
+- **[Phase 0 安全基线]** 新增 `tasks/db-baseline.md` 数据库基线：`schema.sql` 与代码建表语句逐表逐列对齐（12 表 + 2 索引，无字段漂移/无缺列/无缺索引）、`player_name` 写入方案（仅方案，Phase 1 落地）、`synchronized` 串行化 vs 单线程 DB 执行器的评估与升级建议，并记录外部类仍裸用 `getConnection()` 的残余缺口
+
 ### Refactored
 - 彻底分离学习分数与金币统计：新增 `total_coins_earned`/`total_coins_spent`，金币榜、成就和金币奖励记账不再读取 `total_score`
 - 统计 HTTP 服务默认绑定 `127.0.0.1`，可通过 `statistics-server.bind-address` 显式开放到内网地址
@@ -88,6 +97,7 @@
 - 主菜单"学习日历"改为"过往学习"（zh.yml: 过往学习, en.yml: Study History），GUI 标题同步更新
 - 过往学习按钮从主菜单 slot 9 移至个人主页左上角 slot 0（CLOCK 材质），主菜单不再显示该入口
 - LearningCalendarGUI 移除 getCalendarMsg()/getDayLabels() 中的硬编码中英文 fallback 字符串，改为 msg.getString(key, "") 直接读取 i18n 配置
+- **[Phase 0 安全基线]** M16 数据库并发止血：`DatabaseManager` 所有访问共享 Connection 的查询/更新方法统一在 `connectionLock` 上 `synchronized`（`initialize`/`executeUpdate`/排行榜/聊天历史/每日挑战/错题本/统计/签到/`shutdown` 等共 36 处加锁点），保证同一时刻只有一个线程使用这条连接，消除 SQLite 单连接并发 `SQLITE_BUSY` 与跨线程事务交叉读；对外暴露 `getConnectionLock()` 供尚未收编的外部调用方复用同一 monitor；无嵌套锁、无持锁回调，功能结果零变化
 
 ### Added
 - `config.yml` review 段新增 `mastered-review-interval-days` 配置项（默认 30 天），控制已掌握单词低频复习周期
