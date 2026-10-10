@@ -37,3 +37,6 @@ permissions:
   letslearnenglish.progress.*:
     description: "Allows viewing all progress information"
     default: true
+  letslearnenglish.scenario.import:
+    description: "Allows importing shared AI scenario codes as personal scenarios"
+    default: op

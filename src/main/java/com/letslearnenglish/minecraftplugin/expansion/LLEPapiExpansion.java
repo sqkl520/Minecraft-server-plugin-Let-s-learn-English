@@ -119,6 +119,7 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
         String sql = "SELECT " + column + " FROM " + tablePrefix + "player_data WHERE uuid = ?";
         java.sql.Connection conn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
         try (java.sql.PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             try (java.sql.ResultSet rs = stmt.executeQuery()) {
@@ -128,6 +129,7 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
             }
         } catch (java.sql.SQLException e) {
             // Silently return 0 on error
+        }
         }
         return 0;
     }

@@ -4,6 +4,23 @@
 
 > 本版本包含两批改动：v1.0.7 迭代开发（13 个 Story）+ 全项目只读扫描后的缺陷修复批次（中文服止血 / 并发收口 / 仓库卫生）。
 
+### Fixed
+- **[Phase 1 fan-in]** `RewardEngine` 头部注释修正：今日金币缓存清空入口已由 `HotReloadManager.reloadAll` 直调 `resetDailyCoinsCache()`，移除过时的"须由流 E 调用"表述
+- **[Phase 1 fan-in]** `ConfigManager.MESSAGE_CONFIG_VERSION` 6→7：messages/zh.yml 与 en.yml 已随 Phase 1 新增键升至 v7，代码侧同步升版，已部署服务器重启/重载后才会覆盖下发新消息文件
+- **[Phase 1 fan-in]** `HotReloadManager.reloadAll` 补调 `RewardEngine.resetDailyCoinsCache()`：RewardEngine 实例常驻不重建，今日金币累计缓存随 reload 清空（day 边界仍按自然日懒清零）
+- **[Phase 1 止血流 C / M12]** 行为挑战领奖先到账后标记：`MiscGUIListener` 转账成功后才调 `claimReward` 置 `claimed=1`；转账失败不标记、可重领，玩家收到 `daily.claim-failed` 失败提示（不暴露异常细节）
+- **[Phase 1 止血流 C / M12]** 单词挑战自动到账先到账后标记：`onAllWordChallengesComplete` 到账成功后才记 `wordChallengeClaimedToday`；失败时发 `daily-challenge.reward-pending` 提示并延迟到下次 `onWordCorrect` 触发时重试补发（庆祝 GUI 仅成功时弹出）
+- **[Phase 1 止血流 A / H2]** `stopQuiz` 中途停止不再无条件发放全额会话奖励：已答题数 ≤1（含超时题）零奖励且告知玩家；比例 ≥50% 全额发放；中间段按答题比例折算发放（跨 `WordLearningManager.stopQuiz` + `RewardEngine` 比例门）
+- **[Phase 1 止血流 A / C3]** `word-system.daily-limit`（默认 50）真正生效：`submitAnswer`/`handleTimeout` 判分处经流 E 接口 `incrementTodayAnswerCount` 累计今日答题数（含对错与超时）；计数达上限后继续答题仍允许（防刷不防学），`RewardEngine` 跳过单题/会话/复习发币并告知玩家（`progress.daily-limit-no-reward`）
+- **[Phase 1 止血流 A / C3]** 新增 `money.daily-cap`（默认 500/人/天）真正生效：`RewardEngine` 每次发币前检查当日已发金币（本类 `todayCoinsCache` 以"分"记账，跨天清零），大额单笔按"部分发放到 cap"绝不超发，超限告知玩家（`progress.daily-cap-reached`），金币统计改以实际发放额记账
+- **[Phase 1 止血流 A / C3]** `RewardEngine` 新增 `resetDailyCoinsCache()`：每日金币累计缓存的 reload 清空入口（实例常驻不重建），由流 E 在 reload 流程调用
+- **[Phase 1 止血流 A / H9]** `HotReloadManager.reloadAll` 清缓存前先对在线玩家落盘（`savePlayerData` + `saveProfileSettings`），修复 reload 丢进度
+- **[Phase 1 止血流 A / H9]** `PlayerJoinListener.onQuit` 接入 `endQuiz` + `cancelPractice`，下线不留僵尸 QuizState 与练习态
+- **[Phase 1 止血流 A / H9]** `AchievementManager.clearCache` 同步刷新懒加载的 `achievementConfig` 缓存，reload 后成就配置即时生效
+- **[Phase 1 打回修复 / Q1]** 自然走完会话拿不到奖励：`buildResult` 在 completed 时先 `quizStates.remove(id)`，随后 `showSessionComplete` 内 `quizStates.get` 必为 null，会话金币/成就检查/学习日历/SESSION_3 挑战整段跳过；改为把 `maxComboReached`/`mode` 装进 `AnswerResult` 带过去，结算直接用 result 携带的数据不再 map 重查（stopQuiz 比例门路径不受影响，奖励公式不变）
+- **[Phase 1 打回修复 / B2]** 答对广播查错隐私对象：`ChatAnswerListener.broadcastCorrectAnswer` 循环内取的是答题者自己的 `ProfileSettings` 而非收件人的；改为查收件人 `online.getUniqueId()` 的 `isShowAnswers()`，叠加 showAnswers 默认 false 后广播恢复正常可达
+- **[Phase 1 打回修复 / Q2]** 删除 `PlayerDataStore` 的死记账 API：`addTodayCoinsEarned`/`getTodayCoinsEarned` 零外部调用者（RewardEngine 自有分级精度 `todayCoinsCache` 已接线），连带删除 `TodayCoins` 内部类与 `todayCoinsEarnedCache` 字段；今日答题计数与今日 AI 轮次两套计数器保留
+
 ### Added
 - **[测试安全网]** 新增 `WordLearningManagerComboTest`：以纯逻辑单测锁定连击倍率表（0~2 连=1.0x、3~4=1.5x、5~6=2.0x、7~9=2.5x、≥10=3.0x，含负数回落 1.0x），直接测真实的 `WordLearningManager.getComboMultiplier(int)`（倍率表实际在此类，非 RewardEngine），构造器用 Mockito mock 的插件实例满足，不拉起任何 Bukkit 运行时
 - **[测试安全网]** JaCoCo 新增 `check` 门禁（绑定 `verify` 阶段，BUNDLE 行覆盖最低 0.01=1%）：这是起步地板，当前行覆盖约 4%，后续逐版本上调；故意不在 `package -DskipTests` 快速构建触发，运行 `mvn verify` 才校验
@@ -98,6 +115,19 @@
 - 过往学习按钮从主菜单 slot 9 移至个人主页左上角 slot 0（CLOCK 材质），主菜单不再显示该入口
 - LearningCalendarGUI 移除 getCalendarMsg()/getDayLabels() 中的硬编码中英文 fallback 字符串，改为 msg.getString(key, "") 直接读取 i18n 配置
 - **[Phase 0 安全基线]** M16 数据库并发止血：`DatabaseManager` 所有访问共享 Connection 的查询/更新方法统一在 `connectionLock` 上 `synchronized`（`initialize`/`executeUpdate`/排行榜/聊天历史/每日挑战/错题本/统计/签到/`shutdown` 等共 36 处加锁点），保证同一时刻只有一个线程使用这条连接，消除 SQLite 单连接并发 `SQLITE_BUSY` 与跨线程事务交叉读；对外暴露 `getConnectionLock()` 供尚未收编的外部调用方复用同一 monitor；无嵌套锁、无持锁回调，功能结果零变化
+- **[Phase 1 止血流 D]** M4 三态冲突互吞：`DuelManager.acceptDuel()` 新增答题忙态检查，有 quiz（`hasActiveQuiz`）或错题练习（`isPracticingWord`）进行中的玩家不能接受对决，发起方答题中同样拒绝建房，双向各走 i18n 提示（`duel.busy-answering` / `duel.target-answering`）
+- **[Phase 1 止血流 D]** M4：`ChatAnswerListener` 的 quiz/练习答案分支入口新增决斗中守卫，决斗中玩家误入分支时不消费答案并提示先完成对决或 `/le duel quit` 退出（`duel.finish-duel-first`），同时堵住异步聊天线程分支判定与主线程 `acceptDuel` 之间的竞态窗口
+- **[Phase 1 止血流 D]** M4：i18n 新增 `duel.busy-answering` / `duel.target-answering` / `duel.finish-duel-first`（zh/en 双语同位新增）；`config-version` 未升版（`ConfigManager.MESSAGE_CONFIG_VERSION` 非本流白名单，须由编排者统一升版后已部署服才能收到新键）
+- **[Phase 1 止血流 E]** M16 残余缺口收口（F0-01）：外部类裸用 `getConnection()` 的 SQL 执行点统一包上 `synchronized(getConnectionLock())`（PlayerDataStore 8 处、DailyChallengeManager 8 处、AchievementManager 3 处、AdminCommandHandler 2 处、ProgressManagerImpl 1 处、LLEPapiExpansion 1 处、LetsLearnEnglish 备份任务 2 处），仅加锁包装、零逻辑改动
+- **[Phase 1 止血流 E]** F0-02 收口：`PlayerDataStore.savePlayerData` 整段事务（setAutoCommit(false)→batch→commit/rollback→恢复 autoCommit）收进 `synchronized(getConnectionLock())`，消除与他线程共享连接的事务污染
+- **[Phase 1 止血流 E]** `PlayerDataStore` 新增今日计数器 API（内存懒清零、服务器时区自然日）：今日答题 `incrementTodayAnswerCount`/`getTodayAnswerCount`、今日 AI 有效轮次 `incrementTodayAiRound`/`getTodayAiRound`、今日已发金币 `addTodayCoinsEarned`/`getTodayCoinsEarned`（写入侧由 RewardEngine 每次 deposit 成功后显式调用，与 recordCoinsEarned 两行同记账；故意不在 recordCoinsEarned 内自动累加，避免与流 A 的显式调用双倍计数；挑战/签到发币暂未纳入 cap）
+- **[Phase 1 止血流 E]** `config.yml` 新增 `money.daily-cap`（默认 500）、`ai-chat.daily-round-limit`（默认 30）、`ai-chat.max-tokens`（默认 128）、`ai-chat.count-min-rounds`（默认 3），均带中文注释
+- **[Phase 1 止血流 E]** showAnswers 默认值改 `false`（隐私优先 D2 决策）：`ProfileSettings.showAnswers` 字段默认值、`player_profiles` 建表语句（`DatabaseManager` + `schema.sql`）的列默认值同步为 0；messages `config-version` 升至 7（流 A 新增 `progress.daily-limit-no-reward` / `progress.daily-cap-reached`，流 E 未新增键；需编排者同步 bump `ConfigManager.MESSAGE_CONFIG_VERSION` 6→7）
+- **[Phase 1 止血]** H7 场景导入无权限写全局：`/le load_scenario` 新增权限节点 `letslearnenglish.scenario.import`（默认 op），无权限走 `scenario.load-no-permission` 拒绝；导入改为玩家个人场景（落盘 `plugins/LetsLearnEnglish/player_scenarios/<uuid>.yml`，重载只刷新导入者个人场景，不写全局 `ai_scenarios.yml`、不 reload 全局）；`/le save_scenario` 仅读不写，无需改动
+- **[Phase 1 止血]** H3+C4 AI 对话刷计数：`endConversation` 仅当本轮"有效对话 ≥ N 条"（N 读 `ai-chat.count-min-rounds` 默认 3；有效 = 收到玩家非退出词消息且至少一次成功 API 回复）才计 `conversationCount`、触发成就与每日挑战；下线结束走同一标准，不足不计数
+- **[Phase 1 止血]** H3+C4 AI 消费上限：发 API 请求前查 `getTodayAiRound`，超 `ai-chat.daily-round-limit`（默认 30）走 `dialogue.daily-limit-reached` 拒绝；每次 API 回复成功 `incrementTodayAiRound`；`max_tokens` 由硬编码 256 改为读 `ai-chat.max-tokens`（默认 128）
+- **[Phase 1 止血]** H1+C2 发音泄题：发音按钮聊天反馈移除英文原词明文，只显示音标（`word.phonetic-feedback`）
+- **[Phase 1 止血]** H1+C2 答案广播泄题：答题广播改为答对后广播"答对+分"（不含答案文本，答案文本永不出现在广播里）；玩家名广播前 `stripColor` + 截断 50 字符防颜色码注入与超长刷屏
 
 ### Added
 - `config.yml` review 段新增 `mastered-review-interval-days` 配置项（默认 30 天），控制已掌握单词低频复习周期

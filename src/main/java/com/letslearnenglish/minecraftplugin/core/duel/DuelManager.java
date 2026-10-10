@@ -143,6 +143,19 @@ public class DuelManager {
             return;
         }
 
+        // M4: refuse to start a duel while either side is answering
+        // (quiz session or wrong-book practice) — only one chat-input
+        // consumer state is allowed at a time.
+        if (isAnswering(senderId)) {
+            player.sendMessage(getMsg(player, "duel.target-answering", "player", sender.getName()));
+            return;
+        }
+
+        if (isAnswering(targetId)) {
+            player.sendMessage(getMsg(player, "duel.busy-answering"));
+            return;
+        }
+
         // Mark both as busy
         busyPlayers.add(senderId);
         busyPlayers.add(targetId);
@@ -627,6 +640,17 @@ public class DuelManager {
 
     public boolean hasPendingRequest(UUID targetId) {
         return pendingRequests.containsKey(targetId);
+    }
+
+    /**
+     * M4: true if the player is currently in any answering state
+     * (active quiz session or wrong-book practice). Reads only
+     * WordLearningManager's existing state — no cross-module writes.
+     */
+    private boolean isAnswering(UUID playerId) {
+        var wlManager = plugin.getWordLearningManager();
+        if (wlManager == null) return false;
+        return wlManager.hasActiveQuiz(playerId) || wlManager.isPracticingWord(playerId);
     }
 
     // ==================== i18n Helpers ====================

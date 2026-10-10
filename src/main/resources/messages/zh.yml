@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 6
+config-version: 7
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -35,6 +35,7 @@ word:
   pronunciation-button-lore: "&7点击播放发音提示音"
   phonetic-label: "音标 / Phonetic"
   pronunciation-unavailable: "&7发音功能未启用 / TTS not available"
+  phonetic-feedback: "&d发音 &7音标: &f{phonetic}"
   mode-review: "复习"
 
 review:
@@ -75,6 +76,7 @@ dialogue:
   api-not-configured: "&cAPI 状态: 未配置"
   api-reload-success: "{prefix}&a[AI] API 密钥已重新加载，AI 对话可用！"
   api-reload-failed: "{prefix}&c[AI] API 密钥未配置或无效，AI 对话不可用。"
+  daily-limit-reached: "{prefix}&c今日 AI 对话轮次已用完（{used}/{limit}），明天再来练习吧~"
 
 achievement:
   unlock-title: "&6&l成就解锁！"
@@ -118,6 +120,8 @@ progress:
   money-session-bonus: "{prefix}&a会话完成奖励 &e{amount} &a金币"
   money-review-reward: "{prefix}&a复习奖励 &e{amount} &a金币"
   money-review-penalty: "{prefix}&c复习答错惩罚 &e{amount} &c金币"
+  daily-limit-no-reward: "{prefix}&e今日答题已达 &c{limit} &e题上限，继续答题不再获得金币，学习不受影响，明天继续加油！"
+  daily-cap-reached: "{prefix}&e今日金币已达 &c{cap} &e上限（已获得 &e{earned}&e），继续答题不再发币，明天继续加油！"
 
 admin:
   export-start: "{prefix}&a开始导出玩家数据..."
@@ -207,12 +211,16 @@ scenario:
   load-success: "{prefix}&a场景 '{name}' 已加载! 现在可以在 /le dialogue 中选择了喵~"
   load-invalid: "{prefix}&c无效的场景码喵~ 请检查是否完整复制"
   load-name-invalid: "{prefix}&c场景名称不合法喵~"
+  load-no-permission: "{prefix}&c你没有导入场景的权限喵~ 请联系管理员"
 
 duel:
   cannot-challenge-self: "{prefix}&c你不能挑战自己喵~"
   already-in-duel: "{prefix}&c你已经在对决中了喵~"
   not-in-duel: "{prefix}&c你当前不在对决中喵~"
   target-busy: "{prefix}&c{player} 正在忙碌中，无法接受挑战喵~"
+  busy-answering: "{prefix}&c你正在答题中喵~ 请先完成或结束当前答题，再接受对决"
+  target-answering: "{prefix}&c{player} 正在答题中，暂时无法开始对决喵~"
+  finish-duel-first: "{prefix}&c你正在对决中喵~ 请先完成对决，或输入 /le duel quit 退出"
   player-offline: "{prefix}&c该玩家已离线喵~"
   no-pending-request: "{prefix}&c你没有待接受的对决邀请喵~"
   usage: "{prefix}&e用法: /le duel <玩家名> &7发起对决 | /le duel accept &7接受 | /le duel quit &7退出"
@@ -300,6 +308,7 @@ daily:
   progress: "&7进度: &f{progress}/{target}"
   reward-hint: "&7奖励: &e{reward} 金币"
   reward-claimed: "&a[每日挑战] &6奖励已领取！&e+{reward} 金币"
+  claim-failed: "&a[每日挑战] &c奖励发放失败，请稍后再点领取喵~（{reward} 金币未丢失）"
   p1: "答对 {target} 个单词"
   p2: "完成 {target} 次学习会话"
   p3: "达到 {target} 连击"
@@ -325,6 +334,7 @@ daily-challenge:
   reward-lore: "&7领取你辛苦赢得的奖励！"
   claim-button: "&a&l领取奖励！"
   claim-button-lore: "&7点击领取你的金币！"
+  reward-pending: "{prefix}&c挑战奖励发放失败，{reward} 金币暂存中喵~ 答对任意单词会自动补发"
 
 word-learning-gui:
   title: "单词学习 - {difficulty}"
@@ -339,6 +349,7 @@ word-learning-gui:
   score: "&7分数: &e{score}"
   session-complete: "&6★ &a学习会话完成！ &7正确: &e{correct}&7/&e{total} &7正确率: &e{accuracy}% &7分数: &e{score}"
   answer-broadcast: "&7{player} &7回答了: &f{answer}"
+  answer-broadcast-correct: "&7{player} &a答对了！ &7(+&e{score}&7)"
   session-ended: "&a学习会话已结束！"
   answer-prompt: "&e请拼写: &f{chinese} &7(剩余时间: {seconds}秒)"
   combo-none: "暂无连胜"
@@ -352,6 +363,8 @@ word-learning-gui:
   combo-message: "&6✨ {count}x 连击！ ({multiplier}x)"
   incorrect: "&c✖ 错误！ 答案是: &e{answer}"
   session-stopped: "&a会话已停止！ &7正确: &e{correct}&7/&e{total} &7分数: &e{score}"
+  stopped-no-reward: "&c答题太少（已答 &e{answered}&c/&e{total}&c 题），本次停止不发放会话奖励，认真走完会有奖励哦~"
+  stopped-partial-reward: "&e本次答题 &e{answered}&7/&e{total} &e题，按比例发放会话奖励 &6{amount} &e金币"
   cannot-return: "&c答题中无法返回主菜单！请先完成或停止当前答题会话"
 
 dialogue-gui:

@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS {prefix}player_sessions (
 CREATE TABLE IF NOT EXISTS {prefix}player_profiles (
     uuid VARCHAR(36) PRIMARY KEY,
     age INT DEFAULT 0,
-    show_answers BOOLEAN DEFAULT 1,
+    show_answers BOOLEAN DEFAULT 0,
     show_results BOOLEAN DEFAULT 1,
     show_in_square BOOLEAN DEFAULT 1
 );

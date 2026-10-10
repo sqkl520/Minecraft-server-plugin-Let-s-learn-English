@@ -16,11 +16,8 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
-import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 
-import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -393,6 +390,13 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleLoadScenarioCommand(Player player, String[] args) {
+        // H7：导入需要权限，无权限拒绝
+        if (!player.hasPermission("letslearnenglish.scenario.import")) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "scenario.load-no-permission"));
+            return;
+        }
+
         // Check code argument
         if (args.length < 2) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
@@ -432,31 +436,17 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
-        // Write to ai_scenarios.yml in plugin data folder
-        File scenariosFile = new File(plugin.getDataFolder(), "ai_scenarios.yml");
-        YamlConfiguration config = YamlConfiguration.loadConfiguration(scenariosFile);
-
-        // Generate a safe key from the name
-        String key = name.toLowerCase().replaceAll("[^a-z0-9_]", "_");
-        if (key.isEmpty()) key = "custom";
-
-        config.set("scenarios." + key + ".display_name", name);
-        config.set("scenarios." + key + ".display_name_zh", name);
-        config.set("scenarios." + key + ".material", "PAPER");
-        config.set("scenarios." + key + ".prompt", prompt);
-
-        try {
-            config.save(scenariosFile);
-        } catch (IOException e) {
-            plugin.getLogger().warning("Failed to save imported scenario to ai_scenarios.yml: " + e.getMessage());
+        // H7：导入改为玩家个人场景 — 不写全局 ai_scenarios.yml、不 reload 全局，
+        // 只落盘到该玩家的个人文件并刷新其内存副本，不影响他人。
+        String key = aiChatManager.importPersonalScenario(player, name, prompt);
+        if (key == null) {
+            plugin.getLogger().warning("Failed to save imported personal scenario for "
+                    + player.getName());
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "general.error", "message",
                     plugin.getMessageUtil().getPlayerMessage(player, "error.scenario-save-failed")));
             return;
         }
-
-        // Hot reload scenarios
-        aiChatManager.reload();
 
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                 "scenario.load-success", "name", name));

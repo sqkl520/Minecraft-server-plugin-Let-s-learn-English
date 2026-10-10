@@ -105,6 +105,7 @@ public class DailyChallengeManager {
                 + "daily_challenges WHERE uuid = ? AND challenge_date = ?";
 
         Connection conn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(checkSql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, today);
@@ -118,6 +119,7 @@ public class DailyChallengeManager {
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to check daily challenges for " + playerId, e);
             return;
+        }
         }
 
         // Assign 3 random challenges (pick 3 from 4 types)
@@ -133,6 +135,7 @@ public class DailyChallengeManager {
         }
 
         Connection insertConn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
         try (PreparedStatement stmt = insertConn.prepareStatement(insertSql)) {
             for (ChallengeType ct : picked) {
                 stmt.setString(1, playerId.toString());
@@ -143,6 +146,7 @@ public class DailyChallengeManager {
             stmt.executeBatch();
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to assign daily challenges for " + playerId, e);
+        }
         }
 
         // Also assign word challenges
@@ -160,6 +164,7 @@ public class DailyChallengeManager {
                 + "daily_challenges WHERE uuid = ? AND challenge_date = ?";
 
         Connection conn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, today);
@@ -174,6 +179,7 @@ public class DailyChallengeManager {
             }
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load daily challenges for " + playerId, e);
+        }
         }
         return list;
     }
@@ -201,6 +207,7 @@ public class DailyChallengeManager {
         boolean alreadyClaimed = false;
 
         Connection conn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(selectSql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, today);
@@ -217,6 +224,7 @@ public class DailyChallengeManager {
         } catch (SQLException e) {
             return;
         }
+        }
 
         if (alreadyClaimed) return;
 
@@ -227,6 +235,7 @@ public class DailyChallengeManager {
         String updateSql = "UPDATE " + tablePrefix
                 + "daily_challenges SET progress = ?, completed = ? WHERE uuid = ? AND challenge_date = ? AND challenge_id = ?";
         Connection updateConn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
         try (PreparedStatement stmt = updateConn.prepareStatement(updateSql)) {
             stmt.setInt(1, newProgress);
             stmt.setBoolean(2, nowCompleted);
@@ -236,6 +245,7 @@ public class DailyChallengeManager {
             stmt.executeUpdate();
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to update daily challenge progress", e);
+        }
         }
     }
 
@@ -248,6 +258,7 @@ public class DailyChallengeManager {
         String updateSql = "UPDATE " + tablePrefix
                 + "daily_challenges SET completed = 1 WHERE uuid = ? AND challenge_date = ? AND challenge_id = ? AND claimed = 0";
         Connection conn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(updateSql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, today);
@@ -256,17 +267,41 @@ public class DailyChallengeManager {
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to complete daily challenge", e);
         }
+        }
     }
 
     /**
-     * Claim reward for a completed challenge. Returns the reward amount or 0.
+     * Claim reward for a completed challenge.
+     *
+     * <p>M12: deposit-then-mark. Callers must transfer the Vault reward FIRST
+     * and only call this method to finalize AFTER the deposit succeeds, so a
+     * failed deposit leaves the reward re-claimable. The guarded UPDATE keeps
+     * this idempotent: double-claims mark at most one row.
+     *
+     * @param playerId the player
+     * @param type the challenge type
+     * @return the reward amount if marked claimed, or 0 if not eligible
      */
     public double claimReward(UUID playerId, ChallengeType type) {
+        return markClaimed(playerId, type);
+    }
+
+    /**
+     * Mark a completed challenge as claimed. Must only be called AFTER a
+     * successful economy transfer. The guarded UPDATE keeps this idempotent:
+     * concurrent double-claims mark at most one row.
+     *
+     * @param playerId the player
+     * @param type the challenge type
+     * @return the reward amount if the row was marked, or 0 otherwise
+     */
+    private double markClaimed(UUID playerId, ChallengeType type) {
         String today = LocalDate.now().toString();
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
         String updateSql = "UPDATE " + tablePrefix
                 + "daily_challenges SET claimed = 1 WHERE uuid = ? AND challenge_date = ? AND challenge_id = ? AND completed = 1 AND claimed = 0";
         Connection conn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(updateSql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, today);
@@ -276,6 +311,7 @@ public class DailyChallengeManager {
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to claim daily challenge reward", e);
             return 0;
+        }
         }
     }
 
@@ -334,11 +370,23 @@ public class DailyChallengeManager {
     /**
      * Called when a player answers a word correctly during learning.
      * Checks if the word is part of today's challenge and marks it complete.
+     *
+     * <p>M12 retry hook: if all words are done but the reward payout previously
+     * failed (claimed flag not set), retry the payout on any further correct
+     * answer — even non-challenge words or already-completed words.
      */
     public void onWordCorrect(Player player, Word word) {
         UUID playerId = player.getUniqueId();
         String today = LocalDate.now().toString();
         String wordId = word.getEnglish().toLowerCase();
+
+        // M12: pending-payout retry — all words done but money never arrived.
+        // Must run before the challenge-words membership check: retry answers may
+        // be outside today's challenge set or already-completed words.
+        if (hasPendingWordReward(playerId, today)) {
+            onAllWordChallengesComplete(player);
+            return;
+        }
 
         // Check if this word is assigned as today's challenge
         List<String> challengeWords = plugin.getDatabaseManager().getDailyChallengeWords(playerId, today);
@@ -354,21 +402,43 @@ public class DailyChallengeManager {
     }
 
     /**
+     * Check whether the player has finished all of today's word challenges but
+     * the reward payout has not landed yet (claimed flag not set).
+     *
+     * @param playerId the player
+     * @param today today's date string (yyyy-MM-dd)
+     * @return true if payout is pending and should be retried
+     */
+    private boolean hasPendingWordReward(UUID playerId, String today) {
+        if (wordChallengeClaimedToday.contains(playerId)) {
+            return false;
+        }
+        return plugin.getDatabaseManager().isDailyChallengeWordsCompleted(playerId, today);
+    }
+
+    /**
      * Called when all word challenges for today are completed.
      * Opens the celebration GUI and gives reward.
+     *
+     * <p>M12: deposit-then-mark. The claimed flag is only set AFTER the Vault
+     * transfer succeeds. If the deposit fails, the celebration message/GUI are
+     * withheld, the player gets a retry hint, and the next {@link #onWordCorrect}
+     * invocation (any correct answer) will retry the payout — so the reward is
+     * never lost as long as the player keeps studying.
      */
     private void onAllWordChallengesComplete(Player player) {
         UUID playerId = player.getUniqueId();
-        wordChallengeClaimedToday.add(playerId);
-
         double reward = getWordChallengeReward();
-        var eco = plugin.getEconomy();
-        if (eco != null) {
-            var response = eco.depositPlayer(player, reward);
-            if (response.transactionSuccess()) {
-                plugin.getDatabaseManager().recordCoinsEarned(playerId, reward);
-            }
+
+        if (!depositWordChallengeReward(player, playerId, reward)) {
+            // Deposit failed — do NOT mark claimed. Tell the player how to retry.
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "daily-challenge.reward-pending", "reward", String.valueOf((int) reward)));
+            return;
         }
+
+        // Success: mark claimed only after money arrived.
+        wordChallengeClaimedToday.add(playerId);
 
         // Send celebration message
         String lang = plugin.getPlayerLanguage(player);
@@ -380,6 +450,32 @@ public class DailyChallengeManager {
 
         // Open celebration GUI
         new com.letslearnenglish.minecraftplugin.gui.ChallengeCompleteGUI(plugin).open(player, reward);
+    }
+
+    /**
+     * Deposit the word-challenge reward via Vault.
+     *
+     * @param player the player
+     * @param playerId the player UUID (for stats bookkeeping)
+     * @param reward the reward amount
+     * @return true only if money actually arrived (Vault present + transaction success);
+     *         stats are recorded only in that case
+     */
+    private boolean depositWordChallengeReward(Player player, UUID playerId, double reward) {
+        var eco = plugin.getEconomy();
+        if (eco == null) {
+            plugin.getLogger().warning("Word challenge reward of " + reward
+                    + " for " + player.getName() + " held: Vault economy unavailable");
+            return false;
+        }
+        var response = eco.depositPlayer(player, reward);
+        if (response.transactionSuccess()) {
+            plugin.getDatabaseManager().recordCoinsEarned(playerId, reward);
+            return true;
+        }
+        plugin.getLogger().warning("Word challenge reward deposit failed for "
+                + player.getName() + ": " + response.errorMessage);
+        return false;
     }
 
     /**
@@ -415,6 +511,7 @@ public class DailyChallengeManager {
         String sql = "SELECT completed FROM " + tablePrefix
                 + "daily_challenge_words WHERE player_uuid = ? AND challenge_date = ? AND word_id = ?";
         Connection conn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, date);
@@ -426,6 +523,7 @@ public class DailyChallengeManager {
             }
         } catch (SQLException e) {
             // ignore
+        }
         }
         return false;
     }

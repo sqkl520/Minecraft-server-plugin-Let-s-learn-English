@@ -162,7 +162,7 @@ public class DatabaseManager {
                 "CREATE TABLE IF NOT EXISTS " + tablePrefix + "player_profiles (" +
                         "  uuid VARCHAR(36) PRIMARY KEY," +
                         "  age INT DEFAULT 0," +
-                        "  show_answers BOOLEAN DEFAULT 1," +
+                        "  show_answers BOOLEAN DEFAULT 0," +
                         "  show_results BOOLEAN DEFAULT 1," +
                         "  show_in_square BOOLEAN DEFAULT 1" +
                         ")"
@@ -1206,6 +1206,11 @@ public class DatabaseManager {
      * their statement execution in
      * {@code synchronized (databaseManager.getConnectionLock()) { ... }} on this
      * same monitor to fully guarantee single-threaded connection use.
+     *
+     * <p>Phase 1 流 E（F0-01/F0-02）：外部裸用点已收编完毕（PlayerDataStore 8 处、
+     * DailyChallengeManager 8 处、AchievementManager 3 处、AdminCommandHandler 2 处、
+     * ProgressManagerImpl 1 处、LLEPapiExpansion 1 处、LetsLearnEnglish 备份任务 2 处
+     * 共 25 处），新代码继续遵循此约定。
      */
     public Object getConnectionLock() {
         return connectionLock;
