@@ -124,6 +124,9 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
         this.messageUtil = new MessageUtil(this, configManager);
 
+        // Phase 0 safety net: audit expected config & i18n keys (warnings only; never gates behaviour).
+        this.configManager.validateRequiredKeys();
+
         this.databaseManager = new DatabaseManager(this, configManager);
         this.databaseManager.initialize();
 

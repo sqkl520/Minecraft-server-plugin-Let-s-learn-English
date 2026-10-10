@@ -24,6 +24,37 @@ public class ConfigManager {
 
     private static final int MESSAGE_CONFIG_VERSION = 6;
 
+    /**
+     * Config keys the code actually relies on at runtime. Absence is logged as a WARNING on
+     * startup (see {@link #validateRequiredKeys()}). This is a diagnostic list only — missing
+     * keys still degrade gracefully to each call site's built-in default.
+     */
+    private static final String[] REQUIRED_CONFIG_KEYS = {
+            "general.language",
+            "prefix.zh",
+            "prefix.en",
+            "database.type",
+            "word-system.answer-timeout",
+            "word-system.words-per-session",
+            "gui.menu-size"
+    };
+
+    /**
+     * Message keys that must exist in every language file. Absence (in zh or en) is logged as a
+     * WARNING on startup. These are keys whose callers would otherwise show a visible fallback or,
+     * in a few legacy call sites, risk an NPE on a null {@code getString}.
+     */
+    private static final String[] REQUIRED_MESSAGE_KEYS = {
+            "prefix",
+            "general.no-permission",
+            "general.reload-success",
+            "word.session-start",
+            "word.correct",
+            "word.incorrect",
+            "dialogue.proxy-achievement",
+            "gui.main-menu-title"
+    };
+
     private final LetsLearnEnglish plugin;
     private final Map<String, FileConfiguration> configCache;
 
@@ -65,6 +96,56 @@ public class ConfigManager {
         plugin.reloadConfig();
         loadAllConfigs();
         plugin.getLogger().info("All configuration files hot-reloaded.");
+    }
+
+    /**
+     * Startup safety audit (Phase 0): warn about expected-but-missing config and i18n keys.
+     *
+     * <p>This is a pure diagnostic pass — it ONLY emits log output. It never changes control
+     * flow, never disables features and never mutates config, so a missing key behaves exactly
+     * as before (the owning call site falls back to its own built-in default).
+     */
+    public void validateRequiredKeys() {
+        int warnings = 0;
+
+        if (mainConfig == null) {
+            plugin.getLogger().warning("[Config Audit] Main config is not loaded; skipping config key audit.");
+        } else {
+            for (String key : REQUIRED_CONFIG_KEYS) {
+                if (!mainConfig.isSet(key)) {
+                    plugin.getLogger().warning("[Config Audit] Missing expected config key: " + key
+                            + " (feature will fall back to its built-in default)");
+                    warnings++;
+                }
+            }
+        }
+
+        warnings += auditMessageKeys("zh", messageConfigZh);
+        warnings += auditMessageKeys("en", messageConfigEn);
+
+        if (warnings == 0) {
+            plugin.getLogger().info("[Config Audit] All expected config and i18n keys present.");
+        } else {
+            plugin.getLogger().warning("[Config Audit] " + warnings
+                    + " expected key(s) missing — see warnings above. Plugin continues with defaults.");
+        }
+    }
+
+    private int auditMessageKeys(String lang, FileConfiguration messageConfig) {
+        if (messageConfig == null) {
+            plugin.getLogger().warning("[i18n Audit] Message file for language '" + lang
+                    + "' is not loaded; skipping its key audit.");
+            return 0;
+        }
+        int missing = 0;
+        for (String key : REQUIRED_MESSAGE_KEYS) {
+            if (!messageConfig.isSet(key)) {
+                plugin.getLogger().warning("[i18n Audit] Missing expected message key: " + key
+                        + " (lang=" + lang + ")");
+                missing++;
+            }
+        }
+        return missing;
     }
 
     public FileConfiguration loadConfig(String path) {
