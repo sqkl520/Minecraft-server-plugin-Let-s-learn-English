@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 7
+config-version: 8
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -35,8 +35,10 @@ word:
   pronunciation-button-lore: "&7点击播放发音提示音"
   phonetic-label: "音标 / Phonetic"
   pronunciation-unavailable: "&7发音功能未启用 / TTS not available"
+  pronunciation-cooldown: "{prefix}&e发音冷却中，请 {seconds} 秒后再试~"
   phonetic-feedback: "&d发音 &7音标: &f{phonetic}"
   mode-review: "复习"
+  invalid-mode: "{prefix}&c未知的学习模式: &e{mode}&c，可用模式: &espelling &7/ &echoice &7/ &efill_blank"
 
 review:
   notification: "{prefix}&6你有 &e{count} &6个单词需要复习！输入 &e/le review &6开始复习"
@@ -141,6 +143,10 @@ admin:
   broadcast-sent: "{prefix}&a全局广播已发送到所有子服。"
   broadcast-prefix: "&8[&bLE&8] &e服务器公告: &f"
   unknown-command: "未知子命令。输入 /lea help 查看帮助。"
+  usage-duel-cancel: "{prefix}&c用法: /lea duel cancel <玩家名>"
+  duel-cancel-offline: "{prefix}&c玩家 &e{player} &c不在线或不存在喵~"
+  duel-cancel-not-in-duel: "{prefix}&c玩家 &e{player} &c当前不在对决中喵~"
+  duel-cancelled: "{prefix}&a已强制解散 &e{player1} &a与 &e{player2} &a的对决（不判胜负）"
 
 wordbank:
   export-success: "{prefix}&a单词库 &e{difficulty} &a已导出！&7文件: &f{file} &7(共 {count} 个单词)"
@@ -231,6 +237,9 @@ duel:
   request-expired-target: "{prefix}&7来自 &e{player} &7的对决邀请已过期喵~"
   started: "{prefix}&a单词对决开始！对手: &e{player} &a先得5分者获胜！"
   cancelled: "{prefix}&c对决已取消喵~"
+  cancelled-by-gm: "{prefix}&c本次对决已被管理员解散，不判胜负喵~"
+  word-timeout: "{prefix}&e⏱ 时间到！正确答案是 &f{word}&e，双方都不加分，下一题！"
+  cancel-usage: "{prefix}&e用法: /le duel cancel <玩家名> &7（或 /lea duel cancel <玩家名>）"
   correct-answer: "{prefix}&a✔ 你答对了！&e+1分"
   wrong-answer: "{prefix}&c✖ 答错了！正确答案是 &e{word}&c，对手得分！"
   opponent-correct: "{prefix}&e{player} &a答对了！对方得分！"
@@ -269,6 +278,7 @@ admin-help:
   importwordbank: "&e/lea importwordbank <文件名> &7- 从YAML文件导入单词库"
   ignore-update: "&e/lea ignore-update &7- 忽略本次更新提醒"
   broadcast: "&e/lea broadcast <消息> &7- 通过代理向全服广播"
+  duel-cancel: "&e/lea duel cancel <玩家名> &7- 强制解散该玩家的单词对决（不判胜负）"
   footer: "&6======================================"
 
 plugin-info:
@@ -317,6 +327,10 @@ daily:
   name-session-3: "勤学苦练"
   name-combo-5: "连击高手"
   name-ai-chat-5: "对话能手"
+  word-title: "&e今日单词挑战"
+  word-progress: "&7进度: &f{progress}/{total}"
+  word-hint: "&7通过单词学习完成（/le word）"
+  word-done: "&a全部完成！奖励已自动到账"
 
 daily-challenge:
   header: "{prefix}&6===== 每日单词挑战 ===== &7({completed}/{total})"
@@ -331,10 +345,18 @@ daily-challenge:
   firework: "&6&l★ 恭喜！★"
   firework-lore: "&7你完成了今天所有挑战单词！"
   reward-title: "&e奖励: {reward} 金币"
-  reward-lore: "&7领取你辛苦赢得的奖励！"
+  reward-lore: "&7你辛苦赢得的 &e{reward} &7金币已到账！"
   claim-button: "&a&l领取奖励！"
   claim-button-lore: "&7点击领取你的金币！"
+  claimed-button: "&a&l✔ 奖励已到账！"
+  claimed-button-lore: "&7点击返回主菜单"
   reward-pending: "{prefix}&c挑战奖励发放失败，{reward} 金币暂存中喵~ 答对任意单词会自动补发"
+  rollover-voided: "{prefix}&e跨天了喵~ 昨天的挑战奖励已过期作废，今天的挑战已重新发放，加油！"
+  behavioral-header: "{prefix}&6----- 行为挑战 -----"
+  behavioral-progress: "  &e{name} &7- &f{progress}/{target}"
+  behavioral-completed: "  &6{name} &7- &6已完成，去每日挑战界面领取！"
+  behavioral-claimed: "  &a✔ &f{name} &7- 已领取"
+  reopen-hint: "{prefix}&7输入 &e/le challenge &7可重新打开庆祝界面"
 
 word-learning-gui:
   title: "单词学习 - {difficulty}"
@@ -352,6 +374,12 @@ word-learning-gui:
   answer-broadcast-correct: "&7{player} &a答对了！ &7(+&e{score}&7)"
   session-ended: "&a学习会话已结束！"
   answer-prompt: "&e请拼写: &f{chinese} &7(剩余时间: {seconds}秒)"
+  answer-prompt-choice: "&e请选择: &f{chinese} &7(剩余时间: {seconds}秒，输入 A/B/C/D)"
+  choice-option: "&f{letter}. &b{word}"
+  answer-prompt-fill-blank: "&e请填空: &f{chinese} &7(剩余时间: {seconds}秒)"
+  fill-blank-sentence: "&f{sentence}"
+  fill-blank-hint: "&7首字母提示: &e{letter}"
+  current-word-lore-choice: "关闭此界面后，在聊天栏输入选项字母"
   combo-none: "暂无连胜"
   combo-active: "连胜: {count}次 ({multiplier}x)"
   stop-button: "停止当前回合"

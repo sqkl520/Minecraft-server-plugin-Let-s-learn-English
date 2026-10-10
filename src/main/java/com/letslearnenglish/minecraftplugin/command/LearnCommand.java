@@ -42,6 +42,12 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             "menu", "word", "dialogue", "progress", "review", "stats", "help", "square", "profile", "leaderboard", "challenge", "history", "duel", "wrong", "checkin", "save_scenario", "load_scenario"
     );
 
+    private static final java.util.Set<String> VALID_WORD_MODES =
+            java.util.Set.of("spelling", "choice", "fill_blank");
+
+    /** FEAT-MODE-01：choice 是新手默认模式（与 GUI 入口、getMode 回落一致）。 */
+    private static final String DEFAULT_WORD_MODE = "choice";
+
     public LearnCommand(LetsLearnEnglish plugin) {
         this.plugin = plugin;
     }
@@ -130,7 +136,14 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             new WordBankSelectGUI(plugin).open(player);
         } else {
             String difficulty = args[1];
-            String mode = args.length > 2 ? args[2] : "choice";
+            String mode = args.length > 2 ? args[2].toLowerCase() : DEFAULT_WORD_MODE;
+            // FEAT-MODE-01：mode 参数先校验再透传。非法 mode 回 i18n 提示，不再把
+            // WordManagerImpl 的 IllegalArgumentException 原始英文抛给玩家。
+            if (!VALID_WORD_MODES.contains(mode)) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "word.invalid-mode", "mode", args[2]));
+                return;
+            }
             startWordQuiz(player, difficulty, mode);
         }
     }
@@ -266,6 +279,64 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "daily-challenge.all-complete-chat"));
         }
+
+        // FIX-CHAL-01: cross-visibility (read-only) — show behavioral challenge
+        // progress right below the word list so players can see both systems
+        // from one entry point. Claim path stays inside DailyChallengeGUI.
+        var challenges = dcm.getTodayChallenges(player.getUniqueId());
+        if (!challenges.isEmpty()) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "daily-challenge.behavioral-header"));
+            for (var cp : challenges) {
+                String statusKey = cp.claimed
+                        ? "daily-challenge.behavioral-claimed"
+                        : (cp.completed
+                                ? "daily-challenge.behavioral-completed"
+                                : "daily-challenge.behavioral-progress");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        statusKey,
+                        "name", getBehavioralName(player, cp.type),
+                        "progress", String.valueOf(cp.progress),
+                        "target", String.valueOf(cp.type.target)));
+            }
+        }
+
+        // FIX-CHAL-01: celebration de-forced (Phase 1 stream C used to force-open
+        // the GUI on completion). Opened last, after all chat output, so the
+        // player can read the full progress list first. /le challenge becomes
+        // the opt-in entry point for the celebration page.
+        if (completed >= total && total > 0) {
+            new com.letslearnenglish.minecraftplugin.gui.ChallengeCompleteGUI(plugin)
+                    .open(player, getWordChallengeReward());
+        }
+    }
+
+    /**
+     * FIX-CHAL-01: resolve the display name of a behavioral challenge type
+     * for the chat list. Mirrors {@code DailyChallengeGUI.getChallengeName}.
+     */
+    private String getBehavioralName(Player player,
+            com.letslearnenglish.minecraftplugin.core.DailyChallengeManager.ChallengeType type) {
+        String key = switch (type) {
+            case ANSWER_10 -> "daily.name-answer-10";
+            case SESSION_3 -> "daily.name-session-3";
+            case COMBO_5 -> "daily.name-combo-5";
+            case AI_CHAT_5 -> "daily.name-ai-chat-5";
+        };
+        String lang = plugin.getPlayerLanguage(player);
+        return org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                plugin.getConfigManager().getMessageConfig(lang).getString(key));
+    }
+
+    /**
+     * FIX-CHAL-01: reward shown on the manually re-opened celebration page.
+     * Reuses the existing config key — no new key introduced. Frozen
+     * DailyChallengeManager owns the real getter; this read-only mirror keeps
+     * the celebration page self-consistent (money already arrived earlier).
+     */
+    private double getWordChallengeReward() {
+        return plugin.getConfigManager().getMainConfig()
+                .getDouble("daily-challenges.word-challenge-reward", 100.0);
     }
 
     private void handleHistoryCommand(Player player) {
@@ -293,6 +364,22 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             duelManager.quitDuel(player);
         } else if ("accept".equals(sub)) {
             duelManager.acceptDuel(player);
+        } else if ("cancel".equals(sub)) {
+            // FIX-DUEL-01: GM dismissal entry on the /le side.
+            // Real execution lives in /lea duel cancel (AdminCommand);
+            // here we only forward GMs and refuse non-GMs cleanly so a plain
+            // player named "cancel" can never be misrouted into admin logic.
+            if (!player.hasPermission("letslearnenglish.admin")) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "general.no-permission"));
+                return;
+            }
+            if (args.length < 3) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "duel.cancel-usage"));
+                return;
+            }
+            duelManager.cancelDuelByAdmin(player, args[2]);
         } else {
             // Treat as a player name — send duel request
             Player target = plugin.getServer().getPlayer(sub);
@@ -502,11 +589,16 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             }
         } else if (args.length == 2 && "duel".equalsIgnoreCase(args[0])) {
             String input = args[1].toLowerCase();
-            // 子命令：accept / quit
+            // 子命令：accept / quit（cancel 仅 GM 可见，由 /lea duel cancel 实际执行）
             for (String sub : Arrays.asList("accept", "quit")) {
                 if (sub.startsWith(input)) {
                     completions.add(sub);
                 }
+            }
+            // FIX-DUEL-01: GM-only cancel hint on the /le side
+            if (sender.hasPermission("letslearnenglish.admin")
+                    && "cancel".startsWith(input)) {
+                completions.add("cancel");
             }
             for (Player p : Bukkit.getOnlinePlayers()) {
                 if (!p.getName().equals(sender.getName())
@@ -515,10 +607,21 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 }
             }
         } else if (args.length == 2 && "profile".equalsIgnoreCase(args[0])) {
-            String input = args[1].toLowerCase();
+            String profileInput = args[1].toLowerCase();
             for (Player p : Bukkit.getOnlinePlayers()) {
                 if (!p.getName().equals(sender.getName())
-                        && p.getName().toLowerCase().startsWith(input)) {
+                        && p.getName().toLowerCase().startsWith(profileInput)) {
+                    completions.add(p.getName());
+                }
+            }
+        } else if (args.length == 3
+                && "duel".equalsIgnoreCase(args[0])
+                && "cancel".equalsIgnoreCase(args[1])
+                && sender.hasPermission("letslearnenglish.admin")) {
+            // FIX-DUEL-01: /le duel cancel <player> — GM-only name completion
+            String cancelInput = args[2].toLowerCase();
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                if (p.getName().toLowerCase().startsWith(cancelInput)) {
                     completions.add(p.getName());
                 }
             }

@@ -23,7 +23,12 @@ import java.util.List;
  * Layout:
  *   Row 1 (0-8):  decorative border + back button (slot 8)
  *   Row 2 (9-17): player head (11), fireworks (13), reward (15)
- *   Row 3 (18-26): claim reward button (22), return to menu (8)
+ *   Row 3 (18-26): "claimed, back" button (22), return to menu (8)
+ *
+ * F1-09: the word-challenge reward is auto-deposited BEFORE this page opens
+ * (see DailyChallengeManager M12 deposit-then-mark), so slot 22 is NOT a
+ * "click to claim" button — it honestly says the reward already arrived and
+ * just returns to the main menu.
  */
 public class ChallengeCompleteGUI {
 
@@ -81,16 +86,21 @@ public class ChallengeCompleteGUI {
                         messages.getString("daily-challenge.reward-title")
                                 .replace("{reward}", rewardStr)),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily-challenge.reward-lore"))));
+                        messages.getString("daily-challenge.reward-lore")
+                                .replace("{reward}", rewardStr))));
         inv.setItem(15, rewardItem);
 
-        // Claim reward button (slot 22)
-        ItemStack claimBtn = createItem(Material.EMERALD,
+        // F1-09: "already claimed, back to menu" button (slot 22).
+        // The reward auto-arrived before this page opened — the old
+        // "Claim Reward!" text misled players into thinking the click
+        // itself pays out. Behavior unchanged (open main menu), but the
+        // wording now matches reality.
+        ItemStack claimedBtn = createItem(Material.LIME_DYE,
                 ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily-challenge.claim-button")),
+                        messages.getString("daily-challenge.claimed-button")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily-challenge.claim-button-lore"))));
-        inv.setItem(22, claimBtn);
+                        messages.getString("daily-challenge.claimed-button-lore"))));
+        inv.setItem(22, claimedBtn);
 
         // Back button (slot 8)
         ItemStack backBtn = createItem(Material.RED_STAINED_GLASS_PANE,

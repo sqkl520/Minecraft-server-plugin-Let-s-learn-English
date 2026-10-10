@@ -231,10 +231,14 @@ progress-system:
         session-complete-bonus: 50.0
         # 达到最高连击时的额外奖励（会话结算时发放）
         max-combo-bonus: 25.0
-        # 复习模式金币倍率（相对于 base-amount），设为 0.5 表示复习奖励为学习的一半
-        review-multiplier: 0.5
+        # 复习模式金币倍率（相对于 base-amount）
+        # 默认 1.2：复习是间隔重复，比首学更值得鼓励，给正向加成
+        # （Phase 2 FIX-NUM-01 反转：旧默认 0.5 等于惩罚复习，没人愿意点复习）
+        review-multiplier: 1.2
         # 复习模式答错是否扣除金币
-        review-penalty: true
+        # 默认 false：复习答错已进错题本纠错，不再倒扣金币双重惩罚
+        # （Phase 2 FIX-NUM-01 反转：旧默认 true，试运行反馈"复习越学越穷"）
+        review-penalty: false
         # 复习模式答错扣除的金币数
         review-penalty-amount: 5.0
 
@@ -461,6 +465,9 @@ tts:
   # VoiceRSS API 密钥（留空则不下载音频，仅显示音标）
   # 免费注册: https://www.voicerss.org/registration.aspx
   voicerss-api-key: ""
+  # 发音按钮冷却（秒）：同一玩家两次点击发音按钮的最小间隔，防连点刷 API
+  # 冷却内点击只提示不发请求；默认 5 秒
+  pronounce-cooldown-seconds: 5
 
 # ============================================================
 #  难度等级设置 (Difficulty Settings)

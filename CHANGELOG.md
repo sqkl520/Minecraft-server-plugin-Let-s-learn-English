@@ -5,6 +5,17 @@
 > 本版本包含两批改动：v1.0.7 迭代开发（13 个 Story）+ 全项目只读扫描后的缺陷修复批次（中文服止血 / 并发收口 / 仓库卫生）。
 
 ### Fixed
+- **[Phase 2 fan-in]** 合流测试建议顺手收：`PlayerDataStore.clearCache()` 补 `playerNameCache.clear()`，reload 后不再把旧名写回 `player_data.player_name`（改名场景）
+- **[Phase 2 fan-in]** 合流测试建议顺手收：决斗邀请 60s 过期任务改 `remove(key, value)` 原子校验，旧过期任务不再误清 60s 内发给同一目标的新邀请（与 F1-15 同源）
+- **[Phase 2 fan-in]** `ConfigManager.MESSAGE_CONFIG_VERSION` 7→8：messages/zh.yml 与 en.yml 随 Phase 2 新增键（决斗超时/GM 解散/挑战可见性/真三模式/跨天/TTS 冷却）升至 v8，代码侧同步升版，已部署服务器重启/重载后才会覆盖下发新消息文件
+- **[Phase 2 fan-in]** 庆祝去强制化收尾：`DailyChallengeManager.onAllWordChallengesComplete` 尾部强制弹 `ChallengeCompleteGUI` 改为发送 `daily-challenge.reopen-hint` 聊天提醒，玩家按需 `/le challenge` 重开庆祝页（流 C 点名的禁区文件配合）
+- **[Phase 2 fan-in]** `RewardEngine` 的 `review-multiplier` 代码 fallback 默认值 0.5→1.2，与 config.yml 新默认对齐（已部署旧服缺 key 时不再走旧值；流 A 上报的已知残留）
+- **[Phase 2 复活流 C / FIX-DUEL-01]** 对决单题超时：`DuelRoom` 新增单题超时（默认 30s，读现有 `word-system.answer-timeout`），超时双方都不加分、直接下一题；`DuelManager` 每题调度计时任务，判分后取消旧任务
+- **[Phase 2 复活流 C / FIX-DUEL-01]** GM 解散：新增 `/lea duel cancel <玩家>`（`letslearnenglish.admin` 权限，控制台可用），强制解散对局不判胜负；`/le duel cancel <玩家>` 仅 GM 可执行（同权限二次校验），非 GM 提示无权限
+- **[Phase 2 复活流 C / FIX-DUEL-01 / F1-15]** `acceptDuel` 开头延后吞邀请：`pendingRequests.remove` 移到全部校验之后，校验失败不再吞掉对方邀请
+- **[Phase 2 复活流 C / FIX-CHAL-01]** 挑战双向可见：`/le challenge` 聊天列表追加行为挑战 3 项进度（只读）；`DailyChallengeGUI` 追加单词挑战进度行（只读）；领取路径各自不变
+- **[Phase 2 复活流 C / FIX-CHAL-01]** 庆祝去强制化：单词挑战全完成时不再强制弹庆祝 GUI，改为聊天提醒 + 玩家手动 `/le challenge` 重开庆祝页（调用点需流 A / 编排者 fan-in 配合，见报告文件冲突点名）
+- **[Phase 2 复活流 C / FIX-CHAL-01 / F1-09]** 庆祝按钮去装饰化：slot 22 改为"奖励已到账，点击返回主菜单"的真实语义，不再误导玩家以为要点才到账
 - **[Phase 1 fan-in]** `RewardEngine` 头部注释修正：今日金币缓存清空入口已由 `HotReloadManager.reloadAll` 直调 `resetDailyCoinsCache()`，移除过时的"须由流 E 调用"表述
 - **[Phase 1 fan-in]** `ConfigManager.MESSAGE_CONFIG_VERSION` 6→7：messages/zh.yml 与 en.yml 已随 Phase 1 新增键升至 v7，代码侧同步升版，已部署服务器重启/重载后才会覆盖下发新消息文件
 - **[Phase 1 fan-in]** `HotReloadManager.reloadAll` 补调 `RewardEngine.resetDailyCoinsCache()`：RewardEngine 实例常驻不重建，今日金币累计缓存随 reload 清空（day 边界仍按自然日懒清零）
@@ -20,8 +31,28 @@
 - **[Phase 1 打回修复 / Q1]** 自然走完会话拿不到奖励：`buildResult` 在 completed 时先 `quizStates.remove(id)`，随后 `showSessionComplete` 内 `quizStates.get` 必为 null，会话金币/成就检查/学习日历/SESSION_3 挑战整段跳过；改为把 `maxComboReached`/`mode` 装进 `AnswerResult` 带过去，结算直接用 result 携带的数据不再 map 重查（stopQuiz 比例门路径不受影响，奖励公式不变）
 - **[Phase 1 打回修复 / B2]** 答对广播查错隐私对象：`ChatAnswerListener.broadcastCorrectAnswer` 循环内取的是答题者自己的 `ProfileSettings` 而非收件人的；改为查收件人 `online.getUniqueId()` 的 `isShowAnswers()`，叠加 showAnswers 默认 false 后广播恢复正常可达
 - **[Phase 1 打回修复 / Q2]** 删除 `PlayerDataStore` 的死记账 API：`addTodayCoinsEarned`/`getTodayCoinsEarned` 零外部调用者（RewardEngine 自有分级精度 `todayCoinsCache` 已接线），连带删除 `TodayCoins` 内部类与 `todayCoinsEarnedCache` 字段；今日答题计数与今日 AI 轮次两套计数器保留
+- **[Phase 2 流 A / FIX-REVIEW-01 / H5]** 普通学习结算写复习种子：`endSession` 非 review 模式下对本次答过的词调 `seedReview`（仅无种子时写入 `lastReviewTime=now`、`reviewCount=0`，已有种子/已有复习进度不动），新玩家学完首轮后 `getDueReviewWords` 到期即非空
+- **[Phase 2 流 A / FIX-REVIEW-01]** 复习结算只对答对词 `recordReview`（间隔晋级）；答错词调 `resetReview`（`reviewCount` 归零、`lastReviewTime=now`，下次 due = now + intervals[0]，1h 后再提醒）；读侧 `getDueReviewWords` 不动逻辑（种子刚写入未到期不 due、答错重置后按 intervals[0] 计时，已验证两种语义恰当）
+- **[Phase 2 流 A / FIX-REVIEW-01]** 复习通知"今日已提醒"去重：`checkAndNotifyReviews` 对同一玩家同一自然日内只提醒一次（内存态 `lastNotifiedDate`，跨天自动失效）
+- **[Phase 2 流 A / FIX-BOARD-01 / H8]** `endSession` 学习结算调 `PlayerStats.addScore(session.getScore())` 累加会话学习分，`total_score` 落盘不再冻结（仅学习分口径，金币仍走独立 `total_coins_*`）
+- **[Phase 2 流 A / FIX-BOARD-01 / H10]** `player_name` 落盘：`PlayerJoinListener` 进服写 `PlayerDataStore` 内部名字缓存（`cachePlayerName`，超长截 32 字符），`savePlayerData` 的 player_data UPSERT 携带 `player_name` 列，排行榜人名不再回落为 UUID
+- **[Phase 2 流 A / FIX-BOARD-01 / M9]** `checkStreakAchievement` 每次连击推进时取 max 落盘 `longest_streak`（INSERT 保行 + 条件 UPDATE 只增不减），连击榜不再全 0；读侧走既有 `DatabaseManager.getTopCombo`/`ProgressManagerImpl.loadStreakData`，零改动
+- **[Phase 2 流 A / FIX-BOARD-01 / M10]** `PlayerStats.getTotalWords()` 口径改为 `totalCorrect`（答对数），`loadPlayerData` 重建与 `savePlayerData` 落盘两侧一致使用该方法，单词榜不再把答错也计入学过
+- **[Phase 2 流 A / FIX-DAY-01 / M8]** 新增跨天定时任务（`LetsLearnEnglish.scheduleMidnightRollover`，启动对齐下个午夜、每 24h 触发）：在线玩家重 `checkAndAssign`、清单词挑战已领标记与复习提醒态；昨日未领奖励作废（行为挑战数据天然按日期隔离），玩家会收到 `daily-challenge.rollover-voided` 提示
+- **[Phase 2 流 A / FIX-DAY-01]** `checkAndAssign` 分配时过滤不可用挑战：无 AI Key 服务器不再抽到 `AI_CHAT_5`（抽中时整体重抽一次，最多重试 5 轮）
+- **[Phase 2 流 A / FIX-DAY-01 / M8 附带]** `wordChallengeClaimedToday` 实为 Phase 1 流 C 的"已领取标记"（有 `hasPendingWordReward` 读取），保留并改为线程安全实现 + 新增 `clearAllWordChallengeClaims()` 供跨天任务午夜清理
+- **[Phase 2 流 A / FIX-NUM-01]** 复习数值反转：`config.yml` 中 `review-multiplier` 默认 0.5→1.2（复习应比首学更值钱）、`review-penalty` 默认 true→false（答错不再倒扣，用错题本承载纠错），附中文注释说明原因；Java 逻辑零改动
+- **[Phase 2 流 A / FIX-TTS-01 / M20]** 发音按钮加 per-player 5 秒冷却：冷却内点击走 `word.pronunciation-cooldown` 提示且不调 API；冷却时长读 `tts.pronounce-cooldown-seconds`（新增 config key，默认 5）
+- **[Phase 2 流 A / FIX-TTS-01 / M20]** `TtsManager` 落盘前校验 `Content-Type` 必须为音频类型（`audio/*`、`application/octet-stream`、空头放行），错误文本（`text/*` 如 VoiceRSS 的"ERROR: ...")不再毒化 `.wav` 缓存；7 天过期逻辑保留
+- **[Phase 2 复活流 B / FEAT-MODE-01]** choice/fill_blank 模式不再走"聊天栏拼写全词精确匹配"：`submitAnswer` 判分收敛到新 `AnswerChecker`（spelling 原样保留全词拼写；choice 判选项字母 A/B/C/D；fill_blank 判挖空填词），答错/超时反馈在 choice 下展示"字母. 单词"
+- **[Phase 2 复活流 B / FEAT-MODE-01]** `SPELLING_MASTER` 收紧：仅 spelling 模式且本会话至少拼对 1 题才解锁，挂机超时/全错不再能拿
+- **[Phase 2 复活流 B / FEAT-MODE-01]** `/le word <难度> <模式>` 增加 mode 参数校验，非法 mode 回 `word.invalid-mode` 提示（此前直接抛 IllegalArgumentException 原始英文信息）
 
 ### Added
+- **[Phase 2 复活流 B / FEAT-MODE-01]** 新增 `core.word.AnswerChecker`：三模式判分/选项生成/挖空渲染的唯一收敛点（`check`/`buildChoiceOptions`/`blankSentence`/`formatChoiceOptions`），review/决斗/错题练习行为不变
+- **[Phase 2 复活流 B / FEAT-MODE-01]** `WordLearningGUI` 按 mode 渲染：choice 展示 4 选项（1 正确 + 3 同词库随机干扰项，正确项不加亮）、fill_blank 展示挖空例句 + 首字母提示；答题提示按模式分流（`answer-prompt-choice`/`answer-prompt-fill-blank`）
+- **[Phase 2 复活流 B / FEAT-MODE-01]** choice 确认为新手默认模式：`/le word` 缺省与 GUI 入口均为 choice，spelling/fill_blank 仍可显式指定
+- **[Phase 2 复活流 B / FEAT-MODE-01]** i18n 新增 7 键（zh/en 双语同位）：`word.invalid-mode`、`word-learning-gui.answer-prompt-choice`/`choice-option`/`answer-prompt-fill-blank`/`fill-blank-sentence`/`fill-blank-hint`/`current-word-lore-choice`
 - **[测试安全网]** 新增 `WordLearningManagerComboTest`：以纯逻辑单测锁定连击倍率表（0~2 连=1.0x、3~4=1.5x、5~6=2.0x、7~9=2.5x、≥10=3.0x，含负数回落 1.0x），直接测真实的 `WordLearningManager.getComboMultiplier(int)`（倍率表实际在此类，非 RewardEngine），构造器用 Mockito mock 的插件实例满足，不拉起任何 Bukkit 运行时
 - **[测试安全网]** JaCoCo 新增 `check` 门禁（绑定 `verify` 阶段，BUNDLE 行覆盖最低 0.01=1%）：这是起步地板，当前行覆盖约 4%，后续逐版本上调；故意不在 `package -DskipTests` 快速构建触发，运行 `mvn verify` 才校验
 - **[Phase 0 安全基线]** `MessageUtil` 新增 null-safe 取消息 helper：`getMessageSafe(key, ...)` / `getPlayerMessageSafe(player, key, ...)` 在 message 配置缺失、key 缺失或占位符为 null 时，统一记 WARNING 并回落到可见诊断占位串 `&c[?key]`，绝不返回 null 或抛 NPE；配套 `hasMessageKey(lang, key)` 供启动审计使用。仅新增 API、不重构现有调用点，不改既有行为
@@ -29,6 +60,7 @@
 - **[Phase 0 安全基线]** 新增 `tasks/dead-config-audit.md` 死配置审计清单：以全路径 grep 查证，确认 `word-system.modes.*`（H6：整棵子树死，模式硬编码于 `WordManagerImpl.VALID_MODES`）、`word-system.daily-limit`、`daily-challenges.rewards.*` / `challenges-per-day`、`difficulty-settings.*`、`proxy.*` 等共 21 条必查死配置，另记录约 17 条额外死配置（含模块级 `enabled` 开关族从不 gating）。仅审计不删除
 - **[Phase 0 词库流水线]** 新增 `scripts/gen-words.js` 词库生成与自检脚本（零第三方依赖，位于 resources 之外不进 JAR；支持 `generate` 与 `check <file>`，镜像 `WordBankValidator` 规则并校验 YAML 往返一致性），并产出 50 词 beginner 评审样本 `resources/words/sample-beginner.yml`（未激活，pom 已排除出 JAR；待人工抽查音标后提升为正式词库）；`resources/words/README.md` 记录词表来源与许可
 - **[Phase 0 安全基线]** 新增 `tasks/db-baseline.md` 数据库基线：`schema.sql` 与代码建表语句逐表逐列对齐（12 表 + 2 索引，无字段漂移/无缺列/无缺索引）、`player_name` 写入方案（仅方案，Phase 1 落地）、`synchronized` 串行化 vs 单线程 DB 执行器的评估与升级建议，并记录外部类仍裸用 `getConnection()` 的残余缺口
+- **[Phase 2 CONTENT-02 词库扩充]** `beginner.yml` 扩至 317 词（原有 10 词保留 + 50 词评审样本全数并入 + 新增 257 词；difficulty_level 分布 1/2/3=255/36/26），`sample-beginner.yml` 并入后删除；`intermediate.yml` 扩至 349 词（4/5/6=134/146/69）；`advanced.yml` 扩至 330 词（7/8/9=125/134/71，顺带修复 `elaborate` 的 `part_of_speech: "adjective/verb"` 非法斜杠值→`verb`）；三档自检均为 0 error / 0 warning 且跨档零重复词头
 
 ### Refactored
 - 彻底分离学习分数与金币统计：新增 `total_coins_earned`/`total_coins_spent`，金币榜、成就和金币奖励记账不再读取 `total_score`

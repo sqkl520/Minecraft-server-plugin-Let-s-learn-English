@@ -21,6 +21,8 @@ public class ReviewScheduler {
     private final long masteredReviewIntervalMs;
 
     private final Map<UUID, CacheEntry> dueWordCache = new ConcurrentHashMap<>();
+    // FIX-REVIEW-01 去重：记住每个玩家上次收到复习通知的自然日（内存态，跨天自动失效）
+    private final Map<UUID, java.time.LocalDate> lastNotifiedDate = new ConcurrentHashMap<>();
 
     public ReviewScheduler(LetsLearnEnglish plugin, WordManagerImpl wordManager,
                            PlayerDataStore playerDataStore) {
@@ -42,12 +44,26 @@ public class ReviewScheduler {
     }
 
     public void checkAndNotifyReviews() {
+        java.time.LocalDate today = java.time.LocalDate.now();
         for (Player player : Bukkit.getOnlinePlayers()) {
+            // 同一玩家同一天只提醒一次（30 秒 TTL 缓存 + 5 分钟定时任务原本会反复刷屏）
+            if (today.equals(lastNotifiedDate.get(player.getUniqueId()))) {
+                continue;
+            }
             List<String> dueWords = getDueReviewWords(player.getUniqueId());
             if (!dueWords.isEmpty()) {
                 notifyPlayer(player, dueWords);
+                lastNotifiedDate.put(player.getUniqueId(), today);
             }
         }
+    }
+
+    /**
+     * 跨天清理复习通知去重态（由午夜任务调用）。不清理也能工作
+     * （日期比对天然失效），这里顺手释放离线玩家的内存。
+     */
+    public void clearNotifiedDates() {
+        lastNotifiedDate.clear();
     }
 
     public List<String> getDueReviewWords(UUID playerId) {
@@ -97,6 +113,25 @@ public class ReviewScheduler {
 
     public void recordReview(UUID playerId, String word) {
         playerDataStore.recordReview(playerId, word);
+        dueWordCache.remove(playerId);
+    }
+
+    /**
+     * H5：普通学习结算时为答过的词写入复习种子。
+     * 种子语义：lastReviewTime=now、reviewCount=0 → 读侧 getDueReviewWords
+     * 算出 nextReview = now + intervals[0]，未到期前不会立即 due。
+     */
+    public void seedReview(UUID playerId, String word) {
+        playerDataStore.seedReview(playerId, word);
+        dueWordCache.remove(playerId);
+    }
+
+    /**
+     * H5：复习答错时重置该词的间隔（reviewCount→0、lastReviewTime=now）。
+     * 下次 due = now + intervals[0]（默认 1h），很快会再提醒。
+     */
+    public void resetReview(UUID playerId, String word) {
+        playerDataStore.resetReview(playerId, word);
         dueWordCache.remove(playerId);
     }
 

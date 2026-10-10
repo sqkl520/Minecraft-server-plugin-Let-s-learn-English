@@ -230,7 +230,10 @@ public class AchievementManager {
             tryUnlock(playerId, Achievement.PERFECT_SESSION);
         }
 
-        if ("spelling".equalsIgnoreCase(mode)) {
+        // FEAT-MODE-01：SPELLING_MASTER 只看 mode 会让挂机超时/全错也拿成就；
+        // 收紧为「spelling 模式 + 本会话至少拼对 1 题」。阈值语义不变（仍是完成即判），
+        // 只是不再奖励零拼对的会话。
+        if ("spelling".equalsIgnoreCase(mode) && sessionCorrect >= 1) {
             tryUnlock(playerId, Achievement.SPELLING_MASTER);
         }
 
@@ -247,10 +250,14 @@ public class AchievementManager {
     /**
      * Check achievement for in-session streak.
      * Called by WordLearningManager after each correct answer within a session.
+     *
+     * <p>M9：同时把会话连击峰值落盘到 player_data.longest_streak（只增不减），
+     * 供连击榜（getTopCombo）与个人进度读侧使用。
      */
     public void checkStreakAchievement(UUID playerId, int currentSessionStreak) {
         if (currentSessionStreak >= 3) tryUnlock(playerId, Achievement.STREAK_3);
         if (currentSessionStreak >= 10) tryUnlock(playerId, Achievement.STREAK_10);
+        playerDataStore.persistLongestStreak(playerId, currentSessionStreak);
     }
 
     /**

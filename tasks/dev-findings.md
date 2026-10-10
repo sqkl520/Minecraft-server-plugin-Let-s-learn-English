@@ -6,6 +6,63 @@
 
 ---
 
+## 批次：Phase 2 复活（4 流 + 合流测试）
+
+> 合流测试 verdict：GO。阻断项为零。以下为本批次上报的任务外发现，一律未修（除注明"已顺手收"两条）。
+
+### 来自流 A（数据链复活）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| F2-01 | `DailyChallengeManager.checkAndAssign` MySQL 分支 | INSERT 无 `ON DUPLICATE KEY`，并发重入可能抛 duplicate（SQLite 分支有 OR REPLACE） | 双后端不对称 | 低 | 待排期 |
+| F2-02 | `player_sessions.score` / 周榜月榜口径 | `recordSession` 仍存会话学习分，榜单 SQL 未动；周榜月榜是"学习分榜"还是"金币榜"口径未定 | 口径文档缺失 | 低 | 需用户决策（定口径后再看是否改 SQL） |
+
+> 流 A 上报的 `RewardEngine` fallback 残留（review-multiplier 0.5）已由编排者在 fan-in 时修复（0.5→1.2），不再列账。
+
+### 来自流 B（真三模式）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| F2-03 | `ChatAnswerListener` 练习分支 | `getPracticingWord(...)` 取出后从未使用（死变量） | 历史残留 | 低 | 待排期 |
+| F2-04 | `Word.equals()` 含 `reward` 字段 | 同英文不同 reward 的词判不等，`getRandomWords` 的 exclude 可能放行同英文词做干扰项（本批次已在 `AnswerChecker` 内加英文去重兜底） | equals 语义过宽 | 低 | 待排期（根因：给 `Word` 加注释或收窄 equals） |
+| F2-05 | `MiscGUIListener.handleWordBankSelect` 写死 `"choice"` | 默认模式第三个散落点（另两处已收敛为常量/回落值）；将来改默认模式时此处会漏 | 散落常量 | 低 | 待排期 |
+
+> 流 B 上报的旧 `answer-broadcast` 死键与 F1-06 同一事项，不重复列账。
+
+### 来自流 C（决斗挑战）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| F2-06 | `DuelManager.rewardEngine` 字段 | 构造即赋值，之后零读取（死字段） | 历史残留 | 低 | 待排期 |
+| F2-07 | `DuelRoom.submitAnswer` | `answer.trim()` 无 null 防护（上游理论非 null） | 防御缺失 | 低 | 待排期 |
+| F2-08 | `DuelManager.cancelDuel` 约 550 行 | `opponentId` 算而不用 | 历史残留 | 低 | 待排期 |
+| F2-09 | `en.yml` 缺 `word-learning-gui.countdown-urgent` | 中英 key 不对称（本次新增 key 双语已对齐，这是历史遗留） | 历史遗留 | 低 | 待排期 |
+
+> 流 C 上报的 `sendDuelRequest` 过期任务裸 `remove` 已由编排者在 fan-in 时修复（改 `remove(k,v)`），不再列账。
+
+### 来自合流测试（三维冒烟）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| F2-10 | `WordLearningListener.pronounceCooldown` | 只 put 不删，quit 不清，无驱逐（每人一条，量级极小） | 无清理 | 低 | 待排期（quit 清理或复用午夜清理模式） |
+| F2-11 | `scheduleMidnightRollover` 主线程同步查库 | 每玩家 1~3 条同步 SQL，百人服午夜会卡一下主线程 | 主线程 IO | 中 | 待排期（Phase 3：搬异步快照 + 主线程发消息） |
+| F2-12 | `DuelRoom.timeoutCurrentWord` 零 UUID 哨兵 | `getLastCorrectAnswerer()` 可能对外吐 `new UUID(0,0)`，若 `DuelGUI` 按此查名会有怪显示（未读 `DuelGUI`，待确认非定论） | 哨兵外泄 | 低 | 待排期（先确认 `DuelGUI` 是否消费该方法） |
+| F2-13 | `/le word` 成功提示 `{difficulty}/{mode}` | 填原始英文标识符（如 `choice`/`beginner`），中文玩家看到英文 | 未走 i18n label（review 路径已有 `mode-review` label，普通路径未跟进） | 低 | 待排期 |
+
+> 合流测试建议的 `clearCache` 补 `playerNameCache.clear()` 已由��排者在 fan-in 时顺手收，不再列账。
+
+### 本批次语义裁决记录（已定，无需再议）
+
+- 复习闭环 = 普通结算写种子（幂等）→ 到期 due → 答对晋级 / 答错重置（count 归零 + now，下次 due = now + intervals[0]）→ 未作答词不动间隔；通知按自然日去重，手动 `/le review` 不受去重影响。
+- 榜单口径 = total_score 是学习分（含 combo 与 -2 扣分），与 total_coins_* 零交叉；total_words_learned = 答对数；longest_streak 只增不减。
+- 跨天 = 对齐次日 0:00:01 触发，每 24h 一次；先查昨日未领（只读）→ 再分配今日 → 最后清标记；昨日未领作废 + 提示（`rollover-voided`），领完的不打扰；离线玩家上线走 join 分配，无作废提示。
+- 真三模式 = AnswerChecker 唯一收敛；choice 聊天栏字母（兼容全文兜底，GUI 点击留 Phase 3）；fill_blank 拼写判定；review 回落拼写；SPELLING_MASTER 要求 spelling + 至少拼对 1 题；modes.* 仍是死配置（有意为之，Phase 3 再定）。
+- 决斗 = 单题超时读 answer-timeout（默认 30s，钳位 5~300），超时双方不加分直接下一题；GM 解散不判胜负；邀请消费与过期均为 `remove(k,v)` 原子校验。
+- 挑战 = 双向只读可见，领取路径不变；单词全完成改聊天提醒 + `/le challenge` 重开庆祝页；庆祝按钮"已到账"语义。
+- 词库 = beginner 317 / intermediate 349 / advanced 330，共 996 词；level 梯度 1-3/4-6/7-9；三档零重复；样本已并入删除。
+
+---
+
 ## 批次：Phase 1 止血（5 流 + 打回修复 + 合流测试）
 
 > Q1（自然走完会话拿不到奖励，已修）、B2（答对广播查错对象，已修）、Q2（两套金币记账，已删死代码）均已在本批次修复，不再列账。

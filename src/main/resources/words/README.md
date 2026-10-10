@@ -81,29 +81,50 @@ words:                       # 词条列表
 - 注意：脚本做的是自包含结构 + 往返校验；**最终权威校验仍以插件 SnakeYAML 加载为准**
   （由编排者在汇总时随 Java 构建执行）。
 
-## 本次 sample 产出
+## 本次扩充产出（CONTENT-02，三档 ≥300 词）
 
-- 文件：`sample-beginner.yml`，**50 词**（均不与现有 beginner.yml 的 10 词重复）。
-- 自检结果：**0 error / 0 warning / 4 条存疑（REVIEW）**。
-- 存疑词条（音标待人工核对，脚本已在该行输出 `# REVIEW:`）：
-  - `banana` — UK /bəˈnɑː.nə/ vs US /bəˈnæn.ə/
-  - `car` — 英式 r 记法 /kɑː/ ~ /kɑːr/（现有文件保留 r）
-  - `family` — 音节数 /ˈfæm.əl.i/（3）~ /ˈfæm.li/（2）
-  - `orange` — UK /ˈɒr.ɪndʒ/ vs US /ˈɔːr.ɪndʒ/
+- `beginner.yml`：**317 词**（原有 10 词逐字节保留 + `sample-beginner.yml` 50 词全数合并 + 新增 257 词）。
+  自检 `node scripts/gen-words.js check`：**0 error / 0 warning**。
+  `difficulty_level` 分布：1 级 255 / 2 级 36 / 3 级 26。
+  抽查 20 词（sun、river、knife、panda、elephant、tooth、grey、hundred、woman、
+  homework、answer、dance、thirsty、autumn、honest、sometimes、whose、without、
+  because、clever）：音标、例句、释义全部合格，无硬伤。
+  样本词剔除：无（50 词全部并入，仅去掉 REVIEW 头注与行内 `# REVIEW:` 注释）。
+- `intermediate.yml`：**349 词**（原有 10 词保留 + 新增 339 词）。
+  自检：**0 error / 0 warning**（首轮 5 警告：4 个与 beginner 重叠词 angry/brave/clever/
+  hobby 已替换为 annoyed/bold/witty/leisure；fling 例句过去式 flung 已改含原形）。
+  `difficulty_level` 分布：4 级 134 / 5 级 146 / 6 级 69。
+  抽查 20 词（annoyed、bold、witty、leisure、fling、durable、eclipse、embarrass、
+  enhance、enquire、dormitory、finale、heir、fragile、fragrant、frugal、frustrate、
+  furnish、elastic、dusk）：全部合格，无硬伤。
+- `advanced.yml`：**330 词**（原有 10 词保留 + 新增 320 词）。
+  自检：**0 error / 0 warning**（顺带修复 `elaborate` 的 `part_of_speech: "adjective/verb"`
+  非法斜杠值 → `verb`；crumb/crust 例句错位、defy/dignify 原形、curfew 缺字段一并修正）。
+  `difficulty_level` 分布：7 级 125 / 8 级 134 / 9 级 71。
+  抽查 20 词（advocate、behalf、capable、chronic、combat、compliment、confer、
+  constrict、cordial、crisis、cult、decade、default、delicate、depreciate、deviate、
+  dignify、dismal、diversify、phenomenon）：全部合格，无硬伤。
+  跨档查重：终验确认三档之间零重复词头（intermediate×advanced 的 16 个重叠词
+  capable/caution/charm/crisis/crisp/cruise/damp/debate/decent/decline/defeat/
+  delicate/dense/deposit/devote/dismiss 已在 advanced 侧替换为
+  proficient/vigilance/enchantment/turmoil/brisk/excursion/musty/wrangle/becoming/
+  wane/vanquish/exquisite/succinct/instalment/consecrate/traverse）。
+- 词表来源：NGSL/GSL/中国课标高频词（仅用于“选哪些词”，事实性词汇无版权风险）；
+  全部释义、音标、例句为原创编写；音标采用 Cambridge 英式风格（rhotic-r 惯例与
+  现有文件一致）。
+- `sample-beginner.yml` 已全数并入 `beginner.yml` 并删除（此前 pom 已将其排除出 JAR）。
 
 ## 提升为正式词库的流程（人工）
 
-1. 人工抽查 `sample-beginner.yml`，重点核对上述 4 条存疑音标与全部例句。
-2. 核准后，把词条合并进 `beginner.yml`（追加到 `words:` 列表），**删除**顶部 REVIEW 头注
-   与行内 `# REVIEW:` 注释。
-3. 删除或移出 `sample-beginner.yml`（见下方注意）。
+1. 人工抽查新词条（重点核对音标与全部例句；CONTENT-02 已按每档 20 词抽查，
+   结论见上方“本次扩充产出”）。
+2. 核准后，把词条合并进目标档文件（追加到 `words:` 列表）。
+3. 删除或移出评审样本文件（`sample-beginner.yml` 已于 CONTENT-02 并入后删除）。
 4. 由编排者执行一次 `mvn clean package`，让插件 SnakeYAML 做最终校验。
 
 ## 注意（运行时与打包）
 
-- `sample-beginner.yml` 位于 `src/main/resources/words/`，运行时**不会被加载**
-  （`ConfigManager` 只释放 beginner/intermediate/advanced 三个固定名到数据目录）。
-- 但它**会被 Maven 打进 JAR**（成为无用文本）。若希望 JAR 不含它，可在 `pom.xml` 的
-  resources 中排除 `words/sample-*.yml`（需 Java 侧负责人处理，本流不改 pom）。
-- 若管理员手动把本文件复制进服务器数据目录的 `words/`，由于 loader 按 `*.yml` 通配，
-  `sample-beginner` 会被当成一个可选难度加载——属预期外用法，提升时请连同文件一起移除。
+- 评审样本文件说明（历史）：`sample-beginner.yml` 曾位于 `src/main/resources/words/`，
+  运行时**不会被加载**（`ConfigManager` 只释放 beginner/intermediate/advanced 三个固定名
+  到数据目录），且 pom 已将其排除出 JAR。该文件已于 CONTENT-02 全数并入
+  `beginner.yml` 并删除。

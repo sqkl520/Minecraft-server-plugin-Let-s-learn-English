@@ -110,15 +110,36 @@ public class WordManagerImpl {
 
     /**
      * End a player's learning session.
+     *
+     * <p>H8：结算时把会话学习分累加入 PlayerStats.totalScore（学习分口径，
+     * 与金币 total_coins_* 完全分离）。复习结算只对答对词 recordReview 晋级，
+     * 答错词 resetReview 回到 1h 间隔；普通学习结算对答过的词写复习种子。
      */
     public void endSession(UUID playerId) {
         LearningSession session = activeSessions.remove(playerId);
         if (session != null) {
             playerDataStore.updateWordProgress(playerId, session.getResults());
+            playerDataStore.getPlayerStats(playerId).addScore(session.getScore());
 
             if ("review".equals(session.getMode())) {
                 for (LearningSession.WordResult result : session.getResults().values()) {
-                    reviewScheduler.recordReview(playerId, result.getWord().getEnglish());
+                    String english = result.getWord().getEnglish();
+                    // 本次复习未作答的词（correct+incorrect=0，例如中途 stop）不碰间隔
+                    if (result.getCorrectCount() + result.getIncorrectCount() == 0) {
+                        continue;
+                    }
+                    if (result.getCorrectCount() > 0 && result.getIncorrectCount() == 0) {
+                        reviewScheduler.recordReview(playerId, english);
+                    } else {
+                        reviewScheduler.resetReview(playerId, english);
+                    }
+                }
+            } else {
+                for (LearningSession.WordResult result : session.getResults().values()) {
+                    // 只有实际答过的词才播种子：未作答的词（stop 残留）不进复习池
+                    if (result.getCorrectCount() + result.getIncorrectCount() > 0) {
+                        reviewScheduler.seedReview(playerId, result.getWord().getEnglish());
+                    }
                 }
             }
         }

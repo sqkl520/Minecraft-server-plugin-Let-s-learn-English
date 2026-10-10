@@ -1,5 +1,6 @@
 package com.letslearnenglish.minecraftplugin.core.word;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -90,8 +91,19 @@ public class WordLearningManager {
             Word currentWord = session.getCurrentWord();
             if (currentWord == null) return null;
 
-            boolean correct = currentWord.getEnglish().equalsIgnoreCase(answer.trim());
+            // FEAT-MODE-01：三模式判分收敛到 AnswerChecker（spelling 全词拼写 /
+            // choice 选项字母 / fill_blank 填缺失词）。输出仍是 correct + correctAnswer，
+            // 下游连击/发币/计数/成就零感知。choice 下 correctAnswer 带正确项字母。
+            List<Word> choiceOptions = AnswerChecker.isChoice(state.mode)
+                    ? getChoiceOptions(id) : null;
+            boolean correct = AnswerChecker.check(state.mode, currentWord, answer, choiceOptions);
             String correctAnswer = currentWord.getEnglish();
+            if (choiceOptions != null) {
+                int answerIndex = AnswerChecker.indexOfAnswer(choiceOptions, currentWord);
+                if (answerIndex >= 0) {
+                    correctAnswer = AnswerChecker.formatChoiceOption(answerIndex, currentWord);
+                }
+            }
 
             int comboScore;
             if (correct) {
@@ -383,6 +395,31 @@ public class WordLearningManager {
         return state.mode;
     }
 
+    /**
+     * FEAT-MODE-01：取本题 choice 选项快照（正确项 + 同词库随机干扰项）。
+     * 懒生成 + 按题缓存：同一题多次调用返回同一份，保证 GUI、聊天提示、
+     * 判分三方看到的选项一致；换题后自动重抽。非 choice 模式不调用。
+     *
+     * @param playerId 玩家 UUID
+     * @return 本题选项（至少包含答案本身），无活跃会话时返回 null
+     */
+    public List<Word> getChoiceOptions(UUID playerId) {
+        QuizState state = quizStates.get(playerId);
+        if (state == null) return null;
+        Word currentWord = state.session.getCurrentWord();
+        if (currentWord == null) return null;
+        String key = state.session.getCurrentIndex() + ":"
+                + currentWord.getEnglish().toLowerCase();
+        if (key.equals(state.choiceOptionsKey) && state.choiceOptions != null) {
+            return state.choiceOptions;
+        }
+        WordBank bank = wordManager.getWordBank(state.difficulty);
+        List<Word> options = AnswerChecker.buildChoiceOptions(bank, currentWord);
+        state.choiceOptions = options;
+        state.choiceOptionsKey = key;
+        return options;
+    }
+
     public void showSessionComplete(Player player, AnswerResult result) {
         FileConfiguration messages = getMessages(player);
         String msg = ChatColor.translateAlternateColorCodes('&',
@@ -505,6 +542,10 @@ public class WordLearningManager {
         public volatile int consecutiveCorrect;
         public volatile int maxComboReached;
         public boolean isReviewMode;
+        // FEAT-MODE-01：choice 本题选项快照（GUI/聊天提示/判分三方共用同一份，
+        // key = 题号:小写答案，换题自动失效重抽）。
+        public volatile List<Word> choiceOptions;
+        public volatile String choiceOptionsKey;
 
         public QuizState(LearningSession session, String difficulty, String mode, int answerTimeout) {
             this.session = session;

@@ -46,6 +46,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
+import java.time.LocalDate;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashSet;
@@ -292,6 +293,9 @@ public final class LetsLearnEnglish extends JavaPlugin {
             scheduleDailyReminders();
         }
 
+        // M8：午夜跨天（每日挑战重分配 + 已领标记/复习提醒态清理）
+        scheduleMidnightRollover();
+
         if (configManager.getMainConfig().getBoolean("general.backup.enabled", true)) {
             scheduleDatabaseBackup();
         }
@@ -355,6 +359,46 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
         getLogger().info("Database auto-backup scheduled every " + intervalMinutes
                 + " minutes, keeping up to " + maxBackups + " backups.");
+    }
+
+    /**
+     * M8：午夜跨天任务 — 启动时对齐到下一个午夜，之后每 24h 触发一次。
+     * 在线玩家重跑 checkAndAssign（分配新一天的行为挑战 + 单词挑战）；
+     * 昨日未领奖励作废（行为挑战数据天然按 challenge_date 隔离，无需删行），
+     * 有作废的玩家会收到 daily-challenge.rollover-voided 提示，领完的不打扰。
+     */
+    private void scheduleMidnightRollover() {
+        Calendar now = Calendar.getInstance();
+        Calendar nextMidnight = (Calendar) now.clone();
+        nextMidnight.add(Calendar.DAY_OF_MONTH, 1);
+        nextMidnight.set(Calendar.HOUR_OF_DAY, 0);
+        nextMidnight.set(Calendar.MINUTE, 0);
+        nextMidnight.set(Calendar.SECOND, 1);
+        nextMidnight.set(Calendar.MILLISECOND, 0);
+        long delayTicks = Math.max(1200L,
+                (nextMidnight.getTimeInMillis() - now.getTimeInMillis()) / 50L);
+        long periodTicks = 24L * 60L * 60L * 20L;
+
+        getServer().getScheduler().runTaskTimer(this, () -> {
+            String yesterday = LocalDate.now().minusDays(1).toString();
+            for (Player player : getServer().getOnlinePlayers()) {
+                UUID playerId = player.getUniqueId();
+                // 先查昨日作废（必须在清标记之前），再分配今日挑战
+                int voidedBehavior = dailyChallengeManager.countUnclaimedForDate(playerId, yesterday);
+                boolean voidedWord = dailyChallengeManager.hasPendingWordRewardForDate(playerId, yesterday);
+                dailyChallengeManager.checkAndAssign(playerId);
+                if (voidedBehavior > 0 || voidedWord) {
+                    player.sendMessage(messageUtil.getPlayerMessage(player,
+                            "daily-challenge.rollover-voided"));
+                }
+            }
+            dailyChallengeManager.clearAllWordChallengeClaims();
+            wordManager.getReviewScheduler().clearNotifiedDates();
+            getLogger().info("Midnight rollover done: daily challenges reassigned.");
+        }, delayTicks, periodTicks);
+
+        getLogger().info("Midnight rollover scheduled, first run in "
+                + (delayTicks / 20L) + " seconds.");
     }
 
     private void backupDatabase(int maxBackups) {
