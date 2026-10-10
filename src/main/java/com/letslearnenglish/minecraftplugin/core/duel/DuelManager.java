@@ -7,6 +7,7 @@ import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.gui.DuelGUI;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
@@ -42,6 +43,8 @@ public class DuelManager {
     private final Map<UUID, DisconnectInfo> disconnectTimers;
     // Grace period countdown tasks: disconnected player UUID → task
     private final Map<UUID, BukkitTask> graceTasks;
+    // Single-question timeout tasks: player1 UUID → task (one entry per room)
+    private final Map<UUID, BukkitTask> wordTimeoutTasks;
 
     private static class DisconnectInfo {
         final DuelRoom room;
@@ -60,6 +63,7 @@ public class DuelManager {
         this.pendingRequests = new ConcurrentHashMap<>();
         this.disconnectTimers = new ConcurrentHashMap<>();
         this.graceTasks = new ConcurrentHashMap<>();
+        this.wordTimeoutTasks = new ConcurrentHashMap<>();
     }
 
     // ==================== Request / Accept ====================
@@ -99,11 +103,14 @@ public class DuelManager {
         target.sendMessage(acceptMsg);
         target.sendMessage(clickableAccept);
 
-        // Auto-expire pending request after 60 seconds
+        // Auto-expire pending request after 60 seconds. The remove(key, value) form
+        // ensures a stale expiry task never deletes a NEWER invitation sent to the
+        // same target within the 60s window (same fix as acceptDuel's F1-15).
+        UUID expectedSender = sender.getUniqueId();
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            UUID senderId = pendingRequests.remove(target.getUniqueId());
-            if (senderId != null) {
-                Player s = Bukkit.getPlayer(senderId);
+            boolean expired = pendingRequests.remove(target.getUniqueId(), expectedSender);
+            if (expired) {
+                Player s = Bukkit.getPlayer(expectedSender);
                 if (s != null && s.isOnline()) {
                     s.sendMessage(getMsg(s, "duel.request-expired", "player", target.getName()));
                 }
@@ -117,10 +124,16 @@ public class DuelManager {
 
     /**
      * Accept a pending duel request.
+     *
+     * <p>F1-15: the invitation is consumed (removed from pendingRequests) only
+     * AFTER every validation passes — a failed accept (offline sender, busy
+     * side, answering state) no longer silently eats the request, so the
+     * target can retry without asking the sender to re-invite.
      */
     public void acceptDuel(Player player) {
         UUID targetId = player.getUniqueId();
-        UUID senderId = pendingRequests.remove(targetId);
+        // F1-15: peek first, remove only once all validations pass.
+        UUID senderId = pendingRequests.get(targetId);
 
         if (senderId == null) {
             player.sendMessage(getMsg(player, "duel.no-pending-request"));
@@ -156,6 +169,13 @@ public class DuelManager {
             return;
         }
 
+        // All validations passed — consume the invitation. The remove(key, value)
+        // form guards the (unlikely) case where a newer request replaced this one.
+        if (!pendingRequests.remove(targetId, senderId)) {
+            player.sendMessage(getMsg(player, "duel.no-pending-request"));
+            return;
+        }
+
         // Mark both as busy
         busyPlayers.add(senderId);
         busyPlayers.add(targetId);
@@ -176,6 +196,7 @@ public class DuelManager {
             return;
         }
         room.setCurrentWord(firstWord);
+        scheduleWordTimeout(room);
 
         // Open GUI for both
         new DuelGUI(plugin).open(sender, room);
@@ -202,6 +223,7 @@ public class DuelManager {
 
         switch (result) {
             case CORRECT -> {
+                cancelWordTimeout(room);
                 SoundManager.playSound(player, "correct");
                 player.sendMessage(getMsg(player, "duel.correct-answer",
                         "word", room.getCurrentWord().getEnglish()));
@@ -217,6 +239,7 @@ public class DuelManager {
                 advanceOrEnd(room);
             }
             case WRONG -> {
+                cancelWordTimeout(room);
                 SoundManager.playSound(player, "incorrect");
                 player.sendMessage(getMsg(player, "duel.wrong-answer",
                         "word", room.getCurrentWord().getEnglish()));
@@ -250,8 +273,89 @@ public class DuelManager {
                 return;
             }
             room.setCurrentWord(nextWord);
+            scheduleWordTimeout(room);
             refreshBothGUIs(room);
         }
+    }
+
+    // ==================== Single-Question Timeout (FIX-DUEL-01) ====================
+
+    /**
+     * Read the per-question timeout from the EXISTING
+     * {@code word-system.answer-timeout} key (owned by WordLearningManager).
+     * No new config key is introduced; falls back to
+     * {@link DuelRoom#WORD_TIMEOUT_SECONDS} and is clamped to [5, 300]s so a
+     * misconfigured value can neither busy-loop the scheduler nor freeze a
+     * duel forever.
+     */
+    private int getWordTimeoutSeconds() {
+        int seconds = plugin.getConfigManager().getMainConfig()
+                .getInt("word-system.answer-timeout", DuelRoom.WORD_TIMEOUT_SECONDS);
+        return Math.max(5, Math.min(300, seconds));
+    }
+
+    /**
+     * Schedule the timeout for the room's current word. Any previous timeout
+     * for this room is cancelled first (belt-and-suspenders — normally the
+     * old task was already cancelled when the previous word was answered).
+     */
+    private void scheduleWordTimeout(DuelRoom room) {
+        if (!room.isActive()) return;
+        cancelWordTimeout(room);
+        long round = room.getWordRoundId();
+        int seconds = getWordTimeoutSeconds();
+        BukkitTask task = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            handleWordTimeout(room, round);
+        }, seconds * 20L);
+        wordTimeoutTasks.put(room.getPlayer1(), task);
+    }
+
+    /**
+     * Cancel the pending single-question timeout for a room, if any.
+     */
+    private void cancelWordTimeout(DuelRoom room) {
+        BukkitTask task = wordTimeoutTasks.remove(room.getPlayer1());
+        if (task != null) {
+            task.cancel();
+        }
+    }
+
+    /**
+     * Fire when nobody answered the current word in time: reveal the answer
+     * to both sides (score unchanged — symmetric, see
+     * {@link DuelRoom#timeoutCurrentWord}) and deal the next word.
+     */
+    private void handleWordTimeout(DuelRoom room, long round) {
+        wordTimeoutTasks.remove(room.getPlayer1());
+        if (!room.isActive()) return;
+        if (!room.timeoutCurrentWord(round)) {
+            return; // stale firing: answered / advanced / ended meanwhile
+        }
+
+        String answer = room.getCurrentWord() != null
+                ? room.getCurrentWord().getEnglish() : "?";
+
+        Player p1 = Bukkit.getPlayer(room.getPlayer1());
+        Player p2 = Bukkit.getPlayer(room.getPlayer2());
+        if (p1 != null && p1.isOnline()) {
+            p1.sendMessage(getMsg(p1, "duel.word-timeout", "word", answer));
+            SoundManager.playSound(p1, "incorrect");
+        }
+        if (p2 != null && p2.isOnline()) {
+            p2.sendMessage(getMsg(p2, "duel.word-timeout", "word", answer));
+            SoundManager.playSound(p2, "incorrect");
+        }
+
+        // Timeout never scores, so the duel cannot finish here — advance.
+        Word nextWord = getRandomWord();
+        if (nextWord == null) {
+            cancelDuelInternal(room, "no-words");
+            return;
+        }
+        room.setCurrentWord(nextWord);
+        scheduleWordTimeout(room);
+        updateBothScoreboards(room);
+        refreshBothGUIs(room);
     }
 
     // ==================== Duel End ====================
@@ -447,6 +551,7 @@ public class DuelManager {
 
         UUID opponentId = room.getOpponent(playerId);
         room.setActive(false);
+        cancelWordTimeout(room);
 
         Player p1 = Bukkit.getPlayer(room.getPlayer1());
         Player p2 = Bukkit.getPlayer(room.getPlayer2());
@@ -462,8 +567,61 @@ public class DuelManager {
         cleanup(room);
     }
 
+    /**
+     * FIX-DUEL-01: GM-forced duel dismissal.
+     *
+     * <p>Semantics: NO winner/loser is declared — the room is torn down as if
+     * cancelled. Both sides are told a GM ended the duel; no forfeit stigma
+     * is attached to either player. Does not touch the M4 answering gate or
+     * any pending invitations (GM dismissal only targets an ACTIVE room).
+     *
+     * @param gm the admin performing the dismissal (receives confirmation)
+     * @param targetName name of one of the two duelists
+     */
+    public void cancelDuelByAdmin(CommandSender gm, String targetName) {
+        Player target = Bukkit.getPlayer(targetName);
+        if (target == null) {
+            gm.sendMessage(plugin.getMessageUtil().getSenderMessage(gm,
+                    "admin.duel-cancel-offline", "player", targetName));
+            return;
+        }
+
+        DuelRoom room = activeDuels.get(target.getUniqueId());
+        if (room == null || !room.isActive()) {
+            gm.sendMessage(plugin.getMessageUtil().getSenderMessage(gm,
+                    "admin.duel-cancel-not-in-duel", "player", target.getName()));
+            return;
+        }
+
+        Player p1 = Bukkit.getPlayer(room.getPlayer1());
+        Player p2 = Bukkit.getPlayer(room.getPlayer2());
+        if (p1 != null && p1.isOnline()) {
+            p1.sendMessage(getMsg(p1, "duel.cancelled-by-gm"));
+            removeScoreboard(p1);
+            p1.closeInventory();
+        }
+        if (p2 != null && p2.isOnline()) {
+            p2.sendMessage(getMsg(p2, "duel.cancelled-by-gm"));
+            removeScoreboard(p2);
+            p2.closeInventory();
+        }
+
+        room.setActive(false);
+        cancelWordTimeout(room);
+        cleanup(room);
+
+        gm.sendMessage(plugin.getMessageUtil().getSenderMessage(gm,
+                "admin.duel-cancelled",
+                "player1", room.getPlayer1Name(),
+                "player2", room.getPlayer2Name()));
+        plugin.getLogger().info("Duel between " + room.getPlayer1Name()
+                + " and " + room.getPlayer2Name()
+                + " was force-cancelled by GM " + gm.getName());
+    }
+
     private void cancelDuelInternal(DuelRoom room, String reason) {
         room.setActive(false);
+        cancelWordTimeout(room);
         Player p1 = Bukkit.getPlayer(room.getPlayer1());
         Player p2 = Bukkit.getPlayer(room.getPlayer2());
         if (p1 != null && p1.isOnline()) {
@@ -495,6 +653,10 @@ public class DuelManager {
         if (t1 != null) t1.cancel();
         BukkitTask t2 = graceTasks.remove(p2);
         if (t2 != null) t2.cancel();
+
+        // Cancel the single-question timeout (FIX-DUEL-01)
+        BukkitTask wt = wordTimeoutTasks.remove(p1);
+        if (wt != null) wt.cancel();
     }
 
     // ==================== Scoreboard ====================

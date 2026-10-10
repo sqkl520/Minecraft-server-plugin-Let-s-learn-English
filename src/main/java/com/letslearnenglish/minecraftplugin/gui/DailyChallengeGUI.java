@@ -20,7 +20,7 @@ import java.util.*;
  * 27-slot layout:
  *   Row 1 (0-8): header + back button
  *   Row 2 (9-17): 3 challenge slots at 11, 13, 15
- *   Row 3 (18-26): status / claim info
+ *   Row 3 (18-26): word-challenge visibility line (FIX-CHAL-01, slot 22)
  */
 public class DailyChallengeGUI {
 
@@ -86,6 +86,31 @@ public class DailyChallengeGUI {
                         messages.getString("gui.back-button")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
                         messages.getString("gui.back-lore")))));
+
+        // FIX-CHAL-01: cross-visibility (read-only) — word-challenge progress
+        // line at slot 22 (mirrors ChallengeCompleteGUI's center-bottom slot).
+        // Clicking does nothing (see MiscGUIListener.handleDailyChallenge);
+        // words are completed via learning, not claimed here.
+        int[] wordProgress = plugin.getDailyChallengeManager().getTodayWordProgress(player);
+        int wordDone = wordProgress[0];
+        int wordTotal = wordProgress[1];
+        Material wordMat = (wordTotal > 0 && wordDone >= wordTotal)
+                ? Material.LIME_DYE : Material.BOOK;
+        List<String> wordLore = new ArrayList<>();
+        wordLore.add(ChatColor.translateAlternateColorCodes('&',
+                messages.getString("daily.word-progress")
+                        .replace("{progress}", String.valueOf(wordDone))
+                        .replace("{total}", String.valueOf(wordTotal))));
+        wordLore.add(ChatColor.translateAlternateColorCodes('&',
+                messages.getString("daily.word-hint")));
+        if (wordTotal > 0 && wordDone >= wordTotal) {
+            wordLore.add(ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("daily.word-done")));
+        }
+        inv.setItem(22, createItem(wordMat,
+                ChatColor.translateAlternateColorCodes('&',
+                        messages.getString("daily.word-title")),
+                wordLore));
 
         player.openInventory(inv);
     }

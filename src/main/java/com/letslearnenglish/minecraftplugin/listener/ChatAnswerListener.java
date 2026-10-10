@@ -166,6 +166,9 @@ public class ChatAnswerListener implements Listener {
         // "答对+分"（broadcastCorrectAnswer，不含答案文本），见下方主线程回调。
         FileConfiguration msgs = messages;
         Bukkit.getScheduler().runTask(plugin, () -> {
+            // FEAT-MODE-01：按会话 mode 分流判定 — mode 取自 WordLearningManager，
+            // 判分收敛于 AnswerChecker.check（submitAnswer 内部调用），本分支只喂答案。
+            String mode = wlManager.getMode(player.getUniqueId());
             WordLearningManager.AnswerResult result = wlManager.submitAnswer(player, answer);
             if (result == null) {
                 return;
@@ -201,7 +204,6 @@ public class ChatAnswerListener implements Listener {
                 wlManager.showSessionComplete(player, result);
             } else {
                 String difficulty = wlManager.getDifficulty(player.getUniqueId());
-                String mode = wlManager.getMode(player.getUniqueId());
                 new WordLearningGUI(plugin).openWithMessage(player, difficulty, mode);
             }
         });

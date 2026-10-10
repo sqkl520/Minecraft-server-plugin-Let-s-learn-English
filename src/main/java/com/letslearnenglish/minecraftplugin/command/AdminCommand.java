@@ -21,6 +21,7 @@ import java.io.File;
  * - /lea export     Export player learning data
  * - /lea reset      Reset a player's learning data
  * - /lea info       Show plugin information
+ * - /lea duel cancel &lt;player&gt;  Force-dismiss an active word duel (GM adjudication)
  */
 public class AdminCommand implements CommandExecutor, TabCompleter {
 
@@ -28,7 +29,7 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
 
     private static final List<String> SUBCOMMANDS = Arrays.asList(
             "reload", "export", "reset", "info", "help", "ignore-update", "broadcast",
-            "exportwordbank", "importwordbank"
+            "exportwordbank", "importwordbank", "duel"
     );
 
     public AdminCommand(LetsLearnEnglish plugin) {
@@ -79,6 +80,9 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                 break;
             case "broadcast":
                 handleBroadcast(sender, args);
+                break;
+            case "duel":
+                handleDuelCancel(sender, args);
                 break;
             case "exportwordbank":
                 if (args.length > 1) {
@@ -146,6 +150,27 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
         plugin.getLogger().info("Global broadcast sent by " + sender.getName() + ": " + message);
     }
 
+    /**
+     * FIX-DUEL-01: GM duel dismissal — {@code /lea duel cancel <player>}.
+     * Works from console too (CommandSender, not just Player). Only one
+     * verb (cancel) is supported; anything else prints usage.
+     */
+    private void handleDuelCancel(CommandSender sender, String[] args) {
+        if (args.length < 3 || !"cancel".equalsIgnoreCase(args[1])) {
+            sender.sendMessage(plugin.getMessageUtil()
+                    .getSenderMessage(sender, "admin.usage-duel-cancel"));
+            return;
+        }
+        var duelManager = plugin.getDuelManager();
+        if (duelManager == null) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                    "general.error", "message",
+                    plugin.getMessageUtil().getSenderMessage(sender, "error.duel-unavailable")));
+            return;
+        }
+        duelManager.cancelDuelByAdmin(sender, args[2]);
+    }
+
     private void sendPluginInfo(CommandSender sender) {
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "plugin-info.header"));
@@ -185,6 +210,8 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "admin-help.broadcast"));
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "admin-help.duel-cancel"));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "admin-help.footer"));
     }
 
@@ -199,7 +226,12 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                 }
             }
         } else if (args.length == 2) {
-            if ("reset".equalsIgnoreCase(args[0])) {
+            if ("duel".equalsIgnoreCase(args[0])) {
+                // FIX-DUEL-01: /lea duel <cancel>
+                if ("cancel".startsWith(args[1].toLowerCase())) {
+                    completions.add("cancel");
+                }
+            } else if ("reset".equalsIgnoreCase(args[0])) {
                 plugin.getServer().getOnlinePlayers().stream()
                         .map(Player::getName)
                         .filter(name -> name.toLowerCase().startsWith(args[1].toLowerCase()))
@@ -226,6 +258,14 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                     }
                 }
             }
+        } else if (args.length == 3
+                && "duel".equalsIgnoreCase(args[0])
+                && "cancel".equalsIgnoreCase(args[1])) {
+            // FIX-DUEL-01: /lea duel cancel <player> — complete online players
+            plugin.getServer().getOnlinePlayers().stream()
+                    .map(Player::getName)
+                    .filter(name -> name.toLowerCase().startsWith(args[2].toLowerCase()))
+                    .forEach(completions::add);
         }
 
         return completions;

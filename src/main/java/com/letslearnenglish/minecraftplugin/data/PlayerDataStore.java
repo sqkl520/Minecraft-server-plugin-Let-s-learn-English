@@ -50,6 +50,9 @@ public class PlayerDataStore {
     private final Map<UUID, ProfileSettings> profileSettingsCache;
     private final Map<UUID, Map<String, DifficultWord>> difficultWordsCache;
     private final Map<UUID, Map<String, Integer>> wrongCountCache;
+    // H10：玩家名缓存（join 时由主线程写入，savePlayerData 读出随 UPSERT 落盘）。
+    // 不走 Bukkit API，保证异步保存线程安全；quit 时随 unload 清理。
+    private final Map<UUID, String> playerNameCache;
 
     // ===== 今日计数器（内存懒清零，服务器时区自然日）=====
     // 每个条目记录 (日期, 计数)；读写时若日期 != 今天则视为 0 并顺手重置。
@@ -71,6 +74,7 @@ public class PlayerDataStore {
         this.profileSettingsCache = new ConcurrentHashMap<>();
         this.difficultWordsCache = new ConcurrentHashMap<>();
         this.wrongCountCache = new ConcurrentHashMap<>();
+        this.playerNameCache = new ConcurrentHashMap<>();
         this.todayAnswerCountCache = new ConcurrentHashMap<>();
         this.todayAiRoundCache = new ConcurrentHashMap<>();
     }
@@ -453,15 +457,17 @@ public class PlayerDataStore {
                 // 保存玩家统计数据到 player_data 表
                 PlayerStats stats = playerStatsCache.get(playerId);
                 if (stats != null) {
+                    // H10：UPSERT 携带 player_name；COALESCE 保证缓存缺失（null）时不覆盖已有名字
                     String statsSql = databaseManager.isSQLite()
-                            ? "INSERT INTO " + tablePrefix + "player_data (uuid, total_words_learned, total_sessions, total_score, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(uuid) DO UPDATE SET total_words_learned=excluded.total_words_learned, total_sessions=excluded.total_sessions, total_score=excluded.total_score, updated_at=excluded.updated_at"
-                            : "INSERT INTO " + tablePrefix + "player_data (uuid, total_words_learned, total_sessions, total_score, updated_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE total_words_learned=VALUES(total_words_learned), total_sessions=VALUES(total_sessions), total_score=VALUES(total_score), updated_at=VALUES(updated_at)";
+                            ? "INSERT INTO " + tablePrefix + "player_data (uuid, player_name, total_words_learned, total_sessions, total_score, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(uuid) DO UPDATE SET player_name=COALESCE(excluded.player_name, player_name), total_words_learned=excluded.total_words_learned, total_sessions=excluded.total_sessions, total_score=excluded.total_score, updated_at=excluded.updated_at"
+                            : "INSERT INTO " + tablePrefix + "player_data (uuid, player_name, total_words_learned, total_sessions, total_score, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE player_name=COALESCE(VALUES(player_name), player_name), total_words_learned=VALUES(total_words_learned), total_sessions=VALUES(total_sessions), total_score=VALUES(total_score), updated_at=VALUES(updated_at)";
                     try (PreparedStatement statsStmt = conn.prepareStatement(statsSql)) {
                         statsStmt.setString(1, playerId.toString());
-                        statsStmt.setInt(2, stats.getTotalWords());
-                        statsStmt.setInt(3, stats.getTotalSessions());
-                        statsStmt.setLong(4, stats.getTotalScore());
-                        statsStmt.setLong(5, System.currentTimeMillis());
+                        statsStmt.setString(2, playerNameCache.get(playerId));
+                        statsStmt.setInt(3, stats.getTotalWords());
+                        statsStmt.setInt(4, stats.getTotalSessions());
+                        statsStmt.setLong(5, stats.getTotalScore());
+                        statsStmt.setLong(6, System.currentTimeMillis());
                         statsStmt.executeUpdate();
                     }
                 }
@@ -633,6 +639,47 @@ public class PlayerDataStore {
     }
 
     /**
+     * H5：普通学习结算时写入复习种子。
+     * 仅当词条没有任何复习进度（无 lastReviewTime 且无 reviewCount）时才写：
+     * lastReviewTime=now、reviewCount=0。已有种子或已进入复习流程的词不动，
+     * 避免覆盖真实的复习间隔进度。
+     */
+    public void seedReview(UUID playerId, String word) {
+        String wordLower = word.toLowerCase();
+
+        Map<String, Long> reviewTimes = lastReviewTimeCache.computeIfAbsent(
+                playerId, k -> new ConcurrentHashMap<>());
+        if (reviewTimes.containsKey(wordLower)) {
+            return;
+        }
+        Map<String, Integer> reviewCounts = reviewCountCache.computeIfAbsent(
+                playerId, k -> new ConcurrentHashMap<>());
+        if (reviewCounts.containsKey(wordLower)) {
+            return;
+        }
+
+        reviewTimes.put(wordLower, System.currentTimeMillis());
+        reviewCounts.put(wordLower, 0);
+    }
+
+    /**
+     * H5：复习答错时重置该词的间隔进度。
+     * reviewCount 归零 + lastReviewTime=now，下次 due = now + intervals[0]
+     * （默认 1h 后再次提醒），而不是直接晋级到更长的间隔。
+     */
+    public void resetReview(UUID playerId, String word) {
+        String wordLower = word.toLowerCase();
+
+        Map<String, Long> reviewTimes = lastReviewTimeCache.computeIfAbsent(
+                playerId, k -> new ConcurrentHashMap<>());
+        reviewTimes.put(wordLower, System.currentTimeMillis());
+
+        Map<String, Integer> reviewCounts = reviewCountCache.computeIfAbsent(
+                playerId, k -> new ConcurrentHashMap<>());
+        reviewCounts.put(wordLower, 0);
+    }
+
+    /**
      * Check if a player is currently in a learning session.
      */
     public boolean isPlayerInSession(UUID playerId) {
@@ -665,6 +712,7 @@ public class PlayerDataStore {
         masteredWordsCache.remove(playerId);
         difficultWordsCache.remove(playerId);
         wrongCountCache.remove(playerId);
+        playerNameCache.remove(playerId);
     }
 
     /**
@@ -682,6 +730,7 @@ public class PlayerDataStore {
         masteredWordsCache.clear();
         difficultWordsCache.clear();
         wrongCountCache.clear();
+        playerNameCache.clear();
     }
 
     /**
@@ -717,8 +766,10 @@ public class PlayerDataStore {
         public int getTotalSessions() { return totalSessions; }
         public long getTotalScore() { return totalScore; }
 
+        // M10："已学单词"只计答对（答错进错题本，不算学会）。
+        // load 重建与 save 落盘两侧都经此方法，口径天然一致。
         public int getTotalWords() {
-            return totalCorrect + totalIncorrect;
+            return totalCorrect;
         }
     }
 
@@ -814,6 +865,57 @@ public class PlayerDataStore {
             return offlinePlayer.getName();
         }
         return playerId.toString();
+    }
+
+    /**
+     * H10：缓存玩家名（供 savePlayerData 落盘 player_name 列）。
+     * 由 PlayerJoinListener 在主线程写入；列宽 VARCHAR(32)，超长截断。
+     */
+    public void cachePlayerName(UUID playerId, String name) {
+        if (playerId == null || name == null || name.isEmpty()) {
+            return;
+        }
+        String trimmed = name.length() > 32 ? name.substring(0, 32) : name;
+        playerNameCache.put(playerId, trimmed);
+    }
+
+    /**
+     * M9：将会话连击峰值落盘到 longest_streak（只增不减）。
+     * 先 INSERT 保行（玩家可能从未 save 过），再条件 UPDATE 取 max。
+     * 调用方（AchievementManager.checkStreakAchievement）跑在主线程，
+     * 单条 SQL 很快，直接同步执行即可。
+     */
+    public void persistLongestStreak(UUID playerId, int streak) {
+        if (streak <= 0) {
+            return;
+        }
+        String tablePrefix = databaseManager.getTablePrefix();
+        String insertSql = databaseManager.isSQLite()
+                ? "INSERT OR IGNORE INTO " + tablePrefix + "player_data (uuid, longest_streak) VALUES (?, ?)"
+                : "INSERT IGNORE INTO " + tablePrefix + "player_data (uuid, longest_streak) VALUES (?, ?)";
+        String updateSql = "UPDATE " + tablePrefix
+                + "player_data SET longest_streak = ?, updated_at = ? WHERE uuid = ? AND (longest_streak IS NULL OR longest_streak < ?)";
+
+        Connection conn = databaseManager.getConnection();
+        synchronized (databaseManager.getConnectionLock()) {
+        try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+            insertStmt.setString(1, playerId.toString());
+            insertStmt.setInt(2, streak);
+            insertStmt.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to ensure player_data row: " + playerId, e);
+            return;
+        }
+        try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
+            updateStmt.setInt(1, streak);
+            updateStmt.setLong(2, System.currentTimeMillis());
+            updateStmt.setString(3, playerId.toString());
+            updateStmt.setInt(4, streak);
+            updateStmt.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to persist longest_streak: " + playerId, e);
+        }
+        }
     }
 
     public void clearProfileCache() {

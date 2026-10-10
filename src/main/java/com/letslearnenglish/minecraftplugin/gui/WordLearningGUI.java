@@ -2,6 +2,7 @@ package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
+import com.letslearnenglish.minecraftplugin.core.word.AnswerChecker;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
 import org.bukkit.Bukkit;
@@ -63,31 +64,16 @@ public class WordLearningGUI {
         double multiplier = wlManager.getComboMultiplier(combo);
 
         if (currentWord != null) {
-            String wordLabel = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("word-learning-gui.current-word")
-                            .replace("{chinese}", currentWord.getChinese()));
-
-            String phoneticStr = currentWord.getPhonetic();
-            String phoneticLine = "";
-            if (phoneticStr != null && !phoneticStr.isEmpty()) {
-                phoneticLine = ChatColor.translateAlternateColorCodes('&', "&7" +
-                        messages.getString("word.phonetic-label")
-                        + ": &f" + phoneticStr);
-            }
-
-            String viewLore = ChatColor.translateAlternateColorCodes('&', "&7" +
-                    messages.getString("word-learning-gui.current-word-lore-1"));
-
-            String[] loreLines;
-            if (!phoneticLine.isEmpty()) {
-                loreLines = new String[] { phoneticLine, viewLore };
+            // FEAT-MODE-01：当前单词卡按 mode 渲染。出题展示阶段不泄露答案：
+            // choice 正确项不加亮、fill 空不带答案。槽位/材质配置键不动。
+            String mode = state.mode;
+            if (AnswerChecker.isChoice(mode)) {
+                renderChoiceOptions(inv, cm, messages, wlManager, player, currentWord);
+            } else if (AnswerChecker.isFillBlank(mode)) {
+                renderFillBlankCard(inv, cm, messages, currentWord);
             } else {
-                loreLines = new String[] { viewLore };
+                renderSpellingCard(inv, cm, messages, currentWord);
             }
-
-            inv.setItem(cm.getGuiSlot("word-learning", "current-word", 13),
-                    createItem(cm.getGuiMaterial("word-learning", "current-word", Material.BOOK),
-                            wordLabel, loreLines));
         }
 
         // Pronunciation button
@@ -133,8 +119,92 @@ public class WordLearningGUI {
         inv.setItem(cm.getGuiSlot("word-learning", "back-button", 8), createItem(cm.getGuiMaterial("word-learning", "back-button", Material.RED_STAINED_GLASS_PANE), backLabel, backLore));
     }
 
-    private String getComboLabel(int combo, double multiplier, FileConfiguration messages) {
-        if (combo <= 0) {
+    /**
+     * FEAT-MODE-01：spelling 渲染 — 保持现状（中文 + 音标 + 关闭界面提示）。
+     */
+    private void renderSpellingCard(Inventory inv, ConfigManager cm,
+                                    FileConfiguration messages, Word currentWord) {
+        String wordLabel = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("word-learning-gui.current-word")
+                        .replace("{chinese}", currentWord.getChinese()));
+
+        String phoneticStr = currentWord.getPhonetic();
+        String phoneticLine = "";
+        if (phoneticStr != null && !phoneticStr.isEmpty()) {
+            phoneticLine = ChatColor.translateAlternateColorCodes('&', "&7" +
+                    messages.getString("word.phonetic-label")
+                    + ": &f" + phoneticStr);
+        }
+
+        String viewLore = ChatColor.translateAlternateColorCodes('&', "&7" +
+                messages.getString("word-learning-gui.current-word-lore-1"));
+
+        String[] loreLines;
+        if (!phoneticLine.isEmpty()) {
+            loreLines = new String[] { phoneticLine, viewLore };
+        } else {
+            loreLines = new String[] { viewLore };
+        }
+
+        inv.setItem(cm.getGuiSlot("word-learning", "current-word", 13),
+                createItem(cm.getGuiMaterial("word-learning", "current-word", Material.BOOK),
+                        wordLabel, loreLines));
+    }
+
+    /**
+     * FEAT-MODE-01：choice 渲染 — 中文题面卡（原槽位）+ 4 选项 lore 行。
+     * 选项快照与判分共用 {@link WordLearningManager#getChoiceOptions} 同一份，
+     * 正确项不做任何高亮标记。选项不足 4 个（词库过小）时按实际数量渲染。
+     */
+    private void renderChoiceOptions(Inventory inv, ConfigManager cm,
+                                     FileConfiguration messages, WordLearningManager wlManager,
+                                     Player player, Word currentWord) {
+        String wordLabel = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("word-learning-gui.current-word")
+                        .replace("{chinese}", currentWord.getChinese()));
+
+        java.util.List<String> lore = new java.util.ArrayList<>();
+        lore.add(ChatColor.translateAlternateColorCodes('&', "&7" +
+                messages.getString("word-learning-gui.current-word-lore-choice")));
+
+        java.util.List<Word> options = wlManager.getChoiceOptions(player.getUniqueId());
+        if (options != null) {
+            for (int i = 0; i < options.size(); i++) {
+                lore.add(ChatColor.translateAlternateColorCodes('&',
+                        messages.getString("word-learning-gui.choice-option")
+                                .replace("{letter}", String.valueOf(AnswerChecker.indexToLetter(i)))
+                                .replace("{word}", options.get(i).getEnglish())));
+            }
+        }
+
+        inv.setItem(cm.getGuiSlot("word-learning", "current-word", 13),
+                createItem(cm.getGuiMaterial("word-learning", "current-word", Material.BOOK),
+                        wordLabel, lore.toArray(new String[0])));
+    }
+
+    /**
+     * FEAT-MODE-01：fill_blank 渲染 — 挖空例句卡 + 首字母提示 lore。
+     * 空位不带答案（缺例句/例句不含目标词时显示纯 "_____"）。
+     */
+    private void renderFillBlankCard(Inventory inv, ConfigManager cm,
+                                     FileConfiguration messages, Word currentWord) {
+        String sentenceLabel = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("word-learning-gui.fill-blank-sentence")
+                        .replace("{sentence}", AnswerChecker.blankSentence(currentWord)));
+
+        String hintLine = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("word-learning-gui.fill-blank-hint")
+                        .replace("{letter}", AnswerChecker.firstLetterHint(currentWord)));
+
+        String viewLore = ChatColor.translateAlternateColorCodes('&', "&7" +
+                messages.getString("word-learning-gui.current-word-lore-1"));
+
+        inv.setItem(cm.getGuiSlot("word-learning", "current-word", 13),
+                createItem(cm.getGuiMaterial("word-learning", "current-word", Material.BOOK),
+                        sentenceLabel, new String[] { hintLine, viewLore }));
+    }
+
+    private String getComboLabel(int combo, double multiplier, FileConfiguration messages) {        if (combo <= 0) {
             return ChatColor.translateAlternateColorCodes('&', "&7" +
                     messages.getString("word-learning-gui.combo-none"));
         }

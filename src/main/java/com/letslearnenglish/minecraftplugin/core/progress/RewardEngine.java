@@ -310,7 +310,7 @@ public class RewardEngine {
             double baseAmount = plugin.getConfigManager().getMainConfig()
                     .getDouble("progress-system.rewards.types.money.base-amount", 10.0);
             double reviewMultiplier = plugin.getConfigManager().getMainConfig()
-                    .getDouble("progress-system.rewards.types.money.review-multiplier", 0.5);
+                    .getDouble("progress-system.rewards.types.money.review-multiplier", 1.2);
             boolean comboBonus = plugin.getConfigManager().getMainConfig()
                     .getBoolean("progress-system.rewards.types.money.combo-bonus", true);
 

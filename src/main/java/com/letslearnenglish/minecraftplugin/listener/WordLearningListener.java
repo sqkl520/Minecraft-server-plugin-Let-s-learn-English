@@ -2,6 +2,7 @@ package com.letslearnenglish.minecraftplugin.listener;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.core.word.AnswerChecker;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
@@ -12,6 +13,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Listener for Word Learning GUI interactions and inventory close events.
@@ -19,6 +21,8 @@ import org.bukkit.event.inventory.InventoryCloseEvent;
 public class WordLearningListener implements Listener {
 
     private final LetsLearnEnglish plugin;
+    // M20：发音按钮 per-player 冷却（毫秒时间戳），防连点刷 API
+    private final java.util.Map<java.util.UUID, Long> pronounceCooldown = new ConcurrentHashMap<>();
 
     public WordLearningListener(LetsLearnEnglish plugin) {
         this.plugin = plugin;
@@ -71,11 +75,40 @@ public class WordLearningListener implements Listener {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
         int timeout = wlManager.getAnswerTimeout();
+        String mode = wlManager.getMode(player.getUniqueId());
 
-        player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-learning-gui.answer-prompt")
-                        .replace("{chinese}", currentWord.getChinese())
-                        .replace("{seconds}", String.valueOf(timeout))));
+        // FEAT-MODE-01：答题提示按 mode 渲染（判定收敛于 AnswerChecker，这里只做展示）。
+        if (AnswerChecker.isChoice(mode)) {
+            player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("word-learning-gui.answer-prompt-choice")
+                            .replace("{chinese}", currentWord.getChinese())
+                            .replace("{seconds}", String.valueOf(timeout))));
+            java.util.List<Word> options = wlManager.getChoiceOptions(player.getUniqueId());
+            if (options != null) {
+                for (int i = 0; i < options.size(); i++) {
+                    player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                            messages.getString("word-learning-gui.choice-option")
+                                    .replace("{letter}", String.valueOf(AnswerChecker.indexToLetter(i)))
+                                    .replace("{word}", options.get(i).getEnglish())));
+                }
+            }
+        } else if (AnswerChecker.isFillBlank(mode)) {
+            player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("word-learning-gui.answer-prompt-fill-blank")
+                            .replace("{chinese}", currentWord.getChinese())
+                            .replace("{seconds}", String.valueOf(timeout))));
+            player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("word-learning-gui.fill-blank-sentence")
+                            .replace("{sentence}", AnswerChecker.blankSentence(currentWord))));
+            player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("word-learning-gui.fill-blank-hint")
+                            .replace("{letter}", AnswerChecker.firstLetterHint(currentWord))));
+        } else {
+            player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("word-learning-gui.answer-prompt")
+                            .replace("{chinese}", currentWord.getChinese())
+                            .replace("{seconds}", String.valueOf(timeout))));
+        }
 
         wlManager.startAnswerTimer(player);
     }
@@ -119,6 +152,20 @@ public class WordLearningListener implements Listener {
             player.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
             return;
         }
+
+        // M20：冷却内点击只提示，不调 API
+        int cooldownSeconds = Math.max(1, plugin.getConfigManager().getMainConfig()
+                .getInt("tts.pronounce-cooldown-seconds", 5));
+        long now = System.currentTimeMillis();
+        Long lastClick = pronounceCooldown.get(player.getUniqueId());
+        if (lastClick != null && now - lastClick < cooldownSeconds * 1000L) {
+            long remain = cooldownSeconds - (now - lastClick) / 1000L;
+            SoundManager.playSound(player, "incorrect");
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "word.pronunciation-cooldown", "seconds", String.valueOf(Math.max(1, remain))));
+            return;
+        }
+        pronounceCooldown.put(player.getUniqueId(), now);
 
         SoundManager.playSound(player, "menu-click");
         ttsManager.playPronunciationCue(player);

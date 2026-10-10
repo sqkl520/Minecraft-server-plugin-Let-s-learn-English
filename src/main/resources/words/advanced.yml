@@ -53,7 +53,7 @@ words:
     example_sentence: "His health began to deteriorate rapidly."
     synonyms:
       - "worsen"
-      - "decline"
+      - "weaken"
     antonyms:
       - "improve"
       - "recover"
@@ -61,7 +61,7 @@ words:
 
   - english: "elaborate"
     chinese: "精心制作的；详细阐述"
-    part_of_speech: "adjective/verb"
+    part_of_speech: "verb"
     phonetic: "/ɪˈlæb.ər.ət/"
     example_sentence: "Could you elaborate on your proposal?"
     synonyms:
@@ -134,3 +134,3252 @@ words:
       - "event"
     antonyms: []
     difficulty_level: 7
+
+  - english: "accessible"
+    chinese: "易接近的；可获得的"
+    part_of_speech: "adjective"
+    phonetic: "/əkˈses.ə.bəl/"
+    example_sentence: "The library is accessible to all students."
+    synonyms:
+      - "available"
+      - "reachable"
+    antonyms:
+      - "inaccessible"
+    difficulty_level: 7
+
+  - english: "accurate"
+    chinese: "准确的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈæk.jə.rət/"
+    example_sentence: "The report gives an accurate picture of the market."
+    synonyms:
+      - "precise"
+      - "exact"
+    antonyms:
+      - "inaccurate"
+    difficulty_level: 7
+
+  - english: "adapt"
+    chinese: "适应"
+    part_of_speech: "verb"
+    phonetic: "/əˈdæpt/"
+    example_sentence: "She adapted quickly to city life."
+    synonyms:
+      - "adjust"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "adequate"
+    chinese: "足够的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈæd.ɪ.kwət/"
+    example_sentence: "The room is adequate for our needs."
+    synonyms:
+      - "sufficient"
+    antonyms:
+      - "inadequate"
+    difficulty_level: 7
+
+  - english: "adjust"
+    chinese: "调整"
+    part_of_speech: "verb"
+    phonetic: "/əˈdʒʌst/"
+    example_sentence: "He adjusted the seat and sat down comfortably."
+    synonyms:
+      - "adapt"
+      - "modify"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "adolescent"
+    chinese: "青少年"
+    part_of_speech: "noun"
+    phonetic: "/ˌæd.əˈles.ənt/"
+    example_sentence: "The program helps adolescents find summer jobs."
+    synonyms:
+      - "teenager"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "advocate"
+    chinese: "提倡；拥护"
+    part_of_speech: "verb"
+    phonetic: "/ˈæd.və.keɪt/"
+    example_sentence: "Doctors advocate a balanced diet and regular sleep."
+    synonyms:
+      - "promote"
+      - "support"
+    antonyms:
+      - "oppose"
+    difficulty_level: 7
+
+  - english: "alert"
+    chinese: "警觉的"
+    part_of_speech: "adjective"
+    phonetic: "/əˈlɜːt/"
+    example_sentence: "Guards stayed alert through the whole night."
+    synonyms:
+      - "vigilant"
+      - "watchful"
+    antonyms:
+      - "careless"
+    difficulty_level: 7
+
+  - english: "align"
+    chinese: "对齐；结盟"
+    part_of_speech: "verb"
+    phonetic: "/əˈlaɪn/"
+    example_sentence: "Align the pictures with the edge of the page."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "alter"
+    chinese: "改变"
+    part_of_speech: "verb"
+    phonetic: "/ˈɒl.tər/"
+    example_sentence: "They altered the plan at the last minute."
+    synonyms:
+      - "change"
+      - "modify"
+    antonyms:
+      - "preserve"
+    difficulty_level: 7
+
+  - english: "amiable"
+    chinese: "和蔼的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈeɪ.mi.ə.bəl/"
+    example_sentence: "Our amiable host welcomed every guest warmly."
+    synonyms:
+      - "friendly"
+    antonyms:
+      - "hostile"
+    difficulty_level: 7
+
+  - english: "ample"
+    chinese: "充足的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈæm.pəl/"
+    example_sentence: "We have ample time to finish the project."
+    synonyms:
+      - "sufficient"
+      - "plentiful"
+    antonyms:
+      - "scarce"
+    difficulty_level: 7
+
+  - english: "anticipate"
+    chinese: "预期"
+    part_of_speech: "verb"
+    phonetic: "/ænˈtɪs.ɪ.peɪt/"
+    example_sentence: "We anticipate a busy summer season this year."
+    synonyms:
+      - "expect"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "applaud"
+    chinese: "鼓掌；赞许"
+    part_of_speech: "verb"
+    phonetic: "/əˈplɔːd/"
+    example_sentence: "The audience applauded the performance loudly."
+    synonyms:
+      - "acclaim"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "appliance"
+    chinese: "器具；器械"
+    part_of_speech: "noun"
+    phonetic: "/əˈplaɪ.əns/"
+    example_sentence: "The shop sells all kinds of household appliances."
+    synonyms:
+      - "device"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "applicant"
+    chinese: "申请人"
+    part_of_speech: "noun"
+    phonetic: "/ˈæp.lɪ.kənt/"
+    example_sentence: "Each applicant must pass a short interview."
+    synonyms:
+      - "candidate"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "aroma"
+    chinese: "芬芳"
+    part_of_speech: "noun"
+    phonetic: "/əˈrəʊ.mə/"
+    example_sentence: "The aroma of fresh bread filled the small shop."
+    synonyms:
+      - "fragrance"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "assemble"
+    chinese: "集合；组装"
+    part_of_speech: "verb"
+    phonetic: "/əˈsem.bəl/"
+    example_sentence: "Workers assembled the engine in a single day."
+    synonyms:
+      - "gather"
+    antonyms:
+      - "disperse"
+    difficulty_level: 7
+
+  - english: "assess"
+    chinese: "评估"
+    part_of_speech: "verb"
+    phonetic: "/əˈses/"
+    example_sentence: "Teachers assess students through written exams."
+    synonyms:
+      - "evaluate"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "assure"
+    chinese: "保证"
+    part_of_speech: "verb"
+    phonetic: "/əˈʃɔːr/"
+    example_sentence: "The pilot assured us that the flight was safe."
+    synonyms:
+      - "guarantee"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "awe"
+    chinese: "敬畏"
+    part_of_speech: "noun"
+    phonetic: "/ɔː/"
+    example_sentence: "They gazed in awe at the great waterfall."
+    synonyms:
+      - "wonder"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "bachelor"
+    chinese: "学士；单身汉"
+    part_of_speech: "noun"
+    phonetic: "/ˈbætʃ.əl.ər/"
+    example_sentence: "He earned a bachelor of science degree last June."
+    synonyms:
+      - "graduate"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "banquet"
+    chinese: "宴会"
+    part_of_speech: "noun"
+    phonetic: "/ˈbæŋ.kwɪt/"
+    example_sentence: "The wedding banquet lasted the whole evening."
+    synonyms:
+      - "feast"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "behalf"
+    chinese: "代表"
+    part_of_speech: "noun"
+    phonetic: "/bɪˈhɑːf/"
+    example_sentence: "The lawyer spoke on behalf of his client."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "beware"
+    chinese: "小心；谨防"
+    part_of_speech: "verb"
+    phonetic: "/bɪˈweər/"
+    example_sentence: "Beware of pickpockets in crowded stations."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "bilingual"
+    chinese: "双语的"
+    part_of_speech: "adjective"
+    phonetic: "/baɪˈlɪŋ.ɡwəl/"
+    example_sentence: "The bilingual guide speaks English and French."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "blend"
+    chinese: "混合"
+    part_of_speech: "verb"
+    phonetic: "/blend/"
+    example_sentence: "The artist blended blue and yellow paint together."
+    synonyms:
+      - "mix"
+    antonyms:
+      - "separate"
+    difficulty_level: 7
+
+  - english: "blizzard"
+    chinese: "暴风雪"
+    part_of_speech: "noun"
+    phonetic: "/ˈblɪz.əd/"
+    example_sentence: "A blizzard closed all the schools in the city."
+    synonyms:
+      - "snowstorm"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "bloom"
+    chinese: "开花"
+    part_of_speech: "verb"
+    phonetic: "/bluːm/"
+    example_sentence: "Cherry trees bloom in spring every year."
+    synonyms:
+      - "flower"
+    antonyms:
+      - "wither"
+    difficulty_level: 7
+
+  - english: "blunt"
+    chinese: "钝的；直率的"
+    part_of_speech: "adjective"
+    phonetic: "/blʌnt/"
+    example_sentence: "He gave a blunt answer to the tricky question."
+    synonyms:
+      - "direct"
+    antonyms:
+      - "sharp"
+    difficulty_level: 7
+
+  - english: "boast"
+    chinese: "自夸"
+    part_of_speech: "verb"
+    phonetic: "/bəʊst/"
+    example_sentence: "He boasted about his new car to his friends."
+    synonyms:
+      - "brag"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "boycott"
+    chinese: "抵制"
+    part_of_speech: "verb"
+    phonetic: "/ˈbɔɪ.kɒt/"
+    example_sentence: "Customers decided to boycott the dishonest shop."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "breach"
+    chinese: "违反；缺口"
+    part_of_speech: "noun"
+    phonetic: "/briːtʃ/"
+    example_sentence: "The company was fined for a breach of contract."
+    synonyms:
+      - "violation"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "broaden"
+    chinese: "拓宽"
+    part_of_speech: "verb"
+    phonetic: "/ˈbrɔː.dən/"
+    example_sentence: "Travel helps to broaden our minds."
+    synonyms:
+      - "widen"
+    antonyms:
+      - "narrow"
+    difficulty_level: 7
+
+  - english: "brutal"
+    chinese: "残酷的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈbruː.təl/"
+    example_sentence: "The brutal winter killed most of the crops."
+    synonyms:
+      - "cruel"
+      - "harsh"
+    antonyms:
+      - "gentle"
+    difficulty_level: 7
+
+  - english: "budget"
+    chinese: "预算"
+    part_of_speech: "noun"
+    phonetic: "/ˈbʌdʒ.ɪt/"
+    example_sentence: "Our travel budget is quite limited this year."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "bulk"
+    chinese: "大量；体积"
+    part_of_speech: "noun"
+    phonetic: "/bʌlk/"
+    example_sentence: "The bulk of the work was finished by Friday."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "bureaucracy"
+    chinese: "官僚制度"
+    part_of_speech: "noun"
+    phonetic: "/bjʊəˈrɒk.rə.si/"
+    example_sentence: "The new system cuts through bureaucracy and saves time."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "calamity"
+    chinese: "灾难"
+    part_of_speech: "noun"
+    phonetic: "/kəˈlæm.ə.ti/"
+    example_sentence: "The flood was a great calamity for the village."
+    synonyms:
+      - "disaster"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "candid"
+    chinese: "坦率的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈkæn.dɪd/"
+    example_sentence: "She gave a candid account of her mistakes."
+    synonyms:
+      - "frank"
+      - "honest"
+    antonyms:
+      - "evasive"
+    difficulty_level: 7
+
+  - english: "proficient"
+    chinese: "熟练的；精通的"
+    part_of_speech: "adjective"
+    phonetic: "/prəˈfɪʃ.ənt/"
+    example_sentence: "She is proficient in three foreign languages."
+    synonyms:
+      - "skilled"
+      - "competent"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "caption"
+    chinese: "标题；说明文字"
+    part_of_speech: "noun"
+    phonetic: "/ˈkæp.ʃən/"
+    example_sentence: "Each photo in the book has a short caption."
+    synonyms:
+      - "title"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "captivate"
+    chinese: "迷住；吸引"
+    part_of_speech: "verb"
+    phonetic: "/ˈkæp.tɪ.veɪt/"
+    example_sentence: "The singer captivated the audience with her voice."
+    synonyms:
+      - "enchant"
+      - "fascinate"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "captive"
+    chinese: "被俘的；被迷住的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈkæp.tɪv/"
+    example_sentence: "The speaker held the captive audience for two hours."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "carve"
+    chinese: "雕刻"
+    part_of_speech: "verb"
+    phonetic: "/kɑːv/"
+    example_sentence: "He carved his name on the wooden desk."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "cascade"
+    chinese: "瀑布；倾泻"
+    part_of_speech: "noun"
+    phonetic: "/kæsˈkeɪd/"
+    example_sentence: "A small cascade falls behind the old temple."
+    synonyms:
+      - "waterfall"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "casualty"
+    chinese: "伤亡者"
+    part_of_speech: "noun"
+    phonetic: "/ˈkæʒ.ju.əl.ti/"
+    example_sentence: "The earthquake caused only one casualty in the village."
+    synonyms:
+      - "victim"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "cater"
+    chinese: "迎合；提供饮食"
+    part_of_speech: "verb"
+    phonetic: "/ˈkeɪ.tər/"
+    example_sentence: "The restaurant caters for large wedding parties."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "vigilance"
+    chinese: "警觉；警惕"
+    part_of_speech: "noun"
+    phonetic: "/ˈvɪdʒ.ɪ.ləns/"
+    example_sentence: "Constant vigilance keeps the camp safe at night."
+    synonyms:
+      - "watchfulness"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "cease"
+    chinese: "停止"
+    part_of_speech: "verb"
+    phonetic: "/siːs/"
+    example_sentence: "The factory ceased production last winter."
+    synonyms:
+      - "stop"
+    antonyms:
+      - "continue"
+    difficulty_level: 7
+
+  - english: "census"
+    chinese: "人口普查"
+    part_of_speech: "noun"
+    phonetic: "/ˈsen.səs/"
+    example_sentence: "The census takes place every ten years."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "certify"
+    chinese: "证明；发证书"
+    part_of_speech: "verb"
+    phonetic: "/ˈsɜː.tɪ.faɪ/"
+    example_sentence: "The board agreed to certify him as an engineer."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "champagne"
+    chinese: "香槟酒"
+    part_of_speech: "noun"
+    phonetic: "/ʃæmˈpeɪn/"
+    example_sentence: "They opened a bottle of champagne to celebrate."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "chaos"
+    chinese: "混乱"
+    part_of_speech: "noun"
+    phonetic: "/ˈkeɪ.ɒs/"
+    example_sentence: "The strike caused chaos at the train station."
+    synonyms:
+      - "disorder"
+    antonyms:
+      - "order"
+    difficulty_level: 7
+
+  - english: "characterize"
+    chinese: "描述…的特征"
+    part_of_speech: "verb"
+    phonetic: "/ˈkær.ək.tər.aɪz/"
+    example_sentence: "Kindness and courage characterize the old teacher."
+    synonyms:
+      - "define"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "enchantment"
+    chinese: "魅力；魔法"
+    part_of_speech: "noun"
+    phonetic: "/ɪnˈtʃɑːnt.mənt/"
+    example_sentence: "The old castle holds a strange enchantment for visitors."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "cherish"
+    chinese: "珍爱"
+    part_of_speech: "verb"
+    phonetic: "/ˈtʃer.ɪʃ/"
+    example_sentence: "I cherish the letters my grandma wrote to me."
+    synonyms:
+      - "treasure"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "chronic"
+    chinese: "慢性的；长期的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈkrɒn.ɪk/"
+    example_sentence: "He suffers from a chronic skin disease."
+    synonyms:
+      - "persistent"
+    antonyms:
+      - "temporary"
+    difficulty_level: 7
+
+  - english: "circulate"
+    chinese: "循环；流传"
+    part_of_speech: "verb"
+    phonetic: "/ˈsɜː.kjə.leɪt/"
+    example_sentence: "Fresh air circulates through the open windows."
+    synonyms:
+      - "spread"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "cite"
+    chinese: "引用"
+    part_of_speech: "verb"
+    phonetic: "/saɪt/"
+    example_sentence: "The essay cites three recent studies."
+    synonyms:
+      - "quote"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "clarify"
+    chinese: "澄清"
+    part_of_speech: "verb"
+    phonetic: "/ˈklær.ɪ.faɪ/"
+    example_sentence: "Could you clarify what you mean by that?"
+    synonyms:
+      - "explain"
+    antonyms:
+      - "obscure"
+    difficulty_level: 7
+
+  - english: "clash"
+    chinese: "冲突"
+    part_of_speech: "noun"
+    phonetic: "/klæʃ/"
+    example_sentence: "A clash broke out between the two teams."
+    synonyms:
+      - "conflict"
+    antonyms:
+      - "harmony"
+    difficulty_level: 7
+
+  - english: "clause"
+    chinese: "条款"
+    part_of_speech: "noun"
+    phonetic: "/klɔːz/"
+    example_sentence: "The contract has a clause about late payment."
+    synonyms:
+      - "provision"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "climax"
+    chinese: "高潮"
+    part_of_speech: "noun"
+    phonetic: "/ˈklaɪ.mæks/"
+    example_sentence: "The story reaches its climax in the final chapter."
+    synonyms:
+      - "peak"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "cling"
+    chinese: "紧贴；依附"
+    part_of_speech: "verb"
+    phonetic: "/klɪŋ/"
+    example_sentence: "They cling to the old customs of the village."
+    synonyms:
+      - "stick"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "cluster"
+    chinese: "一群；一簇"
+    part_of_speech: "noun"
+    phonetic: "/ˈklʌs.tər/"
+    example_sentence: "A cluster of students stood by the gate."
+    synonyms:
+      - "group"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "coarse"
+    chinese: "粗糙的"
+    part_of_speech: "adjective"
+    phonetic: "/kɔːs/"
+    example_sentence: "The bag is made of coarse cloth."
+    synonyms:
+      - "rough"
+    antonyms:
+      - "smooth"
+      - "fine"
+    difficulty_level: 7
+
+  - english: "coherent"
+    chinese: "连贯的"
+    part_of_speech: "adjective"
+    phonetic: "/kəʊˈhɪə.rənt/"
+    example_sentence: "She gave a clear and coherent answer."
+    synonyms:
+      - "logical"
+    antonyms:
+      - "incoherent"
+    difficulty_level: 7
+
+  - english: "coincide"
+    chinese: "巧合；同时发生"
+    part_of_speech: "verb"
+    phonetic: "/ˌkəʊ.ɪnˈsaɪd/"
+    example_sentence: "The meeting coincides with my dentist appointment."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "collaborate"
+    chinese: "合作"
+    part_of_speech: "verb"
+    phonetic: "/kəˈlæb.ə.reɪt/"
+    example_sentence: "The two schools collaborate on science projects."
+    synonyms:
+      - "cooperate"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "collapse"
+    chinese: "倒塌"
+    part_of_speech: "verb"
+    phonetic: "/kəˈlæps/"
+    example_sentence: "The old bridge collapsed in the storm."
+    synonyms:
+      - "fall"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "colleague"
+    chinese: "同事"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɒl.iːɡ/"
+    example_sentence: "A colleague of mine speaks three languages."
+    synonyms:
+      - "coworker"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "collide"
+    chinese: "相撞"
+    part_of_speech: "verb"
+    phonetic: "/kəˈlaɪd/"
+    example_sentence: "Two buses collided at the crossing."
+    synonyms:
+      - "crash"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "column"
+    chinese: "柱；专栏"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɒl.əm/"
+    example_sentence: "He writes a weekly column for the paper."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "combat"
+    chinese: "战斗"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɒm.bæt/"
+    example_sentence: "The soldiers died in combat."
+    synonyms:
+      - "battle"
+    antonyms:
+      - "peace"
+    difficulty_level: 7
+
+  - english: "comet"
+    chinese: "彗星"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɒm.ɪt/"
+    example_sentence: "A bright comet crossed the night sky."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "commence"
+    chinese: "开始"
+    part_of_speech: "verb"
+    phonetic: "/kəˈmens/"
+    example_sentence: "The ceremony will commence at nine o'clock."
+    synonyms:
+      - "begin"
+    antonyms:
+      - "end"
+    difficulty_level: 7
+
+  - english: "commend"
+    chinese: "表扬"
+    part_of_speech: "verb"
+    phonetic: "/kəˈmend/"
+    example_sentence: "The teacher commended her for her courage."
+    synonyms:
+      - "praise"
+    antonyms:
+      - "criticize"
+    difficulty_level: 7
+
+  - english: "commerce"
+    chinese: "商业"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɒm.ɜːs/"
+    example_sentence: "The city thrives on trade and commerce."
+    synonyms:
+      - "trade"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "commission"
+    chinese: "佣金；委员会"
+    part_of_speech: "noun"
+    phonetic: "/kəˈmɪʃ.ən/"
+    example_sentence: "The agent earns a commission on every sale."
+    synonyms:
+      - "fee"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "commit"
+    chinese: "作出承诺"
+    part_of_speech: "verb"
+    phonetic: "/kəˈmɪt/"
+    example_sentence: "She committed to finish the course on time."
+    synonyms:
+      - "pledge"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "commodity"
+    chinese: "商品"
+    part_of_speech: "noun"
+    phonetic: "/kəˈmɒd.ə.ti/"
+    example_sentence: "Rice is the main commodity in the market."
+    synonyms:
+      - "product"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "commute"
+    chinese: "通勤"
+    part_of_speech: "verb"
+    phonetic: "/kəˈmjuːt/"
+    example_sentence: "He commutes to work by train every day."
+    synonyms:
+      - "travel"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "companion"
+    chinese: "同伴"
+    part_of_speech: "noun"
+    phonetic: "/kəmˈpæn.jən/"
+    example_sentence: "The dog is a faithful companion to the boy."
+    synonyms:
+      - "partner"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "compass"
+    chinese: "指南针"
+    part_of_speech: "noun"
+    phonetic: "/ˈkʌm.pəs/"
+    example_sentence: "We used a compass to find our way out."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "compatible"
+    chinese: "兼容的"
+    part_of_speech: "adjective"
+    phonetic: "/kəmˈpæt.ə.bəl/"
+    example_sentence: "The new software is compatible with old files."
+    synonyms: []
+    antonyms:
+      - "incompatible"
+    difficulty_level: 7
+
+  - english: "compel"
+    chinese: "迫使"
+    part_of_speech: "verb"
+    phonetic: "/kəmˈpel/"
+    example_sentence: "Hunger compelled him to steal bread."
+    synonyms:
+      - "force"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "compensate"
+    chinese: "补偿"
+    part_of_speech: "verb"
+    phonetic: "/ˈkɒm.pən.seɪt/"
+    example_sentence: "The firm agreed to compensate the workers."
+    synonyms:
+      - "repay"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "competent"
+    chinese: "能干的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈkɒm.pɪ.tənt/"
+    example_sentence: "She is a competent nurse with ten years of practice."
+    synonyms:
+      - "proficient"
+    antonyms:
+      - "incompetent"
+    difficulty_level: 7
+
+  - english: "compile"
+    chinese: "汇编"
+    part_of_speech: "verb"
+    phonetic: "/kəmˈpaɪl/"
+    example_sentence: "He compiled a list of useful websites."
+    synonyms:
+      - "collect"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "complement"
+    chinese: "补充物"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɒm.plɪ.ment/"
+    example_sentence: "The wine is a perfect complement to the meal."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "compliment"
+    chinese: "恭维"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɒm.plɪ.mənt/"
+    example_sentence: "She took his words as a compliment."
+    synonyms:
+      - "praise"
+    antonyms:
+      - "insult"
+    difficulty_level: 7
+
+  - english: "comply"
+    chinese: "遵守"
+    part_of_speech: "verb"
+    phonetic: "/kəmˈplaɪ/"
+    example_sentence: "All cars must comply with safety rules."
+    synonyms:
+      - "obey"
+    antonyms:
+      - "defy"
+    difficulty_level: 7
+
+  - english: "compose"
+    chinese: "组成；作曲"
+    part_of_speech: "verb"
+    phonetic: "/kəmˈpəʊz/"
+    example_sentence: "He composed a song for his mother."
+    synonyms:
+      - "create"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "compound"
+    chinese: "化合物"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɒm.paʊnd/"
+    example_sentence: "Water is a compound of hydrogen and oxygen."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "compress"
+    chinese: "压缩"
+    part_of_speech: "verb"
+    phonetic: "/kəmˈpres/"
+    example_sentence: "The machine compresses waste paper into blocks."
+    synonyms:
+      - "squeeze"
+    antonyms:
+      - "expand"
+    difficulty_level: 7
+
+  - english: "comprise"
+    chinese: "包括"
+    part_of_speech: "verb"
+    phonetic: "/kəmˈpraɪz/"
+    example_sentence: "The team comprises players from six schools."
+    synonyms:
+      - "include"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "compromise"
+    chinese: "妥协"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɒm.prə.maɪz/"
+    example_sentence: "Both sides reached a compromise after long talks."
+    synonyms:
+      - "agreement"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "compute"
+    chinese: "计算"
+    part_of_speech: "verb"
+    phonetic: "/kəmˈpjuːt/"
+    example_sentence: "The program can compute the total in seconds."
+    synonyms:
+      - "calculate"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "conceal"
+    chinese: "隐藏"
+    part_of_speech: "verb"
+    phonetic: "/kənˈsiːl/"
+    example_sentence: "She tried to conceal her fear with a smile."
+    synonyms:
+      - "hide"
+    antonyms:
+      - "reveal"
+    difficulty_level: 7
+
+  - english: "concede"
+    chinese: "承认"
+    part_of_speech: "verb"
+    phonetic: "/kənˈsiːd/"
+    example_sentence: "He conceded that he had made a mistake."
+    synonyms:
+      - "admit"
+    antonyms:
+      - "deny"
+    difficulty_level: 7
+
+  - english: "conceive"
+    chinese: "构想"
+    part_of_speech: "verb"
+    phonetic: "/kənˈsiːv/"
+    example_sentence: "She conceived the idea during a long walk."
+    synonyms:
+      - "form"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "concept"
+    chinese: "概念"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɒn.sept/"
+    example_sentence: "The concept of gravity changed science."
+    synonyms:
+      - "idea"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "concise"
+    chinese: "简明的"
+    part_of_speech: "adjective"
+    phonetic: "/kənˈsaɪs/"
+    example_sentence: "Write a concise summary of the article."
+    synonyms:
+      - "brief"
+    antonyms:
+      - "lengthy"
+    difficulty_level: 7
+
+  - english: "conclude"
+    chinese: "得出结论；结束"
+    part_of_speech: "verb"
+    phonetic: "/kənˈkluːd/"
+    example_sentence: "We concluded the meeting at noon."
+    synonyms:
+      - "finish"
+    antonyms:
+      - "begin"
+    difficulty_level: 7
+
+  - english: "concrete"
+    chinese: "具体的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈkɒŋ.kriːt/"
+    example_sentence: "Give me a concrete example of your plan."
+    synonyms:
+      - "specific"
+    antonyms:
+      - "abstract"
+    difficulty_level: 7
+
+  - english: "condemn"
+    chinese: "谴责"
+    part_of_speech: "verb"
+    phonetic: "/kənˈdem/"
+    example_sentence: "The world condemned the bombing of the school."
+    synonyms:
+      - "denounce"
+    antonyms:
+      - "praise"
+    difficulty_level: 7
+
+  - english: "condense"
+    chinese: "浓缩；压缩"
+    part_of_speech: "verb"
+    phonetic: "/kənˈdens/"
+    example_sentence: "He condensed the long report into two pages."
+    synonyms:
+      - "compress"
+    antonyms:
+      - "expand"
+    difficulty_level: 8
+
+  - english: "confer"
+    chinese: "授予；商讨"
+    part_of_speech: "verb"
+    phonetic: "/kənˈfɜːr/"
+    example_sentence: "The university will confer degrees in July."
+    synonyms:
+      - "grant"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "confess"
+    chinese: "坦白"
+    part_of_speech: "verb"
+    phonetic: "/kənˈfes/"
+    example_sentence: "The boy confessed that he broke the window."
+    synonyms:
+      - "admit"
+    antonyms:
+      - "deny"
+    difficulty_level: 8
+
+  - english: "confide"
+    chinese: "倾诉"
+    part_of_speech: "verb"
+    phonetic: "/kənˈfaɪd/"
+    example_sentence: "She confided her secret to her best friend."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "confine"
+    chinese: "限制"
+    part_of_speech: "verb"
+    phonetic: "/kənˈfaɪn/"
+    example_sentence: "Please confine your talk to ten minutes."
+    synonyms:
+      - "limit"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "conform"
+    chinese: "遵守；顺应"
+    part_of_speech: "verb"
+    phonetic: "/kənˈfɔːm/"
+    example_sentence: "All products must conform to safety standards."
+    synonyms:
+      - "comply"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "confront"
+    chinese: "面对"
+    part_of_speech: "verb"
+    phonetic: "/kənˈfrʌnt/"
+    example_sentence: "Soldiers must confront danger bravely."
+    synonyms:
+      - "face"
+    antonyms:
+      - "avoid"
+    difficulty_level: 8
+
+  - english: "conquest"
+    chinese: "征服"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɒŋ.kwest/"
+    example_sentence: "The conquest of space excites young scientists."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "conscience"
+    chinese: "良心"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɒn.ʃəns/"
+    example_sentence: "His conscience would not let him tell a lie."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "conscientious"
+    chinese: "尽责的"
+    part_of_speech: "adjective"
+    phonetic: "/ˌkɒn.ʃiˈen.ʃəs/"
+    example_sentence: "The conscientious clerk checks every figure twice."
+    synonyms:
+      - "diligent"
+    antonyms:
+      - "careless"
+    difficulty_level: 8
+
+  - english: "consensus"
+    chinese: "共识"
+    part_of_speech: "noun"
+    phonetic: "/kənˈsen.səs/"
+    example_sentence: "The team reached a consensus after long debate."
+    synonyms:
+      - "agreement"
+    antonyms:
+      - "disagreement"
+    difficulty_level: 8
+
+  - english: "consent"
+    chinese: "同意"
+    part_of_speech: "noun"
+    phonetic: "/kənˈsent/"
+    example_sentence: "The doctor needs your consent before the operation."
+    synonyms:
+      - "approval"
+    antonyms:
+      - "refusal"
+    difficulty_level: 8
+
+  - english: "conserve"
+    chinese: "保护；节约"
+    part_of_speech: "verb"
+    phonetic: "/kənˈsɜːv/"
+    example_sentence: "We must conserve water during the dry season."
+    synonyms:
+      - "preserve"
+    antonyms:
+      - "waste"
+    difficulty_level: 8
+
+  - english: "console"
+    chinese: "安慰"
+    part_of_speech: "verb"
+    phonetic: "/kənˈsəʊl/"
+    example_sentence: "She consoled the crying child with kind words."
+    synonyms:
+      - "comfort"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "consolidate"
+    chinese: "巩固"
+    part_of_speech: "verb"
+    phonetic: "/kənˈsɒl.ɪ.deɪt/"
+    example_sentence: "The company consolidated its position in Asia."
+    synonyms:
+      - "strengthen"
+    antonyms:
+      - "weaken"
+    difficulty_level: 8
+
+  - english: "conspicuous"
+    chinese: "显眼的"
+    part_of_speech: "adjective"
+    phonetic: "/kənˈspɪk.ju.əs/"
+    example_sentence: "The red sign is conspicuous from far away."
+    synonyms:
+      - "noticeable"
+    antonyms:
+      - "inconspicuous"
+    difficulty_level: 8
+
+  - english: "conspire"
+    chinese: "密谋"
+    part_of_speech: "verb"
+    phonetic: "/kənˈspaɪər/"
+    example_sentence: "They conspired to overthrow the king."
+    synonyms:
+      - "plot"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "constrain"
+    chinese: "约束"
+    part_of_speech: "verb"
+    phonetic: "/kənˈstreɪn/"
+    example_sentence: "A tight budget will constrain our plans."
+    synonyms:
+      - "restrict"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "constrict"
+    chinese: "收缩；压缩"
+    part_of_speech: "verb"
+    phonetic: "/kənˈstrɪkt/"
+    example_sentence: "Fear seemed to constrict his throat."
+    synonyms:
+      - "tighten"
+    antonyms:
+      - "loosen"
+    difficulty_level: 8
+
+  - english: "contemplate"
+    chinese: "沉思；谋划"
+    part_of_speech: "verb"
+    phonetic: "/ˈkɒn.tem.pleɪt/"
+    example_sentence: "She sat by the lake to contemplate her future."
+    synonyms:
+      - "ponder"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "contemporary"
+    chinese: "当代的"
+    part_of_speech: "adjective"
+    phonetic: "/kənˈtem.prər.i/"
+    example_sentence: "The museum shows contemporary art from Asia."
+    synonyms:
+      - "modern"
+    antonyms:
+      - "ancient"
+    difficulty_level: 8
+
+  - english: "contempt"
+    chinese: "蔑视"
+    part_of_speech: "noun"
+    phonetic: "/kənˈtempt/"
+    example_sentence: "He spoke of his rival with contempt."
+    synonyms:
+      - "scorn"
+    antonyms:
+      - "respect"
+    difficulty_level: 8
+
+  - english: "contend"
+    chinese: "竞争；主张"
+    part_of_speech: "verb"
+    phonetic: "/kənˈtend/"
+    example_sentence: "Four teams will contend for the final prize."
+    synonyms:
+      - "compete"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "contingent"
+    chinese: "视情况而定的"
+    part_of_speech: "adjective"
+    phonetic: "/kənˈtɪn.dʒənt/"
+    example_sentence: "Our picnic is contingent on fine weather."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "contort"
+    chinese: "扭曲"
+    part_of_speech: "verb"
+    phonetic: "/kənˈtɔːt/"
+    example_sentence: "Pain contorted the old man's face."
+    synonyms:
+      - "twist"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "contradict"
+    chinese: "反驳"
+    part_of_speech: "verb"
+    phonetic: "/ˌkɒn.trəˈdɪkt/"
+    example_sentence: "The two reports contradict each other."
+    synonyms:
+      - "deny"
+    antonyms:
+      - "confirm"
+    difficulty_level: 8
+
+  - english: "contrive"
+    chinese: "设法；策划"
+    part_of_speech: "verb"
+    phonetic: "/kənˈtraɪv/"
+    example_sentence: "She contrived a way to meet the writer."
+    synonyms:
+      - "devise"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "convene"
+    chinese: "召集"
+    part_of_speech: "verb"
+    phonetic: "/kənˈviːn/"
+    example_sentence: "The board will convene next Friday."
+    synonyms:
+      - "assemble"
+    antonyms:
+      - "adjourn"
+    difficulty_level: 8
+
+  - english: "converge"
+    chinese: "汇聚"
+    part_of_speech: "verb"
+    phonetic: "/kənˈvɜːdʒ/"
+    example_sentence: "Rivers converge to form a great lake."
+    synonyms:
+      - "meet"
+    antonyms:
+      - "diverge"
+    difficulty_level: 8
+
+  - english: "converse"
+    chinese: "交谈"
+    part_of_speech: "verb"
+    phonetic: "/kənˈvɜːs/"
+    example_sentence: "The old friends conversed late into the night."
+    synonyms:
+      - "chat"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "convert"
+    chinese: "转变"
+    part_of_speech: "verb"
+    phonetic: "/kənˈvɜːt/"
+    example_sentence: "They converted the garage into a study."
+    synonyms:
+      - "transform"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "convey"
+    chinese: "传达"
+    part_of_speech: "verb"
+    phonetic: "/kənˈveɪ/"
+    example_sentence: "The letter conveys good news from home."
+    synonyms:
+      - "express"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "convict"
+    chinese: "定罪"
+    part_of_speech: "verb"
+    phonetic: "/kənˈvɪkt/"
+    example_sentence: "The jury voted to convict the thief."
+    synonyms: []
+    antonyms:
+      - "acquit"
+    difficulty_level: 8
+
+  - english: "convince"
+    chinese: "说服"
+    part_of_speech: "verb"
+    phonetic: "/kənˈvɪns/"
+    example_sentence: "He convinced me that the plan would work."
+    synonyms:
+      - "persuade"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "copious"
+    chinese: "丰富的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈkəʊ.pi.əs/"
+    example_sentence: "She took copious notes during the lecture."
+    synonyms:
+      - "abundant"
+    antonyms:
+      - "scarce"
+    difficulty_level: 8
+
+  - english: "cordial"
+    chinese: "热情的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈkɔː.di.əl/"
+    example_sentence: "We received a cordial welcome from the hosts."
+    synonyms:
+      - "warm"
+    antonyms:
+      - "cold"
+    difficulty_level: 8
+
+  - english: "corrode"
+    chinese: "腐蚀"
+    part_of_speech: "verb"
+    phonetic: "/kəˈrəʊd/"
+    example_sentence: "Salt water will corrode the iron gate."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "corrupt"
+    chinese: "腐败的"
+    part_of_speech: "adjective"
+    phonetic: "/kəˈrʌpt/"
+    example_sentence: "The corrupt mayor took money from builders."
+    synonyms:
+      - "dishonest"
+    antonyms:
+      - "honest"
+    difficulty_level: 8
+
+  - english: "cosmopolitan"
+    chinese: "世界性的"
+    part_of_speech: "adjective"
+    phonetic: "/ˌkɒz.məˈpɒl.ɪ.tən/"
+    example_sentence: "Shanghai is a cosmopolitan city with many cultures."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "councillor"
+    chinese: "议员"
+    part_of_speech: "noun"
+    phonetic: "/ˈkaʊn.səl.ər/"
+    example_sentence: "The councillor promised to repair the roads."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "counsel"
+    chinese: "忠告；商议"
+    part_of_speech: "noun"
+    phonetic: "/ˈkaʊn.səl/"
+    example_sentence: "The wise king always listened to good counsel."
+    synonyms:
+      - "advice"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "counterpart"
+    chinese: "对应的人或物"
+    part_of_speech: "noun"
+    phonetic: "/ˈkaʊn.tə.pɑːt/"
+    example_sentence: "Our teacher met her American counterpart in Beijing."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "covert"
+    chinese: "秘密的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈkʌv.ət/"
+    example_sentence: "The police carried out a covert operation."
+    synonyms:
+      - "secret"
+    antonyms:
+      - "open"
+    difficulty_level: 8
+
+  - english: "covet"
+    chinese: "垂涎；觊觎"
+    part_of_speech: "verb"
+    phonetic: "/ˈkʌv.ɪt/"
+    example_sentence: "She coveted the gold medal for years."
+    synonyms:
+      - "desire"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "craft"
+    chinese: "工艺；手艺"
+    part_of_speech: "noun"
+    phonetic: "/krɑːft/"
+    example_sentence: "The pot shows fine local craft."
+    synonyms:
+      - "skill"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "cram"
+    chinese: "临时抱佛脚；塞满"
+    part_of_speech: "verb"
+    phonetic: "/kræm/"
+    example_sentence: "She crammed for the exam all night."
+    synonyms:
+      - "stuff"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "crank"
+    chinese: "怪人"
+    part_of_speech: "noun"
+    phonetic: "/kræŋk/"
+    example_sentence: "The garage is run by an old crank."
+    synonyms:
+      - "eccentric"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "crate"
+    chinese: "板条箱"
+    part_of_speech: "noun"
+    phonetic: "/kreɪt/"
+    example_sentence: "The apples arrived in a wooden crate."
+    synonyms:
+      - "box"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "crave"
+    chinese: "渴望"
+    part_of_speech: "verb"
+    phonetic: "/kreɪv/"
+    example_sentence: "She craves attention from her parents."
+    synonyms:
+      - "desire"
+      - "long"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "credible"
+    chinese: "可信的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈkred.ɪ.bəl/"
+    example_sentence: "He is a credible witness in the trial."
+    synonyms:
+      - "reliable"
+    antonyms:
+      - "incredible"
+    difficulty_level: 8
+
+  - english: "creed"
+    chinese: "信条"
+    part_of_speech: "noun"
+    phonetic: "/kriːd/"
+    example_sentence: "People of every creed joined the march."
+    synonyms:
+      - "belief"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "cripple"
+    chinese: "使瘫痪；严重削弱"
+    part_of_speech: "verb"
+    phonetic: "/ˈkrɪp.əl/"
+    example_sentence: "The strike crippled public transport."
+    synonyms:
+      - "paralyze"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "turmoil"
+    chinese: "骚动；混乱"
+    part_of_speech: "noun"
+    phonetic: "/ˈtɜː.mɔɪl/"
+    example_sentence: "The country fell into turmoil after the election."
+    synonyms:
+      - "chaos"
+    antonyms:
+      - "calm"
+    difficulty_level: 8
+
+  - english: "brisk"
+    chinese: "轻快的；凛冽的"
+    part_of_speech: "adjective"
+    phonetic: "/brɪsk/"
+    example_sentence: "We took a brisk walk in the cold morning air."
+    synonyms:
+      - "quick"
+    antonyms:
+      - "slow"
+    difficulty_level: 8
+
+  - english: "criterion"
+    chinese: "标准"
+    part_of_speech: "noun"
+    phonetic: "/kraɪˈtɪə.ri.ən/"
+    example_sentence: "Profit is not the only criterion for success."
+    synonyms:
+      - "standard"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "crook"
+    chinese: "骗子；小偷"
+    part_of_speech: "noun"
+    phonetic: "/krʊk/"
+    example_sentence: "The crook stole an old lady's bag."
+    synonyms:
+      - "thief"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "crucial"
+    chinese: "关键的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈkruː.ʃəl/"
+    example_sentence: "Good sleep plays a crucial role in health."
+    synonyms:
+      - "vital"
+      - "critical"
+    antonyms:
+      - "trivial"
+    difficulty_level: 8
+
+  - english: "excursion"
+    chinese: "短途旅行"
+    part_of_speech: "noun"
+    phonetic: "/ɪkˈskɜː.ʃən/"
+    example_sentence: "The class went on an excursion to the museum."
+    synonyms:
+      - "trip"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "crumb"
+    chinese: "面包屑"
+    part_of_speech: "noun"
+    phonetic: "/krʌm/"
+    example_sentence: "The baby dropped crumbs of bread on the floor."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "crumble"
+    chinese: "崩溃；碎裂"
+    part_of_speech: "verb"
+    phonetic: "/ˈkrʌm.bəl/"
+    example_sentence: "The old wall began to crumble."
+    synonyms:
+      - "collapse"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "crumple"
+    chinese: "揉皱"
+    part_of_speech: "verb"
+    phonetic: "/ˈkrʌm.pəl/"
+    example_sentence: "She crumpled the letter and threw it away."
+    synonyms:
+      - "wrinkle"
+    antonyms:
+      - "smooth"
+    difficulty_level: 8
+
+  - english: "crunch"
+    chinese: "嘎吱作响；咬碎"
+    part_of_speech: "verb"
+    phonetic: "/krʌntʃ/"
+    example_sentence: "He crunched the apple loudly."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "crusade"
+    chinese: "改革运动"
+    part_of_speech: "noun"
+    phonetic: "/kruːˈseɪd/"
+    example_sentence: "They launched a crusade against smoking."
+    synonyms:
+      - "campaign"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "crush"
+    chinese: "压碎"
+    part_of_speech: "verb"
+    phonetic: "/krʌʃ/"
+    example_sentence: "He crushed the empty can with his foot."
+    synonyms:
+      - "squash"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "crust"
+    chinese: "外皮；硬壳"
+    part_of_speech: "noun"
+    phonetic: "/krʌst/"
+    example_sentence: "The pie has a hard golden crust."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "cryptic"
+    chinese: "含义隐晦的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈkrɪp.tɪk/"
+    example_sentence: "He left a cryptic message on the desk."
+    synonyms:
+      - "mysterious"
+    antonyms:
+      - "clear"
+    difficulty_level: 8
+
+  - english: "cuddle"
+    chinese: "搂抱"
+    part_of_speech: "verb"
+    phonetic: "/ˈkʌd.əl/"
+    example_sentence: "They cuddled the baby gently."
+    synonyms:
+      - "hug"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "culminate"
+    chinese: "达到顶点"
+    part_of_speech: "verb"
+    phonetic: "/ˈkʌl.mɪ.neɪt/"
+    example_sentence: "The festival culminated in a grand parade."
+    synonyms:
+      - "climax"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "culprit"
+    chinese: "罪犯；肇事者"
+    part_of_speech: "noun"
+    phonetic: "/ˈkʌl.prɪt/"
+    example_sentence: "Police caught the culprit last night."
+    synonyms:
+      - "offender"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "cult"
+    chinese: "狂热崇拜"
+    part_of_speech: "noun"
+    phonetic: "/kʌlt/"
+    example_sentence: "The film gained a cult following."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "cultivate"
+    chinese: "种植；培养"
+    part_of_speech: "verb"
+    phonetic: "/ˈkʌl.tɪ.veɪt/"
+    example_sentence: "Farmers cultivate rice in the valley."
+    synonyms:
+      - "grow"
+      - "foster"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "cumbersome"
+    chinese: "笨重的；累赘的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈkʌm.bə.səm/"
+    example_sentence: "The cumbersome box blocked the doorway."
+    synonyms:
+      - "clumsy"
+    antonyms:
+      - "handy"
+    difficulty_level: 8
+
+  - english: "cumulative"
+    chinese: "累积的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈkjuː.mjə.lə.tɪv/"
+    example_sentence: "Smoking has a cumulative effect on health."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "curator"
+    chinese: "馆长"
+    part_of_speech: "noun"
+    phonetic: "/kjʊəˈreɪ.tər/"
+    example_sentence: "The curator showed us the new paintings."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "curb"
+    chinese: "控制"
+    part_of_speech: "verb"
+    phonetic: "/kɜːb/"
+    example_sentence: "The city tries to curb traffic jams."
+    synonyms:
+      - "restrain"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "curfew"
+    chinese: "宵禁"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɜː.fjuː/"
+    example_sentence: "The town imposed a night curfew."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "curtail"
+    chinese: "削减"
+    part_of_speech: "verb"
+    phonetic: "/kɜːˈteɪl/"
+    example_sentence: "They had to curtail holiday plans."
+    synonyms:
+      - "cut"
+    antonyms:
+      - "extend"
+    difficulty_level: 8
+
+  - english: "cynical"
+    chinese: "愤世嫉俗的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈsɪn.ɪ.kəl/"
+    example_sentence: "He takes a cynical view of politics."
+    synonyms: []
+    antonyms:
+      - "trusting"
+    difficulty_level: 8
+
+  - english: "dagger"
+    chinese: "匕首"
+    part_of_speech: "noun"
+    phonetic: "/ˈdæɡ.ər/"
+    example_sentence: "The guard carried an old dagger."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "musty"
+    chinese: "发霉的；陈腐的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈmʌs.ti/"
+    example_sentence: "The old books in the cellar smell musty."
+    synonyms:
+      - "stale"
+    antonyms:
+      - "fresh"
+    difficulty_level: 8
+
+  - english: "dangle"
+    chinese: "悬垂"
+    part_of_speech: "verb"
+    phonetic: "/ˈdæŋ.ɡəl/"
+    example_sentence: "Keys dangle from his belt."
+    synonyms:
+      - "hang"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "dazzle"
+    chinese: "使目眩；使惊叹"
+    part_of_speech: "verb"
+    phonetic: "/ˈdæz.əl/"
+    example_sentence: "The bright stage lights dazzled the crowd."
+    synonyms:
+      - "amaze"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "deadlock"
+    chinese: "僵局"
+    part_of_speech: "noun"
+    phonetic: "/ˈded.lɒk/"
+    example_sentence: "The talks ended in deadlock."
+    synonyms:
+      - "stalemate"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "debase"
+    chinese: "贬低"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈbeɪs/"
+    example_sentence: "Cheap ads debase the brand."
+    synonyms:
+      - "degrade"
+    antonyms:
+      - "elevate"
+    difficulty_level: 8
+
+  - english: "wrangle"
+    chinese: "争吵"
+    part_of_speech: "noun"
+    phonetic: "/ˈræŋ.ɡəl/"
+    example_sentence: "A loud wrangle broke out over the bill."
+    synonyms:
+      - "quarrel"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "debilitate"
+    chinese: "使衰弱"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈbɪl.ɪ.teɪt/"
+    example_sentence: "Long illness debilitated the old sailor."
+    synonyms:
+      - "weaken"
+    antonyms:
+      - "strengthen"
+    difficulty_level: 8
+
+  - english: "decade"
+    chinese: "十年"
+    part_of_speech: "noun"
+    phonetic: "/ˈdek.eɪd/"
+    example_sentence: "The bridge took a decade to build."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "deceive"
+    chinese: "欺骗"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈsiːv/"
+    example_sentence: "He deceived us with a false story."
+    synonyms:
+      - "cheat"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "decency"
+    chinese: "得体；体面"
+    part_of_speech: "noun"
+    phonetic: "/ˈdiː.sən.si/"
+    example_sentence: "He had the decency to apologize."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "becoming"
+    chinese: "得体的；相称的"
+    part_of_speech: "adjective"
+    phonetic: "/bɪˈkʌm.ɪŋ/"
+    example_sentence: "She wore a becoming blue dress to the party."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "decimal"
+    chinese: "小数的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈdes.ɪ.məl/"
+    example_sentence: "The price is given to two decimal places."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "decipher"
+    chinese: "破译"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈsaɪ.fər/"
+    example_sentence: "Experts deciphered the ancient script."
+    synonyms:
+      - "decode"
+    antonyms:
+      - "encode"
+    difficulty_level: 8
+
+  - english: "deck"
+    chinese: "甲板"
+    part_of_speech: "noun"
+    phonetic: "/dek/"
+    example_sentence: "Passengers stood on the ship's deck."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "wane"
+    chinese: "衰落；月缺"
+    part_of_speech: "verb"
+    phonetic: "/weɪn/"
+    example_sentence: "Support for the old policy began to wane."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "decode"
+    chinese: "解码"
+    part_of_speech: "verb"
+    phonetic: "/ˌdiːˈkəʊd/"
+    example_sentence: "They decode secret messages by computer."
+    synonyms:
+      - "decipher"
+    antonyms:
+      - "encode"
+    difficulty_level: 8
+
+  - english: "decompose"
+    chinese: "分解；腐烂"
+    part_of_speech: "verb"
+    phonetic: "/ˌdiː.kəmˈpəʊz/"
+    example_sentence: "Leaves decompose and enrich the soil."
+    synonyms:
+      - "decay"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "decorum"
+    chinese: "礼仪；体面"
+    part_of_speech: "noun"
+    phonetic: "/dɪˈkɔː.rəm/"
+    example_sentence: "Guests behaved with decorum at dinner."
+    synonyms:
+      - "etiquette"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "decree"
+    chinese: "法令"
+    part_of_speech: "noun"
+    phonetic: "/dɪˈkriː/"
+    example_sentence: "The king issued a decree against hunting."
+    synonyms:
+      - "order"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "dedicate"
+    chinese: "奉献"
+    part_of_speech: "verb"
+    phonetic: "/ˈded.ɪ.keɪt/"
+    example_sentence: "She dedicated her life to teaching."
+    synonyms:
+      - "consecrate"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "deduce"
+    chinese: "推断"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈdjuːs/"
+    example_sentence: "We deduced the answer from the clues."
+    synonyms:
+      - "infer"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "deed"
+    chinese: "行为；功绩"
+    part_of_speech: "noun"
+    phonetic: "/diːd/"
+    example_sentence: "He is famous for his brave deeds."
+    synonyms:
+      - "act"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "deem"
+    chinese: "认为"
+    part_of_speech: "verb"
+    phonetic: "/diːm/"
+    example_sentence: "They deemed the plan too risky."
+    synonyms:
+      - "consider"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "deface"
+    chinese: "损毁外观"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈfeɪs/"
+    example_sentence: "Someone defaced the wall with paint."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "default"
+    chinese: "默认"
+    part_of_speech: "noun"
+    phonetic: "/dɪˈfɒlt/"
+    example_sentence: "English is the default language of the app."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "vanquish"
+    chinese: "征服；击败"
+    part_of_speech: "verb"
+    phonetic: "/ˈvæŋ.kwɪʃ/"
+    example_sentence: "The young knight vowed to vanquish the dragon."
+    synonyms:
+      - "conquer"
+    antonyms:
+      - "surrender"
+    difficulty_level: 8
+
+  - english: "defect"
+    chinese: "缺陷"
+    part_of_speech: "noun"
+    phonetic: "/ˈdiː.fekt/"
+    example_sentence: "The car was recalled for a brake defect."
+    synonyms:
+      - "flaw"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "deficient"
+    chinese: "缺乏的"
+    part_of_speech: "adjective"
+    phonetic: "/dɪˈfɪʃ.ənt/"
+    example_sentence: "The diet is deficient in fresh fruit."
+    synonyms:
+      - "lacking"
+    antonyms:
+      - "sufficient"
+    difficulty_level: 8
+
+  - english: "deficit"
+    chinese: "亏损；赤字"
+    part_of_speech: "noun"
+    phonetic: "/ˈdef.ɪ.sɪt/"
+    example_sentence: "The club ended the year with a deficit."
+    synonyms: []
+    antonyms:
+      - "surplus"
+    difficulty_level: 8
+
+  - english: "defile"
+    chinese: "玷污"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈfaɪl/"
+    example_sentence: "Litter defiles the beauty of the beach."
+    synonyms:
+      - "pollute"
+    antonyms:
+      - "purify"
+    difficulty_level: 8
+
+  - english: "deflect"
+    chinese: "偏转；转移"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈflekt/"
+    example_sentence: "The wall deflected the ball away."
+    synonyms:
+      - "divert"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "deform"
+    chinese: "使变形"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈfɔːm/"
+    example_sentence: "Heat can deform plastic bottles."
+    synonyms:
+      - "distort"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "defraud"
+    chinese: "诈骗"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈfrɔːd/"
+    example_sentence: "He defrauded customers of their savings."
+    synonyms:
+      - "cheat"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "defuse"
+    chinese: "缓和；拆除引信"
+    part_of_speech: "verb"
+    phonetic: "/ˌdiːˈfjuːz/"
+    example_sentence: "A joke helped to defuse the tension."
+    synonyms:
+      - "ease"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "defy"
+    chinese: "违抗"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈfaɪ/"
+    example_sentence: "The workers defy the unfair order bravely."
+    synonyms:
+      - "resist"
+    antonyms:
+      - "obey"
+    difficulty_level: 8
+
+  - english: "degrade"
+    chinese: "降级；退化"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈɡreɪd/"
+    example_sentence: "Pollution degrades the quality of river water."
+    synonyms:
+      - "deteriorate"
+    antonyms:
+      - "improve"
+    difficulty_level: 8
+
+  - english: "dehydrate"
+    chinese: "脱水"
+    part_of_speech: "verb"
+    phonetic: "/ˌdiːˈhaɪ.dreɪt/"
+    example_sentence: "Hot sun can dehydrate runners quickly."
+    synonyms: []
+    antonyms:
+      - "hydrate"
+    difficulty_level: 8
+
+  - english: "deity"
+    chinese: "神"
+    part_of_speech: "noun"
+    phonetic: "/ˈdeɪ.ə.ti/"
+    example_sentence: "The temple honors a local deity."
+    synonyms:
+      - "god"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "delegate"
+    chinese: "委派"
+    part_of_speech: "verb"
+    phonetic: "/ˈdel.ɪ.ɡeɪt/"
+    example_sentence: "The manager delegated tasks to her team."
+    synonyms:
+      - "assign"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "deliberate"
+    chinese: "故意的；深思熟虑的"
+    part_of_speech: "adjective"
+    phonetic: "/dɪˈlɪb.ər.ət/"
+    example_sentence: "It was a deliberate choice, not an accident."
+    synonyms:
+      - "intentional"
+    antonyms:
+      - "accidental"
+    difficulty_level: 8
+
+  - english: "delicacy"
+    chinese: "佳肴；精致"
+    part_of_speech: "noun"
+    phonetic: "/ˈdel.ɪ.kə.si/"
+    example_sentence: "Seafood is a local delicacy here."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "exquisite"
+    chinese: "精美的；绝妙的"
+    part_of_speech: "adjective"
+    phonetic: "/ekˈskwɪz.ɪt/"
+    example_sentence: "The museum displays exquisite jade carvings."
+    synonyms:
+      - "elegant"
+    antonyms:
+      - "crude"
+    difficulty_level: 8
+
+  - english: "delinquent"
+    chinese: "违法的；失职的"
+    part_of_speech: "adjective"
+    phonetic: "/dɪˈlɪŋ.kwənt/"
+    example_sentence: "The bank warned delinquent borrowers."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "delirious"
+    chinese: "精神错乱的"
+    part_of_speech: "adjective"
+    phonetic: "/dɪˈlɪr.i.əs/"
+    example_sentence: "The fever made him delirious all night."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "deluge"
+    chinese: "洪水；倾泻"
+    part_of_speech: "noun"
+    phonetic: "/ˈdel.juːdʒ/"
+    example_sentence: "A deluge flooded the streets in an hour."
+    synonyms:
+      - "flood"
+    antonyms:
+      - "drought"
+    difficulty_level: 8
+
+  - english: "delusion"
+    chinese: "错觉"
+    part_of_speech: "noun"
+    phonetic: "/dɪˈluː.ʒən/"
+    example_sentence: "He lives under the delusion that he is rich."
+    synonyms:
+      - "illusion"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "demolish"
+    chinese: "拆除"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈmɒl.ɪʃ/"
+    example_sentence: "They demolished the old cinema last spring."
+    synonyms:
+      - "destroy"
+    antonyms:
+      - "build"
+    difficulty_level: 8
+
+  - english: "demote"
+    chinese: "降级"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈməʊt/"
+    example_sentence: "He was demoted for breaking the rules."
+    synonyms: []
+    antonyms:
+      - "promote"
+    difficulty_level: 8
+
+  - english: "denote"
+    chinese: "表示"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈnəʊt/"
+    example_sentence: "Red on the map denotes main roads."
+    synonyms:
+      - "indicate"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "denounce"
+    chinese: "谴责"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈnaʊns/"
+    example_sentence: "Citizens denounced the rise in prices."
+    synonyms:
+      - "condemn"
+    antonyms:
+      - "praise"
+    difficulty_level: 9
+
+  - english: "succinct"
+    chinese: "简明的"
+    part_of_speech: "adjective"
+    phonetic: "/səkˈsɪŋkt/"
+    example_sentence: "He gave a succinct report of the trip."
+    synonyms:
+      - "concise"
+    antonyms:
+      - "wordy"
+    difficulty_level: 9
+
+  - english: "deplete"
+    chinese: "耗尽"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈpliːt/"
+    example_sentence: "Overfishing will deplete fish stocks."
+    synonyms:
+      - "exhaust"
+    antonyms:
+      - "replenish"
+    difficulty_level: 9
+
+  - english: "deplore"
+    chinese: "悲叹；谴责"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈplɔːr/"
+    example_sentence: "We deplore the use of child labor."
+    synonyms:
+      - "lament"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "deploy"
+    chinese: "部署"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈplɔɪ/"
+    example_sentence: "Troops were deployed along the border."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "deport"
+    chinese: "驱逐出境"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈpɔːt/"
+    example_sentence: "The court ordered them to deport the spy."
+    synonyms:
+      - "expel"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "depose"
+    chinese: "废黜"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈpəʊz/"
+    example_sentence: "The rebels moved to depose the king."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "instalment"
+    chinese: "分期付款；连载的一期"
+    part_of_speech: "noun"
+    phonetic: "/ɪnˈstɔːl.mənt/"
+    example_sentence: "She paid for the piano by monthly instalment."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "deprave"
+    chinese: "使堕落"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈpreɪv/"
+    example_sentence: "Gambling can deprave young minds."
+    synonyms:
+      - "corrupt"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "depreciate"
+    chinese: "贬值"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈpriː.ʃi.eɪt/"
+    example_sentence: "Cars depreciate quickly after five years."
+    synonyms: []
+    antonyms:
+      - "appreciate"
+    difficulty_level: 9
+
+  - english: "deprive"
+    chinese: "剥夺"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈpraɪv/"
+    example_sentence: "War deprived them of a happy childhood."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "deride"
+    chinese: "嘲笑"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈraɪd/"
+    example_sentence: "Critics derided the plan as crazy."
+    synonyms:
+      - "mock"
+    antonyms:
+      - "praise"
+    difficulty_level: 9
+
+  - english: "derive"
+    chinese: "源自"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈraɪv/"
+    example_sentence: "He derives pleasure from reading."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "derogatory"
+    chinese: "贬义的"
+    part_of_speech: "adjective"
+    phonetic: "/dɪˈrɒɡ.ə.tər.i/"
+    example_sentence: "He made a derogatory remark about her work."
+    synonyms:
+      - "insulting"
+    antonyms:
+      - "complimentary"
+    difficulty_level: 9
+
+  - english: "descend"
+    chinese: "下降"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈsend/"
+    example_sentence: "The plane began to descend through clouds."
+    synonyms: []
+    antonyms:
+      - "ascend"
+    difficulty_level: 9
+
+  - english: "desecrate"
+    chinese: "亵渎"
+    part_of_speech: "verb"
+    phonetic: "/ˈdes.ɪ.kreɪt/"
+    example_sentence: "Vandals desecrated the old church."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "desolate"
+    chinese: "荒凉的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈdes.ə.lət/"
+    example_sentence: "The desolate island has no fresh water."
+    synonyms:
+      - "barren"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "despise"
+    chinese: "鄙视"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈspaɪz/"
+    example_sentence: "She despised people who told lies."
+    synonyms:
+      - "scorn"
+    antonyms:
+      - "admire"
+    difficulty_level: 9
+
+  - english: "despot"
+    chinese: "暴君"
+    part_of_speech: "noun"
+    phonetic: "/ˈdes.pɒt/"
+    example_sentence: "The despot ruled the land with fear."
+    synonyms:
+      - "tyrant"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "destitute"
+    chinese: "赤贫的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈdes.tɪ.tjuːt/"
+    example_sentence: "The war left many families destitute."
+    synonyms:
+      - "poor"
+    antonyms:
+      - "wealthy"
+    difficulty_level: 9
+
+  - english: "dethrone"
+    chinese: "废黜王位"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈθrəʊn/"
+    example_sentence: "The council voted to dethrone the cruel king."
+    synonyms:
+      - "depose"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "detonate"
+    chinese: "引爆"
+    part_of_speech: "verb"
+    phonetic: "/ˈdet.ə.neɪt/"
+    example_sentence: "Workers detonated the old building safely."
+    synonyms:
+      - "explode"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "detour"
+    chinese: "绕行"
+    part_of_speech: "noun"
+    phonetic: "/ˈdiː.tʊər/"
+    example_sentence: "Road works forced a long detour."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "detract"
+    chinese: "贬低；减损"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈtrækt/"
+    example_sentence: "Noise detracts from the joy of the concert."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "detriment"
+    chinese: "损害"
+    part_of_speech: "noun"
+    phonetic: "/ˈdet.rɪ.mənt/"
+    example_sentence: "Smoking is a detriment to health."
+    synonyms:
+      - "harm"
+    antonyms:
+      - "benefit"
+    difficulty_level: 9
+
+  - english: "devastate"
+    chinese: "摧毁"
+    part_of_speech: "verb"
+    phonetic: "/ˈdev.ə.steɪt/"
+    example_sentence: "The flood devastated three small towns."
+    synonyms:
+      - "destroy"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "deviate"
+    chinese: "偏离"
+    part_of_speech: "verb"
+    phonetic: "/ˈdiː.vi.eɪt/"
+    example_sentence: "Do not deviate from the main road."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "devious"
+    chinese: "迂回的；狡猾的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈdiː.vi.əs/"
+    example_sentence: "He took a devious route to avoid traffic."
+    synonyms:
+      - "sly"
+    antonyms:
+      - "straight"
+    difficulty_level: 9
+
+  - english: "devise"
+    chinese: "设计"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈvaɪz/"
+    example_sentence: "Engineers devised a new water filter."
+    synonyms:
+      - "design"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "devoid"
+    chinese: "缺乏的"
+    part_of_speech: "adjective"
+    phonetic: "/dɪˈvɔɪd/"
+    example_sentence: "The room was devoid of furniture."
+    synonyms:
+      - "empty"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "consecrate"
+    chinese: "奉献；使神圣"
+    part_of_speech: "verb"
+    phonetic: "/ˈkɒn.sɪ.kreɪt/"
+    example_sentence: "They gathered to consecrate the new church."
+    synonyms:
+      - "dedicate"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "devout"
+    chinese: "虔诚的"
+    part_of_speech: "adjective"
+    phonetic: "/dɪˈvaʊt/"
+    example_sentence: "The devout monk prays every morning."
+    synonyms:
+      - "pious"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "dexterous"
+    chinese: "灵巧的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈdek.stər.əs/"
+    example_sentence: "The dexterous cook chopped vegetables fast."
+    synonyms:
+      - "skillful"
+    antonyms:
+      - "clumsy"
+    difficulty_level: 9
+
+  - english: "diabolic"
+    chinese: "恶魔般的"
+    part_of_speech: "adjective"
+    phonetic: "/ˌdaɪ.əˈbɒl.ɪk/"
+    example_sentence: "The villain wore a diabolic smile."
+    synonyms:
+      - "evil"
+    antonyms:
+      - "angelic"
+    difficulty_level: 9
+
+  - english: "diagnose"
+    chinese: "诊断"
+    part_of_speech: "verb"
+    phonetic: "/ˈdaɪ.əɡ.nəʊz/"
+    example_sentence: "The doctor diagnosed him with flu."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "diagram"
+    chinese: "图表"
+    part_of_speech: "noun"
+    phonetic: "/ˈdaɪ.ə.ɡræm/"
+    example_sentence: "The diagram shows how the heart works."
+    synonyms:
+      - "chart"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "dialect"
+    chinese: "方言"
+    part_of_speech: "noun"
+    phonetic: "/ˈdaɪ.ə.lekt/"
+    example_sentence: "They speak a dialect of southern China."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "diametrical"
+    chinese: "完全相反的"
+    part_of_speech: "adjective"
+    phonetic: "/ˌdaɪ.əˈmet.rɪ.kəl/"
+    example_sentence: "Their views are diametrical on this issue."
+    synonyms:
+      - "opposite"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "dictate"
+    chinese: "口授；命令"
+    part_of_speech: "verb"
+    phonetic: "/dɪkˈteɪt/"
+    example_sentence: "She dictated a letter to her secretary."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "dictator"
+    chinese: "独裁者"
+    part_of_speech: "noun"
+    phonetic: "/dɪkˈteɪ.tər/"
+    example_sentence: "People rose against the cruel dictator."
+    synonyms:
+      - "tyrant"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "differentiate"
+    chinese: "区分"
+    part_of_speech: "verb"
+    phonetic: "/ˌdɪf.əˈren.ʃi.eɪt/"
+    example_sentence: "Babies learn to differentiate colors early."
+    synonyms:
+      - "distinguish"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "diffuse"
+    chinese: "扩散"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈfjuːz/"
+    example_sentence: "The lamp diffuses soft light at night."
+    synonyms:
+      - "spread"
+    antonyms:
+      - "concentrate"
+    difficulty_level: 9
+
+  - english: "digest"
+    chinese: "消化"
+    part_of_speech: "verb"
+    phonetic: "/daɪˈdʒest/"
+    example_sentence: "It takes hours to digest a big meal."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "dignify"
+    chinese: "使高贵；增光"
+    part_of_speech: "verb"
+    phonetic: "/ˈdɪɡ.nɪ.faɪ/"
+    example_sentence: "His calm words dignify the sad event."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "digress"
+    chinese: "离题"
+    part_of_speech: "verb"
+    phonetic: "/daɪˈɡres/"
+    example_sentence: "The speaker digressed from the main topic."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "dilate"
+    chinese: "扩大"
+    part_of_speech: "verb"
+    phonetic: "/daɪˈleɪt/"
+    example_sentence: "His eyes dilate in the dark room."
+    synonyms:
+      - "expand"
+    antonyms:
+      - "contract"
+    difficulty_level: 9
+
+  - english: "dilute"
+    chinese: "稀释"
+    part_of_speech: "verb"
+    phonetic: "/daɪˈluːt/"
+    example_sentence: "She diluted the juice with water."
+    synonyms: []
+    antonyms:
+      - "concentrate"
+    difficulty_level: 9
+
+  - english: "diminish"
+    chinese: "减少"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈmɪn.ɪʃ/"
+    example_sentence: "His influence diminished after retirement."
+    synonyms:
+      - "decrease"
+    antonyms:
+      - "increase"
+    difficulty_level: 9
+
+  - english: "dingle"
+    chinese: "小山谷"
+    part_of_speech: "noun"
+    phonetic: "/ˈdɪŋ.ɡəl/"
+    example_sentence: "A clear stream runs through the dingle."
+    synonyms:
+      - "dell"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "dingy"
+    chinese: "肮脏昏暗的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈdɪn.dʒi/"
+    example_sentence: "They live in a dingy basement flat."
+    synonyms:
+      - "shabby"
+    antonyms:
+      - "bright"
+    difficulty_level: 9
+
+  - english: "diplomat"
+    chinese: "外交官"
+    part_of_speech: "noun"
+    phonetic: "/ˈdɪp.lə.mæt/"
+    example_sentence: "The diplomat speaks four languages."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "disarray"
+    chinese: "混乱"
+    part_of_speech: "noun"
+    phonetic: "/dɪs.əˈreɪ/"
+    example_sentence: "The room was in complete disarray."
+    synonyms:
+      - "disorder"
+    antonyms:
+      - "order"
+    difficulty_level: 9
+
+  - english: "discern"
+    chinese: "辨别"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈsɜːn/"
+    example_sentence: "We could discern a ship in the fog."
+    synonyms:
+      - "perceive"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "disclose"
+    chinese: "揭露"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈskləʊz/"
+    example_sentence: "He refused to disclose his name."
+    synonyms:
+      - "reveal"
+    antonyms:
+      - "conceal"
+    difficulty_level: 9
+
+  - english: "discord"
+    chinese: "不和"
+    part_of_speech: "noun"
+    phonetic: "/ˈdɪs.kɔːd/"
+    example_sentence: "Money often sows discord in families."
+    synonyms:
+      - "conflict"
+    antonyms:
+      - "harmony"
+    difficulty_level: 9
+
+  - english: "discontent"
+    chinese: "不满"
+    part_of_speech: "noun"
+    phonetic: "/ˌdɪs.kənˈtent/"
+    example_sentence: "Low pay caused wide discontent among workers."
+    synonyms: []
+    antonyms:
+      - "satisfaction"
+    difficulty_level: 7
+
+  - english: "discreet"
+    chinese: "谨慎的"
+    part_of_speech: "adjective"
+    phonetic: "/dɪˈskriːt/"
+    example_sentence: "She was discreet about her friend's secret."
+    synonyms:
+      - "careful"
+    antonyms:
+      - "indiscreet"
+    difficulty_level: 7
+
+  - english: "discrete"
+    chinese: "分离的；不连续的"
+    part_of_speech: "adjective"
+    phonetic: "/dɪˈskriːt/"
+    example_sentence: "The course has three discrete parts."
+    synonyms:
+      - "separate"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "dishearten"
+    chinese: "使沮丧"
+    part_of_speech: "verb"
+    phonetic: "/dɪsˈhɑː.tən/"
+    example_sentence: "One failure should not dishearten you."
+    synonyms:
+      - "discourage"
+    antonyms:
+      - "encourage"
+    difficulty_level: 7
+
+  - english: "disillusion"
+    chinese: "使醒悟"
+    part_of_speech: "verb"
+    phonetic: "/ˌdɪs.ɪˈluː.ʒən/"
+    example_sentence: "The trip disillusioned him about beach life."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "dismal"
+    chinese: "阴沉的；糟糕的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈdɪz.məl/"
+    example_sentence: "The team gave a dismal show last night."
+    synonyms:
+      - "gloomy"
+    antonyms:
+      - "cheerful"
+    difficulty_level: 7
+
+  - english: "dismantle"
+    chinese: "拆除；拆卸"
+    part_of_speech: "verb"
+    phonetic: "/dɪsˈmæn.təl/"
+    example_sentence: "Workers dismantled the old stage."
+    synonyms: []
+    antonyms:
+      - "assemble"
+    difficulty_level: 7
+
+  - english: "dismay"
+    chinese: "惊愕；沮丧"
+    part_of_speech: "noun"
+    phonetic: "/dɪsˈmeɪ/"
+    example_sentence: "To our dismay, the train had left."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "traverse"
+    chinese: "横越；穿过"
+    part_of_speech: "verb"
+    phonetic: "/trəˈvɜːs/"
+    example_sentence: "They traverse the desert on camels."
+    synonyms:
+      - "cross"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "disobey"
+    chinese: "违抗"
+    part_of_speech: "verb"
+    phonetic: "/ˌdɪs.əˈbeɪ/"
+    example_sentence: "The boy disobeyed his mother and ran out."
+    synonyms:
+      - "defy"
+    antonyms:
+      - "obey"
+    difficulty_level: 7
+
+  - english: "dispatch"
+    chinese: "派遣；发送"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈspætʃ/"
+    example_sentence: "They dispatched a team to the flood area."
+    synonyms:
+      - "send"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "dispel"
+    chinese: "驱散"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈspel/"
+    example_sentence: "Sunshine dispelled the morning fog."
+    synonyms:
+      - "disperse"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "dispense"
+    chinese: "分配；发放"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈspens/"
+    example_sentence: "The machine dispenses hot drinks."
+    synonyms:
+      - "distribute"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "disperse"
+    chinese: "驱散；散开"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈspɜːs/"
+    example_sentence: "Police dispersed the angry crowd."
+    synonyms:
+      - "scatter"
+    antonyms:
+      - "gather"
+    difficulty_level: 7
+
+  - english: "dissect"
+    chinese: "解剖；剖析"
+    part_of_speech: "verb"
+    phonetic: "/daɪˈsekt/"
+    example_sentence: "Students dissected a frog in biology class."
+    synonyms:
+      - "analyze"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "dissertation"
+    chinese: "学位论文"
+    part_of_speech: "noun"
+    phonetic: "/ˌdɪs.əˈteɪ.ʃən/"
+    example_sentence: "She wrote a dissertation on folk songs."
+    synonyms:
+      - "thesis"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "dissolve"
+    chinese: "溶解"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈzɒlv/"
+    example_sentence: "Sugar dissolves quickly in hot tea."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "distort"
+    chinese: "扭曲"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈstɔːt/"
+    example_sentence: "The mirror distorts my face strangely."
+    synonyms:
+      - "twist"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "distract"
+    chinese: "使分心"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈstrækt/"
+    example_sentence: "Noise distracted him from his homework."
+    synonyms:
+      - "disturb"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "distraught"
+    chinese: "心烦意乱的"
+    part_of_speech: "adjective"
+    phonetic: "/dɪˈstrɔːt/"
+    example_sentence: "The distraught mother looked for her son."
+    synonyms: []
+    antonyms:
+      - "calm"
+    difficulty_level: 9
+
+  - english: "distress"
+    chinese: "悲痛；危难"
+    part_of_speech: "noun"
+    phonetic: "/dɪˈstres/"
+    example_sentence: "The lost boy cried out in distress."
+    synonyms:
+      - "anguish"
+    antonyms:
+      - "comfort"
+    difficulty_level: 9
+
+  - english: "diverge"
+    chinese: "分岔；分歧"
+    part_of_speech: "verb"
+    phonetic: "/daɪˈvɜːdʒ/"
+    example_sentence: "The two roads diverge at the bridge."
+    synonyms: []
+    antonyms:
+      - "converge"
+    difficulty_level: 9
+
+  - english: "diversify"
+    chinese: "多样化"
+    part_of_speech: "verb"
+    phonetic: "/daɪˈvɜː.sɪ.faɪ/"
+    example_sentence: "Farmers diversify crops to earn more."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "divert"
+    chinese: "转移"
+    part_of_speech: "verb"
+    phonetic: "/daɪˈvɜːt/"
+    example_sentence: "They diverted the river to save the town."
+    synonyms:
+      - "redirect"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "divulge"
+    chinese: "泄露"
+    part_of_speech: "verb"
+    phonetic: "/daɪˈvʌldʒ/"
+    example_sentence: "He refused to divulge the secret recipe."
+    synonyms:
+      - "reveal"
+    antonyms:
+      - "conceal"
+    difficulty_level: 9
+
+  - english: "docile"
+    chinese: "温顺的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈdəʊ.saɪl/"
+    example_sentence: "The docile sheep followed the girl."
+    synonyms:
+      - "obedient"
+    antonyms:
+      - "unruly"
+    difficulty_level: 9
+
+  - english: "dogged"
+    chinese: "顽强的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈdɒɡ.ɪd/"
+    example_sentence: "Dogged effort brought final success."
+    synonyms:
+      - "persistent"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "dogma"
+    chinese: "教条"
+    part_of_speech: "noun"
+    phonetic: "/ˈdɒɡ.mə/"
+    example_sentence: "He never doubts the old dogma."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "domain"
+    chinese: "领域"
+    part_of_speech: "noun"
+    phonetic: "/dəˈmeɪn/"
+    example_sentence: "This question falls outside my domain."
+    synonyms:
+      - "field"
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "dormant"
+    chinese: "休眠的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈdɔː.mənt/"
+    example_sentence: "The dormant volcano woke up last year."
+    synonyms:
+      - "inactive"
+    antonyms:
+      - "active"
+    difficulty_level: 9

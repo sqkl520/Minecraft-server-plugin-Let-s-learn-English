@@ -12,6 +12,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Level;
 
@@ -88,7 +89,8 @@ public class DailyChallengeManager {
     public DailyChallengeManager(LetsLearnEnglish plugin, WordManagerImpl wordManager) {
         this.plugin = plugin;
         this.wordManager = wordManager;
-        this.wordChallengeClaimedToday = new HashSet<>();
+        // M8 附带 + F1-10：已领取标记集合（Phase 1 流 C 在用，不能删），换线程安全实现
+        this.wordChallengeClaimedToday = ConcurrentHashMap.newKeySet();
     }
 
     // ============================================================
@@ -122,10 +124,44 @@ public class DailyChallengeManager {
         }
         }
 
-        // Assign 3 random challenges (pick 3 from 4 types)
-        List<ChallengeType> allTypes = new ArrayList<>(Arrays.asList(ChallengeType.values()));
-        Collections.shuffle(allTypes, ThreadLocalRandom.current());
-        List<ChallengeType> picked = allTypes.subList(0, 3);
+        // Assign 3 random challenges (pick 3 from 4 types).
+        // FIX-DAY-01：过滤不可用挑战 — 无 AI Key 的服务器抽不到 AI_CHAT_5。
+        // 抽中不可用项则整体重抽，最多重试 5 轮（4 选 3，数学上必有可用解）。
+        List<ChallengeType> picked = null;
+        for (int attempt = 0; attempt < 5 && picked == null; attempt++) {
+            List<ChallengeType> allTypes = new ArrayList<>(Arrays.asList(ChallengeType.values()));
+            Collections.shuffle(allTypes, ThreadLocalRandom.current());
+            List<ChallengeType> candidate = allTypes.subList(0, 3);
+            boolean allAvailable = true;
+            for (ChallengeType ct : candidate) {
+                if (!isChallengeAvailable(ct)) {
+                    allAvailable = false;
+                    break;
+                }
+            }
+            if (allAvailable) {
+                picked = new ArrayList<>(candidate);
+            }
+        }
+        if (picked == null) {
+            // 极端兜底：5 轮都没抽出全可用组合（理论上不可能），退化为过滤后取前 3
+            picked = new ArrayList<>();
+            for (ChallengeType ct : ChallengeType.values()) {
+                if (isChallengeAvailable(ct)) {
+                    picked.add(ct);
+                }
+            }
+            if (picked.size() > 3) {
+                Collections.shuffle(picked, ThreadLocalRandom.current());
+                picked = picked.subList(0, 3);
+            }
+            if (picked.isEmpty()) {
+                plugin.getLogger().warning("No available daily challenges for " + playerId
+                        + " — all challenge types filtered, skipping assignment.");
+                ensureWordChallengesAssigned(playerId);
+                return;
+            }
+        }
 
         String insertSql = "INSERT OR REPLACE INTO " + tablePrefix
                 + "daily_challenges (uuid, challenge_date, challenge_id, progress, completed, claimed) VALUES (?, ?, ?, 0, 0, 0)";
@@ -151,6 +187,17 @@ public class DailyChallengeManager {
 
         // Also assign word challenges
         ensureWordChallengesAssigned(playerId);
+    }
+
+    /**
+     * FIX-DAY-01：判断某类挑战在当前服务器是否可完成。
+     * 目前只有 AI_CHAT_5 受限（需要 AI Key）；其余行为挑战永远可用。
+     */
+    private boolean isChallengeAvailable(ChallengeType type) {
+        if (type == ChallengeType.AI_CHAT_5) {
+            return plugin.getAIChatManager() != null && plugin.getAIChatManager().isAvailable();
+        }
+        return true;
     }
 
     /**
@@ -448,8 +495,10 @@ public class DailyChallengeManager {
                         .replace("{reward}", String.valueOf((int) reward)));
         player.sendMessage(msg);
 
-        // Open celebration GUI
-        new com.letslearnenglish.minecraftplugin.gui.ChallengeCompleteGUI(plugin).open(player, reward);
+        // FIX-CHAL-01 去强制化：不再自动弹庆祝 GUI（玩家可能在决斗/看别的界面），
+        // 改为聊天提醒，玩家按需用 /le challenge 重开庆祝页。
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                "daily-challenge.reopen-hint"));
     }
 
     /**
@@ -533,5 +582,49 @@ public class DailyChallengeManager {
      */
     public void clearWordChallengeClaim(UUID playerId) {
         wordChallengeClaimedToday.remove(playerId);
+    }
+
+    /**
+     * M8：午夜跨天时清空全服的单词挑战已领标记。
+     * 由 LetsLearnEnglish 的跨天定时任务调用。
+     */
+    public void clearAllWordChallengeClaims() {
+        wordChallengeClaimedToday.clear();
+    }
+
+    /**
+     * M8 跨天：统计玩家某日"已完成但未领取"的行为挑战数。
+     * 供午夜作废提示用；昨日数据天然按 challenge_date 隔离，无需删行。
+     */
+    public int countUnclaimedForDate(UUID playerId, String date) {
+        String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
+        String sql = "SELECT COUNT(*) FROM " + tablePrefix
+                + "daily_challenges WHERE uuid = ? AND challenge_date = ? AND completed = 1 AND claimed = 0";
+        Connection conn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, playerId.toString());
+            stmt.setString(2, date);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to count unclaimed challenges for " + playerId, e);
+        }
+        }
+        return 0;
+    }
+
+    /**
+     * M8 跨天：指定日期的单词挑战是否"已全完成但奖励未到账"（作废提示用）。
+     * 注意：必须在 clearAllWordChallengeClaims() 之前调用。
+     */
+    public boolean hasPendingWordRewardForDate(UUID playerId, String date) {
+        if (wordChallengeClaimedToday.contains(playerId)) {
+            return false;
+        }
+        return plugin.getDatabaseManager().isDailyChallengeWordsCompleted(playerId, date);
     }
 }

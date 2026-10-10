@@ -101,6 +101,15 @@ public class TtsManager {
 
                 int responseCode = conn.getResponseCode();
                 if (responseCode == 200) {
+                    // M20：VoiceRSS 出错时也可能回 200 + 文本 "ERROR: ..."。
+                    // 非音频 Content-Type 一律不落盘，防止错误文本毒化 .wav 缓存。
+                    String contentType = conn.getContentType();
+                    if (!isAudioContentType(contentType)) {
+                        plugin.getLogger().warning("TTS VoiceRSS returned non-audio Content-Type: "
+                                + contentType + " — not caching (word: " + word + ").");
+                        future.complete(null);
+                        return;
+                    }
                     File outputFile = new File(cacheDir, sanitizeFileName(word) + ".wav");
                     try (InputStream is = conn.getInputStream();
                          OutputStream fos = new FileOutputStream(outputFile)) {
@@ -193,6 +202,20 @@ public class TtsManager {
 
     private String sanitizeFileName(String word) {
         return word.replaceAll("[^a-zA-Z0-9_\\-]", "_").toLowerCase();
+    }
+
+    /**
+     * M20：判断响应是否为可缓存的音频。
+     * 放行 audio/* 与 application/octet-stream；Content-Type 缺失时放行
+     * （不断网关/旧代理可能 strip 响应头，宁可信其有）；
+     * 其余（text/*、application/json 等错误体）一律拦截。
+     */
+    private boolean isAudioContentType(String contentType) {
+        if (contentType == null || contentType.isEmpty()) {
+            return true;
+        }
+        String lower = contentType.toLowerCase(java.util.Locale.ROOT);
+        return lower.startsWith("audio/") || lower.startsWith("application/octet-stream");
     }
 
     private Sound resolveSound(String name) {

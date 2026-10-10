@@ -174,7 +174,9 @@ public class MiscGUIListener implements Listener {
     private void handleChallengeComplete(Player player, int slot) {
         if (slot == 8 || slot == 22) {
             SoundManager.playSound(player, "menu-click");
-            // Back to main menu or claim button — both go to main menu
+            // F1-09: slot 22 is the "reward already arrived, back to menu"
+            // button (NOT a claim action — payout happened before this page
+            // opened). Both slots just return to the main menu.
             new MainMenu(plugin).open(player);
         }
     }

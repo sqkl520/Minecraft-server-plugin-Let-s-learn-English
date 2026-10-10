@@ -14,6 +14,14 @@ public class DuelRoom {
 
     public static final int WIN_SCORE = 5;
 
+    /**
+     * FIX-DUEL-01: single-question timeout fallback (seconds).
+     * Prefer the existing {@code word-system.answer-timeout} config (owned by
+     * WordLearningManager); this constant is only the fallback default and is
+     * NOT a new config key.
+     */
+    public static final int WORD_TIMEOUT_SECONDS = 30;
+
     private final UUID player1;
     private final UUID player2;
     private final String player1Name;
@@ -24,6 +32,9 @@ public class DuelRoom {
     private volatile UUID lastCorrectAnswerer;
     private volatile long wordStartTime;
     private volatile boolean active;
+    // Monotonic round id: incremented on every setCurrentWord so the timeout
+    // task can tell a stale firing (old round) from the current one.
+    private volatile long wordRoundId;
 
     public enum AnswerResult {
         CORRECT,
@@ -42,16 +53,21 @@ public class DuelRoom {
         this.currentWord = null;
         this.lastCorrectAnswerer = null;
         this.wordStartTime = 0;
+        this.wordRoundId = 0;
         this.active = true;
     }
 
     /**
      * Record the current word for this round.
+     *
+     * @return the new round id, used by the manager to detect stale timeouts
      */
-    public synchronized void setCurrentWord(Word word) {
+    public synchronized long setCurrentWord(Word word) {
         this.currentWord = word;
         this.lastCorrectAnswerer = null;
         this.wordStartTime = System.currentTimeMillis();
+        this.wordRoundId++;
+        return this.wordRoundId;
     }
 
     /**
@@ -92,6 +108,37 @@ public class DuelRoom {
             }
             return AnswerResult.WRONG;
         }
+    }
+
+    /**
+     * FIX-DUEL-01: single-question timeout.
+     *
+     * <p>Semantics (symmetric by design): if nobody answered the current word
+     * in time, NOBODY scores — no penalty, no free point for either side
+     * (unlike a wrong answer, which deliberately feeds the opponent). A
+     * dropped/disconnected player can therefore never cost their opponent a
+     * point via timeout. The manager then advances to the next word.
+     *
+     * @param expectedRound the round id captured when the timeout was scheduled
+     * @return true if this round actually timed out (still unanswered and
+     *         still the current round); false if the round was already
+     *         answered, advanced, or the duel ended (stale firing)
+     */
+    public synchronized boolean timeoutCurrentWord(long expectedRound) {
+        if (!active || currentWord == null) {
+            return false;
+        }
+        if (expectedRound != wordRoundId) {
+            return false; // stale: a newer word was already dealt
+        }
+        if (lastCorrectAnswerer != null) {
+            return false; // already answered — timeout loses the race
+        }
+        // Seal the round so late chat answers are rejected as ALREADY_ANSWERED.
+        // A random UUID can never equal a real player id; getCurrentWord() is
+        // intentionally left intact so the timeout reveal can show the answer.
+        lastCorrectAnswerer = new UUID(0L, 0L);
+        return true;
     }
 
     /**
@@ -153,5 +200,6 @@ public class DuelRoom {
     public Word getCurrentWord() { return currentWord; }
     public UUID getLastCorrectAnswerer() { return lastCorrectAnswerer; }
     public long getWordStartTime() { return wordStartTime; }
+    public long getWordRoundId() { return wordRoundId; }
     public boolean isActive() { return active; }
 }

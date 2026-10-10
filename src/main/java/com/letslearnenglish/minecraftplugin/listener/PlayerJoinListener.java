@@ -26,6 +26,9 @@ public class PlayerJoinListener implements Listener {
         plugin.getPlayerDataStore().loadPlayerData(event.getPlayer().getUniqueId());
         plugin.getAchievementManager().loadPlayerAchievements(event.getPlayer().getUniqueId());
         plugin.getPlayerDataStore().loadProfileSettings(event.getPlayer().getUniqueId());
+        // H10：主线程缓存玩家名，供 savePlayerData 落盘 player_data.player_name
+        plugin.getPlayerDataStore().cachePlayerName(
+                event.getPlayer().getUniqueId(), event.getPlayer().getName());
 
         org.bukkit.Bukkit.getScheduler().runTaskLater(plugin, () -> {
             plugin.getUpdateChecker().notifyPlayer(event.getPlayer());

@@ -118,3 +118,2958 @@ words:
       - "liquid"
     antonyms: []
     difficulty_level: 1
+
+  - english: "arm"
+    chinese: "手臂"
+    part_of_speech: "noun"
+    phonetic: "/ɑːm/"
+    example_sentence: "She hurt her arm while playing."
+    synonyms:
+      - "limb"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "ball"
+    chinese: "球"
+    part_of_speech: "noun"
+    phonetic: "/bɔːl/"
+    example_sentence: "The children are playing with a ball."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "banana"
+    chinese: "香蕉"
+    part_of_speech: "noun"
+    phonetic: "/bəˈnɑː.nə/"
+    example_sentence: "A monkey is eating a banana."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "bed"
+    chinese: "床"
+    part_of_speech: "noun"
+    phonetic: "/bed/"
+    example_sentence: "I go to bed at ten o'clock."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "big"
+    chinese: "大的"
+    part_of_speech: "adjective"
+    phonetic: "/bɪɡ/"
+    example_sentence: "They live in a big house."
+    synonyms:
+      - "large"
+      - "huge"
+    antonyms:
+      - "small"
+      - "little"
+    difficulty_level: 1
+
+  - english: "bird"
+    chinese: "鸟"
+    part_of_speech: "noun"
+    phonetic: "/bɜːd/"
+    example_sentence: "A bird is singing in the tree."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "blue"
+    chinese: "蓝色的"
+    part_of_speech: "adjective"
+    phonetic: "/bluː/"
+    example_sentence: "The sky is blue today."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "boy"
+    chinese: "男孩"
+    part_of_speech: "noun"
+    phonetic: "/bɔɪ/"
+    example_sentence: "The boy is riding a bicycle."
+    synonyms:
+      - "lad"
+    antonyms:
+      - "girl"
+    difficulty_level: 1
+
+  - english: "bread"
+    chinese: "面包"
+    part_of_speech: "noun"
+    phonetic: "/bred/"
+    example_sentence: "I like bread with butter."
+    synonyms:
+      - "loaf"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "car"
+    chinese: "汽车"
+    part_of_speech: "noun"
+    phonetic: "/kɑːr/"
+    example_sentence: "My father drives a red car."
+    synonyms:
+      - "automobile"
+      - "vehicle"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "chair"
+    chinese: "椅子"
+    part_of_speech: "noun"
+    phonetic: "/tʃeər/"
+    example_sentence: "Please sit on the chair."
+    synonyms:
+      - "seat"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "cold"
+    chinese: "冷的"
+    part_of_speech: "adjective"
+    phonetic: "/kəʊld/"
+    example_sentence: "The water is very cold."
+    synonyms:
+      - "chilly"
+      - "cool"
+    antonyms:
+      - "hot"
+      - "warm"
+    difficulty_level: 1
+
+  - english: "come"
+    chinese: "来"
+    part_of_speech: "verb"
+    phonetic: "/kʌm/"
+    example_sentence: "Please come to my party."
+    synonyms:
+      - "approach"
+      - "arrive"
+    antonyms:
+      - "go"
+      - "leave"
+    difficulty_level: 1
+
+  - english: "day"
+    chinese: "天；白天"
+    part_of_speech: "noun"
+    phonetic: "/deɪ/"
+    example_sentence: "It is a beautiful day."
+    synonyms: []
+    antonyms:
+      - "night"
+    difficulty_level: 1
+
+  - english: "door"
+    chinese: "门"
+    part_of_speech: "noun"
+    phonetic: "/dɔːr/"
+    example_sentence: "Please close the door."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "drink"
+    chinese: "喝"
+    part_of_speech: "verb"
+    phonetic: "/drɪŋk/"
+    example_sentence: "I drink milk every morning."
+    synonyms:
+      - "sip"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "egg"
+    chinese: "鸡蛋"
+    part_of_speech: "noun"
+    phonetic: "/eɡ/"
+    example_sentence: "She eats an egg for breakfast."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "family"
+    chinese: "家庭"
+    part_of_speech: "noun"
+    phonetic: "/ˈfæm.əl.i/"
+    example_sentence: "My family is very big."
+    synonyms:
+      - "household"
+      - "relatives"
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "fast"
+    chinese: "快的"
+    part_of_speech: "adjective"
+    phonetic: "/fɑːst/"
+    example_sentence: "He is a fast runner."
+    synonyms:
+      - "quick"
+      - "rapid"
+    antonyms:
+      - "slow"
+    difficulty_level: 1
+
+  - english: "fire"
+    chinese: "火"
+    part_of_speech: "noun"
+    phonetic: "/faɪər/"
+    example_sentence: "They sat around the warm fire."
+    synonyms:
+      - "flame"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "fish"
+    chinese: "鱼"
+    part_of_speech: "noun"
+    phonetic: "/fɪʃ/"
+    example_sentence: "There are many fish in the river."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "flower"
+    chinese: "花"
+    part_of_speech: "noun"
+    phonetic: "/ˈflaʊ.ər/"
+    example_sentence: "She picked a beautiful flower."
+    synonyms:
+      - "blossom"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "food"
+    chinese: "食物"
+    part_of_speech: "noun"
+    phonetic: "/fuːd/"
+    example_sentence: "The food smells delicious."
+    synonyms:
+      - "meal"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "girl"
+    chinese: "女孩"
+    part_of_speech: "noun"
+    phonetic: "/ɡɜːl/"
+    example_sentence: "The girl is reading a story."
+    synonyms: []
+    antonyms:
+      - "boy"
+    difficulty_level: 1
+
+  - english: "good"
+    chinese: "好的"
+    part_of_speech: "adjective"
+    phonetic: "/ɡʊd/"
+    example_sentence: "This is a good book."
+    synonyms:
+      - "fine"
+      - "nice"
+    antonyms:
+      - "bad"
+    difficulty_level: 1
+
+  - english: "green"
+    chinese: "绿色的"
+    part_of_speech: "adjective"
+    phonetic: "/ɡriːn/"
+    example_sentence: "The grass is green."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "hand"
+    chinese: "手"
+    part_of_speech: "noun"
+    phonetic: "/hænd/"
+    example_sentence: "Raise your hand to answer."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "help"
+    chinese: "帮助"
+    part_of_speech: "verb"
+    phonetic: "/help/"
+    example_sentence: "Can you help me, please?"
+    synonyms:
+      - "assist"
+      - "aid"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "home"
+    chinese: "家"
+    part_of_speech: "noun"
+    phonetic: "/həʊm/"
+    example_sentence: "I go home after school."
+    synonyms:
+      - "house"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "hot"
+    chinese: "热的"
+    part_of_speech: "adjective"
+    phonetic: "/hɒt/"
+    example_sentence: "The soup is too hot."
+    synonyms:
+      - "warm"
+    antonyms:
+      - "cold"
+    difficulty_level: 1
+
+  - english: "house"
+    chinese: "房子"
+    part_of_speech: "noun"
+    phonetic: "/haʊs/"
+    example_sentence: "They bought a new house."
+    synonyms:
+      - "home"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "know"
+    chinese: "知道"
+    part_of_speech: "verb"
+    phonetic: "/nəʊ/"
+    example_sentence: "I know the right answer."
+    synonyms:
+      - "understand"
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "learn"
+    chinese: "学习"
+    part_of_speech: "verb"
+    phonetic: "/lɜːn/"
+    example_sentence: "We learn English at school."
+    synonyms:
+      - "study"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "like"
+    chinese: "喜欢"
+    part_of_speech: "verb"
+    phonetic: "/laɪk/"
+    example_sentence: "I like ice cream very much."
+    synonyms:
+      - "enjoy"
+    antonyms:
+      - "dislike"
+      - "hate"
+    difficulty_level: 1
+
+  - english: "little"
+    chinese: "小的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈlɪt.əl/"
+    example_sentence: "She has a little dog."
+    synonyms:
+      - "small"
+      - "tiny"
+    antonyms:
+      - "big"
+      - "large"
+    difficulty_level: 1
+
+  - english: "look"
+    chinese: "看"
+    part_of_speech: "verb"
+    phonetic: "/lʊk/"
+    example_sentence: "Look at the beautiful bird!"
+    synonyms:
+      - "watch"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "love"
+    chinese: "爱"
+    part_of_speech: "verb"
+    phonetic: "/lʌv/"
+    example_sentence: "I love my family very much."
+    synonyms:
+      - "adore"
+    antonyms:
+      - "hate"
+    difficulty_level: 1
+
+  - english: "milk"
+    chinese: "牛奶"
+    part_of_speech: "noun"
+    phonetic: "/mɪlk/"
+    example_sentence: "The baby is drinking milk."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "money"
+    chinese: "钱"
+    part_of_speech: "noun"
+    phonetic: "/ˈmʌn.i/"
+    example_sentence: "He saves his money in a bank."
+    synonyms:
+      - "cash"
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "moon"
+    chinese: "月亮"
+    part_of_speech: "noun"
+    phonetic: "/muːn/"
+    example_sentence: "The moon is bright tonight."
+    synonyms: []
+    antonyms:
+      - "sun"
+    difficulty_level: 1
+
+  - english: "mother"
+    chinese: "母亲"
+    part_of_speech: "noun"
+    phonetic: "/ˈmʌð.ər/"
+    example_sentence: "My mother cooks dinner for us."
+    synonyms:
+      - "mom"
+      - "mum"
+    antonyms:
+      - "father"
+    difficulty_level: 1
+
+  - english: "new"
+    chinese: "新的"
+    part_of_speech: "adjective"
+    phonetic: "/njuː/"
+    example_sentence: "I have a new phone."
+    synonyms:
+      - "fresh"
+      - "modern"
+    antonyms:
+      - "old"
+    difficulty_level: 1
+
+  - english: "night"
+    chinese: "夜晚"
+    part_of_speech: "noun"
+    phonetic: "/naɪt/"
+    example_sentence: "The stars shine at night."
+    synonyms: []
+    antonyms:
+      - "day"
+    difficulty_level: 1
+
+  - english: "open"
+    chinese: "打开"
+    part_of_speech: "verb"
+    phonetic: "/ˈəʊ.pən/"
+    example_sentence: "Please open the window."
+    synonyms:
+      - "unlock"
+    antonyms:
+      - "close"
+      - "shut"
+    difficulty_level: 2
+
+  - english: "orange"
+    chinese: "橙子；橙色的"
+    part_of_speech: "noun"
+    phonetic: "/ˈɒr.ɪndʒ/"
+    example_sentence: "I drink orange juice every day."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "play"
+    chinese: "玩；演奏"
+    part_of_speech: "verb"
+    phonetic: "/pleɪ/"
+    example_sentence: "The children play in the garden."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "read"
+    chinese: "读"
+    part_of_speech: "verb"
+    phonetic: "/riːd/"
+    example_sentence: "I read a book before bed."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "red"
+    chinese: "红色的"
+    part_of_speech: "adjective"
+    phonetic: "/red/"
+    example_sentence: "She is wearing a red dress."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "sing"
+    chinese: "唱歌"
+    part_of_speech: "verb"
+    phonetic: "/sɪŋ/"
+    example_sentence: "The birds sing in the morning."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "sleep"
+    chinese: "睡觉"
+    part_of_speech: "verb"
+    phonetic: "/sliːp/"
+    example_sentence: "Babies sleep for many hours."
+    synonyms:
+      - "rest"
+      - "nap"
+    antonyms:
+      - "wake"
+    difficulty_level: 1
+
+  - english: "sun"
+    chinese: "太阳"
+    part_of_speech: "noun"
+    phonetic: "/sʌn/"
+    example_sentence: "The sun is shining brightly."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "tree"
+    chinese: "树"
+    part_of_speech: "noun"
+    phonetic: "/triː/"
+    example_sentence: "There is a tall tree behind the house."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "river"
+    chinese: "河"
+    part_of_speech: "noun"
+    phonetic: "/ˈrɪv.ər/"
+    example_sentence: "We swim in the river in summer."
+    synonyms:
+      - "stream"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "rain"
+    chinese: "雨"
+    part_of_speech: "noun"
+    phonetic: "/reɪn/"
+    example_sentence: "Take an umbrella with you for the rain."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "snow"
+    chinese: "雪"
+    part_of_speech: "noun"
+    phonetic: "/snəʊ/"
+    example_sentence: "The children love playing in the snow."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "wind"
+    chinese: "风"
+    part_of_speech: "noun"
+    phonetic: "/wɪnd/"
+    example_sentence: "The wind is strong today."
+    synonyms:
+      - "breeze"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "star"
+    chinese: "星星"
+    part_of_speech: "noun"
+    phonetic: "/stɑːr/"
+    example_sentence: "Look at the stars in the sky!"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "sky"
+    chinese: "天空"
+    part_of_speech: "noun"
+    phonetic: "/skaɪ/"
+    example_sentence: "Birds are flying across the sky."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "cloud"
+    chinese: "云"
+    part_of_speech: "noun"
+    phonetic: "/klaʊd/"
+    example_sentence: "A white cloud is moving slowly."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "mountain"
+    chinese: "山"
+    part_of_speech: "noun"
+    phonetic: "/ˈmaʊn.tɪn/"
+    example_sentence: "We climbed the mountain last Sunday."
+    synonyms:
+      - "hill"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "lake"
+    chinese: "湖"
+    part_of_speech: "noun"
+    phonetic: "/leɪk/"
+    example_sentence: "The lake is calm and clear."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "sea"
+    chinese: "大海"
+    part_of_speech: "noun"
+    phonetic: "/siː/"
+    example_sentence: "They spent the holiday by the sea."
+    synonyms:
+      - "ocean"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "beach"
+    chinese: "海滩"
+    part_of_speech: "noun"
+    phonetic: "/biːtʃ/"
+    example_sentence: "We built a sandcastle on the beach."
+    synonyms:
+      - "shore"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "park"
+    chinese: "公园"
+    part_of_speech: "noun"
+    phonetic: "/pɑːk/"
+    example_sentence: "Grandpa walks in the park every morning."
+    synonyms:
+      - "garden"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "zoo"
+    chinese: "动物园"
+    part_of_speech: "noun"
+    phonetic: "/zuː/"
+    example_sentence: "The class visited the zoo on Friday."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "farm"
+    chinese: "农场"
+    part_of_speech: "noun"
+    phonetic: "/fɑːm/"
+    example_sentence: "My uncle lives on a big farm."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "garden"
+    chinese: "花园"
+    part_of_speech: "noun"
+    phonetic: "/ˈɡɑː.dən/"
+    example_sentence: "Grandma grows roses in her garden."
+    synonyms:
+      - "yard"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "kitchen"
+    chinese: "厨房"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɪtʃ.ɪn/"
+    example_sentence: "Mum is cooking in the kitchen."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "bedroom"
+    chinese: "卧室"
+    part_of_speech: "noun"
+    phonetic: "/ˈbed.ruːm/"
+    example_sentence: "My bedroom is small but tidy."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "bathroom"
+    chinese: "浴室"
+    part_of_speech: "noun"
+    phonetic: "/ˈbɑːθ.ruːm/"
+    example_sentence: "Please clean the bathroom on Saturday."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "table"
+    chinese: "桌子"
+    part_of_speech: "noun"
+    phonetic: "/ˈteɪ.bəl/"
+    example_sentence: "Put the books on the table."
+    synonyms:
+      - "desk"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "desk"
+    chinese: "书桌"
+    part_of_speech: "noun"
+    phonetic: "/desk/"
+    example_sentence: "He does his homework at his desk."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "pencil"
+    chinese: "铅笔"
+    part_of_speech: "noun"
+    phonetic: "/ˈpen.səl/"
+    example_sentence: "I need a pencil to draw a picture."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "pen"
+    chinese: "钢笔"
+    part_of_speech: "noun"
+    phonetic: "/pen/"
+    example_sentence: "She writes with a black pen."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "rubber"
+    chinese: "橡皮"
+    part_of_speech: "noun"
+    phonetic: "/ˈrʌb.ər/"
+    example_sentence: "Use a rubber to clean the mistake."
+    synonyms:
+      - "eraser"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "ruler"
+    chinese: "尺子"
+    part_of_speech: "noun"
+    phonetic: "/ˈruː.lər/"
+    example_sentence: "Draw a straight line with a ruler."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "bag"
+    chinese: "包"
+    part_of_speech: "noun"
+    phonetic: "/bæɡ/"
+    example_sentence: "My schoolbag is too heavy."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "box"
+    chinese: "盒子"
+    part_of_speech: "noun"
+    phonetic: "/bɒks/"
+    example_sentence: "The gift is in a red box."
+    synonyms:
+      - "case"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "cup"
+    chinese: "杯子"
+    part_of_speech: "noun"
+    phonetic: "/kʌp/"
+    example_sentence: "Give me a cup of tea, please."
+    synonyms:
+      - "mug"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "plate"
+    chinese: "盘子"
+    part_of_speech: "noun"
+    phonetic: "/pleɪt/"
+    example_sentence: "Put some rice on your plate."
+    synonyms:
+      - "dish"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "spoon"
+    chinese: "勺子"
+    part_of_speech: "noun"
+    phonetic: "/spuːn/"
+    example_sentence: "Eat the soup with a spoon."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "knife"
+    chinese: "刀"
+    part_of_speech: "noun"
+    phonetic: "/naɪf/"
+    example_sentence: "Cut the bread with a knife."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "fork"
+    chinese: "叉子"
+    part_of_speech: "noun"
+    phonetic: "/fɔːk/"
+    example_sentence: "Use a fork to eat the salad."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "rice"
+    chinese: "米饭"
+    part_of_speech: "noun"
+    phonetic: "/raɪs/"
+    example_sentence: "We eat rice three times a day."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "noodle"
+    chinese: "面条"
+    part_of_speech: "noun"
+    phonetic: "/ˈnuː.dəl/"
+    example_sentence: "I would like a bowl of noodles."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "cake"
+    chinese: "蛋糕"
+    part_of_speech: "noun"
+    phonetic: "/keɪk/"
+    example_sentence: "She made a birthday cake for me."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "candy"
+    chinese: "糖果"
+    part_of_speech: "noun"
+    phonetic: "/ˈkæn.di/"
+    example_sentence: "Too much candy is bad for your teeth."
+    synonyms:
+      - "sweet"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "juice"
+    chinese: "果汁"
+    part_of_speech: "noun"
+    phonetic: "/dʒuːs/"
+    example_sentence: "Would you like some apple juice?"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "tea"
+    chinese: "茶"
+    part_of_speech: "noun"
+    phonetic: "/tiː/"
+    example_sentence: "Grandpa drinks tea every afternoon."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "coffee"
+    chinese: "咖啡"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɒf.i/"
+    example_sentence: "Dad drinks a cup of coffee at work."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "soup"
+    chinese: "汤"
+    part_of_speech: "noun"
+    phonetic: "/suːp/"
+    example_sentence: "The chicken soup tastes wonderful."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "salad"
+    chinese: "沙拉"
+    part_of_speech: "noun"
+    phonetic: "/ˈsæl.əd/"
+    example_sentence: "She eats a fresh salad for lunch."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "fruit"
+    chinese: "水果"
+    part_of_speech: "noun"
+    phonetic: "/fruːt/"
+    example_sentence: "Eating fruit keeps you healthy."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "head"
+    chinese: "头"
+    part_of_speech: "noun"
+    phonetic: "/hed/"
+    example_sentence: "He nodded his head and smiled."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "eye"
+    chinese: "眼睛"
+    part_of_speech: "noun"
+    phonetic: "/aɪ/"
+    example_sentence: "She has big bright eyes."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "nose"
+    chinese: "鼻子"
+    part_of_speech: "noun"
+    phonetic: "/nəʊz/"
+    example_sentence: "The elephant has a long nose."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "mouth"
+    chinese: "嘴"
+    part_of_speech: "noun"
+    phonetic: "/maʊθ/"
+    example_sentence: "Open your mouth and say ah."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "ear"
+    chinese: "耳朵"
+    part_of_speech: "noun"
+    phonetic: "/ɪər/"
+    example_sentence: "Rabbits have long ears."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "leg"
+    chinese: "腿"
+    part_of_speech: "noun"
+    phonetic: "/leɡ/"
+    example_sentence: "The table has four legs."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "foot"
+    chinese: "脚"
+    part_of_speech: "noun"
+    phonetic: "/fʊt/"
+    example_sentence: "He hurt his foot playing football."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "tiger"
+    chinese: "老虎"
+    part_of_speech: "noun"
+    phonetic: "/ˈtaɪ.ɡər/"
+    example_sentence: "The tiger is sleeping under a tree."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "panda"
+    chinese: "熊猫"
+    part_of_speech: "noun"
+    phonetic: "/ˈpæn.də/"
+    example_sentence: "The panda is eating bamboo."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "monkey"
+    chinese: "猴子"
+    part_of_speech: "noun"
+    phonetic: "/ˈmʌŋ.ki/"
+    example_sentence: "The monkey is climbing the tree."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "duck"
+    chinese: "鸭子"
+    part_of_speech: "noun"
+    phonetic: "/dʌk/"
+    example_sentence: "The duck is swimming in the pond."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "chicken"
+    chinese: "鸡"
+    part_of_speech: "noun"
+    phonetic: "/ˈtʃɪk.ɪn/"
+    example_sentence: "The chicken lays eggs every day."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "pig"
+    chinese: "猪"
+    part_of_speech: "noun"
+    phonetic: "/pɪɡ/"
+    example_sentence: "The pig lives on the farm."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "cow"
+    chinese: "奶牛"
+    part_of_speech: "noun"
+    phonetic: "/kaʊ/"
+    example_sentence: "The cow gives us fresh milk."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "horse"
+    chinese: "马"
+    part_of_speech: "noun"
+    phonetic: "/hɔːs/"
+    example_sentence: "The boy can ride a horse."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "sheep"
+    chinese: "绵羊"
+    part_of_speech: "noun"
+    phonetic: "/ʃiːp/"
+    example_sentence: "White sheep are eating grass."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "rabbit"
+    chinese: "兔子"
+    part_of_speech: "noun"
+    phonetic: "/ˈræb.ɪt/"
+    example_sentence: "The rabbit likes eating carrots."
+    synonyms:
+      - "bunny"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "mouse"
+    chinese: "老鼠"
+    part_of_speech: "noun"
+    phonetic: "/maʊs/"
+    example_sentence: "A little mouse ran across the room."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "bear"
+    chinese: "熊"
+    part_of_speech: "noun"
+    phonetic: "/beər/"
+    example_sentence: "The bear is catching fish."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "lion"
+    chinese: "狮子"
+    part_of_speech: "noun"
+    phonetic: "/ˈlaɪ.ən/"
+    example_sentence: "The lion is the king of animals."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "elephant"
+    chinese: "大象"
+    part_of_speech: "noun"
+    phonetic: "/ˈel.ɪ.fənt/"
+    example_sentence: "An elephant has a long nose."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "snake"
+    chinese: "蛇"
+    part_of_speech: "noun"
+    phonetic: "/sneɪk/"
+    example_sentence: "A green snake is in the grass."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "wing"
+    chinese: "翅膀"
+    part_of_speech: "noun"
+    phonetic: "/wɪŋ/"
+    example_sentence: "The bird hurt its wing."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "tail"
+    chinese: "尾巴"
+    part_of_speech: "noun"
+    phonetic: "/teɪl/"
+    example_sentence: "The dog is wagging its tail."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "tooth"
+    chinese: "牙齿"
+    part_of_speech: "noun"
+    phonetic: "/tuːθ/"
+    example_sentence: "Brush each tooth every morning."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "yellow"
+    chinese: "黄色的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈjel.əʊ/"
+    example_sentence: "She is wearing a yellow dress."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "white"
+    chinese: "白色的"
+    part_of_speech: "adjective"
+    phonetic: "/waɪt/"
+    example_sentence: "The wall is clean and white."
+    synonyms: []
+    antonyms:
+      - "black"
+    difficulty_level: 1
+
+  - english: "black"
+    chinese: "黑色的"
+    part_of_speech: "adjective"
+    phonetic: "/blæk/"
+    example_sentence: "He has a black schoolbag."
+    synonyms: []
+    antonyms:
+      - "white"
+    difficulty_level: 1
+
+  - english: "pink"
+    chinese: "粉色的"
+    part_of_speech: "adjective"
+    phonetic: "/pɪŋk/"
+    example_sentence: "My sister likes pink shoes."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "purple"
+    chinese: "紫色的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈpɜː.pəl/"
+    example_sentence: "Grapes are small and purple."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "brown"
+    chinese: "棕色的"
+    part_of_speech: "adjective"
+    phonetic: "/braʊn/"
+    example_sentence: "The bear is big and brown."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "grey"
+    chinese: "灰色的"
+    part_of_speech: "adjective"
+    phonetic: "/ɡreɪ/"
+    example_sentence: "The sky turned dark grey."
+    synonyms:
+      - "gray"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "one"
+    chinese: "一"
+    part_of_speech: "numeral"
+    phonetic: "/wʌn/"
+    example_sentence: "I have one brother and one sister."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "two"
+    chinese: "二"
+    part_of_speech: "numeral"
+    phonetic: "/tuː/"
+    example_sentence: "Two cats are playing in the yard."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "three"
+    chinese: "三"
+    part_of_speech: "numeral"
+    phonetic: "/θriː/"
+    example_sentence: "There are three books on the desk."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "four"
+    chinese: "四"
+    part_of_speech: "numeral"
+    phonetic: "/fɔːr/"
+    example_sentence: "The table has four legs."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "five"
+    chinese: "五"
+    part_of_speech: "numeral"
+    phonetic: "/faɪv/"
+    example_sentence: "She gets up at five every day."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "six"
+    chinese: "六"
+    part_of_speech: "numeral"
+    phonetic: "/sɪks/"
+    example_sentence: "Six birds are singing in the tree."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "seven"
+    chinese: "七"
+    part_of_speech: "numeral"
+    phonetic: "/ˈsev.ən/"
+    example_sentence: "There are seven days in a week."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "eight"
+    chinese: "八"
+    part_of_speech: "numeral"
+    phonetic: "/eɪt/"
+    example_sentence: "Class begins at eight o'clock."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "nine"
+    chinese: "九"
+    part_of_speech: "numeral"
+    phonetic: "/naɪn/"
+    example_sentence: "Nine students are in the library."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "ten"
+    chinese: "十"
+    part_of_speech: "numeral"
+    phonetic: "/ten/"
+    example_sentence: "He can count from one to ten."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "hundred"
+    chinese: "一百"
+    part_of_speech: "numeral"
+    phonetic: "/ˈhʌn.drəd/"
+    example_sentence: "A hundred children joined the game."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "first"
+    chinese: "第一"
+    part_of_speech: "numeral"
+    phonetic: "/fɜːst/"
+    example_sentence: "She won first prize in the race."
+    synonyms: []
+    antonyms:
+      - "last"
+    difficulty_level: 2
+
+  - english: "father"
+    chinese: "父亲"
+    part_of_speech: "noun"
+    phonetic: "/ˈfɑː.ðər/"
+    example_sentence: "My father reads the news at night."
+    synonyms:
+      - "dad"
+    antonyms:
+      - "mother"
+    difficulty_level: 1
+
+  - english: "sister"
+    chinese: "姐妹"
+    part_of_speech: "noun"
+    phonetic: "/ˈsɪs.tər/"
+    example_sentence: "My sister helps me with homework."
+    synonyms: []
+    antonyms:
+      - "brother"
+    difficulty_level: 1
+
+  - english: "brother"
+    chinese: "兄弟"
+    part_of_speech: "noun"
+    phonetic: "/ˈbrʌð.ər/"
+    example_sentence: "His brother plays football well."
+    synonyms: []
+    antonyms:
+      - "sister"
+    difficulty_level: 1
+
+  - english: "baby"
+    chinese: "婴儿"
+    part_of_speech: "noun"
+    phonetic: "/ˈbeɪ.bi/"
+    example_sentence: "The baby is sleeping quietly."
+    synonyms:
+      - "infant"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "child"
+    chinese: "孩子"
+    part_of_speech: "noun"
+    phonetic: "/tʃaɪld/"
+    example_sentence: "Each child gets a gift today."
+    synonyms:
+      - "kid"
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "man"
+    chinese: "男人"
+    part_of_speech: "noun"
+    phonetic: "/mæn/"
+    example_sentence: "The man is waiting for a bus."
+    synonyms: []
+    antonyms:
+      - "woman"
+    difficulty_level: 1
+
+  - english: "woman"
+    chinese: "女人"
+    part_of_speech: "noun"
+    phonetic: "/ˈwʊm.ən/"
+    example_sentence: "The woman is buying some fruit."
+    synonyms: []
+    antonyms:
+      - "man"
+    difficulty_level: 2
+
+  - english: "teacher"
+    chinese: "老师"
+    part_of_speech: "noun"
+    phonetic: "/ˈtiː.tʃər/"
+    example_sentence: "Our teacher tells us a story."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "student"
+    chinese: "学生"
+    part_of_speech: "noun"
+    phonetic: "/ˈstjuː.dənt/"
+    example_sentence: "Each student has a new book."
+    synonyms:
+      - "pupil"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "doctor"
+    chinese: "医生"
+    part_of_speech: "noun"
+    phonetic: "/ˈdɒk.tər/"
+    example_sentence: "The doctor helped the sick boy."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "class"
+    chinese: "班级；课"
+    part_of_speech: "noun"
+    phonetic: "/klɑːs/"
+    example_sentence: "Our class has forty students."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "lesson"
+    chinese: "课程"
+    part_of_speech: "noun"
+    phonetic: "/ˈles.ən/"
+    example_sentence: "We have an English lesson today."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "homework"
+    chinese: "家庭作业"
+    part_of_speech: "noun"
+    phonetic: "/ˈhəʊm.wɜːk/"
+    example_sentence: "I finish my homework before dinner."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "test"
+    chinese: "考试；测试"
+    part_of_speech: "noun"
+    phonetic: "/test/"
+    example_sentence: "We have a spelling test on Monday."
+    synonyms:
+      - "exam"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "question"
+    chinese: "问题"
+    part_of_speech: "noun"
+    phonetic: "/ˈkwes.tʃən/"
+    example_sentence: "Please answer my question."
+    synonyms: []
+    antonyms:
+      - "answer"
+    difficulty_level: 2
+
+  - english: "answer"
+    chinese: "回答"
+    part_of_speech: "verb"
+    phonetic: "/ˈɑːn.sər/"
+    example_sentence: "Raise your hand to answer the teacher."
+    synonyms:
+      - "reply"
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "picture"
+    chinese: "图画"
+    part_of_speech: "noun"
+    phonetic: "/ˈpɪk.tʃər/"
+    example_sentence: "Draw a picture of your house."
+    synonyms:
+      - "drawing"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "story"
+    chinese: "故事"
+    part_of_speech: "noun"
+    phonetic: "/ˈstɔː.ri/"
+    example_sentence: "Tell me a bedtime story."
+    synonyms:
+      - "tale"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "song"
+    chinese: "歌曲"
+    part_of_speech: "noun"
+    phonetic: "/sɒŋ/"
+    example_sentence: "We sang an English song together."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "game"
+    chinese: "游戏"
+    part_of_speech: "noun"
+    phonetic: "/ɡeɪm/"
+    example_sentence: "The children played a fun game."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "go"
+    chinese: "去"
+    part_of_speech: "verb"
+    phonetic: "/ɡəʊ/"
+    example_sentence: "We go to the park on Sunday."
+    synonyms: []
+    antonyms:
+      - "come"
+    difficulty_level: 1
+
+  - english: "walk"
+    chinese: "走路"
+    part_of_speech: "verb"
+    phonetic: "/wɔːk/"
+    example_sentence: "They walk to school together."
+    synonyms: []
+    antonyms:
+      - "run"
+    difficulty_level: 1
+
+  - english: "sit"
+    chinese: "坐"
+    part_of_speech: "verb"
+    phonetic: "/sɪt/"
+    example_sentence: "Come and sit next to me."
+    synonyms: []
+    antonyms:
+      - "stand"
+    difficulty_level: 1
+
+  - english: "stand"
+    chinese: "站立"
+    part_of_speech: "verb"
+    phonetic: "/stænd/"
+    example_sentence: "Please stand in a line."
+    synonyms: []
+    antonyms:
+      - "sit"
+    difficulty_level: 1
+
+  - english: "swim"
+    chinese: "游泳"
+    part_of_speech: "verb"
+    phonetic: "/swɪm/"
+    example_sentence: "I learned to swim last summer."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "fly"
+    chinese: "飞"
+    part_of_speech: "verb"
+    phonetic: "/flaɪ/"
+    example_sentence: "Birds can fly high in the sky."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "jump"
+    chinese: "跳"
+    part_of_speech: "verb"
+    phonetic: "/dʒʌmp/"
+    example_sentence: "The rabbit can jump very high."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "dance"
+    chinese: "跳舞"
+    part_of_speech: "verb"
+    phonetic: "/dɑːns/"
+    example_sentence: "They dance to the happy song."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "draw"
+    chinese: "画画"
+    part_of_speech: "verb"
+    phonetic: "/drɔː/"
+    example_sentence: "She can draw a lovely horse."
+    synonyms:
+      - "sketch"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "write"
+    chinese: "写"
+    part_of_speech: "verb"
+    phonetic: "/raɪt/"
+    example_sentence: "Write your name on the paper."
+    synonyms: []
+    antonyms:
+      - "read"
+    difficulty_level: 1
+
+  - english: "speak"
+    chinese: "说话"
+    part_of_speech: "verb"
+    phonetic: "/spiːk/"
+    example_sentence: "Can you speak English slowly?"
+    synonyms:
+      - "talk"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "talk"
+    chinese: "交谈"
+    part_of_speech: "verb"
+    phonetic: "/tɔːk/"
+    example_sentence: "They talk about football after class."
+    synonyms:
+      - "chat"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "listen"
+    chinese: "听"
+    part_of_speech: "verb"
+    phonetic: "/ˈlɪs.ən/"
+    example_sentence: "Listen to the teacher carefully."
+    synonyms:
+      - "hear"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "watch"
+    chinese: "观看"
+    part_of_speech: "verb"
+    phonetic: "/wɒtʃ/"
+    example_sentence: "We watch cartoons on Saturday."
+    synonyms:
+      - "view"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "close"
+    chinese: "关闭"
+    part_of_speech: "verb"
+    phonetic: "/kləʊz/"
+    example_sentence: "Please close the book now."
+    synonyms:
+      - "shut"
+    antonyms:
+      - "open"
+    difficulty_level: 2
+
+  - english: "buy"
+    chinese: "买"
+    part_of_speech: "verb"
+    phonetic: "/baɪ/"
+    example_sentence: "Mum will buy some apples today."
+    synonyms: []
+    antonyms:
+      - "sell"
+    difficulty_level: 1
+
+  - english: "sell"
+    chinese: "卖"
+    part_of_speech: "verb"
+    phonetic: "/sel/"
+    example_sentence: "They sell fresh bread here."
+    synonyms: []
+    antonyms:
+      - "buy"
+    difficulty_level: 2
+
+  - english: "give"
+    chinese: "给"
+    part_of_speech: "verb"
+    phonetic: "/ɡɪv/"
+    example_sentence: "Give me your hand, please."
+    synonyms: []
+    antonyms:
+      - "take"
+    difficulty_level: 1
+
+  - english: "take"
+    chinese: "拿走；带去"
+    part_of_speech: "verb"
+    phonetic: "/teɪk/"
+    example_sentence: "Take your umbrella with you."
+    synonyms: []
+    antonyms:
+      - "give"
+    difficulty_level: 1
+
+  - english: "make"
+    chinese: "制作"
+    part_of_speech: "verb"
+    phonetic: "/meɪk/"
+    example_sentence: "Let's make a paper plane."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "clean"
+    chinese: "干净的；打扫"
+    part_of_speech: "adjective"
+    phonetic: "/kliːn/"
+    example_sentence: "Keep your room clean every day."
+    synonyms:
+      - "tidy"
+    antonyms:
+      - "dirty"
+    difficulty_level: 1
+
+  - english: "dirty"
+    chinese: "脏的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈdɜː.ti/"
+    example_sentence: "Wash your dirty hands first."
+    synonyms: []
+    antonyms:
+      - "clean"
+    difficulty_level: 1
+
+  - english: "tall"
+    chinese: "高的"
+    part_of_speech: "adjective"
+    phonetic: "/tɔːl/"
+    example_sentence: "The tall boy plays basketball well."
+    synonyms: []
+    antonyms:
+      - "short"
+    difficulty_level: 1
+
+  - english: "short"
+    chinese: "短的；矮的"
+    part_of_speech: "adjective"
+    phonetic: "/ʃɔːt/"
+    example_sentence: "The little girl has short hair."
+    synonyms: []
+    antonyms:
+      - "long"
+      - "tall"
+    difficulty_level: 1
+
+  - english: "long"
+    chinese: "长的"
+    part_of_speech: "adjective"
+    phonetic: "/lɒŋ/"
+    example_sentence: "The river is very long."
+    synonyms: []
+    antonyms:
+      - "short"
+    difficulty_level: 1
+
+  - english: "small"
+    chinese: "小的"
+    part_of_speech: "adjective"
+    phonetic: "/smɔːl/"
+    example_sentence: "A small bird is on the desk."
+    synonyms:
+      - "little"
+    antonyms:
+      - "big"
+    difficulty_level: 1
+
+  - english: "old"
+    chinese: "老的；旧的"
+    part_of_speech: "adjective"
+    phonetic: "/əʊld/"
+    example_sentence: "My grandpa tells old stories."
+    synonyms: []
+    antonyms:
+      - "new"
+      - "young"
+    difficulty_level: 1
+
+  - english: "young"
+    chinese: "年轻的"
+    part_of_speech: "adjective"
+    phonetic: "/jʌŋ/"
+    example_sentence: "The young teacher is very kind."
+    synonyms: []
+    antonyms:
+      - "old"
+    difficulty_level: 1
+
+  - english: "strong"
+    chinese: "强壮的"
+    part_of_speech: "adjective"
+    phonetic: "/strɒŋ/"
+    example_sentence: "The strong man can lift the box."
+    synonyms: []
+    antonyms:
+      - "weak"
+    difficulty_level: 1
+
+  - english: "weak"
+    chinese: "弱的"
+    part_of_speech: "adjective"
+    phonetic: "/wiːk/"
+    example_sentence: "He felt weak after the long run."
+    synonyms: []
+    antonyms:
+      - "strong"
+    difficulty_level: 2
+
+  - english: "hungry"
+    chinese: "饥饿的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈhʌŋ.ɡri/"
+    example_sentence: "The hungry cat is waiting for fish."
+    synonyms: []
+    antonyms:
+      - "full"
+    difficulty_level: 1
+
+  - english: "thirsty"
+    chinese: "口渴的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈθɜː.sti/"
+    example_sentence: "Drink some water if you are thirsty."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "tired"
+    chinese: "累的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈtaɪəd/"
+    example_sentence: "She felt tired after the long walk."
+    synonyms:
+      - "sleepy"
+    antonyms:
+      - "rested"
+    difficulty_level: 3
+
+  - english: "busy"
+    chinese: "忙碌的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈbɪz.i/"
+    example_sentence: "My mother is busy in the kitchen."
+    synonyms: []
+    antonyms:
+      - "free"
+    difficulty_level: 3
+
+  - english: "free"
+    chinese: "空闲的；免费的"
+    part_of_speech: "adjective"
+    phonetic: "/friː/"
+    example_sentence: "Are you free this afternoon?"
+    synonyms: []
+    antonyms:
+      - "busy"
+    difficulty_level: 2
+
+  - english: "sad"
+    chinese: "难过的"
+    part_of_speech: "adjective"
+    phonetic: "/sæd/"
+    example_sentence: "Don't be sad; I will help you."
+    synonyms:
+      - "unhappy"
+    antonyms:
+      - "happy"
+    difficulty_level: 1
+
+  - english: "angry"
+    chinese: "生气的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈæŋ.ɡri/"
+    example_sentence: "Dad was angry about the broken cup."
+    synonyms:
+      - "mad"
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "kind"
+    chinese: "善良的"
+    part_of_speech: "adjective"
+    phonetic: "/kaɪnd/"
+    example_sentence: "The kind lady helped the lost boy."
+    synonyms:
+      - "nice"
+    antonyms:
+      - "cruel"
+    difficulty_level: 2
+
+  - english: "brave"
+    chinese: "勇敢的"
+    part_of_speech: "adjective"
+    phonetic: "/breɪv/"
+    example_sentence: "The brave boy saved the little dog."
+    synonyms:
+      - "bold"
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "smart"
+    chinese: "聪明的"
+    part_of_speech: "adjective"
+    phonetic: "/smɑːt/"
+    example_sentence: "Dolphins are smart animals."
+    synonyms:
+      - "clever"
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "lucky"
+    chinese: "幸运的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈlʌk.i/"
+    example_sentence: "She found a lucky coin in the park."
+    synonyms:
+      - "fortunate"
+    antonyms:
+      - "unlucky"
+    difficulty_level: 3
+
+  - english: "beautiful"
+    chinese: "美丽的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈbjuː.tɪ.fəl/"
+    example_sentence: "The garden is full of beautiful flowers."
+    synonyms:
+      - "pretty"
+    antonyms:
+      - "ugly"
+    difficulty_level: 2
+
+  - english: "pretty"
+    chinese: "漂亮的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈprɪt.i/"
+    example_sentence: "She has a pretty red schoolbag."
+    synonyms:
+      - "lovely"
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "funny"
+    chinese: "有趣的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈfʌn.i/"
+    example_sentence: "The funny monkey made us laugh."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "quiet"
+    chinese: "安静的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈkwaɪ.ət/"
+    example_sentence: "Please keep quiet in the library."
+    synonyms:
+      - "silent"
+    antonyms:
+      - "noisy"
+    difficulty_level: 2
+
+  - english: "noisy"
+    chinese: "吵闹的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈnɔɪ.zi/"
+    example_sentence: "The street is too noisy at night."
+    synonyms:
+      - "loud"
+    antonyms:
+      - "quiet"
+    difficulty_level: 3
+
+  - english: "slow"
+    chinese: "慢的"
+    part_of_speech: "adjective"
+    phonetic: "/sləʊ/"
+    example_sentence: "The old bus is too slow."
+    synonyms: []
+    antonyms:
+      - "fast"
+    difficulty_level: 1
+
+  - english: "quick"
+    chinese: "迅速的"
+    part_of_speech: "adjective"
+    phonetic: "/kwɪk/"
+    example_sentence: "Take a quick shower before dinner."
+    synonyms:
+      - "fast"
+    antonyms:
+      - "slow"
+    difficulty_level: 2
+
+  - english: "easy"
+    chinese: "容易的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈiː.zi/"
+    example_sentence: "This puzzle is easy for me."
+    synonyms:
+      - "simple"
+    antonyms:
+      - "hard"
+    difficulty_level: 1
+
+  - english: "hard"
+    chinese: "难的；硬的"
+    part_of_speech: "adjective"
+    phonetic: "/hɑːd/"
+    example_sentence: "The maths problem is too hard."
+    synonyms:
+      - "difficult"
+    antonyms:
+      - "easy"
+    difficulty_level: 1
+
+  - english: "warm"
+    chinese: "温暖的"
+    part_of_speech: "adjective"
+    phonetic: "/wɔːm/"
+    example_sentence: "Come and sit by the warm fire."
+    synonyms: []
+    antonyms:
+      - "cold"
+    difficulty_level: 1
+
+  - english: "cool"
+    chinese: "凉爽的"
+    part_of_speech: "adjective"
+    phonetic: "/kuːl/"
+    example_sentence: "The cool wind feels nice."
+    synonyms: []
+    antonyms:
+      - "warm"
+    difficulty_level: 1
+
+  - english: "sunny"
+    chinese: "晴朗的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈsʌn.i/"
+    example_sentence: "It is a sunny day for a picnic."
+    synonyms: []
+    antonyms:
+      - "cloudy"
+    difficulty_level: 2
+
+  - english: "rainy"
+    chinese: "多雨的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈreɪ.ni/"
+    example_sentence: "Take a coat on rainy days."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "windy"
+    chinese: "多风的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈwɪn.di/"
+    example_sentence: "It is too windy to fly kites."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "cloudy"
+    chinese: "多云的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈklaʊ.di/"
+    example_sentence: "The sky is grey and cloudy."
+    synonyms: []
+    antonyms:
+      - "sunny"
+    difficulty_level: 3
+
+  - english: "snowy"
+    chinese: "下雪的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈsnəʊ.i/"
+    example_sentence: "Children love snowy mornings."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "weather"
+    chinese: "天气"
+    part_of_speech: "noun"
+    phonetic: "/ˈweð.ər/"
+    example_sentence: "The weather is fine for a picnic."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "season"
+    chinese: "季节"
+    part_of_speech: "noun"
+    phonetic: "/ˈsiː.zən/"
+    example_sentence: "Spring is my favourite season."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "spring"
+    chinese: "春天"
+    part_of_speech: "noun"
+    phonetic: "/sprɪŋ/"
+    example_sentence: "Flowers bloom in spring."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "summer"
+    chinese: "夏天"
+    part_of_speech: "noun"
+    phonetic: "/ˈsʌm.ər/"
+    example_sentence: "We swim in the lake in summer."
+    synonyms: []
+    antonyms:
+      - "winter"
+    difficulty_level: 1
+
+  - english: "autumn"
+    chinese: "秋天"
+    part_of_speech: "noun"
+    phonetic: "/ˈɔː.təm/"
+    example_sentence: "Leaves turn yellow in autumn."
+    synonyms:
+      - "fall"
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "winter"
+    chinese: "冬天"
+    part_of_speech: "noun"
+    phonetic: "/ˈwɪn.tər/"
+    example_sentence: "It often snows in winter."
+    synonyms: []
+    antonyms:
+      - "summer"
+    difficulty_level: 1
+
+  - english: "week"
+    chinese: "周"
+    part_of_speech: "noun"
+    phonetic: "/wiːk/"
+    example_sentence: "We have PE twice a week."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "month"
+    chinese: "月"
+    part_of_speech: "noun"
+    phonetic: "/mʌnθ/"
+    example_sentence: "There are twelve months in a year."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "year"
+    chinese: "年"
+    part_of_speech: "noun"
+    phonetic: "/jɪər/"
+    example_sentence: "Happy New Year to you all!"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "morning"
+    chinese: "早晨"
+    part_of_speech: "noun"
+    phonetic: "/ˈmɔː.nɪŋ/"
+    example_sentence: "Good morning, class!"
+    synonyms: []
+    antonyms:
+      - "evening"
+    difficulty_level: 1
+
+  - english: "afternoon"
+    chinese: "下午"
+    part_of_speech: "noun"
+    phonetic: "/ˌɑːf.təˈnuːn/"
+    example_sentence: "We play football in the afternoon."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "evening"
+    chinese: "傍晚"
+    part_of_speech: "noun"
+    phonetic: "/ˈiːv.nɪŋ/"
+    example_sentence: "Good evening, Mum and Dad!"
+    synonyms: []
+    antonyms:
+      - "morning"
+    difficulty_level: 1
+
+  - english: "today"
+    chinese: "今天"
+    part_of_speech: "adverb"
+    phonetic: "/təˈdeɪ/"
+    example_sentence: "What day is it today?"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "tomorrow"
+    chinese: "明天"
+    part_of_speech: "adverb"
+    phonetic: "/təˈmɒr.əʊ/"
+    example_sentence: "See you tomorrow morning."
+    synonyms: []
+    antonyms:
+      - "yesterday"
+    difficulty_level: 1
+
+  - english: "yesterday"
+    chinese: "昨天"
+    part_of_speech: "adverb"
+    phonetic: "/ˈjes.tə.deɪ/"
+    example_sentence: "It rained heavily yesterday."
+    synonyms: []
+    antonyms:
+      - "tomorrow"
+    difficulty_level: 1
+
+  - english: "I"
+    chinese: "我"
+    part_of_speech: "pronoun"
+    phonetic: "/aɪ/"
+    example_sentence: "I am a student in Grade Four."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "you"
+    chinese: "你"
+    part_of_speech: "pronoun"
+    phonetic: "/juː/"
+    example_sentence: "Are you ready for the game?"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "he"
+    chinese: "他"
+    part_of_speech: "pronoun"
+    phonetic: "/hiː/"
+    example_sentence: "He is my new classmate."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "she"
+    chinese: "她"
+    part_of_speech: "pronoun"
+    phonetic: "/ʃiː/"
+    example_sentence: "She likes reading storybooks."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "we"
+    chinese: "我们"
+    part_of_speech: "pronoun"
+    phonetic: "/wiː/"
+    example_sentence: "We are good friends."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "they"
+    chinese: "他们"
+    part_of_speech: "pronoun"
+    phonetic: "/ðeɪ/"
+    example_sentence: "They live near our school."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "it"
+    chinese: "它"
+    part_of_speech: "pronoun"
+    phonetic: "/ɪt/"
+    example_sentence: "It is a cute little rabbit."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "this"
+    chinese: "这个"
+    part_of_speech: "determiner"
+    phonetic: "/ðɪs/"
+    example_sentence: "This book is very interesting."
+    synonyms: []
+    antonyms:
+      - "that"
+    difficulty_level: 1
+
+  - english: "that"
+    chinese: "那个"
+    part_of_speech: "determiner"
+    phonetic: "/ðæt/"
+    example_sentence: "That dog over there is mine."
+    synonyms: []
+    antonyms:
+      - "this"
+    difficulty_level: 1
+
+  - english: "these"
+    chinese: "这些"
+    part_of_speech: "determiner"
+    phonetic: "/ðiːz/"
+    example_sentence: "These apples are sweet and fresh."
+    synonyms: []
+    antonyms:
+      - "those"
+    difficulty_level: 2
+
+  - english: "those"
+    chinese: "那些"
+    part_of_speech: "determiner"
+    phonetic: "/ðəʊz/"
+    example_sentence: "Those flowers smell wonderful."
+    synonyms: []
+    antonyms:
+      - "these"
+    difficulty_level: 2
+
+  - english: "my"
+    chinese: "我的"
+    part_of_speech: "determiner"
+    phonetic: "/maɪ/"
+    example_sentence: "This is my pencil box."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "your"
+    chinese: "你的"
+    part_of_speech: "determiner"
+    phonetic: "/jɔːr/"
+    example_sentence: "Is this your schoolbag?"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "his"
+    chinese: "他的"
+    part_of_speech: "determiner"
+    phonetic: "/hɪz/"
+    example_sentence: "His name is Tom."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "her"
+    chinese: "她的"
+    part_of_speech: "determiner"
+    phonetic: "/hɜːr/"
+    example_sentence: "Her dress is new and pretty."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "our"
+    chinese: "我们的"
+    part_of_speech: "determiner"
+    phonetic: "/ˈaʊər/"
+    example_sentence: "Our classroom is big and bright."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "their"
+    chinese: "他们的"
+    part_of_speech: "determiner"
+    phonetic: "/ðeər/"
+    example_sentence: "Their house is near the lake."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "in"
+    chinese: "在……里"
+    part_of_speech: "preposition"
+    phonetic: "/ɪn/"
+    example_sentence: "The pen is in the box."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "on"
+    chinese: "在……上"
+    part_of_speech: "preposition"
+    phonetic: "/ɒn/"
+    example_sentence: "The book is on the desk."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "under"
+    chinese: "在……下"
+    part_of_speech: "preposition"
+    phonetic: "/ˈʌn.dər/"
+    example_sentence: "The ball is under the chair."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "behind"
+    chinese: "在……后"
+    part_of_speech: "preposition"
+    phonetic: "/bɪˈhaɪnd/"
+    example_sentence: "The garden is behind the house."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "near"
+    chinese: "在……附近"
+    part_of_speech: "preposition"
+    phonetic: "/nɪər/"
+    example_sentence: "Our school is near the park."
+    synonyms: []
+    antonyms:
+      - "far"
+    difficulty_level: 2
+
+  - english: "with"
+    chinese: "和……一起；用"
+    part_of_speech: "preposition"
+    phonetic: "/wɪð/"
+    example_sentence: "I go home with my sister."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "without"
+    chinese: "没有"
+    part_of_speech: "preposition"
+    phonetic: "/wɪˈðaʊt/"
+    example_sentence: "Don't go out without a coat."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "for"
+    chinese: "为了；给"
+    part_of_speech: "preposition"
+    phonetic: "/fɔːr/"
+    example_sentence: "This gift is for you."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "from"
+    chinese: "从……来"
+    part_of_speech: "preposition"
+    phonetic: "/frɒm/"
+    example_sentence: "She comes from a small village."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "to"
+    chinese: "到；向"
+    part_of_speech: "preposition"
+    phonetic: "/tuː/"
+    example_sentence: "We walk to school together."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "at"
+    chinese: "在"
+    part_of_speech: "preposition"
+    phonetic: "/æt/"
+    example_sentence: "Look at the blackboard, please."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "of"
+    chinese: "……的"
+    part_of_speech: "preposition"
+    phonetic: "/ɒv/"
+    example_sentence: "A cup of milk is on the table."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "and"
+    chinese: "和"
+    part_of_speech: "conjunction"
+    phonetic: "/ænd/"
+    example_sentence: "Tom and Jim are brothers."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "but"
+    chinese: "但是"
+    part_of_speech: "conjunction"
+    phonetic: "/bʌt/"
+    example_sentence: "He is small but strong."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "or"
+    chinese: "或者"
+    part_of_speech: "conjunction"
+    phonetic: "/ɔːr/"
+    example_sentence: "Would you like tea or juice?"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "because"
+    chinese: "因为"
+    part_of_speech: "conjunction"
+    phonetic: "/bɪˈkɒz/"
+    example_sentence: "I stayed home because I was sick."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "very"
+    chinese: "非常"
+    part_of_speech: "adverb"
+    phonetic: "/ˈver.i/"
+    example_sentence: "The story is very funny."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "too"
+    chinese: "也；太"
+    part_of_speech: "adverb"
+    phonetic: "/tuː/"
+    example_sentence: "I like apples too."
+    synonyms:
+      - "also"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "also"
+    chinese: "也"
+    part_of_speech: "adverb"
+    phonetic: "/ˈɔːl.səʊ/"
+    example_sentence: "She also likes dancing."
+    synonyms:
+      - "too"
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "hello"
+    chinese: "你好"
+    part_of_speech: "interjection"
+    phonetic: "/heˈləʊ/"
+    example_sentence: "Hello! How are you today?"
+    synonyms:
+      - "hi"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "hi"
+    chinese: "嗨"
+    part_of_speech: "interjection"
+    phonetic: "/haɪ/"
+    example_sentence: "Hi! Nice to meet you."
+    synonyms:
+      - "hello"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "goodbye"
+    chinese: "再见"
+    part_of_speech: "interjection"
+    phonetic: "/ˌɡʊdˈbaɪ/"
+    example_sentence: "Goodbye! See you tomorrow."
+    synonyms:
+      - "bye"
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "thank"
+    chinese: "感谢"
+    part_of_speech: "verb"
+    phonetic: "/θæŋk/"
+    example_sentence: "I want to thank my teacher."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "sorry"
+    chinese: "对不起"
+    part_of_speech: "interjection"
+    phonetic: "/ˈsɒr.i/"
+    example_sentence: "Sorry, I am late for class."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "please"
+    chinese: "请"
+    part_of_speech: "interjection"
+    phonetic: "/pliːz/"
+    example_sentence: "Please open your books now."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "yes"
+    chinese: "是的"
+    part_of_speech: "interjection"
+    phonetic: "/jes/"
+    example_sentence: "Yes, I can swim very well."
+    synonyms: []
+    antonyms:
+      - "no"
+    difficulty_level: 1
+
+  - english: "no"
+    chinese: "不；没有"
+    part_of_speech: "interjection"
+    phonetic: "/nəʊ/"
+    example_sentence: "No, I don't like snakes."
+    synonyms: []
+    antonyms:
+      - "yes"
+    difficulty_level: 1
+
+  - english: "not"
+    chinese: "不"
+    part_of_speech: "adverb"
+    phonetic: "/nɒt/"
+    example_sentence: "He is not at home today."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "hobby"
+    chinese: "爱好"
+    part_of_speech: "noun"
+    phonetic: "/ˈhɒb.i/"
+    example_sentence: "Reading is my favourite hobby."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "favourite"
+    chinese: "最喜欢的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈfeɪ.vrɪt/"
+    example_sentence: "Banana is my favourite fruit."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "picnic"
+    chinese: "野餐"
+    part_of_speech: "noun"
+    phonetic: "/ˈpɪk.nɪk/"
+    example_sentence: "We had a picnic by the lake."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "trip"
+    chinese: "旅行"
+    part_of_speech: "noun"
+    phonetic: "/trɪp/"
+    example_sentence: "Our spring trip was wonderful."
+    synonyms:
+      - "tour"
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "wish"
+    chinese: "希望；祝愿"
+    part_of_speech: "verb"
+    phonetic: "/wɪʃ/"
+    example_sentence: "I wish you a happy birthday."
+    synonyms:
+      - "hope"
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "proud"
+    chinese: "骄傲的"
+    part_of_speech: "adjective"
+    phonetic: "/praʊd/"
+    example_sentence: "We are proud of our class."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "afraid"
+    chinese: "害怕的"
+    part_of_speech: "adjective"
+    phonetic: "/əˈfreɪd/"
+    example_sentence: "The little boy is afraid of dogs."
+    synonyms:
+      - "scared"
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "careful"
+    chinese: "小心的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈkeə.fəl/"
+    example_sentence: "Be careful when you cross the road."
+    synonyms: []
+    antonyms:
+      - "careless"
+    difficulty_level: 3
+
+  - english: "clever"
+    chinese: "聪明的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈklev.ər/"
+    example_sentence: "The clever girl solved the puzzle."
+    synonyms:
+      - "smart"
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "poor"
+    chinese: "贫穷的；可怜的"
+    part_of_speech: "adjective"
+    phonetic: "/pɔːr/"
+    example_sentence: "Help the poor cat find a home."
+    synonyms: []
+    antonyms:
+      - "rich"
+    difficulty_level: 3
+
+  - english: "rich"
+    chinese: "富有的"
+    part_of_speech: "adjective"
+    phonetic: "/rɪtʃ/"
+    example_sentence: "They live in a rich town."
+    synonyms:
+      - "wealthy"
+    antonyms:
+      - "poor"
+    difficulty_level: 3
+
+  - english: "patient"
+    chinese: "耐心的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈpeɪ.ʃənt/"
+    example_sentence: "A good teacher is always patient."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "honest"
+    chinese: "诚实的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈɒn.ɪst/"
+    example_sentence: "An honest boy returned the wallet."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+
+  - english: "late"
+    chinese: "迟到的"
+    part_of_speech: "adjective"
+    phonetic: "/leɪt/"
+    example_sentence: "Don't be late for school."
+    synonyms: []
+    antonyms:
+      - "early"
+    difficulty_level: 1
+
+  - english: "early"
+    chinese: "早的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈɜː.li/"
+    example_sentence: "She gets up early every day."
+    synonyms: []
+    antonyms:
+      - "late"
+    difficulty_level: 1
+
+  - english: "often"
+    chinese: "经常"
+    part_of_speech: "adverb"
+    phonetic: "/ˈɒf.ən/"
+    example_sentence: "We often play games after school."
+    synonyms: []
+    antonyms:
+      - "seldom"
+    difficulty_level: 2
+
+  - english: "always"
+    chinese: "总是"
+    part_of_speech: "adverb"
+    phonetic: "/ˈɔːl.weɪz/"
+    example_sentence: "She always helps her friends."
+    synonyms: []
+    antonyms:
+      - "never"
+    difficulty_level: 2
+
+  - english: "never"
+    chinese: "从不"
+    part_of_speech: "adverb"
+    phonetic: "/ˈnev.ər/"
+    example_sentence: "I never go to bed late."
+    synonyms: []
+    antonyms:
+      - "always"
+    difficulty_level: 2
+
+  - english: "sometimes"
+    chinese: "有时"
+    part_of_speech: "adverb"
+    phonetic: "/ˈsʌm.taɪmz/"
+    example_sentence: "We sometimes fly kites in spring."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "every"
+    chinese: "每个"
+    part_of_speech: "determiner"
+    phonetic: "/ˈev.ri/"
+    example_sentence: "Every child loves ice cream."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "some"
+    chinese: "一些"
+    part_of_speech: "determiner"
+    phonetic: "/sʌm/"
+    example_sentence: "Would you like some juice?"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "any"
+    chinese: "一些；任何"
+    part_of_speech: "determiner"
+    phonetic: "/ˈen.i/"
+    example_sentence: "Do you have any questions?"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "many"
+    chinese: "许多"
+    part_of_speech: "determiner"
+    phonetic: "/ˈmen.i/"
+    example_sentence: "Many birds are singing outside."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "much"
+    chinese: "很多"
+    part_of_speech: "determiner"
+    phonetic: "/mʌtʃ/"
+    example_sentence: "She doesn't drink much milk."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "all"
+    chinese: "全部"
+    part_of_speech: "determiner"
+    phonetic: "/ɔːl/"
+    example_sentence: "All the students are here."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "what"
+    chinese: "什么"
+    part_of_speech: "pronoun"
+    phonetic: "/wɒt/"
+    example_sentence: "What is your name, please?"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "where"
+    chinese: "哪里"
+    part_of_speech: "adverb"
+    phonetic: "/weər/"
+    example_sentence: "Where do you live now?"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "when"
+    chinese: "何时"
+    part_of_speech: "adverb"
+    phonetic: "/wen/"
+    example_sentence: "When is your birthday?"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "who"
+    chinese: "谁"
+    part_of_speech: "pronoun"
+    phonetic: "/huː/"
+    example_sentence: "Who is that tall boy?"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "why"
+    chinese: "为什么"
+    part_of_speech: "adverb"
+    phonetic: "/waɪ/"
+    example_sentence: "Why are you late today?"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "how"
+    chinese: "怎么"
+    part_of_speech: "adverb"
+    phonetic: "/haʊ/"
+    example_sentence: "How do you go to school?"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 1
+
+  - english: "which"
+    chinese: "哪个"
+    part_of_speech: "determiner"
+    phonetic: "/wɪtʃ/"
+    example_sentence: "Which pen is yours?"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 2
+
+  - english: "whose"
+    chinese: "谁的"
+    part_of_speech: "determiner"
+    phonetic: "/huːz/"
+    example_sentence: "Whose bag is this?"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3

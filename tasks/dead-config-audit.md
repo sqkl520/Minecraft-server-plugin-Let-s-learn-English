@@ -111,3 +111,11 @@
 
 > 本清单仅为审计证据，**不建议在 Phase 0 删除这些 key**——删配置属于玩法/文档行为变更，应留待后续专门的清理 Story，并同步更新 README 与 config 注释。
 
+---
+
+## 附录：Phase 2 FEAT-MODE-01 备注（2026-10-11，复活流 B 追加）
+
+> 真三模式已落地（`AnswerChecker` 收敛判分：spelling 全词拼写 / choice 选项字母 A-D / fill_blank 挖空填词），
+> 但 `word-system.modes.*` 仍未接线（选项数/首字母提示/大小写敏感等行为均为代码硬编码），
+> 系有意为之，Phase 3 再定接线方案（含 `fill-blank` vs `fill_blank` 命名不一致问题）。
+
