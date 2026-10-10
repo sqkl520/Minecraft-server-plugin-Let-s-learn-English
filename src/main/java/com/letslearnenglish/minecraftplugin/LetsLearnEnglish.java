@@ -381,11 +381,14 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
         try {
             // Flush SQLite WAL pages before copying the database file.
+            synchronized (databaseManager.getConnectionLock()) {
             try (PreparedStatement stmt = databaseManager.getConnection()
                     .prepareStatement("PRAGMA wal_checkpoint(TRUNCATE)")) {
                 stmt.execute();
             }
+            }
             Files.copy(dbFile.toPath(), backupFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            synchronized (databaseManager.getConnectionLock()) {
             try (PreparedStatement stmt = databaseManager.getConnection()
                     .prepareStatement("PRAGMA quick_check")) {
                 try (ResultSet rs = stmt.executeQuery()) {
@@ -395,6 +398,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
                         return;
                     }
                 }
+            }
             }
             getLogger().info("Database backup created: " + backupFile.getName());
         } catch (IOException | SQLException e) {

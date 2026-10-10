@@ -6,14 +6,84 @@
 
 ---
 
+## 批次：Phase 1 止血（5 流 + 打回修复 + 合流测试）
+
+> Q1（自然走完会话拿不到奖励，已修）、B2（答对广播查错对象，已修）、Q2（两套金币记账，已删死代码）均已在本批次修复，不再列账。
+> F0-01、F0-02 已由流 E 在本批次收口，状态更新为已关闭（见 Phase 0 批次备注）。
+
+### 来自流 A（学习经济链）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| F1-01 | `DailyChallengeManager.java:367`、`MiscGUIListener.java:132`、`CheckInManager.java:130` | 每日挑战/签到发币直接 `eco.depositPlayer`，不经过 `RewardEngine`，`money.daily-cap` 管不住这三处 | cap 只覆盖 RewardEngine 4 条路径 | 中 | 待排期（Phase 2：cap 口径决策 + 3 处各加一行 `addTodayCoinsEarned`，或将发币收口） |
+| F1-02 | `DuelManager.submitAnswer` | 对决答题不计入今日答题数（不走 `submitAnswer`，不调 `incrementTodayAnswerCount`） | 口径未覆盖 | 低 | 需用户决策（对决题算不算"题"？对决本身无发币故无刷币口） |
+| F1-03 | `AchievementManager.getAchievementConfig()` | 非同步懒加载，`tryUnlock` 可达异步路径，与 `clearCache` 置 null 竞态（最坏多读一次文件，无脏数据） | 懒加载未同步 | 低 | 待排期（加 volatile/同步） |
+| F1-04 | cap 提示 `{earned}` 显示 | `String.valueOf(double)` 显示 `490.0` 式小数 | 未格式化 | 低 | 待排期（可选 `eco.format()`，但各服货币格式不一） |
+
+### 来自流 B（AI 与公平）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| F1-05 | `AIChatManager.triggerAiOpening` 经 `chatAsync` | 开场白触发语占 1 条有效输入并消耗 1 次每日轮次（GUI 入口每次开对话都调） | 开场白走正常计数通道 | 低 | 待排期（Phase 2：开场白走独立计数或不计轮次） |
+| F1-06 | `messages/zh.yml:351`、`en.yml:351` `answer-broadcast`（含 `{answer}`） | 已无代码引用，留存易被后人误用 | 兼容旧包保留 | 低 | 待排期（Phase 2 确认全员升级后删除） |
+| F1-07 | 个人场景可见性 | 个人场景只能 `/le dialogue <个人key>` 进入，场景选择 GUI 和 Tab 补全看不到；`LearnCommand` 回显个人 key 时显示原始 key 而非展示名 | 白名单未覆盖 GUI/Tab 类，刻意收敛 | 中 | 待排期（Phase 2：个人场景 GUI 入口 + `getScenarioDisplayName(Player, key)` 接入） |
+| F1-08 | `ChatScenarioListener` 超限体验 | 超限时先显示一次"AI 正在输入…"再报错 | `aiTyping` 提示在轮次检查之前 | 低 | 待排期 |
+
+### 来自流 C（挑战领奖）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| F1-09 | `MiscGUIListener.handleChallengeComplete` slot 8/22 | 庆祝 GUI 的"领取奖励"按钮纯装饰（只回主菜单），奖励早已自动到账，文案误导 | M18 统一入口未做 | 低 | 待排期（Phase 2，随 M18） |
+| F1-10 | `wordChallengeClaimedToday`（`HashSet`） | 非线程安全 + `clearWordChallengeClaim` 零调用，跨天/长期运行残留过期条目 | 无午夜清理任务 | 中 | 待排期（Phase 2，随跨天 M8） |
+| F1-11 | 经济门不一致 | `CheckInManager.giveCoins` 检查 `rewards.types.money.enabled`，挑战发放点与 `RewardEngine` 不检查——服主关了金币奖励挑战仍发钱 | 开关未统一 | 中 | 待排期（Phase 2：统一经济门） |
+| F1-12 | `DailyChallengeGUI` / `handleDailyChallenge` `idx=(slot-11)/2` | 槽位映射假设恰好 3 个挑战，分配数量变化会错位 | 硬编码映射 | 低 | 待排期（Phase 2，随挑战分配改造） |
+| F1-13 | 领奖双击 interleaving | "到账成功但标记返回 0"极小概率（���次点击交错），钱已发出但无成功消息 | 无按玩家串行锁 | 低 | 待排期（Phase 2 可选：按玩家串行锁，参考 `CheckInManager.playerLocks`） |
+| F1-14 | 单词挑战补发跨天丢失 | 待补发 pending 在跨天（新日期重新分配单词）后按新日期判定会丢失 | 跨天逻辑未做 | 低 | 待排期（Phase 2，随 M8） |
+
+### 来自流 D（决斗冲突）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| F1-15 | `DuelManager.acceptDuel` 开头 | 先 `pendingRequests.remove(targetId)`，后继任一校验失败都会吞掉邀请，需发起方重发 | remove 先于校验 | 低 | 待排期（改：校验全过再 remove） |
+| F1-16 | `DuelManager.sendDuelRequest` | 只查 `isBusy` 不查答题态；单槽 `pendingRequests` 被后请求覆盖 + 先请求的 60s 过期任务误删后请求 | 既有逻辑 | 低 | 待排期 |
+| F1-17 | `ChatScenarioListener`（AI 情景对话） | 第四类聊天消费者，与 quiz/决斗/练习均无互斥 | 超出 M4 三态范围 | 中 | 待排期（Phase 2：四态互斥或明确共存规则） |
+| F1-18 | 决斗分支异步判定 | `isInDuel` 后 cancel 事件、主线程才 `submitAnswer`，若决斗恰在两次之间结束，该条聊天被吞且无反馈 | 判定与消费不在同一线程/时刻 | 低 | 待排期 |
+
+### 来自流 E（数据 Owner）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| F1-19 | `daily-round-limit: 0` 语义 | 流 B 实现 `todayRounds >= dailyRoundLimit` 无 `>0` 门，0 = 拒绝所有 AI 对话而非"不限"（流 A 两道门有 `>0` 门，语义不统一） | 门条件不一致 | 低 | 需用户决策（0=禁用 or 0=不限？建议统一为"0/负数=不限"，与 A 一致） |
+| F1-20 | `PlayerDataStore.loadPlayerData` | 两个独立同步块之间复用同一 `Connection` 对象：若另一线程恰好触发连接重建，第二个块拿旧连接 | 存量模式 | 低 | 待排期 |
+| F1-21 | `PlayerDataStore.getPlayerName` | 仍直调 `Bukkit.getOfflinePlayer`（异步可达性存疑），但已无排行榜路径调用 | 存量 | 低 | 待排期 |
+| F1-22 | 重启丢失今日计数 | 今日答题/AI/金币计数器内存态，重启丢失（设计接受：防刷上限不是账本） | 设计决定 | 低 | 需用户决策（如运营要求重启不丢，需 DB 持久化 Story） |
+
+### 来自合流测试（三维冒烟 + 打回修复）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| F1-23 | `DailyChallengeManager.depositWordChallengeReward` vs `MiscGUIListener.depositChallengeReward` | 两份 Vault deposit + `recordCoinsEarned` 拷贝；Listener 直接调 `DatabaseManager.recordCoinsEarned` 属越层写 DB | 流 C 白名单收敛所致 | 低 | 待排期（Phase 2：收拢到一处，建议收进 RewardEngine/DatabaseManager 门面并让 Listener 只调一层） |
+| F1-24 | 今日计数 Map 无驱逐 | 三处今日计数 Map + `todayCoinsCache` 只增不删（quit/reload 不清，靠日期懒清零），UUID 缓慢堆积 | 无驱逐 | 低 | 待排期（定期 `removeIf` 或 unload 时清理） |
+| F1-25 | `broadcastCorrectAnswer` 语言 | 取模板用答题者语言，发给所有收件人同一语言版本，混服收件人可能看到对方语言 | 单模板广播 | 低 | 待排期 |
+
+### 本批次语义裁决记录（已定，无需再议）
+
+- daily-cap 口径 = **部分发放到 cap**（剩余额度不足时发到 cap 为止，绝不超发；额度用尽整笔拦截）。流 E 验收曾写"整笔拦截"，经读代码确认真相为部分发放，以此为准。
+- 答题数门 = `getTodayAnswerCount > daily-limit` 拦截（判分即+1 配套：第 50 题及当题触发的会话完成奖正常发，第 51 题起拦截）。流 E 曾报"门休眠"，系检查时流 A 未落盘的时间差，已证伪。
+- `count-min-rounds` = 对话结束时有效性门槛（有效输入 ≥N 且有成功 AI 回复才计一次有效对话），不参与 `daily-round-limit` 累加。
+- 个人场景存储 = `plugins/LetsLearnEnglish/player_scenarios/<UUID>.yml`，key 形如 `personal:<uuid前8>:<slug>`，仅本人可用，不写全局、不全局 reload。
+- 单词挑战补发 = 下次答对自动重试（不跨天场景下有效），跨天丢失已知（F1-14）。
+
+---
+
 ## 批次：Phase 0 基建冻结（4 流）
 
 ### 来自流 C（数据库基线）
 
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
-| F0-01 | `PlayerDataStore.java:83,107,130,349,671,688,746,802`；`DailyChallengeManager.java:107,135,162,203,229,250,269,417`；`AchievementManager.java:63,146,265`；`AdminCommandHandler.java:56,83`；`ProgressManagerImpl.java:42`；`LLEPapiExpansion.java:121`；`LetsLearnEnglish.java:384,389` | 外部类裸用 `getConnection()` 自执行 SQL，绕过本次新增的 `connectionLock`，与加锁方法可并行操作同一条连接 | M16 残余缺口：锁只加在 `DatabaseManager` 内部，连接本身仍被外部类直取 | 高 | 待排期（Phase 1） |
-| F0-02 | `PlayerDataStore.java:349-393`（`savePlayerData`） | 在共享连接上 `setAutoCommit(false)` / `commit()`，与他线程并发时 A 的事务可能把 B 的语句卷入 → 跨线程事务污染 | 同上，事务边界未与锁对齐 | 高 | 待排期（Phase 1，PlayerDataStore 为 owner） |
+| F0-01 | `PlayerDataStore.java` 等 25 个 `getConnection()` 站点 | 外部类裸用 `getConnection()` 自执行 SQL，绕过 `connectionLock` | M16 残余缺口 | 高 | 已关闭（Phase 1 流 E 收口：26 个同步块全覆盖，零跳过） |
+| F0-02 | `PlayerDataStore.java:349-393`（`savePlayerData`） | 共享连接上 `setAutoCommit(false)` / `commit()` 跨线程事务污染 | 事务边界未与锁对齐 | 高 | 已关闭（Phase 1 流 E：save 整段事务收进同一锁） |
 | F0-03 | `AdminCommandHandler.java:80-82`（`resolvePlayerUUID`） | 按 `player_name=?` 查库恒空，离线玩家按名 `/lea reset <name>` 失效 | `player_data.player_name` 全代码库零写入点（同 H10） | 中 | 待排期（Phase 1，随 player_name 写入方案一并修） |
 | F0-04 | `DatabaseManager.java:257-264`（`getConnection` 快路径） | 无锁读 `connection` 并 `isClosed()`，与 `shutdown()`/重连存在极窄 TOCTOU 竞态窗口 | 快路径为性能省略加锁 | 低 | 待排期 |
 | F0-05 | `DatabaseManager.java:46`（`initialize()`） | 直调会覆盖 `connection` 字段而不关闭旧连接，无幂等保护（本次仅就地加固为锁内，未加"先关旧连接"） | 原实现假设 initialize 只跑一次 | 低 | 待排期 |

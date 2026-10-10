@@ -37,6 +37,10 @@ public class PlayerJoinListener implements Listener {
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
+        // H9：下线清理答题态 — endQuiz 取消倒计时并移除 QuizState（含 WordManager 侧
+        // endSession 落掌握度），cancelPractice 清错题本练习态；不结算、不发奖励
+        plugin.getWordLearningManager().endQuiz(playerId);
+        plugin.getWordLearningManager().cancelPractice(playerId);
         plugin.getPlayerDataStore().unloadPlayerData(playerId);
         plugin.getAchievementManager().unloadPlayer(playerId);
         plugin.getPlayerDataStore().unloadProfileSettings(playerId);

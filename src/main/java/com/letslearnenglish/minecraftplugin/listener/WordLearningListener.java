@@ -124,16 +124,13 @@ public class WordLearningListener implements Listener {
         ttsManager.playPronunciationCue(player);
 
         // Show phonetic in chat as feedback
+        // H1：发音反馈不再展示英文原词明文（防泄题），只保留音标
         var currentWord = wlManager.getCurrentWord(player.getUniqueId());
         if (currentWord != null) {
             String phonetic = currentWord.getPhonetic();
-            String english = currentWord.getEnglish();
             if (phonetic != null && !phonetic.isEmpty()) {
-                String lang = plugin.getPlayerLanguage(player);
-                var messages = plugin.getConfigManager().getMessageConfig(lang);
-                String phoneticLabel = messages.getString("word.phonetic-label");
-                player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                        "&d" + english + " &7" + phoneticLabel + ": &f" + phonetic));
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "word.phonetic-feedback", "phonetic", phonetic));
             }
         }
 

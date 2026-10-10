@@ -104,6 +104,12 @@ public class WordLearningManager {
                 session.addScore(comboScore);
                 session.recordCorrect();
 
+                // C3：判分落定即累计今日答题数（流 E 的 PlayerDataStore 接口，按自然日清零）。
+                // 计数在发币前累加，RewardEngine 门用"计数值 > daily-limit"拦截：
+                // 第 50 题计入后（=50）仍正常发币，第 51 题起才拦截；第 50 题所在会话的
+                // 完成奖同样在计数=50 时结算，不被误杀。
+                plugin.getPlayerDataStore().incrementTodayAnswerCount(id);
+
                 // Daily challenge hooks (behavioral)
                 plugin.getDailyChallengeManager().updateProgress(id, ChallengeType.ANSWER_10, 1);
                 if (state.consecutiveCorrect >= 5) {
@@ -123,6 +129,9 @@ public class WordLearningManager {
                 comboScore = -INCORRECT_PENALTY;
                 session.addScore(-INCORRECT_PENALTY);
                 session.recordIncorrect();
+
+                // C3：答错也计入今日答题数（防刷口径 = 进行中答题次数，不论对错）
+                plugin.getPlayerDataStore().incrementTodayAnswerCount(id);
 
                 if (state.isReviewMode) {
                     plugin.getProgressManager().getRewardEngine()
@@ -159,6 +168,9 @@ public class WordLearningManager {
             state.consecutiveCorrect = 0;
             session.addScore(-INCORRECT_PENALTY);
             session.recordIncorrect();
+
+            // C3：超时判错同样计入今日答题数（与答错同口径，防"超时刷题不计数"漏洞）
+            plugin.getPlayerDataStore().incrementTodayAnswerCount(id);
 
             if (state.isReviewMode) {
                 plugin.getProgressManager().getRewardEngine()
@@ -203,6 +215,11 @@ public class WordLearningManager {
                                       int consecutiveCorrect, double comboMultiplier) {
         LearningSession session = state.session;
         boolean completed = session.isCompleted();
+        // Q1：completed 时 state 马上移出 map，结算需要的字段先快照，
+        // 随 AnswerResult 带给 showSessionComplete，不再 map 重查
+        // （重查必为 null，会导致会话奖励/成就/日历/挑战整段跳过）。
+        int maxComboReached = state.maxComboReached;
+        String mode = state.mode;
         if (completed) {
             wordManager.endSession(id);
             quizStates.remove(id);
@@ -211,7 +228,8 @@ public class WordLearningManager {
                 session.getCurrentIndex(), session.getTotalWords(),
                 session.getTotalCorrect(), session.getTotalIncorrect(),
                 completed, session.getAccuracy(), session.getScore(),
-                comboScore, consecutiveCorrect, comboMultiplier);
+                comboScore, consecutiveCorrect, comboMultiplier,
+                maxComboReached, mode);
     }
 
     public void startAnswerTimer(Player player) {
@@ -302,6 +320,9 @@ public class WordLearningManager {
         int score = state.session.getScore();
         int correct = state.session.getTotalCorrect();
         int total = state.session.getTotalWords();
+        // H2：已答题数 = 答对 + 答错（含超时判错，三者都推进了 currentIndex）；
+        // 正在倒计时但尚未判分的当前题不计入；clamp 到 total 防异常
+        int answered = Math.min(correct + state.session.getTotalIncorrect(), total);
 
         FileConfiguration messages = getMessages(player);
         player.sendMessage(ChatColor.translateAlternateColorCodes('&',
@@ -311,7 +332,7 @@ public class WordLearningManager {
                         .replace("{score}", String.valueOf(score))));
 
         plugin.getProgressManager().getRewardEngine()
-                .giveSessionCompleteMoneyReward(player, maxComboReached);
+                .giveStoppedSessionMoneyReward(player, maxComboReached, answered, total);
     }
 
     public void endQuiz(UUID playerId) {
@@ -372,32 +393,28 @@ public class WordLearningManager {
                         .replace("{score}", String.valueOf(result.score)));
         player.sendMessage(msg);
 
-        QuizState state = quizStates.get(player.getUniqueId());
-        if (state != null) {
-            plugin.getProgressManager().getRewardEngine()
-                    .giveSessionCompleteMoneyReward(player, state.maxComboReached);
+        // Q1：不能再依赖 map 重查 — buildResult 在 completed 时已移出 state，
+        // 重查必为 null。结算数据直接取自 result 携带的快照。
+        plugin.getProgressManager().getRewardEngine()
+                .giveSessionCompleteMoneyReward(player, result.maxComboReached);
 
-            LearningSession session = state.session;
-            if (session != null) {
-                plugin.getAchievementManager().checkSessionAchievements(
-                        player.getUniqueId(),
-                        session.getTotalCorrect(),
-                        session.getTotalIncorrect(),
-                        session.getTotalWords(),
-                        state.mode
-                );
-                // 记录到学习日历
-                plugin.getPlayerDataStore().recordSession(
-                        player.getUniqueId(),
-                        session.getTotalWords(),
-                        session.getTotalCorrect(),
-                        result.score,
-                        state.mode
-                );
-                // Daily challenge: session completed
-                plugin.getDailyChallengeManager().updateProgress(player.getUniqueId(), ChallengeType.SESSION_3, 1);
-            }
-        }
+        plugin.getAchievementManager().checkSessionAchievements(
+                player.getUniqueId(),
+                result.correctCount,
+                result.incorrectCount,
+                result.totalWords,
+                result.mode
+        );
+        // 记录到学习日历
+        plugin.getPlayerDataStore().recordSession(
+                player.getUniqueId(),
+                result.totalWords,
+                result.correctCount,
+                result.score,
+                result.mode
+        );
+        // Daily challenge: session completed
+        plugin.getDailyChallengeManager().updateProgress(player.getUniqueId(), ChallengeType.SESSION_3, 1);
     }
 
     private FileConfiguration getMessages(Player player) {
@@ -513,11 +530,16 @@ public class WordLearningManager {
         public final int comboScore;
         public final int consecutiveCorrect;
         public final double comboMultiplier;
+        // Q1：结算快照 — completed 时 state 已移出 map，showSessionComplete
+        // 凭此二字段完成奖励/成就/日历/挑战结算，不再 map 重查。
+        public final int maxComboReached;
+        public final String mode;
 
         public AnswerResult(boolean correct, String correctAnswer, int currentIndex,
                             int totalWords, int correctCount, int incorrectCount,
                             boolean sessionComplete, double accuracy,
-                            int score, int comboScore, int consecutiveCorrect, double comboMultiplier) {
+                            int score, int comboScore, int consecutiveCorrect, double comboMultiplier,
+                            int maxComboReached, String mode) {
             this.correct = correct;
             this.correctAnswer = correctAnswer;
             this.currentIndex = currentIndex;
@@ -530,6 +552,8 @@ public class WordLearningManager {
             this.comboScore = comboScore;
             this.consecutiveCorrect = consecutiveCorrect;
             this.comboMultiplier = comboMultiplier;
+            this.maxComboReached = maxComboReached;
+            this.mode = mode;
         }
     }
 }

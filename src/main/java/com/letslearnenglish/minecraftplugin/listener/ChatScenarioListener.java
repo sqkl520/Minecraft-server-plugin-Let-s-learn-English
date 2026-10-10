@@ -126,7 +126,8 @@ public class ChatScenarioListener implements Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         if (activePlayers.remove(player.getUniqueId())) {
-            aiChatManager.endConversation(player);
+            // H3：下线结束与正常结束走同一有效对话标准，未达阈值不计数
+            aiChatManager.endConversationOnQuit(player);
         }
     }
 

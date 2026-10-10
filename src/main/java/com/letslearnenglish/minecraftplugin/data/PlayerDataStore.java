@@ -51,6 +51,12 @@ public class PlayerDataStore {
     private final Map<UUID, Map<String, DifficultWord>> difficultWordsCache;
     private final Map<UUID, Map<String, Integer>> wrongCountCache;
 
+    // ===== 今日计数器（内存懒清零，服务器时区自然日）=====
+    // 每个条目记录 (日期, 计数)；读写时若日期 != 今天则视为 0 并顺手重置。
+    // 重启/关服丢失是可接受的：这是防刷上限而非账本，账本以 DB 的 lifetime 字段为准。
+    private final Map<UUID, TodayCounter> todayAnswerCountCache;
+    private final Map<UUID, TodayCounter> todayAiRoundCache;
+
     public PlayerDataStore(LetsLearnEnglish plugin, DatabaseManager databaseManager) {
         this.plugin = plugin;
         this.databaseManager = databaseManager;
@@ -65,6 +71,70 @@ public class PlayerDataStore {
         this.profileSettingsCache = new ConcurrentHashMap<>();
         this.difficultWordsCache = new ConcurrentHashMap<>();
         this.wrongCountCache = new ConcurrentHashMap<>();
+        this.todayAnswerCountCache = new ConcurrentHashMap<>();
+        this.todayAiRoundCache = new ConcurrentHashMap<>();
+    }
+
+    /**
+     * 今日答题计数器（int 版）。
+     * 内部用 AtomicInteger + volatile 日期做懒清零；并发下允许极小误差（防刷上限场景可接受）。
+     */
+    private static class TodayCounter {
+        private volatile LocalDate date;
+        private final java.util.concurrent.atomic.AtomicInteger count = new java.util.concurrent.atomic.AtomicInteger(0);
+
+        int increment() {
+            LocalDate today = LocalDate.now();
+            if (!today.equals(date)) {
+                synchronized (this) {
+                    if (!today.equals(date)) {
+                        date = today;
+                        count.set(0);
+                    }
+                }
+            }
+            return count.incrementAndGet();
+        }
+
+        int get() {
+            LocalDate today = LocalDate.now();
+            if (!today.equals(date)) {
+                return 0;
+            }
+            return count.get();
+        }
+    }
+
+    /**
+     * 今日答题计数 +1（每次提交答案时调用，无论对错），返回递增后的值。
+     * 按服务器时区自然日懒清零。
+     */
+    public int incrementTodayAnswerCount(UUID playerId) {
+        return todayAnswerCountCache.computeIfAbsent(playerId, k -> new TodayCounter()).increment();
+    }
+
+    /**
+     * 读取玩家今日答题计数。跨天后自动视为 0。
+     */
+    public int getTodayAnswerCount(UUID playerId) {
+        TodayCounter counter = todayAnswerCountCache.get(playerId);
+        return counter != null ? counter.get() : 0;
+    }
+
+    /**
+     * 今日 AI 有效轮次 +1（由 AIChatManager 在一轮对话记为有效时调用），返回递增后的值。
+     * 按服务器时区自然日懒清零。
+     */
+    public int incrementTodayAiRound(UUID playerId) {
+        return todayAiRoundCache.computeIfAbsent(playerId, k -> new TodayCounter()).increment();
+    }
+
+    /**
+     * 读取玩家今日 AI 有效轮次。跨天后自动视为 0。
+     */
+    public int getTodayAiRound(UUID playerId) {
+        TodayCounter counter = todayAiRoundCache.get(playerId);
+        return counter != null ? counter.get() : 0;
     }
 
     /**
@@ -81,6 +151,7 @@ public class PlayerDataStore {
                 : "INSERT INTO " + tablePrefix + "player_sessions (uuid, session_date, words_count, correct_count, score, mode) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE words_count = words_count + VALUES(words_count), correct_count = correct_count + VALUES(correct_count), score = score + VALUES(score)";
 
         Connection conn = databaseManager.getConnection();
+        synchronized (databaseManager.getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, dateStr);
@@ -91,6 +162,7 @@ public class PlayerDataStore {
             stmt.executeUpdate();
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to record session: " + playerId, e);
+        }
         }
     }
 
@@ -105,6 +177,7 @@ public class PlayerDataStore {
 
         java.time.LocalDate since = java.time.LocalDate.now().minusDays(daysBack);
         Connection conn = databaseManager.getConnection();
+        synchronized (databaseManager.getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, since.toString());
@@ -115,6 +188,7 @@ public class PlayerDataStore {
             }
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load session days: " + playerId, e);
+        }
         }
         return result;
     }
@@ -128,6 +202,7 @@ public class PlayerDataStore {
                 + tablePrefix + "word_progress WHERE uuid = ?";
 
         Connection conn = databaseManager.getConnection();
+        synchronized (databaseManager.getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setString(1, playerId.toString());
@@ -163,6 +238,7 @@ public class PlayerDataStore {
             correctCountCache.putIfAbsent(playerId, new ConcurrentHashMap<>());
             incorrectCountCache.putIfAbsent(playerId, new ConcurrentHashMap<>());
         }
+        }
 
         // 从 word_progress 表重建玩家统计数据
         PlayerStats stats = new PlayerStats();
@@ -177,6 +253,7 @@ public class PlayerDataStore {
 
         // 从 player_data 表加载 sessions 和 score
         String statsSql = "SELECT total_sessions, total_score FROM " + tablePrefix + "player_data WHERE uuid = ?";
+        synchronized (databaseManager.getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(statsSql)) {
             stmt.setString(1, playerId.toString());
             try (ResultSet rs = stmt.executeQuery()) {
@@ -189,6 +266,7 @@ public class PlayerDataStore {
             }
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load player stats: " + playerId, e);
+        }
         }
         playerStatsCache.put(playerId, stats);
 
@@ -336,6 +414,9 @@ public class PlayerDataStore {
      * Save a player's data from cache to the database.
      * Uses UPSERT (INSERT OR REPLACE for SQLite, INSERT...ON DUPLICATE KEY UPDATE for MySQL)
      * in a single transaction to eliminate the DELETE+INSERT double-operation.
+     *
+     * <p>F0-02: 整个事务收进 {@code synchronized (connectionLock)}——setAutoCommit(false)
+     * 会改变共享连接的状态，不持锁就会污染其他线程的读写。
      */
     public void savePlayerData(UUID playerId) {
         Map<String, Double> masteryMap = wordMasteryCache.get(playerId);
@@ -347,6 +428,7 @@ public class PlayerDataStore {
         String upsertSql = buildUpsertSql(tablePrefix);
 
         Connection conn = databaseManager.getConnection();
+        synchronized (databaseManager.getConnectionLock()) {
         try {
             conn.setAutoCommit(false);
 
@@ -393,6 +475,7 @@ public class PlayerDataStore {
             }
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to save player data: " + playerId, e);
+        }
         }
     }
 
@@ -641,7 +724,8 @@ public class PlayerDataStore {
 
     public static class ProfileSettings {
         private int age;
-        private boolean showAnswers = true;
+        // D2 隐私优先：新玩家默认不公开答案
+        private boolean showAnswers = false;
         private boolean showResults = true;
         private boolean showInSquare = true;
 
@@ -669,6 +753,7 @@ public class PlayerDataStore {
                 : "INSERT INTO " + tablePrefix + "player_profiles (uuid, age, show_answers, show_results, show_in_square) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE age=VALUES(age), show_answers=VALUES(show_answers), show_results=VALUES(show_results), show_in_square=VALUES(show_in_square)";
 
         Connection conn = databaseManager.getConnection();
+        synchronized (databaseManager.getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setInt(2, settings.getAge());
@@ -679,6 +764,7 @@ public class PlayerDataStore {
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to save profile settings: " + playerId, e);
         }
+        }
     }
 
     public void loadProfileSettings(UUID playerId) {
@@ -686,6 +772,7 @@ public class PlayerDataStore {
         String sql = "SELECT age, show_answers, show_results, show_in_square FROM " + tablePrefix + "player_profiles WHERE uuid = ?";
 
         Connection conn = databaseManager.getConnection();
+        synchronized (databaseManager.getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             try (ResultSet rs = stmt.executeQuery()) {
@@ -703,6 +790,7 @@ public class PlayerDataStore {
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load profile settings: " + playerId, e);
             profileSettingsCache.putIfAbsent(playerId, new ProfileSettings());
+        }
         }
     }
 
@@ -747,6 +835,7 @@ public class PlayerDataStore {
 
         // Step 1: collect raw rows while ResultSet is open — no nested queries
         List<Object[]> rawRows = new ArrayList<>();
+        synchronized (databaseManager.getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, count);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -762,6 +851,7 @@ public class PlayerDataStore {
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load ranked players", e);
             return entries;
+        }
         }
 
         // Step 2: ResultSet closed — now safe to call getPlayerStats (opens new Statement)
@@ -803,6 +893,7 @@ public class PlayerDataStore {
 
         // Step 1: collect raw rows while ResultSet is open — no nested queries
         List<Object[]> rawRows = new ArrayList<>();
+        synchronized (databaseManager.getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, since.toString());
             stmt.setString(2, until.toString());
@@ -821,6 +912,7 @@ public class PlayerDataStore {
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load ranked players for period", e);
             return entries;
+        }
         }
 
         // Step 2: ResultSet closed — 此处不能调用任何 Bukkit API（如 getPlayerName），

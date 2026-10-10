@@ -54,6 +54,7 @@ public class AdminCommandHandler {
 
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
         Connection conn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
         try {
             for (String table : PLAYER_TABLES) {
                 try (PreparedStatement stmt = conn.prepareStatement(
@@ -66,6 +67,7 @@ public class AdminCommandHandler {
             plugin.getLogger().log(Level.SEVERE,
                     "Failed to reset player data: " + playerName, e);
             return;
+        }
         }
 
         plugin.getLogger().info("Admin: Player data reset complete for: " + playerName);
@@ -81,6 +83,7 @@ public class AdminCommandHandler {
         String sql = "SELECT uuid FROM " + tablePrefix
                 + "player_data WHERE player_name = ?";
         Connection conn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerName);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -91,6 +94,7 @@ public class AdminCommandHandler {
         } catch (SQLException | IllegalArgumentException e) {
             plugin.getLogger().log(Level.WARNING,
                     "Failed to lookup player UUID: " + playerName, e);
+        }
         }
         return null;
     }

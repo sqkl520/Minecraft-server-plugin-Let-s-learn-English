@@ -40,6 +40,7 @@ public class ProgressManagerImpl {
         String sql = "SELECT current_streak, longest_streak FROM "
                 + databaseManager.getTablePrefix() + "player_data WHERE uuid = ?";
         Connection conn = databaseManager.getConnection();
+        synchronized (databaseManager.getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             try (ResultSet rs = stmt.executeQuery()) {
@@ -51,6 +52,7 @@ public class ProgressManagerImpl {
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING,
                     "Failed to load streak data for player: " + playerId, e);
+        }
         }
     }
 

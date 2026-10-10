@@ -125,22 +125,50 @@ public class MiscGUIListener implements Listener {
             if (idx >= 0 && idx < challenges.size()) {
                 var cp = challenges.get(idx);
                 if (cp.completed && !cp.claimed) {
-                    double reward = plugin.getDailyChallengeManager().claimReward(player.getUniqueId(), cp.type);
-                    if (reward > 0) {
-                        var eco = plugin.getEconomy();
-                        if (eco != null) {
-                            var response = eco.depositPlayer(player, reward);
-                            if (response.transactionSuccess()) {
-                                plugin.getDatabaseManager().recordCoinsEarned(player.getUniqueId(), reward);
-                            }
+                    // M12: deposit-then-mark. Transfer first, mark claimed only
+                    // after money arrived. On failure the reward stays claimable
+                    // and the GUI is refreshed unclaimed for retry.
+                    double reward = cp.type.reward;
+                    if (depositChallengeReward(player, reward)) {
+                        double marked = plugin.getDailyChallengeManager()
+                                .claimReward(player.getUniqueId(), cp.type);
+                        if (marked > 0) {
+                            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                                    "daily.reward-claimed", "reward", String.valueOf((int) marked)));
                         }
+                    } else {
                         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                                "daily.reward-claimed", "reward", String.valueOf((int) reward)));
+                                "daily.claim-failed", "reward", String.valueOf((int) reward)));
                     }
                     new DailyChallengeGUI(plugin).open(player);
                 }
             }
         }
+    }
+
+    /**
+     * Transfer a behavioral-challenge reward via Vault. Stats are recorded
+     * only when money actually arrived.
+     *
+     * @param player the player
+     * @param reward the reward amount
+     * @return true only if the deposit succeeded
+     */
+    private boolean depositChallengeReward(Player player, double reward) {
+        var eco = plugin.getEconomy();
+        if (eco == null) {
+            plugin.getLogger().warning("Daily challenge reward of " + reward
+                    + " for " + player.getName() + " not paid: Vault economy unavailable");
+            return false;
+        }
+        var response = eco.depositPlayer(player, reward);
+        if (response.transactionSuccess()) {
+            plugin.getDatabaseManager().recordCoinsEarned(player.getUniqueId(), reward);
+            return true;
+        }
+        plugin.getLogger().warning("Daily challenge reward deposit failed for "
+                + player.getName() + ": " + response.errorMessage);
+        return false;
     }
 
     private void handleChallengeComplete(Player player, int slot) {

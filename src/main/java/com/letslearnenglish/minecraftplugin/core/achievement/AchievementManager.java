@@ -61,6 +61,7 @@ public class AchievementManager {
         String sql = "SELECT achievement_id FROM "
                 + plugin.getDatabaseManager().getTablePrefix() + "achievements WHERE uuid = ?";
         Connection conn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             try (ResultSet rs = stmt.executeQuery()) {
@@ -71,6 +72,7 @@ public class AchievementManager {
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING,
                     "Failed to load achievements for " + playerId, e);
+        }
         }
         unlockedCache.put(playerId, unlocked);
     }
@@ -144,6 +146,7 @@ public class AchievementManager {
         }
 
         Connection conn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, achievement.getId());
@@ -152,6 +155,7 @@ public class AchievementManager {
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING,
                     "Failed to save achievement " + achievement.getId() + " for " + playerId, e);
+        }
         }
 
         Player player = Bukkit.getPlayer(playerId);
@@ -263,6 +267,7 @@ public class AchievementManager {
                 + plugin.getDatabaseManager().getTablePrefix()
                 + "player_sessions WHERE uuid = ? ORDER BY session_date DESC";
         Connection conn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(daySql)) {
             stmt.setString(1, playerId.toString());
             try (ResultSet rs = stmt.executeQuery()) {
@@ -272,6 +277,7 @@ public class AchievementManager {
             }
         } catch (SQLException e) {
             return;
+        }
         }
 
         int consecutive = 0;
@@ -307,8 +313,11 @@ public class AchievementManager {
 
     /**
      * Clear all achievement caches (called on reload).
+     * H9：同步刷新懒加载的 achievementConfig，下次 tryUnlock 经 getAchievementConfig()
+     * 重新从磁盘读取 — 否则 reload 后成就开关/时间窗口改动永不生效。
      */
     public void clearCache() {
         unlockedCache.clear();
+        achievementConfig = null;
     }
 }
