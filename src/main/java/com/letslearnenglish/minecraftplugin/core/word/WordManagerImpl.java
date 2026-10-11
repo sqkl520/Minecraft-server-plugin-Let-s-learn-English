@@ -65,12 +65,29 @@ public class WordManagerImpl {
             String name = file.getName().replace(".yml", "");
             FileConfiguration config = configManager.loadWordBank(name);
             WordBank bank = new WordBank(name, config);
+            // R-06 降级：校验后 0 有效词的词库整档跳过不注册 —— 该难度不可选
+            // （玩家输 /le word <坏档> 走既有 "Unknown difficulty" 错误提示，开局不炸服）。
+            // 不做跨档 fallback：难度对玩家是显式契约，静默换档等于偷换答题内容。
+            if (bank.getWordCount() == 0) {
+                plugin.getLogger().severe("Word bank '" + name
+                        + "' has 0 valid words after validation (check warnings above for "
+                        + name + ".yml): skipping registration, difficulty '" + name
+                        + "' will be unavailable.");
+                continue;
+            }
             wordBanks.put(name, bank);
             for (Word w : bank.getAllWords()) {
                 globalWordIndex.put(w.getEnglish().toLowerCase(), w);
             }
             plugin.getLogger().info("Loaded word bank: " + name
                     + " (" + bank.getWordCount() + " words)");
+        }
+
+        // R-06：全档皆空 = 所有学习/挑战/复习入口都会落空，开服即告警但不断启动流程。
+        if (wordBanks.isEmpty()) {
+            plugin.getLogger().severe("No usable word bank loaded (all files empty or "
+                    + "failed validation). Learning, review and daily word challenges "
+                    + "are unavailable until the words/*.yml files are fixed.");
         }
     }
 
@@ -162,9 +179,13 @@ public class WordManagerImpl {
 
     /**
      * Get all available difficulty levels.
+     *
+     * R-09c: 返回按字母序排好的快照 —— 底层是 ConcurrentHashMap，
+     * 直接包 keySet 会让 GUI 构造快照与点击侧重取两次迭代出不同顺序（词库点 A 开 B）。
+     * 排序后两侧恒一致；命令/挑战等只读遍历方不受影响。
      */
     public Set<String> getAvailableDifficulties() {
-        return Collections.unmodifiableSet(wordBanks.keySet());
+        return Collections.unmodifiableSet(new TreeSet<>(wordBanks.keySet()));
     }
 
     public ReviewScheduler getReviewScheduler() {

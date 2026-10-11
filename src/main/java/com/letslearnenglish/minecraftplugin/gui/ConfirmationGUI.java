@@ -25,7 +25,10 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
  */
 public class ConfirmationGUI {
 
-    private static final Map<UUID, Integer> confirmStages = new ConcurrentHashMap<>();
+    /** Per-player 二确状态：阶段 + 阶段 1 落盘的目标语言（R-09：防阶段 2 重算切错方向）。 */
+    private record ConfirmState(int stage, String targetLang) {}
+
+    private static final Map<UUID, ConfirmState> confirmStages = new ConcurrentHashMap<>();
     public static final String CONFIRM_TITLE_KEY = "language.confirm-title";
 
     /** 确认按钮槽位（两个阶段共用） */
@@ -48,11 +51,18 @@ public class ConfirmationGUI {
     }
 
     public static int getStage(Player player) {
-        return confirmStages.getOrDefault(player.getUniqueId(), 0);
+        ConfirmState state = confirmStages.get(player.getUniqueId());
+        return state == null ? 0 : state.stage();
     }
 
     public static void resetStage(Player player) {
         confirmStages.remove(player.getUniqueId());
+    }
+
+    /** 取阶段 1 落盘的目标语言；无状态时返回 null（调用方回退到"当前语言反推"保底）。 */
+    public static String getTargetLang(Player player) {
+        ConfirmState state = confirmStages.get(player.getUniqueId());
+        return state == null ? null : state.targetLang();
     }
 
     /** 第一阶段确认界面 */
@@ -86,7 +96,9 @@ public class ConfirmationGUI {
         String cancelLore = ChatColor.translateAlternateColorCodes('&',
                 messages.getString("language.cancel-lore"));
 
-        confirmStages.put(player.getUniqueId(), stage);
+        // R-09：阶段与目标语言一起落盘。阶段 2 重开页时同样写入（监听器透传的即阶段 1 存的值），
+        // applySwitch 只认这里存的语言，不认实例字段。
+        confirmStages.put(player.getUniqueId(), new ConfirmState(stage, targetLang));
 
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
         inv.setItem(CONFIRM_SLOT, createItem(Material.EMERALD, itemName, itemLore));
@@ -96,8 +108,10 @@ public class ConfirmationGUI {
     }
 
     public void applySwitch(Player player) {
-        confirmStages.remove(player.getUniqueId());
-        plugin.setPlayerLanguage(player, targetLang);
+        // R-09：读存储里的目标语言（阶段 1 落盘值）；取不到时（异常路径）回退到实例字段保底。
+        ConfirmState state = confirmStages.remove(player.getUniqueId());
+        String lang = (state != null && state.targetLang() != null) ? state.targetLang() : targetLang;
+        plugin.setPlayerLanguage(player, lang);
 
         // 切换后用新语言播报（前缀与文案都由 MessageUtil 按玩家语言解析）
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "language.switched"));

@@ -17,6 +17,7 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Listener for Privacy Settings, Word Bank Select, and Learning Calendar GUI interactions.
@@ -25,8 +26,18 @@ public class MiscGUIListener implements Listener {
 
     private final LetsLearnEnglish plugin;
 
+    /**
+     * R-02: behavioral-claim stripe locks. A fixed array of 32 monitors —
+     * indexed by UUID hash — so the full "check → deposit → mark" critical
+     * section runs serialized per player with no growing map and no cleanup.
+     */
+    private final Object[] claimStripeLocks = new Object[32];
+
     public MiscGUIListener(LetsLearnEnglish plugin) {
         this.plugin = plugin;
+        for (int i = 0; i < claimStripeLocks.length; i++) {
+            claimStripeLocks[i] = new Object();
+        }
     }
 
     @EventHandler
@@ -40,6 +51,13 @@ public class MiscGUIListener implements Listener {
                 && !title.contains("Challenge Complete") && !title.contains("挑战完成")) {
             return;
         }
+
+        // R-01/R-22: 只处理上半区（Top 容器）点击。玩家背包（下半区）直接 return
+        // 且不 cancel，玩家开着 GUI 也能正常整理背包。
+        if (event.getClickedInventory() == null) return;
+        int topSize = event.getView().getTopInventory().getSize();
+        int rawSlot = event.getRawSlot();
+        if (rawSlot < 0 || rawSlot >= topSize) return;
 
         event.setCancelled(true);
         if (event.getCurrentItem() == null) return;
@@ -120,30 +138,57 @@ public class MiscGUIListener implements Listener {
         // Claim buttons at slots 11, 13, 15
         if (slot == 11 || slot == 13 || slot == 15) {
             SoundManager.playSound(player, "menu-click");
-            var challenges = plugin.getDailyChallengeManager().getTodayChallenges(player.getUniqueId());
             int idx = (slot - 11) / 2; // 11->0, 13->1, 15->2
-            if (idx >= 0 && idx < challenges.size()) {
-                var cp = challenges.get(idx);
-                if (cp.completed && !cp.claimed) {
-                    // M12: deposit-then-mark. Transfer first, mark claimed only
-                    // after money arrived. On failure the reward stays claimable
-                    // and the GUI is refreshed unclaimed for retry.
-                    double reward = cp.type.reward;
-                    if (depositChallengeReward(player, reward)) {
-                        double marked = plugin.getDailyChallengeManager()
-                                .claimReward(player.getUniqueId(), cp.type);
-                        if (marked > 0) {
-                            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                                    "daily.reward-claimed", "reward", String.valueOf((int) marked)));
-                        }
-                    } else {
-                        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                                "daily.claim-failed", "reward", String.valueOf((int) reward)));
-                    }
-                    new DailyChallengeGUI(plugin).open(player);
-                }
+            // R-02: run the whole claim under the player's stripe lock so two
+            // rapid clicks of the same button can never interleave a double pay.
+            synchronized (getClaimStripeLock(player.getUniqueId())) {
+                claimBehavioralChallenge(player, idx);
             }
         }
+    }
+
+    /**
+     * R-02: behavioral-challenge claim body. MUST be called with the player's
+     * stripe lock held: state is re-read inside the lock and the full
+     * "check → deposit → mark" sequence stays serialized, so money is paid at
+     * most once for a challenge in any timing. M12 preserved: a failed
+     * deposit leaves the reward unmarked and re-claimable.
+     *
+     * @param player the clicking player
+     * @param idx index into today's challenge list (0..2)
+     */
+    private void claimBehavioralChallenge(Player player, int idx) {
+        var challenges = plugin.getDailyChallengeManager().getTodayChallenges(player.getUniqueId());
+        if (idx < 0 || idx >= challenges.size()) return;
+        var cp = challenges.get(idx);
+        if (!cp.completed || cp.claimed) return;
+        // M12: deposit-then-mark. Transfer first, mark claimed only
+        // after money arrived. On failure the reward stays claimable
+        // and the GUI is refreshed unclaimed for retry.
+        double reward = cp.type.reward;
+        if (depositChallengeReward(player, reward)) {
+            double marked = plugin.getDailyChallengeManager()
+                    .claimReward(player.getUniqueId(), cp.type);
+            if (marked > 0) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "daily.reward-claimed", "reward", String.valueOf((int) marked)));
+            }
+        } else {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "daily.claim-failed", "reward", String.valueOf((int) reward)));
+        }
+        new DailyChallengeGUI(plugin).open(player);
+    }
+
+    /**
+     * R-02: stripe-lock lookup. Fixed-size array, so there is nothing to
+     * evict — unlike a per-player lock map which would leak without cleanup.
+     *
+     * @param playerId the player
+     * @return the stripe monitor for this player
+     */
+    private Object getClaimStripeLock(UUID playerId) {
+        return claimStripeLocks[(playerId.hashCode() & 0x7fffffff) % claimStripeLocks.length];
     }
 
     /**

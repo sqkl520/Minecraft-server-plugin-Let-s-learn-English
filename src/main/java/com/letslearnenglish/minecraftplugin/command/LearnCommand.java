@@ -178,11 +178,9 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             String scenario = args[1].toLowerCase();
             plugin.getChatScenarioListener().addPlayer(player);
             plugin.getAIChatManager().startConversation(player, scenario);
-            // 场景名走 ai_scenarios.yml 的 display_name / display_name_zh，与 GUI 入口保持一致
-            // （原先直接塞原始 key，玩家会看到 airport 这样的英文标识符）
-            AIChatManager.ScenarioConfig sc = plugin.getAIChatManager().getScenarioConfigs().get(scenario);
-            boolean zh = "zh".equalsIgnoreCase(plugin.getPlayerLanguage(player));
-            String scenarioName = (sc != null) ? sc.getDisplayName(zh) : scenario;
+            // R-04：场景名按玩家版解析（全局 + 个人场景），与 GUI 入口保持一致
+            // （原先只查全局配置，个人 key 会回落显示原始标识符）
+            String scenarioName = plugin.getAIChatManager().getScenarioDisplayName(player, scenario);
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "dialogue.started", "scenario", scenarioName));
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
@@ -236,7 +234,14 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             String targetName = args[1];
             Player target = plugin.getServer().getPlayer(targetName);
             if (target != null) {
-                new ProfileGUI(plugin).open(player, target.getUniqueId());
+                // R-05：/le profile 直达同样查开关 —— 目标隐身且非本人时回 i18n 提示，不开界面。
+                if (!target.getUniqueId().equals(player.getUniqueId())
+                        && !plugin.getPlayerDataStore().getProfileSettings(target.getUniqueId()).isShowInSquare()) {
+                    player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                            "profile.hidden"));
+                } else {
+                    new ProfileGUI(plugin).open(player, target.getUniqueId());
+                }
             } else {
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "general.error", "message",
@@ -275,9 +280,20 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                     statusKey, "word", wordProgress.wordId));
         }
 
-        if (completed >= total && total > 0) {
+        // R-07: celebrate only on "all done AND money arrived". Word rewards are
+        // paid asynchronously-ish (M12 deposit-then-mark), so completion alone
+        // must not trigger the "reward granted" message.
+        boolean allDone = completed >= total && total > 0;
+        boolean paid = dcm.isWordRewardPaidToday(player.getUniqueId());
+        if (allDone && paid) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "daily-challenge.all-complete-chat"));
+        } else if (allDone) {
+            // Completed but payout pending (e.g. Vault missing) — tell the
+            // player the coins are parked and how to retry; no celebration.
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "daily-challenge.reward-pending",
+                    "reward", String.valueOf((int) getWordChallengeReward())));
         }
 
         // FIX-CHAL-01: cross-visibility (read-only) — show behavioral challenge
@@ -305,7 +321,9 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         // the GUI on completion). Opened last, after all chat output, so the
         // player can read the full progress list first. /le challenge becomes
         // the opt-in entry point for the celebration page.
-        if (completed >= total && total > 0) {
+        // R-07: same dual condition as the chat message above — pending
+        // payouts must not open the "reward received" page.
+        if (allDone && paid) {
             new com.letslearnenglish.minecraftplugin.gui.ChallengeCompleteGUI(plugin)
                     .open(player, getWordChallengeReward());
         }
@@ -582,7 +600,11 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 }
             }
         } else if (args.length == 2 && "dialogue".equalsIgnoreCase(args[0])) {
-            for (String scenario : plugin.getAIChatManager().getAvailableScenarios()) {
+            // R-04：补全含该玩家的个人场景 key；控制台等非玩家发送者回落全局列表
+            List<String> scenarios = (sender instanceof Player tabPlayer)
+                    ? plugin.getAIChatManager().getAvailableScenarios(tabPlayer)
+                    : plugin.getAIChatManager().getAvailableScenarios();
+            for (String scenario : scenarios) {
                 if (scenario.toLowerCase().startsWith(args[1].toLowerCase())) {
                     completions.add(scenario);
                 }

@@ -512,8 +512,12 @@ public class DatabaseManager {
     /** Get top players by lifetime coins earned. */
     public List<LeaderboardEntry> getTopCoins(int limit) {
         List<LeaderboardEntry> entries = new ArrayList<>();
-        String sql = "SELECT uuid, player_name, total_coins_earned FROM " + tablePrefix
-                + "player_data ORDER BY total_coins_earned DESC LIMIT ?";
+        // R-05：隐身者（player_profiles.show_in_square = 0）不上榜；
+        // 无档案行视为默认可见。SELECT…JOIN…WHERE 口径 SQLite/MySQL 通用，无需 isSQLite 分支。
+        String sql = "SELECT d.uuid, d.player_name, d.total_coins_earned FROM " + tablePrefix
+                + "player_data d LEFT JOIN " + tablePrefix + "player_profiles p ON p.uuid = d.uuid"
+                + " WHERE COALESCE(p.show_in_square, 1) <> 0"
+                + " ORDER BY d.total_coins_earned DESC LIMIT ?";
         synchronized (connectionLock) {
             try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
                 stmt.setInt(1, limit);
@@ -541,8 +545,11 @@ public class DatabaseManager {
      */
     public List<LeaderboardEntry> getTopWordsLearned(int limit) {
         List<LeaderboardEntry> entries = new ArrayList<>();
-        String sql = "SELECT uuid, player_name, total_words_learned FROM " + tablePrefix
-                + "player_data ORDER BY total_words_learned DESC LIMIT ?";
+        // R-05：隐身者不上榜（同 getTopCoins 的 JOIN 过滤语义）。
+        String sql = "SELECT d.uuid, d.player_name, d.total_words_learned FROM " + tablePrefix
+                + "player_data d LEFT JOIN " + tablePrefix + "player_profiles p ON p.uuid = d.uuid"
+                + " WHERE COALESCE(p.show_in_square, 1) <> 0"
+                + " ORDER BY d.total_words_learned DESC LIMIT ?";
         synchronized (connectionLock) {
             try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
                 stmt.setInt(1, limit);
@@ -570,8 +577,11 @@ public class DatabaseManager {
      */
     public List<LeaderboardEntry> getTopCombo(int limit) {
         List<LeaderboardEntry> entries = new ArrayList<>();
-        String sql = "SELECT uuid, player_name, longest_streak FROM " + tablePrefix
-                + "player_data ORDER BY longest_streak DESC LIMIT ?";
+        // R-05：隐身者不上榜（同 getTopCoins 的 JOIN 过滤语义）。
+        String sql = "SELECT d.uuid, d.player_name, d.longest_streak FROM " + tablePrefix
+                + "player_data d LEFT JOIN " + tablePrefix + "player_profiles p ON p.uuid = d.uuid"
+                + " WHERE COALESCE(p.show_in_square, 1) <> 0"
+                + " ORDER BY d.longest_streak DESC LIMIT ?";
         synchronized (connectionLock) {
             try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
                 stmt.setInt(1, limit);
@@ -1165,6 +1175,59 @@ public class DatabaseManager {
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING,
                         "Failed to reset check-in streak for " + playerId, e);
+            }
+        }
+    }
+
+    /**
+     * Delete every row that belongs to one player across all player-scoped tables.
+     *
+     * <p>R-03：{@code /lea reset} 的删表实现（原实现只删 4 表，榜单/签到/挑战/错题/
+     * AI 历史全部残留）。uuid 系 8 表 + player_uuid 系 4 表共 12 表：
+     * player_data、word_progress、achievements、player_achievements（死表 E-03，
+     * 删了无害，免残行未来被误接线复活）、learning_log、player_sessions、
+     * player_profiles、daily_challenges、daily_challenge_words、ai_chat_history、
+     * difficult_words、checkin_data。
+     *
+     * <p>建表语句无外键（SQLite/MySQL 双实现与 schema.sql 均已查证），直删无需排序。
+     * 与本类其他方法一致：全程持 {@code connectionLock}，内部吞异常记 WARNING，
+     * 调用方无需再 try/catch。
+     *
+     * @param playerId the player whose rows should be removed
+     */
+    public void deletePlayerData(UUID playerId) {
+        String[] uuidTables = {
+            "player_data", "word_progress", "achievements", "player_achievements",
+            "learning_log", "player_sessions", "player_profiles", "daily_challenges"
+        };
+        // 这 4 表的玩家列叫 player_uuid，不是 uuid（见 createTables 建表语句）
+        String[] playerUuidTables = {
+            "daily_challenge_words", "ai_chat_history", "difficult_words", "checkin_data"
+        };
+        String id = playerId.toString();
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            for (String table : uuidTables) {
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "DELETE FROM " + tablePrefix + table + " WHERE uuid = ?")) {
+                    stmt.setString(1, id);
+                    stmt.executeUpdate();
+                } catch (SQLException e) {
+                    plugin.getLogger().log(Level.WARNING,
+                            "Failed to delete rows from " + tablePrefix + table
+                                    + " for " + playerId, e);
+                }
+            }
+            for (String table : playerUuidTables) {
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "DELETE FROM " + tablePrefix + table + " WHERE player_uuid = ?")) {
+                    stmt.setString(1, id);
+                    stmt.executeUpdate();
+                } catch (SQLException e) {
+                    plugin.getLogger().log(Level.WARNING,
+                            "Failed to delete rows from " + tablePrefix + table
+                                    + " for " + playerId, e);
+                }
             }
         }
     }

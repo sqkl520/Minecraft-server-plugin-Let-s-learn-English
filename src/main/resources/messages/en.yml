@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 8
+config-version: 9
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -485,6 +485,7 @@ profile:
   settings-show-in-square-on: "&aCurrent: Visible"
   settings-show-in-square-off: "&7Current: Hidden"
   settings-toggle-hint: "&7Click to toggle"
+  hidden: "{prefix}&7That player is hidden and their profile cannot be viewed right now."
 
 chat-history:
   title: "&6&lAI Chat History"

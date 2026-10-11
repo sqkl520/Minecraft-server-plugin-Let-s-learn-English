@@ -62,7 +62,9 @@ public class ScenarioSelectGUI {
         int slot = 10;
         String clickStart = msg.getString("dialogue.click-start");
         String systemPrompt = msg.getString("dialogue.system-prompt");
-        for (ScenarioConfig sc : plugin.getAIChatManager().getScenarioConfigs().values()) {
+        // R-04：按玩家版场景配置 —— 个人场景出现在该玩家的列表里，
+        // 展示名与全局同规则（display_name / display_name_zh）。
+        for (ScenarioConfig sc : plugin.getAIChatManager().getScenarioConfigs(player).values()) {
             if (slot > 16) break;
             List<String> lore = new ArrayList<>();
             lore.add(ChatColor.translateAlternateColorCodes('&', clickStart));

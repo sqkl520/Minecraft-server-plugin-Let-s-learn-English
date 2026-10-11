@@ -30,10 +30,6 @@ import java.util.logging.Level;
 
 public class AdminCommandHandler {
 
-    private static final String[] PLAYER_TABLES = {
-        "player_data", "word_progress", "achievements", "learning_log"
-    };
-
     private final LetsLearnEnglish plugin;
 
     public AdminCommandHandler(LetsLearnEnglish plugin) {
@@ -50,25 +46,17 @@ public class AdminCommandHandler {
         }
 
         PlayerDataStore dataStore = plugin.getPlayerDataStore();
+        // R-03：内存态按 quit 语义清理，且必须先于删表（unload 会先落盘，顺序反了会
+        // 把旧内存态写回刚删干净的表）。endQuiz/cancelPractice 在前：在线玩家答题中
+        // 被 reset 时，不先清 QuizState 会留下僵尸倒计时；unloadPlayer 清成就缓存，
+        // 否则 tryUnlock 的 contains 命中旧缓存，"删掉的成就"会复活。
+        plugin.getWordLearningManager().endQuiz(playerId);
+        plugin.getWordLearningManager().cancelPractice(playerId);
         dataStore.unloadPlayerData(playerId);
+        dataStore.unloadProfileSettings(playerId);
+        plugin.getAchievementManager().unloadPlayer(playerId);
 
-        String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
-        Connection conn = plugin.getDatabaseManager().getConnection();
-        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
-        try {
-            for (String table : PLAYER_TABLES) {
-                try (PreparedStatement stmt = conn.prepareStatement(
-                        "DELETE FROM " + tablePrefix + table + " WHERE uuid = ?")) {
-                    stmt.setString(1, playerId.toString());
-                    stmt.executeUpdate();
-                }
-            }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.SEVERE,
-                    "Failed to reset player data: " + playerName, e);
-            return;
-        }
-        }
+        plugin.getDatabaseManager().deletePlayerData(playerId);
 
         plugin.getLogger().info("Admin: Player data reset complete for: " + playerName);
     }

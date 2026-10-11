@@ -37,7 +37,14 @@ public class DuelGUIListener implements Listener {
         String title = event.getView().getTitle();
         if (!isDuelGUI(player, title)) return;
 
-        // 判定命中后立刻取消：确保没有任何分支能把展示用的物品从界面里拿走
+        // R-01/R-22: 只处理上半区（Top 容器）点击。玩家背包（下半区）直接 return
+        // 且不 cancel（对决中点背包 22 不再误触退出判负，玩家也能正常整理背包）。
+        if (event.getClickedInventory() == null) return;
+        int topSize = event.getView().getTopInventory().getSize();
+        int rawSlot = event.getRawSlot();
+        if (rawSlot < 0 || rawSlot >= topSize) return;
+
+        // 上半区命中后立刻取消：确保没有任何分支能把展示用的物品从界面里拿走
         event.setCancelled(true);
 
         if (event.getCurrentItem() == null) return;

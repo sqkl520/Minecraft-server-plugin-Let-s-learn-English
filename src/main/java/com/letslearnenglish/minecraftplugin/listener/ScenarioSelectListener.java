@@ -33,6 +33,13 @@ public class ScenarioSelectListener implements Listener {
             return;
         }
 
+        // R-01 补漏：只处理上半区（Top 容器）点击。玩家背包（下半区）直接 return
+        // 且不 cancel，玩家开着 GUI 也能正常整理背包。
+        if (event.getClickedInventory() == null) return;
+        int topSize = event.getView().getTopInventory().getSize();
+        int rawSlot = event.getRawSlot();
+        if (rawSlot < 0 || rawSlot >= topSize) return;
+
         event.setCancelled(true);
         if (event.getCurrentItem() == null) return;
         if (!(event.getWhoClicked() instanceof Player player)) return;
@@ -46,7 +53,8 @@ public class ScenarioSelectListener implements Listener {
             new MainMenu(plugin).open(player);
             return;
         }
-        List<String> scenarios = plugin.getAIChatManager().getAvailableScenarios();
+        // R-04：与 GUI 渲染同序 —— 按玩家版场景列表（全局 + 该玩家个人场景）。
+        List<String> scenarios = plugin.getAIChatManager().getAvailableScenarios(player);
         int index = slot - 10;
         if (index >= 0 && index < scenarios.size()) {
             if (!plugin.getAIChatManager().isAvailable()) {
@@ -67,7 +75,7 @@ public class ScenarioSelectListener implements Listener {
             String lang = plugin.getPlayerLanguage(player);
             boolean zh = "zh".equalsIgnoreCase(lang);
             String diffName = (dc != null) ? dc.getDisplayName(zh) : difficulty;
-            String scenarioName = formatScenarioName(scenario, lang);
+            String scenarioName = formatScenarioName(player, scenario);
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "dialogue.started-with-difficulty",
                     "scenario", scenarioName,
@@ -114,15 +122,11 @@ public class ScenarioSelectListener implements Listener {
     }
 
     /**
-     * 场景显示名统一走 ai_scenarios.yml（display_name / display_name_zh），
+     * 场景显示名统一走场景配置（display_name / display_name_zh），
+     * R-04：按玩家解析 —— 个人 key 显示其展示名而非原始标识。
      * 未配置时兜底返回场景 key（标识符，非面向玩家的文案）。
      */
-    private String formatScenarioName(String key, String lang) {
-        boolean zh = "zh".equalsIgnoreCase(lang);
-        AIChatManager.ScenarioConfig sc = plugin.getAIChatManager().getScenarioConfigs().get(key);
-        if (sc != null) {
-            return sc.getDisplayName(zh);
-        }
-        return key;
+    private String formatScenarioName(Player player, String key) {
+        return plugin.getAIChatManager().getScenarioDisplayName(player, key);
     }
 }

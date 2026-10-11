@@ -699,6 +699,9 @@ public class PlayerDataStore {
 
     /**
      * Unload a player's data from cache (called on player quit).
+     *
+     * <p>R-03：补清两套今日计数器 —— 原实现只清持久化缓存，防刷上限（今日答题/AI 轮次）
+     * 的内存态被漏掉，reset 后不重进服上限不归零。
      */
     public void unloadPlayerData(UUID playerId) {
         savePlayerData(playerId);
@@ -713,6 +716,8 @@ public class PlayerDataStore {
         difficultWordsCache.remove(playerId);
         wrongCountCache.remove(playerId);
         playerNameCache.remove(playerId);
+        todayAnswerCountCache.remove(playerId);
+        todayAiRoundCache.remove(playerId);
     }
 
     /**
@@ -929,9 +934,11 @@ public class PlayerDataStore {
     public List<LeaderboardEntry> getRankedPlayers(int count) {
         List<LeaderboardEntry> entries = new ArrayList<>();
         String tablePrefix = databaseManager.getTablePrefix();
-        String sql = "SELECT uuid, player_name, total_words_learned, total_sessions, total_score "
-                + "FROM " + tablePrefix + "player_data "
-                + "ORDER BY total_score DESC LIMIT ?";
+        String sql = "SELECT d.uuid, d.player_name, d.total_words_learned, d.total_sessions, d.total_score "
+                + "FROM " + tablePrefix + "player_data d "
+                + "LEFT JOIN " + tablePrefix + "player_profiles p ON p.uuid = d.uuid "
+                + "WHERE COALESCE(p.show_in_square, 1) <> 0 "
+                + "ORDER BY d.total_score DESC LIMIT ?";
 
         Connection conn = databaseManager.getConnection();
 
@@ -988,7 +995,9 @@ public class PlayerDataStore {
                 + "SUM(s.correct_count) as total_correct, SUM(s.words_count) as total_words "
                 + "FROM " + tablePrefix + "player_sessions s "
                 + "LEFT JOIN " + tablePrefix + "player_data p ON p.uuid = s.uuid "
+                + "LEFT JOIN " + tablePrefix + "player_profiles pf ON pf.uuid = s.uuid "
                 + "WHERE s.session_date >= ? AND s.session_date <= ? "
+                + "AND COALESCE(pf.show_in_square, 1) <> 0 "
                 + "GROUP BY s.uuid ORDER BY period_score DESC LIMIT ?";
 
         Connection conn = databaseManager.getConnection();

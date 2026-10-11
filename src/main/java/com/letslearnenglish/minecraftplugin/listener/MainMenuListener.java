@@ -39,6 +39,13 @@ public class MainMenuListener implements Listener {
             return;
         }
 
+        // R-01/R-22: 只处理上半区（Top 容器）点击。玩家背包（下半区）直接 return
+        // 且不 cancel，玩家开着 GUI 也能正常整理背包。
+        if (event.getClickedInventory() == null) return;
+        int topSize = event.getView().getTopInventory().getSize();
+        int rawSlot = event.getRawSlot();
+        if (rawSlot < 0 || rawSlot >= topSize) return;
+
         event.setCancelled(true);
         if (event.getCurrentItem() == null) return;
         if (!(event.getWhoClicked() instanceof Player player)) return;
@@ -152,15 +159,25 @@ public class MainMenuListener implements Listener {
         int stage = ConfirmationGUI.getStage(player);
 
         if (stage == 1) {
-            String currentLang = plugin.getPlayerLanguage(player);
-            String targetLang = "zh".equals(currentLang) ? "en" : "zh";
+            // R-09：复用阶段 1 落盘的目标语言，不再从"当前语言反推"（中途语言变化时反推会切错方向）。
+            // store 缺失（异常路径）时回退到反推保底。
+            String targetLang = ConfirmationGUI.getTargetLang(player);
+            if (targetLang == null) {
+                String currentLang = plugin.getPlayerLanguage(player);
+                targetLang = "zh".equals(currentLang) ? "en" : "zh";
+            }
+            String resolvedTarget = targetLang;
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                ConfirmationGUI confirm = new ConfirmationGUI(plugin, targetLang);
+                ConfirmationGUI confirm = new ConfirmationGUI(plugin, resolvedTarget);
                 confirm.openSecond(player);
             }, 2L);
         } else if (stage == 2) {
-            String currentLang = plugin.getPlayerLanguage(player);
-            String targetLang = "zh".equals(currentLang) ? "en" : "zh";
+            // R-09：目标语言以存储为准；applySwitch 内部同样读存储，这里透传仅为构造实例。
+            String targetLang = ConfirmationGUI.getTargetLang(player);
+            if (targetLang == null) {
+                String currentLang = plugin.getPlayerLanguage(player);
+                targetLang = "zh".equals(currentLang) ? "en" : "zh";
+            }
             ConfirmationGUI confirm = new ConfirmationGUI(plugin, targetLang);
             confirm.applySwitch(player);
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
