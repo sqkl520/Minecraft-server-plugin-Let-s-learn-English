@@ -137,6 +137,9 @@ public class WordManagerImpl {
         if (session != null) {
             playerDataStore.updateWordProgress(playerId, session.getResults());
             playerDataStore.getPlayerStats(playerId).addScore(session.getScore());
+            // R-42：结算时增量同步内存榜（updateScore 语义为 merge-累加，此处传会话增量）。
+            // 没有这一行，内存榜只在启动时 loadFromDB 快照一次，%lle_rank% 永远冻结在进服时刻。
+            plugin.getProgressManager().getLeaderboard().updateScore(playerId, session.getScore());
 
             if ("review".equals(session.getMode())) {
                 for (LearningSession.WordResult result : session.getResults().values()) {

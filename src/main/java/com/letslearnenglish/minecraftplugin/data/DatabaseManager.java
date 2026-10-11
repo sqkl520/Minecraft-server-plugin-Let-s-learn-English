@@ -42,9 +42,15 @@ public class DatabaseManager {
 
     /**
      * Initialize database connection and table structure.
+     *
+     * <p>E-05：重连/自愈路径会重复进入本方法，先关旧连接再覆盖，
+     * 否则旧句柄泄漏（SQLite 文件锁 / MySQL 空闲连接堆积）。
+     * 关旧连接的异常吞掉记 WARNING，不阻断新连接建立。
      */
     public void initialize() {
         synchronized (connectionLock) {
+            closeQuietly(connection);
+            connection = null;
             FileConfiguration config = configManager.getMainConfig();
             String type = config.getString("database.type", "sqlite");
             this.tablePrefix = config.getString("database.mysql.table-prefix", "lle_");
@@ -96,6 +102,7 @@ public class DatabaseManager {
                         "  total_score BIGINT DEFAULT 0," +
                         "  total_coins_earned BIGINT DEFAULT 0," +
                         "  total_coins_spent BIGINT DEFAULT 0," +
+                        "  conversation_count INT DEFAULT 0," +
                         "  current_streak INT DEFAULT 0," +
                         "  longest_streak INT DEFAULT 0," +
                         "  last_login BIGINT," +
@@ -106,6 +113,8 @@ public class DatabaseManager {
 
         addColumnIfMissing(tablePrefix + "player_data", "total_coins_earned", "BIGINT DEFAULT 0");
         addColumnIfMissing(tablePrefix + "player_data", "total_coins_spent", "BIGINT DEFAULT 0");
+        // R-28：AI 对话累计次数落盘列（供 AI_CHAT_10/50 成就重启后仍可判定）
+        addColumnIfMissing(tablePrefix + "player_data", "conversation_count", "INT DEFAULT 0");
 
         executeUpdate(
                 "CREATE TABLE IF NOT EXISTS " + tablePrefix + "word_progress (" +
@@ -252,20 +261,15 @@ public class DatabaseManager {
 
     /**
      * Get the database connection.
-     * Uses double-checked locking to prevent concurrent initialization.
+     *
+     * <p>E-04：取连接整体收进 {@code connectionLock} 内（正确范式）。
+     * 原快路径在锁外做 {@code isClosed} 检查并直接返回引用，调用方在锁外拿到的
+     * Connection 可能在后续被 {@link #initialize()} 的重连替换，导致 Statement
+     * 打在已关闭的旧连接上。现在统一走锁内获取 + 必要时自愈重连。
+     * 注意：调用方仍须在 {@code synchronized (getConnectionLock())} 内使用返回的
+     * 连接（锁外持有引用跨越重连仍不安全），外部裸用点见类 javadoc 的迁移约定。
      */
     public Connection getConnection() {
-        // Fast path — connection is already valid (no lock)
-        try {
-            if (connection != null && !connection.isClosed()) {
-                return connection;
-            }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.SEVERE, "Database connection check failed", e);
-            throw new RuntimeException("Failed to get database connection", e);
-        }
-
-        // Slow path — initialize under lock to prevent races
         synchronized (connectionLock) {
             try {
                 if (connection == null || connection.isClosed()) {
@@ -275,11 +279,27 @@ public class DatabaseManager {
                 plugin.getLogger().log(Level.SEVERE, "Database connection check failed", e);
                 throw new RuntimeException("Failed to get database connection", e);
             }
+            if (connection == null) {
+                throw new RuntimeException("Database connection is null after initialization");
+            }
+            return connection;
         }
-        if (connection == null) {
-            throw new RuntimeException("Database connection is null after initialization");
+    }
+
+    /**
+     * E-05：关连接工具。判 null + {@code isClosed}，异常吞掉记 WARNING。
+     * 调用方须持有 {@code connectionLock}（重连与关闭串行化）。
+     */
+    private void closeQuietly(Connection conn) {
+        if (conn == null) return;
+        try {
+            if (!conn.isClosed()) {
+                conn.close();
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to close stale database connection (continuing with re-init)", e);
         }
-        return connection;
     }
 
     /**
@@ -1025,6 +1045,34 @@ public class DatabaseManager {
     }
 
     /**
+     * R-28：持久化玩家 AI 对话累计次数（绝对值 UPSERT）。
+     *
+     * <p>由 {@code PlayerDataStore.incrementConversationCount} 在每次有效对话结束后
+     * 即时调用，使 AI_CHAT_10/50 成就计数跨重启不丢。写绝对值而非增量，调用方以缓存
+     * 为权威先 +1 再落库，重复落库幂等；不受 quit 事件两个监听器
+     * （ChatScenarioListener 结束对话 vs PlayerJoinListener 卸载缓存）执行顺序影响。
+     *
+     * @param playerId the player
+     * @param count    the new absolute conversation count
+     */
+    public void setConversationCount(UUID playerId, int count) {
+        String sql = "INSERT INTO " + tablePrefix + "player_data (uuid, conversation_count, updated_at) VALUES (?, ?, ?) "
+                + (isSQLite()
+                ? "ON CONFLICT(uuid) DO UPDATE SET conversation_count = excluded.conversation_count, updated_at = excluded.updated_at"
+                : "ON DUPLICATE KEY UPDATE conversation_count = VALUES(conversation_count), updated_at = VALUES(updated_at)");
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setInt(2, count);
+                stmt.setLong(3, System.currentTimeMillis());
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to persist conversation_count for " + playerId, e);
+            }
+        }
+    }
+
+    /**
      * Get daily statistics breakdown for the last 7 days.
      * Combines data from player_sessions (players, words) and
      * learning_log (session count) per day.
@@ -1045,8 +1093,10 @@ public class DatabaseManager {
                 + "FROM " + tablePrefix + "player_sessions "
                 + "WHERE session_date >= ? "
                 + "GROUP BY session_date";
-        Connection conn = getConnection();
+        Connection conn;
         synchronized (connectionLock) {
+            // E-04：取连接移入锁内（原锁外引用跨语句块复用，重连即失效）。
+            conn = getConnection();
             try (PreparedStatement stmt = conn.prepareStatement(sessionsSql)) {
                 stmt.setString(1, today.minusDays(6).toString());
                 try (ResultSet rs = stmt.executeQuery()) {
@@ -1079,6 +1129,8 @@ public class DatabaseManager {
                     + "GROUP BY day";
         }
         synchronized (connectionLock) {
+            // E-04：上一个锁块已释放，重连可能已替换引用，此处锁内重取。
+            conn = getConnection();
             try (PreparedStatement stmt = conn.prepareStatement(logSql)) {
                 long sevenDaysAgoMillis = today.minusDays(6).atStartOfDay(
                         java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();

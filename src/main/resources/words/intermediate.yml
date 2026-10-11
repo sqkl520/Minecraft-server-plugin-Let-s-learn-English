@@ -315,7 +315,7 @@ words:
     chinese: "表现"
     part_of_speech: "verb"
     phonetic: "/bɪˈheɪv/"
-    example_sentence: "The children behaved well today."
+    example_sentence: "You should behave politely in class."
     synonyms:
       - "act"
     antonyms:
@@ -1295,7 +1295,7 @@ words:
     chinese: "延迟"
     part_of_speech: "verb"
     phonetic: "/dɪˈleɪ/"
-    example_sentence: "Rain delayed our flight."
+    example_sentence: "Please do not delay the payment."
     synonyms:
       - "postpone"
       - "put off"
@@ -3722,7 +3722,7 @@ words:
     chinese: "倾斜"
     part_of_speech: "verb"
     phonetic: "/ɪnˈklaɪn/"
-    example_sentence: "The road inclines to the north."
+    example_sentence: "The path begins to incline near the summit."
     synonyms:
       - "slope"
       - "lean"

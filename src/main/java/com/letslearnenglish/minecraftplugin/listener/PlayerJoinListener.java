@@ -30,9 +30,32 @@ public class PlayerJoinListener implements Listener {
         plugin.getPlayerDataStore().cachePlayerName(
                 event.getPlayer().getUniqueId(), event.getPlayer().getName());
 
+        org.bukkit.entity.Player joining = event.getPlayer();
         org.bukkit.Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            plugin.getUpdateChecker().notifyPlayer(event.getPlayer());
+            // L-20 后半：延迟 3 秒后再 notify，玩家可能已经秒退，
+            // 先复查在线，免得给离线玩家发消息。
+            if (!joining.isOnline()) {
+                return;
+            }
+            plugin.getUpdateChecker().notifyPlayer(joining);
         }, 60L);
+
+        // R-45：纯新号（Bukkit 从未见过）发三行欢迎语 + /le 指引。
+        // 老玩家零打扰。用 hasPlayedBefore 而不用查 player_data 行：
+        // 数据行可能被 /lea reset 删掉，但那不代表玩家是新人。
+        if (!joining.hasPlayedBefore()) {
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                if (!joining.isOnline()) {
+                    return;
+                }
+                joining.sendMessage(plugin.getMessageUtil().getPlayerMessage(joining,
+                        "join.welcome-1", "player", joining.getName()));
+                joining.sendMessage(plugin.getMessageUtil().getPlayerMessage(joining,
+                        "join.welcome-2"));
+                joining.sendMessage(plugin.getMessageUtil().getPlayerMessage(joining,
+                        "join.welcome-3"));
+            }, 40L);
+        }
 
         plugin.getDailyChallengeManager().checkAndAssign(event.getPlayer().getUniqueId());
     }

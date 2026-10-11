@@ -15,6 +15,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 
 /**
  * Two-step confirmation GUI for language switching.
@@ -86,15 +87,15 @@ public class ConfirmationGUI {
                 .getMessageConfig(plugin.getPlayerLanguage(player));
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString(CONFIRM_TITLE_KEY));
+                MessageUtil.getGuiMsg(messages, CONFIRM_TITLE_KEY));
         String itemName = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("language.confirm-item"));
+                MessageUtil.getGuiMsg(messages, "language.confirm-item"));
         String itemLore = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("language.confirm-lore"));
+                MessageUtil.getGuiMsg(messages, "language.confirm-lore"));
         String cancelName = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("language.cancel-item"));
+                MessageUtil.getGuiMsg(messages, "language.cancel-item"));
         String cancelLore = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("language.cancel-lore"));
+                MessageUtil.getGuiMsg(messages, "language.cancel-lore"));
 
         // R-09：阶段与目标语言一起落盘。阶段 2 重开页时同样写入（监听器透传的即阶段 1 存的值），
         // applySwitch 只认这里存的语言，不认实例字段。

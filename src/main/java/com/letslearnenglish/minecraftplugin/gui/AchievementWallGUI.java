@@ -4,6 +4,7 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.achievement.AchievementManager;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -35,7 +36,7 @@ public class AchievementWallGUI {
         String lang = plugin.getPlayerLanguage(viewer);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("achievement-wall.title"));
+                MessageUtil.getGuiMsg(messages, "achievement-wall.title"));
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
         FileConfiguration achConfig = loadAchievementConfig();
@@ -60,14 +61,14 @@ public class AchievementWallGUI {
 
             if (isUnlocked) {
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("profile.achievement-unlocked")));
+                        MessageUtil.getGuiMsg(messages, "profile.achievement-unlocked")));
             } else {
                 String timeLeft = getTimeLeftString(achConfig, a, messages);
                 if (timeLeft != null && !timeLeft.isEmpty()) {
                     lore.add(ChatColor.translateAlternateColorCodes('&', timeLeft));
                 }
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("profile.achievement-locked")));
+                        MessageUtil.getGuiMsg(messages, "profile.achievement-locked")));
             }
 
             inv.setItem(slot, createItem(mat, name, lore));
@@ -79,10 +80,10 @@ public class AchievementWallGUI {
         }
 
         String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
-                messages.getString("gui.back-button"));
+                MessageUtil.getGuiMsg(messages, "gui.back-button"));
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE, backLabel,
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
-                        messages.getString("gui.back-lore")))));
+                        MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
 
         viewer.openInventory(inv);
     }
@@ -118,14 +119,14 @@ public class AchievementWallGUI {
 
             if (now.before(start)) {
                 long diff = start.getTime() - now.getTime();
-                return messages.getString("achievement-wall.time-opens")
+                return MessageUtil.getGuiMsg(messages, "achievement-wall.time-opens")
                         .replace("{time}", formatDuration(diff));
             }
             if (now.after(end)) {
-                return messages.getString("achievement-wall.time-expired");
+                return MessageUtil.getGuiMsg(messages, "achievement-wall.time-expired");
             }
             long diff = end.getTime() - now.getTime();
-            return messages.getString("achievement-wall.time-remaining")
+            return MessageUtil.getGuiMsg(messages, "achievement-wall.time-remaining")
                     .replace("{time}", formatDuration(diff));
         } catch (Exception e) {
             return null;

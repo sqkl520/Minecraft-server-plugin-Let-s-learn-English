@@ -60,6 +60,11 @@ public class PlayerDataStore {
     private final Map<UUID, TodayCounter> todayAnswerCountCache;
     private final Map<UUID, TodayCounter> todayAiRoundCache;
 
+    // R-28：AI 对话累计次数缓存（镜像 player_data.conversation_count）。
+    // join 时随 loadPlayerData 载入；incrementConversationCount 先改缓存再即时落库，
+    // 让 AI_CHAT_10/50 成就计数跨重启不丢。
+    private final Map<UUID, Integer> conversationCountCache;
+
     public PlayerDataStore(LetsLearnEnglish plugin, DatabaseManager databaseManager) {
         this.plugin = plugin;
         this.databaseManager = databaseManager;
@@ -77,6 +82,7 @@ public class PlayerDataStore {
         this.playerNameCache = new ConcurrentHashMap<>();
         this.todayAnswerCountCache = new ConcurrentHashMap<>();
         this.todayAiRoundCache = new ConcurrentHashMap<>();
+        this.conversationCountCache = new ConcurrentHashMap<>();
     }
 
     /**
@@ -139,6 +145,39 @@ public class PlayerDataStore {
     public int getTodayAiRound(UUID playerId) {
         TodayCounter counter = todayAiRoundCache.get(playerId);
         return counter != null ? counter.get() : 0;
+    }
+
+    /**
+     * R-28：读取玩家 AI 对话累计次数（供 AI_CHAT_10/50 成就判定）。
+     * 缓存未命中时懒加载（loadPlayerData 会填入 conversation_count）。
+     */
+    public int getConversationCount(UUID playerId) {
+        Integer v = conversationCountCache.get(playerId);
+        if (v == null) {
+            loadPlayerData(playerId);
+            v = conversationCountCache.get(playerId);
+        }
+        return v != null ? v : 0;
+    }
+
+    /**
+     * R-28：AI 对话累计次数 +1，返回递增后的值。
+     *
+     * <p>缓存为权威：先确保已从 DB 载入基数，+1 后即时经
+     * {@code DatabaseManager.setConversationCount} 落库（绝对值 UPSERT）。
+     * 之所以即时落库而不是等 savePlayerData，是因为 quit 时
+     * {@code ChatScenarioListener.endConversationOnQuit}（触发本方法）与
+     * {@code PlayerJoinListener} 的 unloadPlayerData（落盘+清缓存）是同一
+     * PlayerQuitEvent 上的两个独立监听器，执行顺序不保证；若只改缓存等 save，
+     * 当 unload 先跑时这次 +1 会丢。即时落库使成就计数与监听器顺序无关。
+     */
+    public int incrementConversationCount(UUID playerId) {
+        if (!conversationCountCache.containsKey(playerId)) {
+            loadPlayerData(playerId);
+        }
+        int newVal = conversationCountCache.merge(playerId, 1, Integer::sum);
+        databaseManager.setConversationCount(playerId, newVal);
+        return newVal;
     }
 
     /**
@@ -256,7 +295,8 @@ public class PlayerDataStore {
         }
 
         // 从 player_data 表加载 sessions 和 score
-        String statsSql = "SELECT total_sessions, total_score FROM " + tablePrefix + "player_data WHERE uuid = ?";
+        String statsSql = "SELECT total_sessions, total_score, conversation_count FROM " + tablePrefix + "player_data WHERE uuid = ?";
+        int conversationCount = 0;
         synchronized (databaseManager.getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(statsSql)) {
             stmt.setString(1, playerId.toString());
@@ -266,6 +306,7 @@ public class PlayerDataStore {
                     long score = rs.getLong("total_score");
                     stats.setSessions(sessions);
                     stats.setScore(score);
+                    conversationCount = rs.getInt("conversation_count"); // R-28
                 }
             }
         } catch (SQLException e) {
@@ -273,6 +314,7 @@ public class PlayerDataStore {
         }
         }
         playerStatsCache.put(playerId, stats);
+        conversationCountCache.put(playerId, conversationCount); // R-28
 
         // Load difficult words / wrong book data
         loadDifficultWordsFromDB(playerId);
@@ -718,6 +760,7 @@ public class PlayerDataStore {
         playerNameCache.remove(playerId);
         todayAnswerCountCache.remove(playerId);
         todayAiRoundCache.remove(playerId);
+        conversationCountCache.remove(playerId); // R-28
     }
 
     /**
@@ -736,6 +779,7 @@ public class PlayerDataStore {
         difficultWordsCache.clear();
         wrongCountCache.clear();
         playerNameCache.clear();
+        conversationCountCache.clear(); // R-28
     }
 
     /**
@@ -779,13 +823,25 @@ public class PlayerDataStore {
     }
 
     public static class ProfileSettings {
+        /** R-39：年龄合法上限（岁）。超过此值视为脏数据，读侧回 0、写侧钳制。 */
+        public static final int MAX_VALID_AGE = 150;
+
         private int age;
         // D2 隐私优先：新玩家默认不公开答案
         private boolean showAnswers = false;
         private boolean showResults = true;
         private boolean showInSquare = true;
 
-        public int getAge() { return age; }
+        /**
+         * R-39 读侧校验：年龄 0 = 未设置（正常态，GUI 显示"未设置"）；
+         * 负数或 &gt; MAX_VALID_AGE 视为脏数据，回 0。
+         */
+        public int getAge() {
+            if (age < 0 || age > MAX_VALID_AGE) {
+                return 0;
+            }
+            return age;
+        }
         public void setAge(int age) { this.age = age; }
         public boolean isShowAnswers() { return showAnswers; }
         public void setShowAnswers(boolean showAnswers) { this.showAnswers = showAnswers; }
@@ -797,6 +853,19 @@ public class PlayerDataStore {
 
     public ProfileSettings getProfileSettings(UUID playerId) {
         return profileSettingsCache.computeIfAbsent(playerId, k -> new ProfileSettings());
+    }
+
+    /**
+     * L-05 只读版：展示路径（ProfileGUI / EnglishSquareGUI / Leaderboard 查榜 /
+     * PAPI 占位符）用此方法读隐私开关。
+     * 缓存缺失时返回一个全新的默认副本，绝不写入 profileSettingsCache，
+     * 避免只读展示在缓存里建条目、污染 {@link #getActivePlayerIds()}。
+     * 返回的实例是调用方私有的，改它不会影响缓存；写路径请走
+     * {@link #getProfileSettings(UUID)}。
+     */
+    public ProfileSettings getProfileSettingsReadOnly(UUID playerId) {
+        ProfileSettings cached = profileSettingsCache.get(playerId);
+        return cached != null ? cached : new ProfileSettings();
     }
 
     public void saveProfileSettings(UUID playerId) {
@@ -855,13 +924,43 @@ public class PlayerDataStore {
         profileSettingsCache.remove(playerId);
     }
 
+    /**
+     * R-39 写侧钳制：年龄合法范围 0~MAX_VALID_AGE。非法写入记 WARNING 并钳制
+     * （负数→0，&gt;150→150），脏数据永不进缓存/落盘。
+     */
     public void setAge(UUID playerId, int age) {
+        int clamped = age;
+        if (clamped < 0) {
+            clamped = 0;
+        } else if (clamped > ProfileSettings.MAX_VALID_AGE) {
+            clamped = ProfileSettings.MAX_VALID_AGE;
+        }
+        if (clamped != age) {
+            plugin.getLogger().warning("R-39: clamped invalid age " + age
+                    + " to " + clamped + " for " + playerId);
+        }
         ProfileSettings settings = getProfileSettings(playerId);
-        settings.setAge(age);
+        settings.setAge(clamped);
     }
 
+    /**
+     * L-05：候选集 = profileSettingsCache 键 ∪ 当前在线玩家。
+     * 原先只取 profile 缓存键：受只读展示的 computeIfAbsent 建条目污染、
+     * 且档案未加载的在线玩家（刚上线/异常路径）会被广场漏掉。
+     * 展示路径已改走 {@link #getProfileSettingsReadOnly}，本方法不再被写副作用污染。
+     * quit 清理语义不变（unloadProfileSettings 照常删缓存键）。
+     */
     public List<UUID> getActivePlayerIds() {
-        return new ArrayList<>(profileSettingsCache.keySet());
+        java.util.LinkedHashSet<UUID> ids = new java.util.LinkedHashSet<>(profileSettingsCache.keySet());
+        try {
+            for (org.bukkit.entity.Player online : plugin.getServer().getOnlinePlayers()) {
+                ids.add(online.getUniqueId());
+            }
+        } catch (Exception e) {
+            // 异步可达路径（如启动期 Leaderboard 预热）拿不到在线列表时，
+            // 回落到 profile 缓存键，保证永不抛异常。
+        }
+        return new ArrayList<>(ids);
     }
 
     public String getPlayerName(UUID playerId) {

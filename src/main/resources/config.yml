@@ -19,6 +19,7 @@ config-version: 2
 general:
   # 插件默认界面语言：zh(中文) / en(英文)
   # 玩家可在主菜单中自行切换语言，此设置仅影响新玩家的默认语言
+  # R-55l：此 key 缺失时所有代码回落均为 zh（与此处默认值一致，启动审计会告警缺 key）
   language: "zh"
 
   # 调试模式：开启后会在控制台输出详细日志
@@ -196,7 +197,8 @@ progress-system:
   # --- 排行榜 ---
   leaderboard:
     enabled: true
-    # 排行榜显示人数
+    # 排行榜显示人数（英语广场榜单模式一次拉取的条数）
+    # R-55k：此 key 缺失时启动审计会告警；代码缺 key 回落以各调用点注释为准
     display-count: 10
     # 排行榜刷新间隔（秒）
     update-interval: 30

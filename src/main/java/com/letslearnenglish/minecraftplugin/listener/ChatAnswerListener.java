@@ -2,6 +2,8 @@ package com.letslearnenglish.minecraftplugin.listener;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.core.word.AnswerChecker;
+import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
@@ -169,8 +171,26 @@ public class ChatAnswerListener implements Listener {
             // FEAT-MODE-01：按会话 mode 分流判定 — mode 取自 WordLearningManager，
             // 判分收敛于 AnswerChecker.check（submitAnswer 内部调用），本分支只喂答案。
             String mode = wlManager.getMode(player.getUniqueId());
+
+            // R-10：choice 模式下敲了越界选项字母（小词库只有 A/B 却输入 C/D）属"无效输入"，
+            // 不当答错结算（不清连击 / 不扣分 / 不进错题本）。判定收敛在 AnswerChecker，
+            // 这里仅在 submitAnswer 之前拦截并提示；计时器未被取消，玩家可在剩余倒计时内重答。
+            if (AnswerChecker.isChoice(mode)) {
+                Word currentWord = wlManager.getCurrentWord(player.getUniqueId());
+                java.util.List<Word> options = wlManager.getChoiceOptions(player.getUniqueId());
+                if (AnswerChecker.isInvalidChoiceInput(mode, currentWord, answer, options)) {
+                    player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                            "word-learning-gui.invalid-option"));
+                    return;
+                }
+            }
+
             WordLearningManager.AnswerResult result = wlManager.submitAnswer(player, answer);
             if (result == null) {
+                // R-15：迟到答案 —— 倒计时已判定或会话已结束（state 被移出 map / 正被占用），
+                // submitAnswer 返回 null。不再静默丢弃，给玩家一句"本题已过"提示。
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "word-learning-gui.answer-expired"));
                 return;
             }
 

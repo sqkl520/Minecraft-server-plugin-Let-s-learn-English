@@ -57,6 +57,14 @@ public class WrongBookGUI {
     /** 每页单词数 = 可用槽位数（36 + 6 = 42），避免出现「显示了却点不动」的单词。 */
     private static final int ITEMS_PER_PAGE = WORD_SLOTS.length;
 
+    /**
+     * R-54：空错题本提示 BOOK 的展示槽位 —— 顶部中央（第一行正中）。
+     * 必须在 WORD_SLOTS 之外：旧位置 slot 22 在 WORD_SLOTS 内，玩家点击中央 BOOK
+     * 会落进单词分支（监听器只认 PAPER 材质所以今天是"点了没反应"而非误删，
+     * 但仍属误触面）。slot 4 不在 WORD_SLOTS / BACK_SLOT / 导航键内，纯展示。
+     */
+    private static final int EMPTY_BOOK_SLOT = 4;
+
     private final LetsLearnEnglish plugin;
 
     public WrongBookGUI(LetsLearnEnglish plugin) {
@@ -95,7 +103,8 @@ public class WrongBookGUI {
         int endIndex = Math.min(startIndex + ITEMS_PER_PAGE, wordList.size());
 
         if (wordList.isEmpty()) {
-            // Empty state
+            // Empty state — R-54：BOOK 放 EMPTY_BOOK_SLOT（slot 4，WORD_SLOTS 之外），
+            // 中央区域留给灰色玻璃板占位，点中央无反应、不再误入单词分支
             ItemStack book = new ItemStack(Material.BOOK);
             ItemMeta bookMeta = book.getItemMeta();
             if (bookMeta != null) {
@@ -106,7 +115,7 @@ public class WrongBookGUI {
                         ChatColor.translateAlternateColorCodes('&', emptyLore)));
                 book.setItemMeta(bookMeta);
             }
-            inv.setItem(22, book);
+            inv.setItem(EMPTY_BOOK_SLOT, book);
         } else {
             // Populate word entries
             for (int i = startIndex; i < endIndex; i++) {

@@ -3,7 +3,6 @@ package com.letslearnenglish.minecraftplugin.core.manager;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.data.CheckInData;
 import net.milkbowl.vault.economy.Economy;
-import net.milkbowl.vault.economy.EconomyResponse;
 import org.bukkit.entity.Player;
 
 import java.time.LocalDate;
@@ -89,12 +88,16 @@ public class CheckInManager {
         }
 
         // Vault is external to the database, so a failed payment cannot roll back the claim.
-        boolean paid = giveCoins(player, coinsEarned);
-        if (paid) {
-            plugin.getDatabaseManager().recordCoinsEarned(player.getUniqueId(), coinsEarned);
-        }
+        boolean economyDisabled = isMoneyDisabledByConfig();
+        GiveCoinsOutcome payout = giveCoins(player, coinsEarned);
+        // R-34：coins 记账与今日金币记账已在 RewardEngine.depositCappedReward 内完成，
+        // 此处不再单独 recordCoinsEarned（否则双计）。
 
-        return new CheckInResult(true, newStreak, paid ? coinsEarned : 0, streakBroken);
+        // R-44：money.enabled=false 时 coinsEarned 计 0，但 success 保持 true
+        // （签到权已到账），调用方凭 economyDisabled 给"经济未启用"提示。
+        boolean paid = payout == GiveCoinsOutcome.PAID;
+        return new CheckInResult(true, newStreak, paid ? coinsEarned : 0,
+                streakBroken, economyDisabled && !paid);
     }
 
     /**
@@ -108,32 +111,67 @@ public class CheckInManager {
     }
 
     /**
+     * R-44: outcome of a coin payout attempt. Distinguishes "economy disabled
+     * by config" from other failures so the caller can hint correctly.
+     */
+    private enum GiveCoinsOutcome {
+        PAID,
+        ECONOMY_DISABLED,
+        FAILED
+    }
+
+    /**
+     * R-44: true only when money.enabled=false (config switch off).
+     * Vault-missing and deposit-failure do NOT count — they keep the old
+     * silent behavior (R-44 只管开关语义，不管 Vault 缺失）。
+     */
+    private boolean isMoneyDisabledByConfig() {
+        return !plugin.getConfigManager().getMainConfig()
+                .getBoolean("progress-system.rewards.types.money.enabled", false);
+    }
+
+    /**
      * Give coins to the player via Vault economy.
      * Falls back gracefully if Vault is not available.
      *
      * @param player the player
      * @param amount the amount of coins to give
-     * @return true if coins were given successfully, false otherwise
+     * @return payout outcome (paid / disabled-by-config / other failure)
      */
-    private boolean giveCoins(Player player, double amount) {
+    private GiveCoinsOutcome giveCoins(Player player, double amount) {
+        if (isMoneyDisabledByConfig()) {
+            return GiveCoinsOutcome.ECONOMY_DISABLED;
+        }
         Economy eco = plugin.getEconomy();
         if (eco == null) {
-            return false;
+            return GiveCoinsOutcome.FAILED;
         }
 
-        boolean moneyEnabled = plugin.getConfigManager().getMainConfig()
-                .getBoolean("progress-system.rewards.types.money.enabled", false);
-        if (!moneyEnabled) {
-            return false;
-        }
-
-        EconomyResponse response = eco.depositPlayer(player, amount);
-        return response.transactionSuccess();
+        // R-34：改走 RewardEngine 门面，纳入 money.daily-cap 并记今日金币账
+        // （签到此前 eco.depositPlayer 直发，绕过日限与 todayCoinsCache 记账）。
+        double paid = plugin.getProgressManager().getRewardEngine().depositCappedReward(player, amount);
+        return paid > 0 ? GiveCoinsOutcome.PAID : GiveCoinsOutcome.FAILED;
     }
 
     /**
      * Result of a check-in attempt.
+     *
+     * @param success whether the check-in claim landed (DB marked claimed)
+     * @param streak current consecutive streak
+     * @param coinsEarned coins actually paid to the player (0 if unpaid)
+     * @param streakBroken whether the previous streak was reset by a gap
+     * @param economyDisabled R-44: true when the claim landed but no coins were
+     *                        paid ONLY because money.enabled=false. Caller uses
+     *                        this to show the "economy disabled" hint instead of
+     *                        a 0-coin "success" line.
      */
-    public record CheckInResult(boolean success, int streak, double coinsEarned, boolean streakBroken) {
+    public record CheckInResult(boolean success, int streak, double coinsEarned,
+                                boolean streakBroken, boolean economyDisabled) {
+
+        /** Back-compat ctor for paths that never disabled the economy. */
+        public CheckInResult(boolean success, int streak, double coinsEarned,
+                             boolean streakBroken) {
+            this(success, streak, coinsEarned, streakBroken, false);
+        }
     }
 }

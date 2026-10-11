@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -15,7 +16,15 @@ import java.util.*;
 public class WordBankSelectGUI {
 
     private static final int GUI_SIZE = 27;
+    /** 词库按钮槽位（7 个，slots 10-16） */
+    private static final int[] BANK_SLOTS = { 10, 11, 12, 13, 14, 15, 16 };
+    /** R-53 fan-in：词库按钮槽位起点（点击侧 MiscGUIListener 映射共用）。 */
+    public static final int BANK_SLOT_START = BANK_SLOTS[0];
+    /** R-53 fan-in：词库按钮槽位数 = 截断阈值（点击侧映射共用，保证"更多…"位置一致）。 */
+    public static final int BANK_SLOT_COUNT = BANK_SLOTS.length;
     private final LetsLearnEnglish plugin;
+    // R-53：构造快照仅作 open() 重查失败时的兜底（reloadWordBanks 前 wordManager 可能尚无词库）。
+    // 正常路径 open() 每次重查 getAvailableDifficulties()，新词库热重载后即刻可见。
     private final List<String> availableBanks;
 
     public WordBankSelectGUI(LetsLearnEnglish plugin) {
@@ -28,27 +37,45 @@ public class WordBankSelectGUI {
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-bank.title"));
+                MessageUtil.getGuiMsg(messages, "word-bank.title"));
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
         String clickHint = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-bank.click-hint"));
+                MessageUtil.getGuiMsg(messages, "word-bank.click-hint"));
 
-        int slot = 10;
-        for (String bankName : availableBanks) {
-            if (slot > 16) break;
+        // R-53：open() 时重查 —— getAvailableDifficulties() 返回 TreeSet 排序快照，
+        // 与 MiscGUIListener 点击侧重取同序（点 A 开 A 语义不变）。构造快照仅兜底。
+        List<String> banks = new ArrayList<>(plugin.getWordManager().getAvailableDifficulties());
+        if (banks.isEmpty() && !availableBanks.isEmpty()) {
+            banks = availableBanks;
+        }
+        boolean hasMore = banks.size() > BANK_SLOTS.length;
+        int shown = hasMore ? BANK_SLOTS.length - 1 : banks.size();
+        for (int i = 0; i < shown; i++) {
+            String bankName = banks.get(i);
+            int slot = BANK_SLOTS[i];
             String displayName = getDisplayName(bankName, messages);
             inv.setItem(slot, createItem(Material.BOOK,
                     ChatColor.translateAlternateColorCodes('&', "&e" + displayName),
                     Collections.singletonList(clickHint)));
-            slot++;
+        }
+
+        // R-53：第 8 个词库起给"更多词库…"提示行（不再静默丢弃；完整翻页留 Phase 3）
+        if (hasMore) {
+            inv.setItem(BANK_SLOTS[BANK_SLOTS.length - 1], createItem(Material.BOOK,
+                    ChatColor.translateAlternateColorCodes('&',
+                            MessageUtil.getGuiMsg(messages, "word-bank.more-banks")),
+                    Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
+                            MessageUtil.getGuiMsg(messages, "word-bank.more-banks-lore")
+                                    .replace("{count}", String.valueOf(
+                                            banks.size() - BANK_SLOTS.length + 1))))));
         }
 
         String backLabel = ChatColor.translateAlternateColorCodes('&', "&c" +
-                messages.getString("gui.back-button"));
+                MessageUtil.getGuiMsg(messages, "gui.back-button"));
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE, backLabel,
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
-                        messages.getString("gui.back-lore")))));
+                        MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
 
         player.openInventory(inv);
     }

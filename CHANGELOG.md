@@ -5,6 +5,58 @@
 > 本版本包含两批改动：v1.0.7 迭代开发（13 个 Story）+ 全项目只读扫描后的缺陷修复批次（中文服止血 / 并发收口 / 仓库卫生）。
 
 ### Fixed
+- **[P1 fan-in]** 单词挑战被动完成路径 R-44 对齐：`DailyChallengeManager.onAllWordChallengesComplete` 在 `money.enabled=false` 时改发 `daily-challenge.economy-disabled` 并标记已处理（避免每答对一题重入刷 `reward-pending`，默认配置即触发）；Vault 瞬时失败/超 cap 仍走 `reward-pending` 可重试
+- **[P1 fan-in]** `WordLearningManager` 构造器自注册监听器加 `getServer()` 判空：R-13 死亡保护让本类 implements Listener 并在构造器 registerEvents，纯逻辑单测用 mock 插件构造（getServer 返回 null）会 NPE 炸测试；判空后测试环境跳过注册、生产不受影响
+- **[P1 fan-in]** `ConfigManager.MESSAGE_CONFIG_VERSION` 9→10：messages/zh.yml 与 en.yml 随 P1 新增约 30 键升至 v10，代码侧同步升版
+- **[P1 fan-in / R-49]** 场景/难度点击侧同序根治（原"点 A 开 B"）：`AIChatManager` 新增共享排序真相源 `getSortedScenarioConfigs/Keys(player)`（按当前语言展示名排序、key tie-break）与 `getSortedDifficultyConfigs/Keys()`（按 key 排序），`ScenarioSelectGUI` 渲染与 `ScenarioSelectListener` 点击映射统一调用同一方法；截断阈值用 GUI 新公开常量 `SCENARIO_SLOT_START/SCENARIO_SLOT_COUNT/DIFFICULTY_SLOT_COUNT`（难度 cap 由写死 3 收敛到该常量），两侧顺序与"更多…"位置恒一致
+- **[P1 fan-in / R-49+R-53]** "更多…"提示槽点击置为 no-op（仅播 click 音，不开隐藏项）：`ScenarioSelectListener` 场景尾槽 16 / 难度尾槽 20、`MiscGUIListener.handleWordBankSelect` 词库尾槽 16 超限时命中提示物品不再按下标反算打开隐藏的第 7 场景 / 第 7 词库 / 第 3 难度
+- **[P1 fan-in / R-55m]** 场景分享权限对齐：`ScenarioSelectGUI`（刷新 API 按钮可见性）与 `ScenarioSelectListener.handleReloadAPI`（执行门禁）两处 `letslearnenglish.admin` 改为 `letslearnenglish.scenario.import`，与 `LearnCommand` load_scenario 一致（持 import 权限者 GUI 侧也可见/可用该功能）
+- **[P1 fan-in / R-47]** `MainMenuListener` 错题本点击判定由写死 `slot == 14` 改读 `cm.getGuiSlot("main-menu","wrong-book",14)`，与渲染侧 `MainMenu`（流 5 已改配置读取）对齐，自定义槽位后点击不再错位；同步更正该处"两边均写死"的过时注释
+- **[P1 fan-in / R-34+F1-23]** `MiscGUIListener.depositChallengeReward` 由直连 Vault + 直调 `recordCoinsEarned` 改走 `RewardEngine.depositCappedReward`（纳入 `money.daily-cap` 与今日金币记账），返回实发额 `>0` 视为已付；失败 / 超限 cap 不标记 claimed、保持可重领语义
+- **[P1 fan-in / L-05]** `EnglishSquareGUI` 与 `Leaderboard` 的 ALL_PLAYERS 分支 `getProfileSettings(id)` 改为只读 `getProfileSettingsReadOnly(id)`，枚举活跃玩家不再因 computeIfAbsent 写副作用建条目
+- **[P1 fan-in / R-37]** `SocialListener` 无快照兜底重建分支（`squareGuis.get==null` 时按活跃度重建 playerIds）补隐身过滤：循环内 `getProfileSettingsReadOnly(id).isShowInSquare()==false` 直接跳过，与主装配口径一致
+- **[P1 fan-in]** `AIChatManager.conversationCount` 死字段清理：R-28 后计数已落 `PlayerDataStore`，该内存字段仅剩声明与 `shutdown()` 清空、无读取者，一并删除
+- **[P1 fan-in / R-55k]** `EnglishSquareGUI` 的 `progress-system.leaderboard.display-count` 代码 fallback 50→10，与 config.yml 默认值一致
+- **[P1 fan-in / R-44]** `RewardEngine` 四个发币入口（答题 / 会话完成 / 复习答对 / 中途停止）在 `money.enabled=false` 但 Vault 存在时发 `progress.economy-disabled`，经新增 `Map<UUID,LocalDate>` per-player 每自然日去重一次（不再每答对一题刷屏）；`eco==null`（无 Vault）仍静默返回
+- **[P1 fan-in / R-44]** `DailyChallengeManager.depositWordChallengeReward` 加 `money.enabled` 门：关闭时返回 false 走既有 reward-pending / economy-disabled 语义，不再静默吞奖励
+- **[P1 修复流 1/6 / R-10]** choice 越界选项字母改"无效输入"：小词库只有 A/B 却输入 C/D 时不再当答错结算（不清连击/不扣分/不进错题本）；`AnswerChecker` 新增 `isInvalidChoiceInput`，`ChatAnswerListener` 在 submitAnswer 之前拦截并发 `word-learning-gui.invalid-option` 提示，计时器不取消，玩家可在剩余倒计时内重答
+- **[P1 修复流 1/6 / R-56]** choice 判分先判全词精确匹配：单字母单词（如 "a"/"I"）文本与选项字母标签相撞时，`AnswerChecker.check` 让"输入=正确单词全文"先命中为对，不再把 "a" 误当成"选 A"
+- **[P1 修复流 1/6 / R-11]** fill_blank 卡片加中文题面：物品名改用"当前单词: {中文}"（与 spelling/choice 卡一致），挖空例句下沉到 lore 第一行，只看 GUI 也知道考哪个词（槽位/材质不动）
+- **[P1 修复流 1/6 / R-12]** 有复习通知却开不出局：`startReviewQuiz` 返回 null（词库删词致到期词已不存在）时 `LearnCommand.handleReviewCommand` 补 else 分支发 `review.unavailable`（"部分复习词已失效"），不再静默无事晃玩家
+- **[P1 修复流 1/6 / R-13]** 答题倒计时中死亡被记错：`WordLearningManager` 自注册监听 `PlayerDeathEvent`/`PlayerRespawnEvent`（在 onEnable 内构造、仅一处 new，自注册合法，不改 LetsLearnEnglish），死亡时 `cancelAnswerTimer` 停表不判错（不扣分/不进错题本），QuizState 保留并标记死亡暂停，重生后下一 tick 重开答题 GUI 续答（关界面即按既有流程重启倒计时）
+- **[P1 修复流 1/6 / R-14]** fill_blank 挖空正则命中屈折形例句：intermediate `delay`/`incline`/`behave` 与 advanced `concede`/`crave` 五条例句改用原形（`delay`/`incline`/`behave`/`concede`/`crave`），`AnswerChecker.blankSentence` 的 `\b原形\b` 正则可命中、不再回落光秃 `_____` 丢语境
+- **[P1 修复流 1/6 / R-15]** 迟到答案不再静默吞：`ChatAnswerListener` 在 `submitAnswer` 返回 null（倒计时已判定/会话已结束，state 被移出或占用）时发 `word-learning-gui.answer-expired`（"本题已过"）
+- **[P1 修复流 1/6 / R-57]** 超时答案格式对齐：`WordLearningManager.handleTimeout` 在 choice 模式下把"正确答案"按 `AnswerChecker.formatChoiceOption` 渲染为"B. apple"，与 submitAnswer 答错格式一致（buildResult 不动，仅传入已格式化的字符串）
+- **[P1 修复流 1/6 / R-16]** AI 开场白走独立通道：`chatAsync` 抽出私有 `dispatchChat(...,countsTowardUsage)`，`triggerAiOpening` 以 `false` 调用——开场白不计有效输入、不计每日轮次、不查每日上限（F1-05 收尾）
+- **[P1 修复流 1/6 / R-17]** in-flight 请求跨会话污染修复：成功回调按 session 隔离——仅当发起时的 sessionId 仍是该玩家当前 activeSession 才计本轮（`sessionHasAiReply`/`sessionValidInputs`/`incrementTodayAiRound`），下线/切场景后旧 in-flight 回调不再污染新会话计数与每日轮次
+- **[P1 修复流 1/6 / R-18]** `startConversation` 补清 `pendingRequests`/`lastRequestTime`：GUI 连点两个场景时旧会话 in-flight 标记/冷却时间戳不再误拒新会话首条消息
+- **[P1 修复流 1/6 / R-19]** 检查点与计数点重排序：有效输入计数移到成功回调（失败不计输入）；`markRequestTime` 移到所有拒绝检查（上下文/pending）通过之后（拒绝请求不再烧 3 秒冷却）
+- **[P1 修复流 1/6 / R-20]** API 失败分类 + 401 熔断：`sendHttpRequest` 抛带状态码的 `AiApiException`，`classifyFailure` 区分 401/403（`dialogue.auth-failed` + 熔断 5 分钟不再打 API）/ 429（`dialogue.rate-limited`）/ 超时（`dialogue.timeout`）/ 其它（`dialogue.request-failed`）；成功 200 或 reload（含换 Key）清掉熔断；指数退避重试未做（可选项，留待后续）
+- **[P1 修复流 1/6 / R-21]** 存量不可用 AI 挑战降级：`DailyChallengeManager.getTodayChallenges` 读取前调 `degradeStaleChallenges`，AI 不可用时把"未完成且未领取"的 AI_CHAT_5 标记 `completed=1,claimed=1`（reward 记 0，自动放弃不发奖），不再永久卡死拖垮当天整组挑战；已完成未领取的保留应得奖励不动（claim/分配/跨天/庆祝主流程不碰）
+- **[P1 修复流 1/6]** i18n 新增 8 键（zh/en 双语同位）：`review.unavailable`、`dialogue.auth-failed`/`rate-limited`/`timeout`、`word-learning-gui.invalid-option`/`answer-expired`/`death-paused`/`death-resumed`
+- **[P1 修复流 3/6 / R-28]** AI 对话成就重启丢失：`conversationCount` 由纯内存改为落 `player_data.conversation_count` 列（schema.sql + DatabaseManager 建表/补列同步）；`PlayerDataStore` 新增 conversation_count 缓存，join 随 `loadPlayerData` 载入、每次有效对话结束经 `incrementConversationCount` 即时 UPSERT 落库（不受 quit 事件两个监听器调用顺序影响）；`AIChatManager.endConversation` 计数改走 PlayerDataStore，`AI_CHAT_10/50` 成就重启后不再归零
+- **[P1 修复流 3/6 / R-30]** `DAILY_STREAK_3/7` 差一天：`WordLearningManager.showSessionComplete` 把 `recordSession` 调到 `checkSessionAchievements` 之前，今日会话先落 `player_sessions` 再判定连续天数，`checkDailyStreak` 当天即算入，连续 3/7 天成就按时解锁（选 a 调序，判定逻辑不动）
+- **[P1 修复流 3/6 / R-31]** 跨天丢失 pending 单词奖励：`DailyChallengeManager` 的"已付"标记由无日期 `Set<UUID>` 改为按日期 `Map<UUID,Set<String>>`，`onWordCorrect` 在今日外额外重试昨日"已完成但未到账"的奖励（答对任意单词即补发），午夜 rollover 的 `clearAllWordChallengeClaims` 改为裁剪早于昨日的标记而非全清，保留已付日期防重复补发（选 b 跨天可重试）
+- **[P1 修复流 3/6 / R-32]** `updateProgress` 查无行静默丢失：SELECT 无行时先 `checkAndAssign` 补分配当日挑战再重查一次，确有该类挑战则推进；仍无行（该类型今日未抽中）才返回，不再丢失进度
+- **[P1 修复流 3/6 / R-33]** 每日挑战领取槽位错位：`getTodayChallenges` 查询追加 `ORDER BY challenge_id`，展示（`DailyChallengeGUI` 槽位 11/13/15）与领取（`MiscGUIListener` 按下标映射）两侧顺序恒一致，不再领到错项（与 F2R-03 同根）
+- **[P1 修复流 3/6 / R-34]** 挑战/签到发币绕过日限：`RewardEngine` 新增 public 门面 `depositCappedReward`（走 `clampToDailyCap` + `recordCoinsEarned` + `todayCoinsCache` 记账，只过 money.daily-cap 不过答题数门）；`DailyChallengeManager` 单词挑战发币与 `CheckInManager` 签到发币改走该门面纳入 `money.daily-cap`；F1-23 越层顺手收：`DailyChallengeManager` 不再直调 `DatabaseManager.recordCoinsEarned`
+- **[P1 修复流 5/6 / R-46]** 主菜单 menu-size 非法回落：`gui.menu-size` 非 9/18/27/36/45/54 时回落 27 并记 WARNING，玻璃板填充循环按实际 size 走（原写死 27）
+- **[P1 修复流 5/6 / R-47]** 主菜单错题本按钮接 `gui-layout.main-menu.wrong-book` 配置（slot/material，默认 14/BOOKSHELF），与其它 6 按钮一致
+- **[P1 修复流 5/6 / R-48+R-52]** 8 个 GUI 的 `getString` 裸调加 null 兜底：经新增 `MessageUtil.getGuiMsg(msg, key)` 薄封装统一解析（静态、无日志，沿用调用方原有颜色转换），缺键显示 `[?key]` 占位不再让占位符替换/颜色转换炸界面（涉及 MainMenu/WordLearning/ScenarioSelect/Duel/AchievementWall/Progress/WordBankSelect/Confirmation；LearningCalendar 原已有 `""` 默认值不动逻辑）
+- **[P1 修复流 5/6 / R-49]** 场景选择稳定排序 + 截断提示：场景按钮按展示名（当前语言，tie-break key）排序，难度按钮按 key 排序（点击侧 `ScenarioSelectListener` 需编排者 fan-in 同步改序，否则点 A 开 B）；超 7 场景/超 3 难度时在尾槽放"更多…"提示物品（`dialogue.more-scenarios`/`more-difficulties`，分页留 Phase 3）
+- **[P1 修复流 5/6 / R-50]** 场景材质无空判：`sc.material` 为 null/LEGACY/AIR 时回退 PAPER（加载层已有校验，此为渲染层纵深防御）
+- **[P1 修复流 5/6 / R-51]** 对决标题按可见字符截断：新增 `truncateTitleSafe`（stripColor 取可见文本计 32，& 颜色码保留不计数、绝不在 § 中间下刀），`open()` 与界面识别侧 `matchesTitle` 同口径（`DuelGUIListener` 经 `isDuelGUITitle` 委托到同一真相源，零改动）；标题与其余文案同步加缺 key 兜底
+- **[P1 修复流 5/6 / R-53]** 词库选择 open() 时重查可用词库（构造快照改为仅兜底，新词库热重载后可见）；第 8 个词库起不再静默截断，尾槽放 `word-bank.more-banks` 提示行，翻页留 Phase 3
+- **[P1 修复流 5/6 / R-54]** 空错题本 BOOK 展示位从 slot 22（WORD_SLOTS 内）移到 slot 4 顶部中央：点中央玻璃板无反应且不再误入单词分支（选型：纯 GUI 侧自包含移动，WrongBookListener 零改动；PDC/empty 特判留 Phase 3）
+- **[P1 修复流 5/6 / R-55]** ChallengeCompleteGUI 头部注释补 slot 8/22 行为一致说明；庆祝页 slot 8/22 返回改走 `popBack`（有栈回栈、无栈回主菜单），与 DailyChallenge 一致（改动点在 `MiscGUIListener.handleChallengeComplete`）
+- **[P1 修复流 5/6 / R-55e]** `SocialListener`/`MiscGUIListener` 新增 `onInventoryDrag` guard（抄 DuelGUIListener/MainMenuListener 上半区模式）：拖拽触及上半区即 cancel，玩家整理自己背包不受影响
+- **[P1 修复流 4/6 / R-38]** 他人主页隐私：`ProfileGUI.open(viewer,targetId)` 非本人时查目标 `showResults` 开关，关闭则字数/正确率/场次三卡显示"已隐藏"；金币余额非本人一律不显示余额（隐私默认）；年龄与成就规则见 R-39；自己主页零改动
+- **[P1 修复流 4/6 / R-39]** 年龄校验：`PlayerDataStore.setAge` 写侧钳制到 0~150（非法写 WARNING + 钳制），`ProfileSettings.getAge` 读侧越界回 0；`ProfileGUI` 年龄 0 显示"未设置"，非本人看他人主页一律不显示年龄（隐私默认）
+- **[P1 修复流 4/6 / R-37]** 验证结论（零改动）：三条榜单 SQL（getTopCoins/getTopWordsLearned/getTopCombo）已 LEFT JOIN 过滤隐身者；`getRankedPlayers/getRankedPlayersForPeriod` 已过滤；`EnglishSquareGUI` ALL_PLAYERS 装配、`Leaderboard` ALL_PLAYERS 分支已跳过隐身；广场/榜单点击与 `/le profile` 直达均有门禁；唯一残留是 SocialListener 兜底重建分支缺装配过滤（展示与点击映射一致、无越权直达，风险低），因 SocialListener 不在白名单未修，已点名由编排者 fan-in 补
+- **[P1 修复流 4/6 / R-43]** `LLEPapiExpansion.onRequest` 加隐私门禁：目标隐身（showInSquare=false）非榜单占位符返回 `placeholder.private`，`rank` 返回未上榜文本；`lle_score/words/accuracy/sessions/correct/incorrect` 叠加目标 showResults=false 检查；`coins_earned` 非本人查看返回 private（与 ProfileGUI 金币规则对齐）；全占位符加 ConcurrentHashMap 缓存（key=uuid+params+查看者语言/关系Bucket，TTL 30s，超 5000 条随机淘汰），计分板刷新不再每秒打库
+- **[P1 修复流 4/6 / R-44]** `CheckInManager.CheckInResult` 加 `economyDisabled` 字段并在 `giveCoins` 的 money.enabled=false 路径置位（发币日限是流 3 的，未碰）；`LearnCommand` 签到成功分支追加 `checkin.economy-disabled` 提示，`/le challenge` 的 reward-pending 分支加经济可用性检查（money.enabled=false 或无 Vault 时发 `daily-challenge.economy-disabled`，替代"稍后补发"承诺；庆祝页本身已有 allDone&&paid 双门禁，paid=false 时天然不开，无需再动）；答题/复习/挑战到账侧的提示在 RewardEngine/DailyChallengeManager（禁区），已点名由编排者 fan-in 按最小方案补（RewardEngine 四发币入口 `isMoneyEnabled` 早退处发 `progress.economy-disabled` 去重一次；DailyChallengeManager.depositWordChallengeReward 加 moneyEnabled 检查）
+- **[P1 修复流 4/6 / R-45]** 新玩家进服指引：`PlayerJoinListener` 中 `Bukkit.hasPlayedBefore=false` 的纯新号发 `join.welcome-1~3` 三行欢迎语 + `/le` 指引（老玩家零打扰）；UpdateChecker 延迟 notify 加 `isOnline` 复查（L-20 后半顺手收）
+- **[P1 修复流 4/6 / L-05]** `PlayerDataStore.getActivePlayerIds` 改走"profile 缓存键 ∪ 当前在线玩家"（在线/离线全覆盖，quit 清理语义不变）；新增只读 `getProfileSettingsReadOnly`（缓存缺失返回默认副本不建条目），白名单内展示路径 `ProfileGUI.open`/`LLEPapiExpansion` 改走只读版；`EnglishSquareGUI`/`Leaderboard.ALL_PLAYERS` 的同类调用在禁区未动，已点名由编排者 fan-in 补（各一行，改读只读版即可）
 - **[P0 fan-in]** `ConfigManager.MESSAGE_CONFIG_VERSION` 8→9：messages/zh.yml 与 en.yml 随 P0 新键（`profile.hidden`）升至 v9，代码侧同步升版
 - **[P0 fan-in]** R-01 补漏：ChatHistoryListener / ScenarioSelectListener / WordLearningListener / WrongBookListener 四处同类不分区残留（流 1 上报）按统一模式补 Top 容器判断，下半区直接 return 不 cancel
 - **[P0 fan-in]** R-05 补漏：`PlayerDataStore.getRankedPlayers/getRankedPlayersForPeriod` 加 `LEFT JOIN player_profiles` 隐身过滤；`EnglishSquareGUI` ALL_PLAYERS 装配与 `Leaderboard` ALL_PLAYERS 分支跳过隐身玩家（流 4 上报，PlayerDataStore 禁区残留）
@@ -66,6 +118,21 @@
 - **[Phase 2 复活流 B / FEAT-MODE-01]** `/le word <难度> <模式>` 增加 mode 参数校验，非法 mode 回 `word.invalid-mode` 提示（此前直接抛 IllegalArgumentException 原始英文信息）
 - **[P0 修复流 / R-01+R-22]** 四个 GUI 监听器点击分区：`MiscGUIListener` / `DuelGUIListener` / `MainMenuListener` / `SocialListener` 的点击入口统一只处理上半区（Top 容器），玩家背包（下半区）点击直接 return；`setCancelled(true)` 移到确认上半区之后，下半区不再 cancel，玩家开着 GUI 也能正常整理背包
 - **[P0 修复流 / R-01]** 堵住两条高危误触发：DailyChallenge 界面点背包 11/13/15 不再领奖发钱；对决中点背包 22 不再误触退出判负
+- **[P1 修复流 2/6 / R-23]** 新增 `/le duel gui` 重开命令：决斗中 ESC 关界面后可重开当前对局 GUI（含 tab 补全），未在对决中回既有 `duel.not-in-duel`；`refreshBothGUIs` 改为仅当玩家正看着决斗 GUI 时刷新（经 `DuelGUIListener.isViewingDuelGUI` 复用点击分区同源标题判定），ESC 后每题不再强制弹回界面
+- **[P1 修复流 2/6 / R-24]** 赛前警告：`duel.started` 文案追加"决斗中所有聊天都算作答案"警告句；对决 GUI 中央单词物品 lore 加同警告一行（新键 `duel.chat-counts-warning`，zh/en 双语）
+- **[P1 修复流 2/6 / R-25]** 超时/锁题后迟到答案不再静默吞：`submitAnswer` 的 `ALREADY_ANSWERED` 分支向答题者本人回新键 `duel.round-ended`（"本题已结束"）提示，不广播
+- **[P1 修复流 2/6 / R-26]** 宽限计时器"对局已无"分支补 `task.cancel()`：从 `graceTasks` 取出任务后取消，不再留下每秒空转的泄漏任务
+- **[P1 修复流 2/6 / R-27]** `sendDuelRequest` 加答题忙态对称检查：发送者 quiz/练习中回新键 `duel.sender-answering`，目标答题中复用既有 `duel.target-answering`，与 `acceptDuel` 的 M4 门禁对称，挑战发出去前即拦截
+- **[P1 修复流 6/6 / R-40]** `/le challenge` 庆祝页顶屏三守卫：决斗中（复用 `duel.finish-duel-first`）/答题中（quiz+错题练习，新键 `daily-challenge.celebrate-busy`）只刷聊天不弹页；同一玩家同一自然日只自动弹一次，重复执行聊天末尾追新键 `daily-challenge.celebrate-shown-today`
+- **[P1 修复流 6/6 / R-55d]** `MainMenuListener.handleMainMenu` 槽位写死改读 `gui-layout.main-menu` 配置（`getGuiSlot` + 与渲染侧同 fallback 值，switch 改 if-else 链），slot 14 错题本两边写死沿用魔法数字（config.yml 不新增 key）
+- **[P1 修复流 6/6 / E-04]** `DatabaseManager.getConnection()` 整体收进 `connectionLock` 内（原锁外快路径删除，锁自愈重连保留）；`getLast7DaysStats` 首锁块开头/次锁块开头各锁内重取引用；外部 23 处锁外 `getConnection()` 留编排者 fan-in
+- **[P1 修复流 6/6 / E-05]** `DatabaseManager.initialize()` 重连先关旧连接（判 null + `isClosed`，异常吞掉记 WARNING），`getConnection` 自愈路径重入不再泄漏旧句柄
+- **[P1 修复流 6/6 / R-42]** `%lle_rank%` 冻结根治（选型 a）：`WordManagerImpl.endSession` 结算时调 `Leaderboard.updateScore(playerId, +session分)` 增量同步内存榜，`getPlayerRank` 即时反映本次结算（`updateScore` 语义为 merge-累加，调用点传增量而非全量）；`loadFromDB` 仍为启动快照
+- **[P1 修复流 6/6 / R-42 附带 E-10]** `Leaderboard.loadFromDB` 的 `getRankedPlayers(Integer.MAX_VALUE)` 改为 `RANK_SNAPSHOT_LIMIT = 1000`（下游 `getPlayerStats` N+1 逐人补读也被截断在千行内；读时查库的大改留 Phase 3）
+- **[P1 修复流 6/6 / R-55o]** `DailyChallengeManager.ChallengeType.COMBO_5` target 1→5（"达到 5 连击"语义对；触发路径 `completeChallenge` 二进制完成不受影响，该值仅用于聊天/GUI 显示的分母）
+- **[P1 修复流 6/6 / R-55l]** 默认语言 fallback 打架统一为 zh：`ConfigManager` 启动语言与 `MessageUtil` 三处 `general.language` 缺 key 回落由 `en` 改 `zh`（与 yml 默认 + `getPlayerLanguage` 的 zh 回落对齐）；`getSenderMessage` 控制台路径 `en` 不动（T0-04 同根一并收）
+- **[P1 修复流 6/6 / R-55k]** 注释对齐：`config.yml` 的 `progress-system.leaderboard` 注释说明 `display-count` 生效口径（缺 key 回落见代码注释，缺 key 告警以启动审计为准）；代码 `EnglishSquareGUI` fallback 50→10 的一行改动点名编排者 fan-in（文件禁区）
+- **[P1 修复流 6/6]** i18n 新增 2 键（zh/en 双语同位）：`daily-challenge.celebrate-busy`、`daily-challenge.celebrate-shown-today`
 
 ### Added
 - **[Phase 2 复活流 B / FEAT-MODE-01]** 新增 `core.word.AnswerChecker`：三模式判分/选项生成/挖空渲染的唯一收敛点（`check`/`buildChoiceOptions`/`blankSentence`/`formatChoiceOptions`），review/决斗/错题练习行为不变

@@ -53,20 +53,60 @@ public final class AnswerChecker {
         String input = answer.trim();
         if (isChoice(mode)) {
             if (choiceOptions != null && !choiceOptions.isEmpty()) {
+                // R-56：先判"输入=正确单词全文"。单字母单词（如 "a"/"I"）的文本会与
+                // 选项字母标签（A/B/...）相撞，必须让全词精确匹配先命中为对，否则
+                // 玩家敲 "a" 会被当成"选 A"而误判；也顺带保留新手直接输全词的友好路径。
+                if (currentWord.getEnglish().equalsIgnoreCase(input)) {
+                    return true;
+                }
                 int picked = letterToIndex(input);
                 if (picked >= 0 && picked < choiceOptions.size()) {
                     Word option = choiceOptions.get(picked);
                     return option != null
                             && option.getEnglish().equalsIgnoreCase(currentWord.getEnglish());
                 }
-                // 非法字母回落：允许直接输入正确单词全文
-                return currentWord.getEnglish().equalsIgnoreCase(input);
+                // 越界选项字母 / 非字母且非正确全词：一律判为不正确。
+                // 其中"越界选项字母"的无效输入语义由 isInvalidChoiceInput 在调用方前置
+                // 拦截（提示重答、不判错），不会走到这里；此处 false 仅兜底，不吞合法答案。
+                return false;
             }
             // 无选项快照时回落拼写判定（防 NPE，不静默判错）
             return currentWord.getEnglish().equalsIgnoreCase(input);
         }
         // spelling / fill_blank / review / 未知：全词拼写判定
         return currentWord.getEnglish().equalsIgnoreCase(input);
+    }
+
+    /**
+     * R-10：判断是否为 choice 模式下的"无效选项输入"——玩家敲了一个落在当前
+     * 可用选项范围之外的选项字母（例如小词库只有 A/B 两项却输入 C/D）。
+     *
+     * <p>这类输入既不是正确答案也不是一次有意义的"选错"，调用方应据此给出
+     * "无效选项"提示并让玩家在剩余倒计时内重答，而不是当答错去清连击 / 扣分 /
+     * 记错题本。判定顺序与 {@link #check} 一致：先排除"输入=正确单词全文"（那是对，
+     * 不是无效），再看选项字母下标是否越界。非选项字母的乱敲（如多字符的错词）
+     * 仍按答错处理，不算无效。
+     *
+     * @param mode          当前会话 mode
+     * @param currentWord   当前题目单词（可为 null）
+     * @param answer        玩家输入
+     * @param choiceOptions 本题选项快照
+     * @return true = 越界选项字母（无效输入，应提示重答而非判错）
+     */
+    public static boolean isInvalidChoiceInput(String mode, Word currentWord, String answer,
+                                               List<Word> choiceOptions) {
+        if (!isChoice(mode) || choiceOptions == null || choiceOptions.isEmpty() || answer == null) {
+            return false;
+        }
+        String input = answer.trim();
+        // 输入恰为正确单词全文 → 是对的答案，绝不算无效
+        if (currentWord != null && currentWord.getEnglish().equalsIgnoreCase(input)) {
+            return false;
+        }
+        int picked = letterToIndex(input);
+        // picked 为 A~D 的下标（非字母返回 -1）；越过当前可用选项数 → 该字母没有
+        // 对应选项 → 无效。picked<0（非选项字母）不算无效，交给 check 按答错处理。
+        return picked >= 0 && picked >= choiceOptions.size();
     }
 
     /**

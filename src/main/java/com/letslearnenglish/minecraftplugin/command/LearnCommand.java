@@ -21,6 +21,9 @@ import org.bukkit.entity.Player;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Learn Command - Main player command for English learning.
@@ -47,6 +50,12 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
 
     /** FEAT-MODE-01：choice 是新手默认模式（与 GUI 入口、getMode 回落一致）。 */
     private static final String DEFAULT_WORD_MODE = "choice";
+
+    /**
+     * R-40：庆祝页"今日已展示"去重（内存态，按自然日键）。
+     * 同一玩家同一天只自动弹一次；跨天键不同自动失效，无需定时清理。
+     */
+    private final Map<UUID, java.time.LocalDate> celebrationShownDates = new ConcurrentHashMap<>();
 
     public LearnCommand(LetsLearnEnglish plugin) {
         this.plugin = plugin;
@@ -210,6 +219,12 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 String reviewLabel = plugin.getMessageUtil().getPlayerMessage(player, "word.mode-review");
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "word.session-start", "difficulty", reviewLabel, "mode", reviewLabel));
+            } else {
+                // R-12：有复习通知却开不出局 —— 词库被删词后，到期词在词库里已不存在，
+                // startReviewQuiz 返回 null。原先静默无事（玩家被"你有 N 个待复习"晃一下
+                // 却点不动），改为明确告知"部分复习词已失效"，不再无解释地吞掉。
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "review.unavailable"));
             }
         } else {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
@@ -291,9 +306,17 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         } else if (allDone) {
             // Completed but payout pending (e.g. Vault missing) — tell the
             // player the coins are parked and how to retry; no celebration.
-            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "daily-challenge.reward-pending",
-                    "reward", String.valueOf((int) getWordChallengeReward())));
+            // R-44: money.enabled=false is NOT a "pending retry" case — the
+            // coins will never arrive, so hint "economy disabled" instead of
+            // promising an auto re-issue that can never happen.
+            if (!isEconomyAvailable()) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "daily-challenge.economy-disabled"));
+            } else {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "daily-challenge.reward-pending",
+                        "reward", String.valueOf((int) getWordChallengeReward())));
+            }
         }
 
         // FIX-CHAL-01: cross-visibility (read-only) — show behavioral challenge
@@ -323,7 +346,30 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         // the opt-in entry point for the celebration page.
         // R-07: same dual condition as the chat message above — pending
         // payouts must not open the "reward received" page.
+        // R-40: (1) in-duel/in-quiz 守卫 —— 决斗/答题中执行只刷聊天不弹页，
+        // 弹页会盖掉决斗 GUI / 打断聊天答题输入流；(2) "今日已展示"去重 ——
+        // 同一玩家同一自然日只自动弹一次，重复执行只刷聊天。
         if (allDone && paid) {
+            var duelManager = plugin.getDuelManager();
+            var wordManager = plugin.getWordLearningManager();
+            boolean inDuel = duelManager != null && duelManager.isInDuel(player.getUniqueId());
+            boolean inQuiz = wordManager != null
+                    && (wordManager.hasActiveQuiz(player.getUniqueId())
+                            || wordManager.isPracticingWord(player.getUniqueId()));
+            if (inDuel || inQuiz) {
+                // 忙态只给提示，不弹页（聊天进度上面已刷）。
+                // inDuel 复用既有精确键，inQuiz 无现成"庆祝忙"键则用新键。
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        inDuel ? "duel.finish-duel-first" : "daily-challenge.celebrate-busy"));
+                return;
+            }
+            java.time.LocalDate today = java.time.LocalDate.now();
+            if (today.equals(celebrationShownDates.get(player.getUniqueId()))) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "daily-challenge.celebrate-shown-today"));
+                return;
+            }
+            celebrationShownDates.put(player.getUniqueId(), today);
             new com.letslearnenglish.minecraftplugin.gui.ChallengeCompleteGUI(plugin)
                     .open(player, getWordChallengeReward());
         }
@@ -357,6 +403,19 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 .getDouble("daily-challenges.word-challenge-reward", 100.0);
     }
 
+    /**
+     * R-44: 经济是否真能发币（Vault 在线 且 money.enabled=true）。
+     * 只读检查，不发币。/le challenge 的"到账待定"分支用它区分
+     * "暂时没到、稍后补发"和"经济都没开、永远到不了"两种语义。
+     */
+    private boolean isEconomyAvailable() {
+        if (plugin.getEconomy() == null) {
+            return false;
+        }
+        return plugin.getConfigManager().getMainConfig()
+                .getBoolean("progress-system.rewards.types.money.enabled", false);
+    }
+
     private void handleHistoryCommand(Player player) {
         new ChatHistoryGUI(plugin).open(player);
     }
@@ -382,6 +441,9 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             duelManager.quitDuel(player);
         } else if ("accept".equals(sub)) {
             duelManager.acceptDuel(player);
+        } else if ("gui".equals(sub)) {
+            // R-23: ESC 后重开当前对局界面（决斗中可用，非对决中回 not-in-duel）。
+            duelManager.reopenDuelGUI(player);
         } else if ("cancel".equals(sub)) {
             // FIX-DUEL-01: GM dismissal entry on the /le side.
             // Real execution lives in /lea duel cancel (AdminCommand);
@@ -437,6 +499,12 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                     "checkin.success",
                     "streak", String.valueOf(result.streak()),
                     "coins", coinsStr));
+            // R-44：0 金币不是"成功发了 0 块"，是经济开关没开 —— 补一行说明，
+            // 免得玩家以为签到奖励吞了。只在 money.enabled=false 时出现。
+            if (result.economyDisabled()) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "checkin.economy-disabled"));
+            }
         } else {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "checkin.already"));
@@ -583,7 +651,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         List<String> completions = new ArrayList<>();
 
         // 二级补全：与 SUBCOMMANDS 中有参数的子命令一一对应
-        // word [难度] [模式] / dialogue [场景] / duel <玩家名|accept|quit>
+        // word [难度] [模式] / dialogue [场景] / duel <玩家名|accept|quit|gui>
         // profile [玩家名] / save_scenario、load_scenario 为自由文本，无候选
         if (args.length >= 2 && "word".equalsIgnoreCase(args[0])) {
             if (args.length == 2) {
@@ -611,8 +679,8 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             }
         } else if (args.length == 2 && "duel".equalsIgnoreCase(args[0])) {
             String input = args[1].toLowerCase();
-            // 子命令：accept / quit（cancel 仅 GM 可见，由 /lea duel cancel 实际执行）
-            for (String sub : Arrays.asList("accept", "quit")) {
+            // 子命令：accept / quit / gui（R-23 重开界面；cancel 仅 GM 可见，由 /lea duel cancel 实际执行）
+            for (String sub : Arrays.asList("accept", "quit", "gui")) {
                 if (sub.startsWith(input)) {
                     completions.add(sub);
                 }

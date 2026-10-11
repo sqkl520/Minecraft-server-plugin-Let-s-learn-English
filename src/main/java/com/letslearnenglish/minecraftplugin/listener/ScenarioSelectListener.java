@@ -10,7 +10,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -53,65 +52,105 @@ public class ScenarioSelectListener implements Listener {
             new MainMenu(plugin).open(player);
             return;
         }
-        // R-04：与 GUI 渲染同序 —— 按玩家版场景列表（全局 + 该玩家个人场景）。
-        List<String> scenarios = plugin.getAIChatManager().getAvailableScenarios(player);
-        int index = slot - 10;
-        if (index >= 0 && index < scenarios.size()) {
-            if (!plugin.getAIChatManager().isAvailable()) {
-                player.closeInventory();
-                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                        "dialogue.ai-not-configured"));
-                return;
-            }
-            SoundManager.playSound(player, "menu-click");
-            String scenario = scenarios.get(index);
-            String difficulty = plugin.getAIChatManager().getPlayerDifficulty(player);
-            AIChatManager.DifficultyConfig dc = plugin.getAIChatManager().getDifficulties().get(difficulty);
-
-            plugin.getChatScenarioListener().addPlayer(player);
-            plugin.getAIChatManager().startConversation(player, scenario);
-            player.closeInventory();
-
-            String lang = plugin.getPlayerLanguage(player);
-            boolean zh = "zh".equalsIgnoreCase(lang);
-            String diffName = (dc != null) ? dc.getDisplayName(zh) : difficulty;
-            String scenarioName = formatScenarioName(player, scenario);
-            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "dialogue.started-with-difficulty",
-                    "scenario", scenarioName,
-                    "difficulty", diffName));
-            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "dialogue.chat-hint"));
-            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "dialogue.exit-hint"));
-
-            // Let AI start the conversation with an opening line
-            plugin.getAIChatManager().triggerAiOpening(player, (aiResponse, errorMsg) -> {
-                if (aiResponse != null) {
-                    String aiLabel = plugin.getMessageUtil().getPlayerMessage(player, "dialogue.ai-label");
-                    player.sendMessage(aiLabel + aiResponse);
-                }
-            });
-        } else if (slot == 26) {
+        if (slot == ScenarioSelectGUI.RELOAD_API_SLOT) {
             handleReloadAPI(player);
-        } else if (slot >= 18 && slot <= 20) {
-            handleDifficultySelect(player, slot);
+            return;
         }
+        // 难度槽（DIFFICULTY_SLOT_START .. +COUNT-1）
+        if (slot >= ScenarioSelectGUI.DIFFICULTY_SLOT_START
+                && slot < ScenarioSelectGUI.DIFFICULTY_SLOT_START + ScenarioSelectGUI.DIFFICULTY_SLOT_COUNT) {
+            handleDifficultySelect(player, slot);
+            return;
+        }
+        // 场景槽（SCENARIO_SLOT_START .. +COUNT-1）
+        if (slot >= ScenarioSelectGUI.SCENARIO_SLOT_START
+                && slot < ScenarioSelectGUI.SCENARIO_SLOT_START + ScenarioSelectGUI.SCENARIO_SLOT_COUNT) {
+            handleScenarioClick(player, slot);
+        }
+    }
+
+    /**
+     * R-49 fan-in：场景按钮点击 —— 与 GUI 完全同序（共享 {@code AIChatManager.getSortedScenarioKeys}），
+     * 并与 GUI 同样截断：超 SCENARIO_SLOT_COUNT 时尾槽是"更多…"提示 → no-op（R-49/R-53），
+     * 绝不按下标反算打开被隐藏的场景。
+     */
+    private void handleScenarioClick(Player player, int slot) {
+        List<String> sortedKeys = plugin.getAIChatManager().getSortedScenarioKeys(player);
+        boolean hasMore = sortedKeys.size() > ScenarioSelectGUI.SCENARIO_SLOT_COUNT;
+        int moreSlot = ScenarioSelectGUI.SCENARIO_SLOT_START
+                + ScenarioSelectGUI.SCENARIO_SLOT_COUNT - 1;
+        if (hasMore && slot == moreSlot) {
+            SoundManager.playSound(player, "menu-click");
+            return;
+        }
+        int shownCount = hasMore
+                ? ScenarioSelectGUI.SCENARIO_SLOT_COUNT - 1
+                : sortedKeys.size();
+        int index = slot - ScenarioSelectGUI.SCENARIO_SLOT_START;
+        if (index < 0 || index >= shownCount) return;
+
+        if (!plugin.getAIChatManager().isAvailable()) {
+            player.closeInventory();
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "dialogue.ai-not-configured"));
+            return;
+        }
+        SoundManager.playSound(player, "menu-click");
+        String scenario = sortedKeys.get(index);
+        String difficulty = plugin.getAIChatManager().getPlayerDifficulty(player);
+        AIChatManager.DifficultyConfig dc = plugin.getAIChatManager().getDifficulties().get(difficulty);
+
+        plugin.getChatScenarioListener().addPlayer(player);
+        plugin.getAIChatManager().startConversation(player, scenario);
+        player.closeInventory();
+
+        String lang = plugin.getPlayerLanguage(player);
+        boolean zh = "zh".equalsIgnoreCase(lang);
+        String diffName = (dc != null) ? dc.getDisplayName(zh) : difficulty;
+        String scenarioName = formatScenarioName(player, scenario);
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                "dialogue.started-with-difficulty",
+                "scenario", scenarioName,
+                "difficulty", diffName));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                "dialogue.chat-hint"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                "dialogue.exit-hint"));
+
+        // Let AI start the conversation with an opening line
+        plugin.getAIChatManager().triggerAiOpening(player, (aiResponse, errorMsg) -> {
+            if (aiResponse != null) {
+                String aiLabel = plugin.getMessageUtil().getPlayerMessage(player, "dialogue.ai-label");
+                player.sendMessage(aiLabel + aiResponse);
+            }
+        });
     }
 
     private void handleDifficultySelect(Player player, int slot) {
-        int index = slot - 18;
-        List<String> diffKeys = new ArrayList<>(plugin.getAIChatManager().getDifficulties().keySet());
-        if (index >= 0 && index < diffKeys.size()) {
-            String diffKey = diffKeys.get(index);
-            plugin.getAIChatManager().setPlayerDifficulty(player, diffKey);
+        // R-49 fan-in：与 GUI 同序（共享 AIChatManager.getSortedDifficultyKeys），并同样截断：
+        // 超 DIFFICULTY_SLOT_COUNT 时尾槽是"更多…"提示 → no-op，不反算切到隐藏难度。
+        List<String> diffKeys = plugin.getAIChatManager().getSortedDifficultyKeys();
+        boolean hasMore = diffKeys.size() > ScenarioSelectGUI.DIFFICULTY_SLOT_COUNT;
+        int moreSlot = ScenarioSelectGUI.DIFFICULTY_SLOT_START
+                + ScenarioSelectGUI.DIFFICULTY_SLOT_COUNT - 1;
+        if (hasMore && slot == moreSlot) {
             SoundManager.playSound(player, "menu-click");
-            new ScenarioSelectGUI(plugin).open(player);
+            return;
         }
+        int shownCount = hasMore
+                ? ScenarioSelectGUI.DIFFICULTY_SLOT_COUNT - 1
+                : diffKeys.size();
+        int index = slot - ScenarioSelectGUI.DIFFICULTY_SLOT_START;
+        if (index < 0 || index >= shownCount) return;
+        String diffKey = diffKeys.get(index);
+        plugin.getAIChatManager().setPlayerDifficulty(player, diffKey);
+        SoundManager.playSound(player, "menu-click");
+        new ScenarioSelectGUI(plugin).open(player);
     }
 
     private void handleReloadAPI(Player player) {
-        if (!player.hasPermission("letslearnenglish.admin")) return;
+        // R-55m：权限与 /le load_scenario 对齐（原 letslearnenglish.admin）
+        if (!player.hasPermission("letslearnenglish.scenario.import")) return;
         SoundManager.playSound(player, "menu-click");
         plugin.getAIChatManager().reload();
         player.closeInventory();

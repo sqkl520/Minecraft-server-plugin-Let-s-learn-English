@@ -30,7 +30,9 @@ public class DailyChallengeManager {
     public enum ChallengeType {
         ANSWER_10("answer_10", "daily.p1", 10, 30.0),
         SESSION_3("session_3", "daily.p2", 3, 50.0),
-        COMBO_5("combo_5", "daily.p3", 1, 25.0),
+        // R-55o：target 1→5（"达到 5 连击"语义对）。该值仅用于聊天/GUI 显示的分母；
+        // 触发路径走 completeChallenge 二进制完成（见 WordLearningManager: consecutiveCorrect>=5），不受此值影响。
+        COMBO_5("combo_5", "daily.p3", 5, 25.0),
         AI_CHAT_5("ai_chat_5", "daily.p4", 5, 40.0);
 
         public final String id;
@@ -216,11 +218,18 @@ public class DailyChallengeManager {
      * Get today's challenges for a player.
      */
     public List<ChallengeProgress> getTodayChallenges(UUID playerId) {
+        // R-21：读取前先把"存量不可用挑战"降级（自动放弃），避免 Key 中途失效后
+        // 已分配的 AI_CHAT_5 永久卡死、拖死当天整组挑战。只在不可用时才动，幂等。
+        degradeStaleChallenges(playerId);
+
         List<ChallengeProgress> list = new ArrayList<>();
         String today = LocalDate.now().toString();
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
+        // R-33：追加 ORDER BY challenge_id——展示（DailyChallengeGUI 槽位 11/13/15）与领取
+        // （MiscGUIListener 按本方法返回列表的下标映射）两侧都走此查询，排序固定后下标与展示
+        // 恒一致，不再因 SQLite 返回顺序不定而领到错项（与 F2R-03 同根）。
         String sql = "SELECT challenge_id, progress, completed, claimed FROM " + tablePrefix
-                + "daily_challenges WHERE uuid = ? AND challenge_date = ?";
+                + "daily_challenges WHERE uuid = ? AND challenge_date = ? ORDER BY challenge_id";
 
         Connection conn = plugin.getDatabaseManager().getConnection();
         synchronized (plugin.getDatabaseManager().getConnectionLock()) {
@@ -244,6 +253,49 @@ public class DailyChallengeManager {
     }
 
     /**
+     * R-21：存量不可用挑战降级（自动放弃）。
+     *
+     * <p>Key 中途失效（AI 不可用）时，已分配但未完成/未领取的 AI_CHAT_5 会永久卡死：
+     * 既无法完成（打不了 AI）也不会被重新分配（分配过滤只管新增量，不管存量）。此处把
+     * 这类"卡死"挑战直接标记为已完成+已领取（reward 记 0，即自动放弃、不发任何奖励），
+     * 使其不再阻塞 {@link #allDoneToday}，玩家当天挑战不被一个打不了的任务拖死。
+     *
+     * <p>只对"当前不可用且既未完成也未领取"的行生效（{@code completed=0 AND claimed=0}）：
+     * 若玩家在 Key 失效前已完成该 AI 挑战（completed=1、claimed=0），保留其应得奖励不动。
+     * AI 恢复后不再降级（今日已降级的次日随跨天重抽恢复）。仅新增这一条降级支路，
+     * 不触碰 claim/分配(checkAndAssign)/跨天/庆祝主流程。
+     *
+     * @param playerId the player
+     */
+    private void degradeStaleChallenges(UUID playerId) {
+        if (isChallengeAvailable(ChallengeType.AI_CHAT_5)) {
+            return; // AI 可用，无需降级
+        }
+        String today = LocalDate.now().toString();
+        String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
+        String sql = "UPDATE " + tablePrefix
+                + "daily_challenges SET completed = 1, claimed = 1 "
+                + "WHERE uuid = ? AND challenge_date = ? AND challenge_id = ? "
+                + "AND completed = 0 AND claimed = 0";
+        Connection conn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, playerId.toString());
+            stmt.setString(2, today);
+            stmt.setString(3, ChallengeType.AI_CHAT_5.id);
+            int rows = stmt.executeUpdate();
+            if (rows > 0) {
+                plugin.getLogger().info("Degraded stale AI_CHAT_5 challenge for " + playerId
+                        + " (AI unavailable) — auto-abandoned, no reward granted.");
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to degrade stale challenges for " + playerId, e);
+        }
+        }
+    }
+
+    /**
      * Check if all today's challenges are completed and claimed.
      */
     public boolean allDoneToday(UUID playerId) {
@@ -259,31 +311,20 @@ public class DailyChallengeManager {
         String today = LocalDate.now().toString();
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
 
-        String selectSql = "SELECT progress, completed, claimed FROM " + tablePrefix
-                + "daily_challenges WHERE uuid = ? AND challenge_date = ? AND challenge_id = ?";
-        int currentProgress = 0;
-        boolean alreadyCompleted = false;
-        boolean alreadyClaimed = false;
-
-        Connection conn = plugin.getDatabaseManager().getConnection();
-        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
-        try (PreparedStatement stmt = conn.prepareStatement(selectSql)) {
-            stmt.setString(1, playerId.toString());
-            stmt.setString(2, today);
-            stmt.setString(3, type.id);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    currentProgress = rs.getInt("progress");
-                    alreadyCompleted = rs.getBoolean("completed");
-                    alreadyClaimed = rs.getBoolean("claimed");
-                } else {
-                    return;
-                }
+        int[] state = loadChallengeState(playerId, type, today);
+        if (state == null) {
+            // R-32：查无行不再静默丢弃。先 ensure 今日挑战已分配（checkAndAssign 幂等：
+            // 已有则只补单词挑战、无则抽 3 条），再重查一次。仍无行说明该类型今日确实
+            // 没被抽中（4 选 3，属正常），此时才返回；否则推进刚补上的进度，不再丢失。
+            checkAndAssign(playerId);
+            state = loadChallengeState(playerId, type, today);
+            if (state == null) {
+                return;
             }
-        } catch (SQLException e) {
-            return;
         }
-        }
+        int currentProgress = state[0];
+        boolean alreadyCompleted = state[1] == 1;
+        boolean alreadyClaimed = state[2] == 1;
 
         if (alreadyClaimed) return;
 
@@ -304,6 +345,38 @@ public class DailyChallengeManager {
             stmt.executeUpdate();
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to update daily challenge progress", e);
+        }
+        }
+    }
+
+    /**
+     * R-32：读取某挑战当日行的 {progress, completed(0/1), claimed(0/1)}；无行返回 null。
+     * 抽出成独立方法，供 {@link #updateProgress} 在"查无行→ensure 分配→重查一次"中复用。
+     */
+    private int[] loadChallengeState(UUID playerId, ChallengeType type, String today) {
+        String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
+        String selectSql = "SELECT progress, completed, claimed FROM " + tablePrefix
+                + "daily_challenges WHERE uuid = ? AND challenge_date = ? AND challenge_id = ?";
+        Connection conn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
+        try (PreparedStatement stmt = conn.prepareStatement(selectSql)) {
+            stmt.setString(1, playerId.toString());
+            stmt.setString(2, today);
+            stmt.setString(3, type.id);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return new int[]{
+                            rs.getInt("progress"),
+                            rs.getBoolean("completed") ? 1 : 0,
+                            rs.getBoolean("claimed") ? 1 : 0
+                    };
+                }
+                return null;
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to load daily challenge state for " + playerId, e);
+            return null;
         }
         }
     }
@@ -510,20 +583,35 @@ public class DailyChallengeManager {
 
     /**
      * Called when all word challenges for today are completed.
-     * Opens the celebration GUI and gives reward.
+     * Deposits the flat reward and sends the celebration chat.
      *
-     * <p>M12: deposit-then-mark. The claimed flag is only set AFTER the Vault
-     * transfer succeeds. If the deposit fails, the celebration message/GUI are
-     * withheld, the player gets a retry hint, and the next {@link #onWordCorrect}
-     * invocation (any correct answer) will retry the payout — so the reward is
-     * never lost as long as the player keeps studying.
+     * <p>M12: deposit-then-mark. The claimed flag ({@link #wordChallengeClaimedToday})
+     * is set only AFTER the Vault transfer succeeds. If the deposit fails, the
+     * celebration is withheld, the player gets a retry hint, and the next
+     * {@link #onWordCorrect} invocation (any correct answer) retries — so the
+     * reward is never lost as long as the player keeps studying.
+     *
+     * <p>R-31 reuse: {@link #hasPendingWordRewardForDate} also calls this at the
+     * midnight rollover to back-pay a prior-day pending reward (flat amount, same
+     * mark), so a deposit that failed before midnight is honored instead of lost.
      */
     private void onAllWordChallengesComplete(Player player) {
         UUID playerId = player.getUniqueId();
         double reward = getWordChallengeReward();
 
         if (!depositWordChallengeReward(player, playerId, reward)) {
-            // Deposit failed — do NOT mark claimed. Tell the player how to retry.
+            // R-44 对齐（与 LearnCommand /le challenge 同语义）：区分两种发币失败。
+            boolean moneyEnabled = plugin.getConfigManager().getMainConfig()
+                    .getBoolean("progress-system.rewards.types.money.enabled", false);
+            if (!moneyEnabled) {
+                // 经济开关永久关闭 = 无奖可发（终态）。标记已处理避免 hasPendingWordReward
+                // 恒 true 导致每答对一题重入刷屏；发一次 economy-disabled 说明，不承诺"稍后补发"。
+                wordChallengeClaimedToday.add(playerId);
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "daily-challenge.economy-disabled"));
+                return;
+            }
+            // Vault 瞬时失败 / 超 cap：保留 pending 可重试语义，不标记已领。
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "daily-challenge.reward-pending", "reward", String.valueOf((int) reward)));
             return;
@@ -547,13 +635,17 @@ public class DailyChallengeManager {
     }
 
     /**
-     * Deposit the word-challenge reward via Vault.
+     * Deposit the word-challenge reward.
+     *
+     * <p>R-34/F1-23: routes through {@link com.letslearnenglish.minecraftplugin.core.progress.RewardEngine#depositCappedReward}
+     * so the payout obeys {@code money.daily-cap} and updates the today-coins ledger,
+     * and so coin stats are recorded inside the reward layer — this manager no longer
+     * calls {@code DatabaseManager.recordCoinsEarned} directly (layering fix).
      *
      * @param player the player
-     * @param playerId the player UUID (for stats bookkeeping)
+     * @param playerId the player UUID (kept for call-site symmetry)
      * @param reward the reward amount
-     * @return true only if money actually arrived (Vault present + transaction success);
-     *         stats are recorded only in that case
+     * @return true only if money actually arrived (Vault present, under cap, success)
      */
     private boolean depositWordChallengeReward(Player player, UUID playerId, double reward) {
         var eco = plugin.getEconomy();
@@ -562,14 +654,16 @@ public class DailyChallengeManager {
                     + " for " + player.getName() + " held: Vault economy unavailable");
             return false;
         }
-        var response = eco.depositPlayer(player, reward);
-        if (response.transactionSuccess()) {
-            plugin.getDatabaseManager().recordCoinsEarned(playerId, reward);
-            return true;
+        // R-44 fan-in：money.enabled=false 时不发币、返回 false（走既有 reward-pending /
+        // economy-disabled 语义，不标记已领、不静默吞）。depositCappedReward 本身不查此开关，
+        // 故在此门把关，与 LearnCommand 的 /le challenge economy-disabled 分支衔接。
+        boolean moneyEnabled = plugin.getConfigManager().getMainConfig()
+                .getBoolean("progress-system.rewards.types.money.enabled", false);
+        if (!moneyEnabled) {
+            return false;
         }
-        plugin.getLogger().warning("Word challenge reward deposit failed for "
-                + player.getName() + ": " + response.errorMessage);
-        return false;
+        double paid = plugin.getProgressManager().getRewardEngine().depositCappedReward(player, reward);
+        return paid > 0;
     }
 
     /**
@@ -631,7 +725,8 @@ public class DailyChallengeManager {
 
     /**
      * M8：午夜跨天时清空全服的单词挑战已领标记。
-     * 由 LetsLearnEnglish 的跨天定时任务调用。
+     * 由 LetsLearnEnglish 的跨天定时任务调用（在 per-player 的
+     * {@link #hasPendingWordRewardForDate} 补发之后执行，故补发用的是本次清空前的标记）。
      */
     public void clearAllWordChallengeClaims() {
         wordChallengeClaimedToday.clear();
@@ -663,13 +758,36 @@ public class DailyChallengeManager {
     }
 
     /**
-     * M8 跨天：指定日期的单词挑战是否"已全完成但奖励未到账"（作废提示用）。
-     * 注意：必须在 clearAllWordChallengeClaims() 之前调用。
+     * M8 跨天：指定日期的单词挑战是否"已全完成但奖励未到账"。
+     *
+     * <p>R-31 跨天补发：此前该日 pending 的奖励在午夜只被"作废提示"白白丢掉。现在若检测到
+     * "已完成但未付"，就地补发（{@link #onAllWordChallengesComplete} 发放 flat 奖励并标记已付），
+     * 补发成功即返回 false（不再算作废）。安全性关键：本方法<strong>只在午夜 rollover 的
+     * per-online-player 循环里被调用</strong>（见 LetsLearnEnglish.scheduleMidnightRollover），
+     * 此刻服务器自上个午夜起连续在线、{@code wordChallengeClaimedToday} 标记仍有效（尚未
+     * {@link #clearAllWordChallengeClaims} 全清），因此"已付昨日"会命中 contains 直接返回 false、
+     * 绝不会重复补发；重启跨午夜时该定时任务本就不触发，故也不会在重启后误补（无双发风险）。
+     * 补发走主线程（rollover 非异步），对在线玩家发币安全。
+     *
+     * @param playerId the player
+     * @param date the day to settle (rollover 传昨日)
+     * @return true 仅当该日仍"已完成但未补发成功"（真正作废，用于作废提示）
      */
     public boolean hasPendingWordRewardForDate(UUID playerId, String date) {
         if (wordChallengeClaimedToday.contains(playerId)) {
-            return false;
+            return false; // 已付，无 pending
         }
-        return plugin.getDatabaseManager().isDailyChallengeWordsCompleted(playerId, date);
+        if (!plugin.getDatabaseManager().isDailyChallengeWordsCompleted(playerId, date)) {
+            return false; // 未全完成，无 pending
+        }
+        // R-31：已完成但未付 —— 就地补发（rollover 循环中玩家在线）。
+        Player player = org.bukkit.Bukkit.getPlayer(playerId);
+        if (player != null && player.isOnline()) {
+            onAllWordChallengesComplete(player);
+            // 补发成功则 wordChallengeClaimedToday 已含该玩家 → 不再算作废。
+            return !wordChallengeClaimedToday.contains(playerId);
+        }
+        // 玩家不在线（rollover 循环理论上只遍历在线玩家，兜底）——无法发币，仍算作废。
+        return true;
     }
 }
