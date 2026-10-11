@@ -71,7 +71,7 @@ public class EnglishSquareGUI {
         PlayerDataStore store = plugin.getPlayerDataStore();
         this.currentMode = mode;
 
-        int displayCount = cm.getMainConfig().getInt("progress-system.leaderboard.display-count", 50);
+        int displayCount = cm.getMainConfig().getInt("progress-system.leaderboard.display-count", 10);
 
         List<LeaderboardEntry> rankedEntries;
         if (mode == RankingMode.ALL_PLAYERS) {
@@ -80,7 +80,7 @@ public class EnglishSquareGUI {
             List<UUID> allPlayers = store.getActivePlayerIds();
             currentPlayerIds = new ArrayList<>();
             for (UUID id : allPlayers) {
-                if (!store.getProfileSettings(id).isShowInSquare()) continue;
+                if (!store.getProfileSettingsReadOnly(id).isShowInSquare()) continue;
                 PlayerDataStore.PlayerStats s = store.getPlayerStats(id);
                 if (s.getTotalCorrect() + s.getTotalIncorrect() > 0) {
                     currentPlayerIds.add(id);

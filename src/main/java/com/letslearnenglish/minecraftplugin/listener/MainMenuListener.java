@@ -102,39 +102,39 @@ public class MainMenuListener implements Listener {
         return title.contains("Let's Learn English") || title.contains("一起学英语");
     }
 
+    /**
+     * R-55d：槽位不再写死，改读 {@code gui-layout.main-menu} 配置，
+     * 与渲染侧 {@link MainMenu} 的 getGuiSlot 调用逐项对齐（fallback 值相同）。
+     * R-47 fan-in：错题本也改读 {@code gui-layout.main-menu.wrong-book}（默认 14），
+     * 与渲染侧 MainMenu 的 getGuiSlot 对齐，不再两边写死（配置改槽位后点击不再错位）。
+     * 注意：switch 的 case 必须是编译期常量，配置值只能走 if-else 链。
+     */
     private void handleMainMenu(Player player, int slot) {
-        switch (slot) {
-            case 11 -> {
-                SoundManager.playSound(player, "menu-click");
-                new WordBankSelectGUI(plugin).open(player);
-            }
-            case 13 -> {
-                SoundManager.playSound(player, "menu-click");
-                player.performCommand("le dialogue");
-            }
-            case 15 -> {
-                SoundManager.playSound(player, "menu-click");
-                player.performCommand("le progress");
-            }
-            case 17 -> {
-                SoundManager.playSound(player, "menu-click");
-                player.performCommand("le square");
-            }
-            case 10 -> {
-                SoundManager.playSound(player, "menu-click");
-                plugin.getGuiNavigationManager().pushBack(player.getUniqueId(),
-                        () -> new MainMenu(plugin).open(player));
-                new DailyChallengeGUI(plugin).open(player);
-            }
-            case 14 -> {
-                SoundManager.playSound(player, "menu-click");
-                new WrongBookGUI(plugin).open(player, 1);
-            }
-            case 18 -> {
-                SoundManager.playSound(player, "menu-click");
-                handleLanguageSwitch(player);
-            }
-            default -> {}
+        var cm = plugin.getConfigManager();
+        if (slot == cm.getGuiSlot("main-menu", "word-learning", 11)) {
+            SoundManager.playSound(player, "menu-click");
+            new WordBankSelectGUI(plugin).open(player);
+        } else if (slot == cm.getGuiSlot("main-menu", "dialogue-practice", 13)) {
+            SoundManager.playSound(player, "menu-click");
+            player.performCommand("le dialogue");
+        } else if (slot == cm.getGuiSlot("main-menu", "personal-profile", 15)) {
+            SoundManager.playSound(player, "menu-click");
+            player.performCommand("le progress");
+        } else if (slot == cm.getGuiSlot("main-menu", "english-square", 17)) {
+            SoundManager.playSound(player, "menu-click");
+            player.performCommand("le square");
+        } else if (slot == cm.getGuiSlot("main-menu", "daily-challenge", 10)) {
+            SoundManager.playSound(player, "menu-click");
+            plugin.getGuiNavigationManager().pushBack(player.getUniqueId(),
+                    () -> new MainMenu(plugin).open(player));
+            new DailyChallengeGUI(plugin).open(player);
+        } else if (slot == cm.getGuiSlot("main-menu", "wrong-book", 14)) {
+            // R-47 fan-in：错题本槽位改读配置，与渲染侧 MainMenu 对齐
+            SoundManager.playSound(player, "menu-click");
+            new WrongBookGUI(plugin).open(player, 1);
+        } else if (slot == cm.getGuiSlot("main-menu", "language-toggle", 18)) {
+            SoundManager.playSound(player, "menu-click");
+            handleLanguageSwitch(player);
         }
     }
 

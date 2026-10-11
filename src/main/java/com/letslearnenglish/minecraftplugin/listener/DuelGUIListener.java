@@ -2,8 +2,7 @@ package com.letslearnenglish.minecraftplugin.listener;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.duel.DuelManager;
-import org.bukkit.ChatColor;
-import org.bukkit.configuration.file.FileConfiguration;
+import com.letslearnenglish.minecraftplugin.gui.DuelGUI;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -17,9 +16,6 @@ import org.bukkit.event.inventory.InventoryDragEvent;
  * All other slots are display-only and clicking does nothing.
  */
 public class DuelGUIListener implements Listener {
-
-    /** DuelGUI 打开界面时会把标题截断到这个长度（Minecraft 标题上限） */
-    private static final int MAX_TITLE_LENGTH = 32;
 
     /** 退出按钮槽位（与 DuelGUI 的 barrier 一致） */
     private static final int QUIT_SLOT = 22;
@@ -82,40 +78,11 @@ public class DuelGUIListener implements Listener {
     /**
      * 判定标题是否属于单词对决界面。
      *
+     * R-23: 委托到 DuelGUI.isDuelGUITitle（唯一真相源），语义不变：
      * 标题取自 duel.gui-title，中英文案不同（中文「单词对决」/ 英文「Word Duel」），
-     * 因此同时接受玩家当前语言与中英两种配置标题；配置读不到时回退到关键词匹配
-     * （与 GUIUtils 的白名单保持一致）。
+     * 因此同时接受玩家当前语言与中英两种配置标题；配置读不到时回退到关键词匹配。
      */
     private boolean isDuelGUI(Player player, String title) {
-        if (title == null) return false;
-
-        if (matchesTitle(title, getConfiguredTitle(plugin.getPlayerLanguage(player)))) return true;
-        if (matchesTitle(title, getConfiguredTitle("zh"))
-                || matchesTitle(title, getConfiguredTitle("en"))) {
-            return true;
-        }
-
-        return title.contains("Word Duel") || title.contains("单词对决");
-    }
-
-    /**
-     * 读取配置中的对决标题并转换颜色码；未配置时返回 null。
-     */
-    private String getConfiguredTitle(String lang) {
-        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
-        String raw = messages == null ? null : messages.getString("duel.gui-title");
-        if (raw == null || raw.isEmpty()) return null;
-        return ChatColor.translateAlternateColorCodes('&', raw);
-    }
-
-    /**
-     * DuelGUI 打开界面时会把标题截断到 32 字符，因此比对前做同样的截断，
-     * 否则长标题会被误判为非对决界面。
-     */
-    private boolean matchesTitle(String title, String expected) {
-        if (expected == null) return false;
-        String prefix = expected.length() > MAX_TITLE_LENGTH
-                ? expected.substring(0, MAX_TITLE_LENGTH) : expected;
-        return title.startsWith(prefix);
+        return DuelGUI.isDuelGUITitle(plugin, player, title);
     }
 }

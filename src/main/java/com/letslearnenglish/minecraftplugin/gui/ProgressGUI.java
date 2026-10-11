@@ -2,6 +2,7 @@ package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.progress.PlayerProgress;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -29,40 +30,40 @@ public class ProgressGUI {
                 .getPlayerProgress(player.getUniqueId());
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("progress-gui.title"));
+                MessageUtil.getGuiMsg(messages, "progress-gui.title"));
 
         Inventory inv = Bukkit.createInventory(null, 27, title);
 
         inv.setItem(4, createInfoItem(Material.PLAYER_HEAD, player.getName(),
-                messages.getString("progress-gui.player-summary")));
+                MessageUtil.getGuiMsg(messages, "progress-gui.player-summary")));
 
         inv.setItem(11, createStatItem(Material.BOOK,
-                messages.getString("progress-gui.words-learned"),
+                MessageUtil.getGuiMsg(messages, "progress-gui.words-learned"),
                 String.valueOf(progress.getTotalWordsLearned())));
 
         inv.setItem(12, createStatItem(Material.PAPER,
-                messages.getString("progress-gui.sessions"),
+                MessageUtil.getGuiMsg(messages, "progress-gui.sessions"),
                 String.valueOf(progress.getTotalSessions())));
 
         inv.setItem(13, createStatItem(Material.EXPERIENCE_BOTTLE,
-                messages.getString("progress-gui.total-score"),
+                MessageUtil.getGuiMsg(messages, "progress-gui.total-score"),
                 String.valueOf(progress.getTotalScore())));
 
         inv.setItem(14, createStatItem(Material.CLOCK,
-                messages.getString("progress-gui.current-streak"),
+                MessageUtil.getGuiMsg(messages, "progress-gui.current-streak"),
                 progress.getCurrentStreak()
-                        + messages.getString("progress-gui.days-suffix")));
+                        + MessageUtil.getGuiMsg(messages, "progress-gui.days-suffix")));
 
         inv.setItem(15, createStatItem(Material.DIAMOND,
-                messages.getString("progress-gui.longest-streak"),
+                MessageUtil.getGuiMsg(messages, "progress-gui.longest-streak"),
                 progress.getLongestStreak()
-                        + messages.getString("progress-gui.days-suffix")));
+                        + MessageUtil.getGuiMsg(messages, "progress-gui.days-suffix")));
 
         // 回到主菜单按钮 — slot 8 (右上角)
         String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
-                messages.getString("gui.back-button"));
+                MessageUtil.getGuiMsg(messages, "gui.back-button"));
         String backLore = ChatColor.translateAlternateColorCodes('&', "&7" +
-                messages.getString("gui.back-lore"));
+                MessageUtil.getGuiMsg(messages, "gui.back-lore"));
         inv.setItem(8, createInfoItem(Material.RED_STAINED_GLASS_PANE, backLabel, backLore));
 
         player.openInventory(inv);

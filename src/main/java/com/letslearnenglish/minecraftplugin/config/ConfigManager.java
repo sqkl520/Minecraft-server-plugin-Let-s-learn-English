@@ -22,7 +22,7 @@ import java.util.logging.Level;
  */
 public class ConfigManager {
 
-    private static final int MESSAGE_CONFIG_VERSION = 9;
+    private static final int MESSAGE_CONFIG_VERSION = 10;
 
     /**
      * Config keys the code actually relies on at runtime. Absence is logged as a WARNING on
@@ -85,7 +85,8 @@ public class ConfigManager {
         messageConfigZh = loadMessageConfig("messages/zh.yml");
         messageConfigEn = loadMessageConfig("messages/en.yml");
 
-        String language = mainConfig.getString("general.language", "en");
+        // R-55l：缺 key 回落统一为 zh（与 yml 默认 "zh" + getPlayerLanguage 的 zh 回落对齐）。
+        String language = mainConfig.getString("general.language", "zh");
         messageConfig = "zh".equals(language) ? messageConfigZh : messageConfigEn;
 
         plugin.getLogger().info("All configuration files loaded.");

@@ -87,6 +87,18 @@ public class DuelManager {
             return;
         }
 
+        // R-27: 答题忙态对称检查 —— 与 acceptDuel 的 M4 门禁对称，发邀请前就拦截。
+        // sender 自己 quiz/练习中：回 sender 专属提示；target 答题中：复用 M4 的 target-answering。
+        if (isAnswering(sender.getUniqueId())) {
+            sender.sendMessage(getMsg(sender, "duel.sender-answering"));
+            return;
+        }
+
+        if (isAnswering(target.getUniqueId())) {
+            sender.sendMessage(getMsg(sender, "duel.target-answering", "player", target.getName()));
+            return;
+        }
+
         // Clear any old pending request from sender
         pendingRequests.values().removeIf(v -> v.equals(sender.getUniqueId()));
 
@@ -255,7 +267,8 @@ public class DuelManager {
                 advanceOrEnd(room);
             }
             case ALREADY_ANSWERED -> {
-                // Silently ignore - someone already answered this word
+                // R-25: 超时/锁题后的迟到答案 —— 提示答题者本人"本题已结束"，不广播。
+                player.sendMessage(getMsg(player, "duel.round-ended"));
             }
             case NOT_IN_DUEL -> {
                 // Should not happen
@@ -461,7 +474,11 @@ public class DuelManager {
 
             DuelRoom currentRoom = activeDuels.get(opponentId);
             if (currentRoom == null || !currentRoom.isActive()) {
-                graceTasks.remove(playerId);
+                // R-26: 对局已无 —— 停掉本宽限任务，不再每秒空转。
+                BukkitTask self = graceTasks.remove(playerId);
+                if (self != null) {
+                    self.cancel();
+                }
                 disconnectTimers.remove(playerId);
                 return;
             }
@@ -753,13 +770,34 @@ public class DuelManager {
 
     // ==================== GUI Refresh ====================
 
+    /**
+     * R-23: 重开当前对局界面（/le duel gui 的执行体）。
+     *
+     * <p>玩家 ESC 关掉对决 GUI 后手动回来用。只在对局活跃时重开；
+     * 非对决中回既有 not-in-duel 提示。
+     */
+    public void reopenDuelGUI(Player player) {
+        DuelRoom room = activeDuels.get(player.getUniqueId());
+        if (room == null || !room.isActive()) {
+            player.sendMessage(getMsg(player, "duel.not-in-duel"));
+            return;
+        }
+        new DuelGUI(plugin).open(player, room);
+    }
+
+    /**
+     * R-23: 只刷新"正看着对决 GUI"的玩家。
+     *
+     * <p>ESC 关掉界面的玩家不再被每题强制 open() 弹回。标题判定复用
+     * DuelGUI.isViewingDuelGUI，与 DuelGUIListener 的点击判定同源。
+     */
     private void refreshBothGUIs(DuelRoom room) {
         Player p1 = Bukkit.getPlayer(room.getPlayer1());
         Player p2 = Bukkit.getPlayer(room.getPlayer2());
-        if (p1 != null && p1.isOnline()) {
+        if (p1 != null && p1.isOnline() && DuelGUI.isViewingDuelGUI(plugin, p1)) {
             new DuelGUI(plugin).open(p1, room);
         }
-        if (p2 != null && p2.isOnline()) {
+        if (p2 != null && p2.isOnline() && DuelGUI.isViewingDuelGUI(plugin, p2)) {
             new DuelGUI(plugin).open(p2, room);
         }
     }

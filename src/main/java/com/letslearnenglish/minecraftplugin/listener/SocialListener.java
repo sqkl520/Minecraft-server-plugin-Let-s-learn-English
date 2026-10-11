@@ -135,6 +135,40 @@ public class SocialListener implements Listener {
         }
     }
 
+    /**
+     * R-55e: 拖拽 guard（抄 DuelGUIListener / MainMenuListener 的上半区模式）。
+     *
+     * 拖拽是独立事件，点击的 setCancelled(true) 拦不住它 —— 不拦的话
+     * 广场/排行榜/主页/成就墙的展示物品（玻璃板/头像）可被拖进玩家背包。
+     *
+     * 标题白名单与 onInventoryClick 入口保持一致；只在拖拽触及界面
+     * 上半部分时取消，玩家整理自己背包不受影响。
+     */
+    @EventHandler
+    public void onInventoryDrag(org.bukkit.event.inventory.InventoryDragEvent event) {
+        String title = event.getView().getTitle();
+        if (title == null) return;
+
+        if (!title.contains("English Square") && !title.contains("英语广场")
+                && !title.contains("周榜") && !title.contains("月榜") && !title.contains("总榜")
+                && !title.contains("Weekly Ranking") && !title.contains("Monthly Ranking")
+                && !title.contains("All-Time Ranking")
+                && !title.contains("Leaderboard") && !title.contains("排行榜")
+                && !title.contains("'s Profile") && !title.contains("的主页")
+                && !title.contains("个人主页")
+                && !title.contains("Achievement Wall") && !title.contains("成就墙")) {
+            return;
+        }
+
+        int topSize = event.getView().getTopInventory().getSize();
+        for (int rawSlot : event.getRawSlots()) {
+            if (rawSlot < topSize) {
+                event.setCancelled(true);
+                return;
+            }
+        }
+    }
+
     private void handleEnglishSquareGUI(Player player, int slot, String title) {
         ConfigManager cm = plugin.getConfigManager();
 
@@ -179,6 +213,8 @@ public class SocialListener implements Listener {
             List<UUID> raw = store.getActivePlayerIds();
             playerIds = new ArrayList<>();
             for (UUID id : raw) {
+                // R-37 fan-in：无快照兜底重建分支补隐身过滤（只读，不写副作用），与主装配口径一致
+                if (!store.getProfileSettingsReadOnly(id).isShowInSquare()) continue;
                 PlayerDataStore.PlayerStats s = store.getPlayerStats(id);
                 if (s.getTotalCorrect() + s.getTotalIncorrect() > 0) {
                     playerIds.add(id);

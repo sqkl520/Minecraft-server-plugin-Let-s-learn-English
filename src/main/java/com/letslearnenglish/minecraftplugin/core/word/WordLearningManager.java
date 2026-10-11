@@ -2,6 +2,7 @@ package com.letslearnenglish.minecraftplugin.core.word;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -10,6 +11,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.scheduler.BukkitTask;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
@@ -17,7 +22,7 @@ import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager.Challenge
 import com.letslearnenglish.minecraftplugin.core.progress.RewardEngine;
 import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
 
-public class WordLearningManager {
+public class WordLearningManager implements Listener {
 
     private static final int BASE_SCORE = 10;
     private static final int INCORRECT_PENALTY = 2;
@@ -29,9 +34,20 @@ public class WordLearningManager {
     private final Map<UUID, QuizState> quizStates = new ConcurrentHashMap<>();
     private final Map<UUID, String> practiceWords = new ConcurrentHashMap<>();
 
+    /** R-13：因答题中死亡而暂停的会话（重生后自动重开 GUI 续答）。 */
+    private final Set<UUID> deathPausedQuiz = ConcurrentHashMap.newKeySet();
+
     public WordLearningManager(LetsLearnEnglish plugin) {
         this.plugin = plugin;
         this.wordManager = plugin.getWordManager();
+        // R-13：自注册监听死亡/重生事件。本管理器在 onEnable 内构造（插件已 enabled，
+        // registerEvents 合法），仅此一处 new（已核实无重建），不改 LetsLearnEnglish
+        // 的 DI/注册代码即可接入死亡保护。
+        // getServer() 判空：纯逻辑单测用 mock 插件构造本类（getServer 返回 null），
+        // 跳过注册即可，不影响运行期（生产环境 getServer 恒非 null）。
+        if (plugin.getServer() != null) {
+            plugin.getServer().getPluginManager().registerEvents(this, plugin);
+        }
     }
 
     public LearningSession startQuiz(Player player, String difficulty, String mode) {
@@ -192,7 +208,21 @@ public class WordLearningManager {
             // Track timeout as wrong answer for Wrong Book
             trackWrongAnswer(player, currentWord);
 
-            return buildResult(id, state, false, currentWord.getEnglish(),
+            // R-57：超时结算答案格式与 submitAnswer 的答错格式对齐 —— choice 模式下
+            // submitAnswer 显示 "B. apple"，这里原先只给纯 "apple"，玩家看到的"正确答案"
+            // 格式不一致。此处按同一规则（同 submitAnswer 的 lines）渲染选项字母前缀。
+            String correctAnswer = currentWord.getEnglish();
+            if (AnswerChecker.isChoice(state.mode)) {
+                List<Word> choiceOptions = getChoiceOptions(id);
+                if (choiceOptions != null) {
+                    int answerIndex = AnswerChecker.indexOfAnswer(choiceOptions, currentWord);
+                    if (answerIndex >= 0) {
+                        correctAnswer = AnswerChecker.formatChoiceOption(answerIndex, currentWord);
+                    }
+                }
+            }
+
+            return buildResult(id, state, false, correctAnswer,
                     -INCORRECT_PENALTY, 0, 1.0);
         } finally {
             state.submitting.set(false);
@@ -307,6 +337,56 @@ public class WordLearningManager {
             state.answerTaskId.set(-1);
         }
         state.isAnswering = false;
+    }
+
+    // ============================================================
+    //  R-13：答题中死亡保护（倒计时中死亡不判错，重生后可续答）
+    // ============================================================
+
+    /**
+     * R-13：玩家在答题倒计时中死亡时，取消计时器且不判错。
+     *
+     * <p>原先倒计时到点会走 handleTimeout 清连击 / 扣分 / 记错题本；死亡属不可抗力，
+     * 不应因此受罚。此处停表（内部置 isAnswering=false 并取消任务），当前题不判对错，
+     * QuizState 原样保留并标记为死亡暂停，重生后由 {@link #onPlayerRespawn} 重开 GUI 续答。
+     */
+    @EventHandler
+    public void onPlayerDeath(PlayerDeathEvent event) {
+        Player player = event.getEntity();
+        UUID id = player.getUniqueId();
+        if (!hasActiveQuiz(id)) {
+            return;
+        }
+        cancelAnswerTimer(player);
+        deathPausedQuiz.add(id);
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                "word-learning-gui.death-paused"));
+    }
+
+    /**
+     * R-13：重生后若存在死亡暂停的答题会话，下一 tick 重开答题 GUI 让玩家续答
+     * （关界面即按既有流程重新开始倒计时，与正常答题路径一致）。
+     */
+    @EventHandler
+    public void onPlayerRespawn(PlayerRespawnEvent event) {
+        Player player = event.getPlayer();
+        UUID id = player.getUniqueId();
+        if (!deathPausedQuiz.remove(id) || !hasActiveQuiz(id)) {
+            return;
+        }
+        QuizState state = quizStates.get(id);
+        if (state == null) {
+            return;
+        }
+        final String difficulty = state.difficulty;
+        final String mode = state.mode;
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (player.isOnline() && hasActiveQuiz(id)) {
+                new WordLearningGUI(plugin).open(player, difficulty, mode);
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "word-learning-gui.death-resumed"));
+            }
+        });
     }
 
     public boolean isAnswering(UUID playerId) {
@@ -435,19 +515,23 @@ public class WordLearningManager {
         plugin.getProgressManager().getRewardEngine()
                 .giveSessionCompleteMoneyReward(player, result.maxComboReached);
 
-        plugin.getAchievementManager().checkSessionAchievements(
-                player.getUniqueId(),
-                result.correctCount,
-                result.incorrectCount,
-                result.totalWords,
-                result.mode
-        );
-        // 记录到学习日历
+        // R-30：先把今日会话落库（player_sessions），再判定成就。
+        // checkSessionAchievements → checkDailyStreak 直接查 player_sessions 统计连续
+        // 学习天数；若先判定后落库，今天这一行还不在表里，连续天数会少算一天（差一天），
+        // DAILY_STREAK_3/7 永远晚一天解锁。调序后今天即算入，阈值逻辑不动。
         plugin.getPlayerDataStore().recordSession(
                 player.getUniqueId(),
                 result.totalWords,
                 result.correctCount,
                 result.score,
+                result.mode
+        );
+
+        plugin.getAchievementManager().checkSessionAchievements(
+                player.getUniqueId(),
+                result.correctCount,
+                result.incorrectCount,
+                result.totalWords,
                 result.mode
         );
         // Daily challenge: session completed

@@ -60,8 +60,19 @@ public class ProfileGUI {
 
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
         PlayerDataStore.PlayerStats stats = store.getPlayerStats(targetId);
-        PlayerDataStore.ProfileSettings ps = store.getProfileSettings(targetId);
+        // L-05：展示路径走只读版，缓存缺失不建条目。
+        PlayerDataStore.ProfileSettings ps = store.getProfileSettingsReadOnly(targetId);
         AchievementManager am = plugin.getAchievementManager();
+
+        // R-38：他人主页隐私 —— 目标关 showResults 则学习成绩三卡（字数/正确率/场次）
+        // 只隐藏数值行；标签行保留。自己主页（isOwn）零改动。
+        boolean hideResults = !isOwn && !ps.isShowResults();
+        String hiddenValue = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("profile.stats-hidden-value"));
+        String ageUnsetLine = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("profile.age-unset"));
+        String ageHiddenLine = ChatColor.translateAlternateColorCodes('&',
+                messages.getString("profile.age-hidden"));
 
         fillBorder(inv);
 
@@ -94,11 +105,13 @@ public class ProfileGUI {
         int unlockedCount = am.getUnlockedCount(targetId);
         int totalAchievements = Achievement.values().length;
 
-        // Words learned — slot 11
+        // Words learned — slot 11 (R-38: 他人关 showResults 时只隐藏数值行，标签保留)
         inv.setItem(11, createInfoItem(Material.BOOK,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
                         messages.getString("profile.stats-words-label")),
-                Arrays.asList(
+                hideResults
+                        ? Collections.singletonList(hiddenValue)
+                        : Arrays.asList(
                         ChatColor.translateAlternateColorCodes('&',
                                 messages.getString("profile.stats-words-value")
                                         .replace("{words}", String.valueOf(totalWords))),
@@ -108,45 +121,64 @@ public class ProfileGUI {
                                         .replace("{incorrect}", String.valueOf(totalIncorrect)))
                 )));
 
-        // Accuracy — slot 12
+        // Accuracy — slot 12 (R-38)
         inv.setItem(12, createInfoItem(Material.EXPERIENCE_BOTTLE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
                         messages.getString("profile.stats-accuracy-label")),
-                Collections.singletonList(
+                hideResults
+                        ? Collections.singletonList(hiddenValue)
+                        : Collections.singletonList(
                         ChatColor.translateAlternateColorCodes('&',
                                 messages.getString("profile.stats-accuracy-value")
                                         .replace("{accuracy}", String.valueOf(accuracy)))
                 )));
 
-        // Age — slot 13
+        // Age — slot 13 (R-39: 0/脏数据经 getAge 校验归 0，显示"未设置"；
+        // 非本人看他人主页一律不显示年龄，与 showResults 开关无关)
         int age = ps.getAge();
-        inv.setItem(13, createInfoItem(Material.CAKE,
-                ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("profile.age")
-                                .replace("{age}", String.valueOf(age))),
-                Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("profile.age-hint")))));
+        String ageLine;
+        String ageLore;
+        if (!isOwn) {
+            ageLine = ageHiddenLine;
+            ageLore = ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("profile.age-hidden-hint"));
+        } else if (age <= 0) {
+            ageLine = ageUnsetLine;
+            ageLore = ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("profile.age-hint"));
+        } else {
+            ageLine = ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("profile.age")
+                            .replace("{age}", String.valueOf(age)));
+            ageLore = ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("profile.age-hint"));
+        }
+        inv.setItem(13, createInfoItem(Material.CAKE, ageLine,
+                Collections.singletonList(ageLore)));
 
-        // Sessions — slot 14
+        // Sessions — slot 14 (R-38)
         inv.setItem(14, createInfoItem(Material.CLOCK,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
                         messages.getString("profile.stats-sessions-label")),
-                Collections.singletonList(
+                hideResults
+                        ? Collections.singletonList(hiddenValue)
+                        : Collections.singletonList(
                         ChatColor.translateAlternateColorCodes('&',
                                 messages.getString("profile.stats-sessions-value")
                                         .replace("{sessions}", String.valueOf(sessions)))
                 )));
 
-        // Coins — slot 15 (centered with other stats)
+        // Coins — slot 15 (R-38: 金币余额非本人一律只隐藏数值行，标签保留)
+        String coinsLine = isOwn
+                ? ChatColor.translateAlternateColorCodes('&',
+                        messages.getString("profile.stats-coins-value")
+                                .replace("{coins}", plugin.getEconomy() == null ? "0"
+                                        : plugin.getEconomy().format(coins)))
+                : hiddenValue;
         inv.setItem(15, createInfoItem(Material.GOLD_INGOT,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
                         messages.getString("profile.stats-coins-label")),
-                Collections.singletonList(
-                        ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("profile.stats-coins-value")
-                                        .replace("{coins}", plugin.getEconomy() == null ? "0"
-                                                : plugin.getEconomy().format(coins)))
-                )));
+                Collections.singletonList(coinsLine)));
 
         // Achievement wall button — slot 18 (bottom-left) with count
         String achWallLabel = ChatColor.translateAlternateColorCodes('&', "&e&l" +

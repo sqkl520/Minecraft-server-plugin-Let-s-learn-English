@@ -23,7 +23,11 @@ import java.util.List;
  * Layout:
  *   Row 1 (0-8):  decorative border + back button (slot 8)
  *   Row 2 (9-17): player head (11), fireworks (13), reward (15)
- *   Row 3 (18-26): "claimed, back" button (22), return to menu (8)
+ *   Row 3 (18-26): decorative border + "claimed, back" button (slot 22)
+ *
+ * R-55: slot 8（返回键）与 slot 22（"奖励已到账"按钮）行为一致 ——
+ * 都走 GuiNavigationManager.popBack（有栈回栈、无栈回主菜单），
+ * 与 DailyChallenge 的 slot 8 返回语义相同。不要把其中一个改成直开主菜单。
  *
  * F1-09: the word-challenge reward is auto-deposited BEFORE this page opens
  * (see DailyChallengeManager M12 deposit-then-mark), so slot 22 is NOT a

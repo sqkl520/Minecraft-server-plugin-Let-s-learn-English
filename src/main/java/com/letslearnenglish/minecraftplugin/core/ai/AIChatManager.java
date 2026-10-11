@@ -46,6 +46,8 @@ public class AIChatManager {
     private static final int DEFAULT_MAX_TOKENS = 128;
     private static final int DEFAULT_DAILY_ROUND_LIMIT = 30;
     private static final int DEFAULT_COUNT_MIN_ROUNDS = 3;
+    /** R-20：401/403 鉴权失败后熔断时长（毫秒）——期间不再打 API，避免烧钱/刷日志。 */
+    private static final long AUTH_CIRCUIT_COOLDOWN_MS = 5 * 60 * 1000L;
     private static final double TEMPERATURE = 0.8;
     private static final int DEFAULT_MAX_CONTEXT_TOKENS = 2000;
     private static final int CHARS_PER_TOKEN_ESTIMATE = 4;
@@ -68,11 +70,12 @@ public class AIChatManager {
     private volatile int dailyRoundLimit;
     private volatile int countMinRounds;
     private volatile boolean debug;
+    /** R-20：鉴权熔断"开启至"时间戳（毫秒）；&gt; now 即熔断中。成功请求/reload 清零。 */
+    private volatile long authCircuitOpenUntil = 0L;
 
     private final Map<UUID, Long> lastRequestTime = new ConcurrentHashMap<>();
     private final Set<UUID> pendingRequests = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Deque<MessagePair>> conversationContexts = new ConcurrentHashMap<>();
-    private final Map<UUID, Integer> conversationCount = new ConcurrentHashMap<>();
 
     /** 每个玩家当前的会话 ID */
     private final Map<UUID, String> activeSessionIds = new ConcurrentHashMap<>();
@@ -173,6 +176,9 @@ public class AIChatManager {
         this.dailyRoundLimit = config.getInt("ai-chat.daily-round-limit", DEFAULT_DAILY_ROUND_LIMIT);
         this.countMinRounds = config.getInt("ai-chat.count-min-rounds", DEFAULT_COUNT_MIN_ROUNDS);
         this.debug = config.getBoolean("ai-chat.debug", false);
+
+        // R-20：重载配置（含 /lea reload 与 API 密钥重载）时清掉鉴权熔断，换了 Key 立即恢复。
+        this.authCircuitOpenUntil = 0L;
 
         if (debug) {
             plugin.getLogger().info("[AI-Debug] Debug logging enabled for AI Chat.");
@@ -361,6 +367,11 @@ public class AIChatManager {
         // 新会话重置本轮有效对话计数
         sessionValidInputs.put(player.getUniqueId(), 0);
         sessionHasAiReply.remove(player.getUniqueId());
+        // R-18：清掉上一场遗留的 in-flight 标记与冷却时间戳，否则 GUI 连点两个场景时：
+        // 旧 pendingRequests 未清 → 新会话首条被 request-in-progress 误拒；
+        // 旧 lastRequestTime 未清 → 新会话首条可能被冷却拦截。
+        pendingRequests.remove(player.getUniqueId());
+        lastRequestTime.remove(player.getUniqueId());
 
         // Write system prompt to DB asynchronously
         final UUID playerId = player.getUniqueId();
@@ -386,7 +397,8 @@ public class AIChatManager {
             return;
         }
         String trigger = "Please start the conversation by greeting me and introducing the situation.";
-        chatAsync(player, trigger, callback);
+        // R-16：开场白走独立通道 —— 不计有效输入、不计每日轮次、不查每日上限。
+        dispatchChat(player, trigger, callback, false);
     }
 
     private String buildSystemPrompt(String scenarioKey, String difficultyKey, String lang) {
@@ -439,7 +451,9 @@ public class AIChatManager {
         }
 
         // AI 对话计数 + 成就检查
-        int count = conversationCount.merge(player.getUniqueId(), 1, Integer::sum);
+        // R-28：计数改走 PlayerDataStore（落 player_data.conversation_count，即时 UPSERT），
+        // 重启后 AI_CHAT_10/50 成就不再因纯内存计数清零而永不触发。
+        int count = plugin.getPlayerDataStore().incrementConversationCount(player.getUniqueId());
         plugin.getAchievementManager().checkAIChatAchievement(player.getUniqueId(), count);
         // Daily challenge: AI conversation completed
         plugin.getDailyChallengeManager().updateProgress(player.getUniqueId(), ChallengeType.AI_CHAT_5, 1);
@@ -525,9 +539,28 @@ public class AIChatManager {
     // ============================================================
 
     public void chatAsync(Player player, String input, AIChatCallback callback) {
+        // 正常玩家消息：计入有效输入与每日轮次、受每日上限约束。
+        dispatchChat(player, input, callback, true);
+    }
+
+    /**
+     * R-16/17/19/20：AI 请求统一派发。
+     *
+     * @param countsTowardUsage true=正常玩家消息（计有效输入+每日轮次+查每日上限）；
+     *                          false=开场白等系统触发（独立通道：不计输入/不计轮次/不查上限）
+     */
+    private void dispatchChat(Player player, String input, AIChatCallback callback,
+                              boolean countsTowardUsage) {
         if (!isAvailable()) {
             callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
                     player, "dialogue.ai-not-configured"));
+            return;
+        }
+
+        // R-20：401/403 鉴权失败熔断期内直接拒绝，不再打 API（烧钱/刷日志）。
+        if (isAuthCircuitOpen()) {
+            callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
+                    player, "dialogue.auth-failed"));
             return;
         }
 
@@ -545,28 +578,30 @@ public class AIChatManager {
             return;
         }
 
-        // C4：发 API 请求前检查今日轮次，超限拒绝（默认安全）
-        int todayRounds;
-        try {
-            todayRounds = plugin.getPlayerDataStore().getTodayAiRound(player.getUniqueId());
-        } catch (Exception e) {
-            debugLog("[" + player.getName() + "] 读取今日 AI 轮次失败，拒绝请求: " + e.getMessage());
-            callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
-                    player, "dialogue.request-failed"));
-            return;
-        }
-        if (todayRounds >= dailyRoundLimit) {
-            debugLog("[" + player.getName() + "] 每日 AI 轮次超限 — 今日=" + todayRounds
-                    + " 上限=" + dailyRoundLimit);
-            callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
-                    player, "dialogue.daily-limit-reached",
-                    "used", String.valueOf(todayRounds),
-                    "limit", String.valueOf(dailyRoundLimit)));
-            return;
+        // C4/R-16：仅正常玩家消息查今日轮次上限；开场白(countsTowardUsage=false)不受限。
+        if (countsTowardUsage) {
+            int todayRounds;
+            try {
+                todayRounds = plugin.getPlayerDataStore().getTodayAiRound(player.getUniqueId());
+            } catch (Exception e) {
+                debugLog("[" + player.getName() + "] 读取今日 AI 轮次失败，拒绝请求: " + e.getMessage());
+                callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
+                        player, "dialogue.request-failed"));
+                return;
+            }
+            if (todayRounds >= dailyRoundLimit) {
+                debugLog("[" + player.getName() + "] 每日 AI 轮次超限 — 今日=" + todayRounds
+                        + " 上限=" + dailyRoundLimit);
+                callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
+                        player, "dialogue.daily-limit-reached",
+                        "used", String.valueOf(todayRounds),
+                        "limit", String.valueOf(dailyRoundLimit)));
+                return;
+            }
         }
 
-        markRequestTime(player);
-
+        // R-19：markRequestTime 原先在此（上下文/pending 检查之前），导致被这些检查
+        // 拒绝时也烧掉冷却。改为移动到所有拒绝检查通过、确定要发请求之后再记（见下）。
         Deque<MessagePair> context = conversationContexts.get(player.getUniqueId());
         if (context == null) {
             callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
@@ -580,14 +615,17 @@ public class AIChatManager {
             return;
         }
 
+        // R-19：所有拒绝检查已过，确定要发请求 —— 此刻才烧冷却（被上面任一检查拒绝时不烧）。
+        markRequestTime(player);
+
         debugLog("[" + player.getName() + "] 用户输入(" + sanitized.length() + "字符): "
                 + sanitized.substring(0, Math.min(100, sanitized.length())).replace("\n", "\\n"));
 
         final String sessionId = activeSessionIds.get(player.getUniqueId());
         final UUID playerId = player.getUniqueId();
         final String finalSanitized = sanitized;
-        // H3：本条是 sanitize 后非空的玩家消息，计入本轮有效输入
-        sessionValidInputs.merge(playerId, 1, Integer::sum);
+        final boolean counts = countsTowardUsage;
+        // R-19：有效输入计数移到成功回调（失败不计输入）；R-16：开场白不计。
 
         JsonObject requestBody;
         synchronized (context) {
@@ -617,16 +655,28 @@ public class AIChatManager {
                         + (response != null ? response.length() : 0) + "字符): "
                         + (response != null ? response.substring(0, Math.min(150, response.length())).replace("\n", "\\n") : "null"));
                 if (response != null) {
+                    // R-20：成功 200 说明 Key 可用，清掉鉴权熔断（若之前被 401/403 打开）。
+                    authCircuitOpenUntil = 0L;
                     synchronized (context) {
                         context.add(new MessagePair("assistant", response));
                         trimContextByTokens(context);
                     }
-                    // H3/C4：一次成功 API 回复 = 一轮。标记本轮有回复并累加今日轮次。
-                    sessionHasAiReply.add(playerId);
-                    try {
-                        plugin.getPlayerDataStore().incrementTodayAiRound(playerId);
-                    } catch (Exception e) {
-                        debugLog("[" + player.getName() + "] 累加今日 AI 轮次失败: " + e.getMessage());
+                    // R-17：按 session 隔离 —— 仅当发起时的 session 仍是该玩家当前 active
+                    // session，才计入本轮（防下线/切场景后旧 in-flight 回调污染新会话计数）。
+                    boolean sameSession = sessionId != null
+                            && sessionId.equals(activeSessionIds.get(playerId));
+                    if (sameSession) {
+                        sessionHasAiReply.add(playerId);
+                        // H3/C4 + R-16/R-19：一次成功回复 = 一轮；仅正常消息计有效输入与今日轮次
+                        // （开场白 counts=false 不计；失败不进此分支，故失败不计输入也不计轮次）。
+                        if (counts) {
+                            sessionValidInputs.merge(playerId, 1, Integer::sum);
+                            try {
+                                plugin.getPlayerDataStore().incrementTodayAiRound(playerId);
+                            } catch (Exception e) {
+                                debugLog("[" + player.getName() + "] 累加今日 AI 轮次失败: " + e.getMessage());
+                            }
+                        }
                     }
                     // Write AI response to DB asynchronously (sessionId captured from enclosing scope)
                     if (sessionId != null) {
@@ -649,10 +699,13 @@ public class AIChatManager {
         .exceptionally(throwable -> {
             pendingRequests.remove(playerId);
             Throwable cause = (throwable instanceof CompletionException) ? throwable.getCause() : throwable;
-            plugin.getLogger().log(Level.WARNING, "AI API request failed for " + player.getName(), cause);
+            // R-20：按异常类型分流提示并在 401/403 时熔断（classifyFailure 内处理）。
+            String errorKey = classifyFailure(cause);
+            plugin.getLogger().log(Level.WARNING, "AI API request failed for "
+                    + player.getName() + " (" + errorKey + ")", cause);
             plugin.getServer().getScheduler().runTask(plugin, () ->
                     callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
-                            player, "dialogue.request-failed")));
+                            player, errorKey)));
             return null;
         });
     }
@@ -690,7 +743,8 @@ public class AIChatManager {
         if (response.statusCode() != 200) {
             plugin.getLogger().warning("AI API error (" + response.statusCode() + "): "
                     + response.body());
-            throw new IOException("API returned " + response.statusCode());
+            // R-20：带上状态码，供 classifyFailure 区分 401/403(鉴权) / 429(限流) / 其它。
+            throw new AiApiException(response.statusCode(), "API returned " + response.statusCode());
         }
 
         // Null-safe JSON navigation
@@ -712,6 +766,58 @@ public class AIChatManager {
             throw new IOException("AI API response missing or null 'content' field");
         }
         return content.getAsString();
+    }
+
+    // ============================================================
+    //  R-20：失败分类与鉴权熔断
+    // ============================================================
+
+    /** R-20：鉴权熔断是否开启（期间不打 API）。 */
+    private boolean isAuthCircuitOpen() {
+        return System.currentTimeMillis() < authCircuitOpenUntil;
+    }
+
+    /** R-20：开启鉴权熔断（401/403）——一段时间内拒绝所有 API 请求。 */
+    private void openAuthCircuit() {
+        authCircuitOpenUntil = System.currentTimeMillis() + AUTH_CIRCUIT_COOLDOWN_MS;
+        plugin.getLogger().severe("AI API rejected the key (401/403). Circuit opened for "
+                + (AUTH_CIRCUIT_COOLDOWN_MS / 1000) + "s — not calling the API until it closes. "
+                + "Check 'api-key' in ai_config.yml, then /lea reload.");
+    }
+
+    /**
+     * R-20：把请求失败归类成对应的 i18n 提示键；401/403 额外开启鉴权熔断。
+     * <ul>
+     *   <li>401/403 → 鉴权失败（提示服主查 Key）+ 熔断</li>
+     *   <li>429 → 限流（稍后再试，不熔断）</li>
+     *   <li>连接/读取超时 → 超时提示</li>
+     *   <li>其它（5xx/解析/网络）→ 通用失败</li>
+     * </ul>
+     */
+    private String classifyFailure(Throwable cause) {
+        int status = (cause instanceof AiApiException api) ? api.statusCode : -1;
+        if (status == 401 || status == 403) {
+            openAuthCircuit();
+            return "dialogue.auth-failed";
+        }
+        if (status == 429) {
+            return "dialogue.rate-limited";
+        }
+        if (cause instanceof java.net.http.HttpTimeoutException
+                || cause instanceof java.net.http.HttpConnectTimeoutException) {
+            return "dialogue.timeout";
+        }
+        return "dialogue.request-failed";
+    }
+
+    /** R-20：携带 HTTP 状态码的 API 异常，供 {@link #classifyFailure} 分流。 */
+    private static final class AiApiException extends IOException {
+        final int statusCode;
+
+        AiApiException(int statusCode, String message) {
+            super(message);
+            this.statusCode = statusCode;
+        }
     }
 
     // ============================================================
@@ -858,6 +964,53 @@ public class AIChatManager {
         return sc.getDisplayName(zh);
     }
 
+    // ============================================================
+    //  R-49 fan-in：场景/难度稳定排序的唯一真相源
+    //  GUI 渲染（ScenarioSelectGUI）与点击映射（ScenarioSelectListener）共用，
+    //  避免两侧迭代顺序不一致导致"点 A 开 B"。
+    // ============================================================
+
+    /**
+     * 按玩家语言稳定排序的可见场景配置（全局 + 个人）。
+     * 排序键：当前语言展示名（空名兜底空串）→ key tie-break。个人场景参与同一排序。
+     */
+    public List<ScenarioConfig> getSortedScenarioConfigs(Player player) {
+        final boolean zh = "zh".equalsIgnoreCase(plugin.getPlayerLanguage(player));
+        List<ScenarioConfig> sorted = new ArrayList<>(getScenarioConfigs(player).values());
+        sorted.sort(Comparator
+                .comparing((ScenarioConfig sc) -> {
+                    String name = sc.getDisplayName(zh);
+                    return (name != null) ? name : "";
+                })
+                .thenComparing(sc -> sc.key));
+        return sorted;
+    }
+
+    /** {@link #getSortedScenarioConfigs} 的 key 列表（点击侧按下标映射用，顺序完全一致）。 */
+    public List<String> getSortedScenarioKeys(Player player) {
+        List<String> keys = new ArrayList<>();
+        for (ScenarioConfig sc : getSortedScenarioConfigs(player)) {
+            keys.add(sc.key);
+        }
+        return keys;
+    }
+
+    /** 按 key 稳定排序的难度配置（GUI 渲染与点击映射共用）。 */
+    public List<DifficultyConfig> getSortedDifficultyConfigs() {
+        List<DifficultyConfig> sorted = new ArrayList<>(difficulties.values());
+        sorted.sort(Comparator.comparing(dc -> dc.key));
+        return sorted;
+    }
+
+    /** {@link #getSortedDifficultyConfigs} 的 key 列表（点击侧按下标映射用，顺序完全一致）。 */
+    public List<String> getSortedDifficultyKeys() {
+        List<String> keys = new ArrayList<>();
+        for (DifficultyConfig dc : getSortedDifficultyConfigs()) {
+            keys.add(dc.key);
+        }
+        return keys;
+    }
+
     /** 获取场景 Prompt 最大长度限制 */
     public int getMaxPromptLength() {
         return maxPromptLength;
@@ -870,7 +1023,6 @@ public class AIChatManager {
         playerDifficulties.clear();
         lastRequestTime.clear();
         pendingRequests.clear();
-        conversationCount.clear();
         activeSessionIds.clear();
         playerSystemPrompts.clear();
         sessionValidInputs.clear();

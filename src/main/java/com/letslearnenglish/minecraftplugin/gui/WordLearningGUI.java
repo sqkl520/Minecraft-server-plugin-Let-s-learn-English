@@ -5,6 +5,7 @@ import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import com.letslearnenglish.minecraftplugin.core.word.AnswerChecker;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -29,7 +30,7 @@ public class WordLearningGUI {
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-learning-gui.title")
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.title")
                         .replace("{difficulty}", difficulty));
 
         Inventory inv = Bukkit.createInventory(null, 27, title);
@@ -42,7 +43,7 @@ public class WordLearningGUI {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
         player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-learning-gui.started-hint")));
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.started-hint")));
     }
 
     private void buildInventory(Inventory inv, Player player) {
@@ -78,19 +79,19 @@ public class WordLearningGUI {
 
         // Pronunciation button
         String pronLabel = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word.pronunciation-button"));
+                MessageUtil.getGuiMsg(messages, "word.pronunciation-button"));
         String pronLore = ChatColor.translateAlternateColorCodes('&', "&7" +
-                messages.getString("word.pronunciation-button-lore"));
+                MessageUtil.getGuiMsg(messages, "word.pronunciation-button-lore"));
         int pronSlot = cm.getGuiSlot("word-learning", "pronunciation-button", 14);
         Material pronMat = cm.getGuiMaterial("word-learning", "pronunciation-button", Material.NOTE_BLOCK);
         inv.setItem(pronSlot, createItem(pronMat, pronLabel, pronLore));
 
         String progressLabel = ChatColor.translateAlternateColorCodes('&', "&a" +
-                messages.getString("word-learning-gui.progress")
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.progress")
                         .replace("{current}", String.valueOf(current))
                         .replace("{total}", String.valueOf(total)));
         String scoreLore = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-learning-gui.score")
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.score")
                         .replace("{score}", String.valueOf(score)));
 
         inv.setItem(cm.getGuiSlot("word-learning", "progress-info", 4), createItem(cm.getGuiMaterial("word-learning", "progress-info", Material.CLOCK), progressLabel, scoreLore));
@@ -99,23 +100,23 @@ public class WordLearningGUI {
         inv.setItem(cm.getGuiSlot("word-learning", "combo-info", 10), createItem(cm.getGuiMaterial("word-learning", "combo-info", Material.BLAZE_ROD), comboLabel));
 
         String stopLabel = ChatColor.translateAlternateColorCodes('&', "&c" +
-                messages.getString("word-learning-gui.stop-button"));
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.stop-button"));
         String stopLore = ChatColor.translateAlternateColorCodes('&', "&7" +
-                messages.getString("word-learning-gui.stop-lore"));
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.stop-lore"));
 
         inv.setItem(cm.getGuiSlot("word-learning", "stop-button", 16), createItem(cm.getGuiMaterial("word-learning", "stop-button", Material.BARRIER), stopLabel, stopLore));
 
         String startLabel = ChatColor.translateAlternateColorCodes('&', "&a" +
-                messages.getString("word-learning-gui.answer-hint"));
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.answer-hint"));
         String startLore = ChatColor.translateAlternateColorCodes('&', "&7" +
-                messages.getString("word-learning-gui.answer-hint-lore-1"));
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.answer-hint-lore-1"));
 
         inv.setItem(cm.getGuiSlot("word-learning", "start-button", 22), createItem(cm.getGuiMaterial("word-learning", "start-button", Material.LIME_DYE), startLabel, startLore));
 
         String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
-                messages.getString("gui.back-button"));
+                MessageUtil.getGuiMsg(messages, "gui.back-button"));
         String backLore = ChatColor.translateAlternateColorCodes('&', "&7" +
-                messages.getString("gui.back-lore"));
+                MessageUtil.getGuiMsg(messages, "gui.back-lore"));
         inv.setItem(cm.getGuiSlot("word-learning", "back-button", 8), createItem(cm.getGuiMaterial("word-learning", "back-button", Material.RED_STAINED_GLASS_PANE), backLabel, backLore));
     }
 
@@ -125,19 +126,19 @@ public class WordLearningGUI {
     private void renderSpellingCard(Inventory inv, ConfigManager cm,
                                     FileConfiguration messages, Word currentWord) {
         String wordLabel = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-learning-gui.current-word")
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.current-word")
                         .replace("{chinese}", currentWord.getChinese()));
 
         String phoneticStr = currentWord.getPhonetic();
         String phoneticLine = "";
         if (phoneticStr != null && !phoneticStr.isEmpty()) {
             phoneticLine = ChatColor.translateAlternateColorCodes('&', "&7" +
-                    messages.getString("word.phonetic-label")
+                    MessageUtil.getGuiMsg(messages, "word.phonetic-label")
                     + ": &f" + phoneticStr);
         }
 
         String viewLore = ChatColor.translateAlternateColorCodes('&', "&7" +
-                messages.getString("word-learning-gui.current-word-lore-1"));
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.current-word-lore-1"));
 
         String[] loreLines;
         if (!phoneticLine.isEmpty()) {
@@ -160,18 +161,18 @@ public class WordLearningGUI {
                                      FileConfiguration messages, WordLearningManager wlManager,
                                      Player player, Word currentWord) {
         String wordLabel = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-learning-gui.current-word")
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.current-word")
                         .replace("{chinese}", currentWord.getChinese()));
 
         java.util.List<String> lore = new java.util.ArrayList<>();
         lore.add(ChatColor.translateAlternateColorCodes('&', "&7" +
-                messages.getString("word-learning-gui.current-word-lore-choice")));
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.current-word-lore-choice")));
 
         java.util.List<Word> options = wlManager.getChoiceOptions(player.getUniqueId());
         if (options != null) {
             for (int i = 0; i < options.size(); i++) {
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("word-learning-gui.choice-option")
+                        MessageUtil.getGuiMsg(messages, "word-learning-gui.choice-option")
                                 .replace("{letter}", String.valueOf(AnswerChecker.indexToLetter(i)))
                                 .replace("{word}", options.get(i).getEnglish())));
             }
@@ -188,27 +189,33 @@ public class WordLearningGUI {
      */
     private void renderFillBlankCard(Inventory inv, ConfigManager cm,
                                      FileConfiguration messages, Word currentWord) {
-        String sentenceLabel = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-learning-gui.fill-blank-sentence")
+        // R-11：加中文题面（与 spelling/choice 卡一致）——物品名用"当前单词: {中文}"，
+        // 挖空例句下沉到 lore 第一行，只看 GUI 也知道在考哪个词。槽位/材质不动。
+        String wordLabel = ChatColor.translateAlternateColorCodes('&',
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.current-word")
+                        .replace("{chinese}", currentWord.getChinese()));
+
+        String sentenceLine = ChatColor.translateAlternateColorCodes('&',
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.fill-blank-sentence")
                         .replace("{sentence}", AnswerChecker.blankSentence(currentWord)));
 
         String hintLine = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-learning-gui.fill-blank-hint")
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.fill-blank-hint")
                         .replace("{letter}", AnswerChecker.firstLetterHint(currentWord)));
 
         String viewLore = ChatColor.translateAlternateColorCodes('&', "&7" +
-                messages.getString("word-learning-gui.current-word-lore-1"));
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.current-word-lore-1"));
 
         inv.setItem(cm.getGuiSlot("word-learning", "current-word", 13),
                 createItem(cm.getGuiMaterial("word-learning", "current-word", Material.BOOK),
-                        sentenceLabel, new String[] { hintLine, viewLore }));
+                        wordLabel, new String[] { sentenceLine, hintLine, viewLore }));
     }
 
     private String getComboLabel(int combo, double multiplier, FileConfiguration messages) {        if (combo <= 0) {
             return ChatColor.translateAlternateColorCodes('&', "&7" +
-                    messages.getString("word-learning-gui.combo-none"));
+                    MessageUtil.getGuiMsg(messages, "word-learning-gui.combo-none"));
         }
-        String comboText = messages.getString("word-learning-gui.combo-active")
+        String comboText = MessageUtil.getGuiMsg(messages, "word-learning-gui.combo-active")
                 .replace("{count}", String.valueOf(combo))
                 .replace("{multiplier}", String.valueOf(multiplier));
         return ChatColor.translateAlternateColorCodes('&', "&6&l" + comboText);

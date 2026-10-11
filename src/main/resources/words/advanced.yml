@@ -1160,7 +1160,7 @@ words:
     chinese: "承认"
     part_of_speech: "verb"
     phonetic: "/kənˈsiːd/"
-    example_sentence: "He conceded that he had made a mistake."
+    example_sentence: "You must concede that he has a point."
     synonyms:
       - "admit"
     antonyms:
@@ -1726,7 +1726,7 @@ words:
     chinese: "渴望"
     part_of_speech: "verb"
     phonetic: "/kreɪv/"
-    example_sentence: "She craves attention from her parents."
+    example_sentence: "Many people crave love and success."
     synonyms:
       - "desire"
       - "long"

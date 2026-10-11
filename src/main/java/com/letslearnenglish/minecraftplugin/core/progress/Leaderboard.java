@@ -53,6 +53,13 @@ public class Leaderboard {
 
     private static final int NOT_RANKED = -1;
     private static final int DEFAULT_CACHE_LIMIT = 50;
+    /**
+     * E-10：启动快照的行数上限。原实现传 Integer.MAX_VALUE，下游
+     * getRankedPlayers 还对每行调 getPlayerStats 逐人补读（N+1），
+     * 大服启动即全表扫描 + 全员落盘读。1000 行封顶后超出者不在内存榜
+     * （%lle_rank% 显示未上榜），读时查库的大改留 Phase 3。
+     */
+    private static final int RANK_SNAPSHOT_LIMIT = 1000;
 
     private final LetsLearnEnglish plugin;
     private final Map<UUID, Long> scores;
@@ -93,7 +100,8 @@ public class Leaderboard {
                 int rank = 1;
                 for (UUID id : activeIds) {
                     // R-05 补漏：隐身玩家（show_in_square=false）不上榜。
-                    if (!store.getProfileSettings(id).isShowInSquare()) continue;
+                    // L-05 fan-in：改走只读 getProfileSettingsReadOnly，枚举不写副作用建条目。
+                    if (!store.getProfileSettingsReadOnly(id).isShowInSquare()) continue;
                     PlayerDataStore.PlayerStats stats = store.getPlayerStats(id);
                     String name = store.getPlayerName(id);
                     entries.add(new LeaderboardEntry(id, name, stats.getTotalScore(),
@@ -115,6 +123,10 @@ public class Leaderboard {
 
     /**
      * Update a player's score on the in-memory leaderboard.
+     *
+     * <p>R-42：语义为"增量累加"（merge-sum），不是"设值"。
+     * 调用点（WordManagerImpl.endSession）传的是本次会话增量分；
+     * 全量覆盖请走 {@link #loadFromDB()} 启动快照。
      */
     public void updateScore(UUID playerId, long score) {
         scores.merge(playerId, score, Long::sum);
@@ -142,7 +154,7 @@ public class Leaderboard {
     public void loadFromDB() {
         scores.clear();
         try {
-            List<LeaderboardEntry> all = plugin.getPlayerDataStore().getRankedPlayers(Integer.MAX_VALUE);
+            List<LeaderboardEntry> all = plugin.getPlayerDataStore().getRankedPlayers(RANK_SNAPSHOT_LIMIT);
             for (LeaderboardEntry entry : all) {
                 scores.put(entry.playerId, entry.score);
             }

@@ -50,8 +50,9 @@ public class MessageUtil {
      */
     public String getMessage(String key, String... placeholders) {
         FileConfiguration messageConfig = configManager.getMessageConfig();
+        // R-55l：缺 key 回落统一为 zh（与 yml 默认 + ConfigManager 启动语言对齐）。
         String defaultLang = configManager.getMainConfig() != null
-                ? configManager.getMainConfig().getString("general.language", "en") : "en";
+                ? configManager.getMainConfig().getString("general.language", "zh") : "zh";
         String prefix = resolvePrefix(messageConfig, defaultLang);
 
         String message = messageConfig.getString(key);
@@ -80,8 +81,9 @@ public class MessageUtil {
      */
     public String getMessage(String key, Map<String, String> placeholders) {
         FileConfiguration messageConfig = configManager.getMessageConfig();
+        // R-55l：缺 key 回落统一为 zh（同上）。
         String defaultLang = configManager.getMainConfig() != null
-                ? configManager.getMainConfig().getString("general.language", "en") : "en";
+                ? configManager.getMainConfig().getString("general.language", "zh") : "zh";
         String prefix = resolvePrefix(messageConfig, defaultLang);
 
         String message = messageConfig.getString(key);
@@ -158,6 +160,31 @@ public class MessageUtil {
     // ============================================================
 
     /**
+     * R-48/R-52: thin GUI-layer wrapper over {@link FileConfiguration#getString(String)}.
+     *
+     * <p>GUI classes hold a per-language {@code FileConfiguration} whose raw
+     * {@code getString(key)} returns {@code null} on a missing key — the next
+     * {@code .replace(...)}/{@code translateAlternateColorCodes} then NPEs and
+     * the whole inventory fails to open. This helper never returns {@code null}:
+     * on a miss it returns a visible {@code [?key]} placeholder (colour codes are
+     * applied by the caller as before, so the placeholder shows up in-game and the
+     * offending key is obvious instead of silently masked). Deliberately logging-free
+     * — the startup i18n audit ({@link ConfigManager#validateRequiredKeys}) already
+     * covers expected-key diagnostics, and GUI opens are player-facing hot paths.
+     *
+     * @param messages the per-language message config (may itself be null)
+     * @param key      the message key
+     * @return the raw configured value, or {@code [?key]} on any miss — never null
+     */
+    public static String getGuiMsg(FileConfiguration messages, String key) {
+        if (messages == null || key == null) {
+            return "[?" + key + "]";
+        }
+        String value = messages.getString(key);
+        return (value != null) ? value : "[?" + key + "]";
+    }
+
+    /**
      * Fixed, visible placeholder returned when a message key cannot be resolved.
      * It intentionally surfaces the offending key (instead of a plausible-looking
      * sentence) so a missing key is obvious in-game rather than silently masked.
@@ -207,7 +234,8 @@ public class MessageUtil {
 
     private String resolveDefaultLang() {
         FileConfiguration mainConfig = configManager.getMainConfig();
-        return (mainConfig != null) ? mainConfig.getString("general.language", "en") : "en";
+        // R-55l：缺 key 回落统一为 zh（同上）。
+        return (mainConfig != null) ? mainConfig.getString("general.language", "zh") : "zh";
     }
 
     /**

@@ -39,6 +39,13 @@ public class RewardEngine {
      */
     private final Map<UUID, DailyCoins> todayCoinsCache = new ConcurrentHashMap<>();
 
+    /**
+     * R-44 fan-in：{@code progress.economy-disabled} 的 per-player 每自然日去重。
+     * money.enabled=false 但 Vault 存在时，发币入口每天只提示一次，避免每答对一题刷屏。
+     * 条目随自然日用 {@link LocalDate#equals} 判新鲜，跨天自动失效（无需清理）。
+     */
+    private final Map<UUID, LocalDate> economyDisabledNotified = new ConcurrentHashMap<>();
+
     /** 当日金币累计条目：日期 + 累计分。 */
     private static final class DailyCoins {
         volatile LocalDate date;
@@ -56,6 +63,24 @@ public class RewardEngine {
     private boolean isMoneyEnabled() {
         return plugin.getConfigManager().getMainConfig()
                 .getBoolean("progress-system.rewards.types.money.enabled", false);
+    }
+
+    /**
+     * R-44 fan-in：money.enabled=false 但 Vault 在时，告知玩家经济未启用（学习进度照常记录），
+     * per-player 每自然日仅提示一次。四个发币入口的 {@code !isMoneyEnabled()} 早退处调用。
+     * {@code eco==null}（无 Vault）不走此路径 —— 没有经济系统可言，静默即可。
+     */
+    private void notifyEconomyDisabledOncePerDay(Player player) {
+        UUID id = player.getUniqueId();
+        LocalDate today = LocalDate.now();
+        // put 返回旧值；旧值即今日说明今天已提示过，直接返回（主线程调用，无竞态）
+        if (today.equals(economyDisabledNotified.put(id, today))) {
+            return;
+        }
+        String msg = plugin.getMessageUtil().getPlayerMessage(player, "progress.economy-disabled");
+        if (msg != null && !msg.isEmpty()) {
+            player.sendMessage(msg);
+        }
     }
 
     /**
@@ -202,6 +227,44 @@ public class RewardEngine {
     }
 
     /**
+     * R-34：挑战/签到等"固定额"奖励的 public 发币门面——纳入 {@code money.daily-cap}。
+     *
+     * <p>此前每日挑战（{@code DailyChallengeManager.depositWordChallengeReward}、
+     * {@code MiscGUIListener.depositChallengeReward}）与签到（{@code CheckInManager.giveCoins}）
+     * 各自 {@code eco.depositPlayer} 直发，绕过了金币日限与今日金币记账
+     * （{@code todayCoinsCache}），玩家可借此刷爆 cap。改走此门面后：
+     * <ol>
+     *   <li>经 {@link #clampToDailyCap} 过 {@code money.daily-cap}（超限部分不发并提示玩家）；</li>
+     *   <li>成功后 {@code recordCoinsEarned}（lifetime 统计）+ {@link #addTodayCoinsEarned}
+     *       （今日记账，使后续答题发币也看得到这笔已发额）。</li>
+     * </ol>
+     *
+     * <p>注意：这里<strong>只过金币门，不过答题数门</strong>——{@code word-system.daily-limit}
+     * 是"答题数"语义，对领奖/签到无意义，故调 {@link #clampToDailyCap} 而非
+     * {@link #checkDailyCaps}。{@code money.enabled} 开关由各调用方按既有策略自行把关
+     * （签到保留其 enabled 预检；挑战沿用"有 Vault 即发"的既有行为）。
+     *
+     * @param player the player to pay
+     * @param amount the intended reward amount
+     * @return 实际入账金额（0 = 无 Vault / 金额非正 / cap 已满 / 转账失败，调用方以 &gt;0 视为已付）
+     */
+    public double depositCappedReward(Player player, double amount) {
+        Economy eco = getEconomy();
+        if (eco == null || amount <= 0) return 0;
+        double pay = clampToDailyCap(player, amount);
+        if (pay <= 0) return 0;
+        EconomyResponse response = eco.depositPlayer(player, pay);
+        if (response.transactionSuccess()) {
+            plugin.getDatabaseManager().recordCoinsEarned(player.getUniqueId(), pay);
+            addTodayCoinsEarned(player.getUniqueId(), pay);
+            return pay;
+        }
+        plugin.getLogger().warning("Failed to deposit capped reward for "
+                + player.getName() + ": " + response.errorMessage);
+        return 0;
+    }
+
+    /**
      * Give a money reward for a single correct answer.
      * Called when player answers a word correctly.
      * If the word has a custom reward (&gt;0), use it directly (no combo multiplier).
@@ -213,7 +276,11 @@ public class RewardEngine {
      */
     public void giveMoneyForCorrectAnswer(Player player, double comboMultiplier, Word word) {
         Economy eco = getEconomy();
-        if (eco == null || !isMoneyEnabled()) return;
+        if (eco == null) return;
+        if (!isMoneyEnabled()) {
+            notifyEconomyDisabledOncePerDay(player);
+            return;
+        }
         if (!checkDailyCaps(player)) return;
 
         double amount;
@@ -256,7 +323,11 @@ public class RewardEngine {
      */
     public void giveSessionCompleteMoneyReward(Player player, int maxComboReached) {
         Economy eco = getEconomy();
-        if (eco == null || !isMoneyEnabled()) return;
+        if (eco == null) return;
+        if (!isMoneyEnabled()) {
+            notifyEconomyDisabledOncePerDay(player);
+            return;
+        }
         if (!checkDailyCaps(player)) return;
 
         double sessionBonus = plugin.getConfigManager().getMainConfig()
@@ -299,7 +370,11 @@ public class RewardEngine {
      */
     public void giveMoneyForReviewCorrect(Player player, double comboMultiplier, Word word) {
         Economy eco = getEconomy();
-        if (eco == null || !isMoneyEnabled()) return;
+        if (eco == null) return;
+        if (!isMoneyEnabled()) {
+            notifyEconomyDisabledOncePerDay(player);
+            return;
+        }
         if (!checkDailyCaps(player)) return;
 
         double amount;
@@ -388,7 +463,11 @@ public class RewardEngine {
     public void giveStoppedSessionMoneyReward(Player player, int maxComboReached,
                                                int answered, int total) {
         Economy eco = getEconomy();
-        if (eco == null || !isMoneyEnabled()) return;
+        if (eco == null) return;
+        if (!isMoneyEnabled()) {
+            notifyEconomyDisabledOncePerDay(player);
+            return;
+        }
         if (total <= 0) return;
 
         if (answered <= STOPPED_MIN_ANSWERS_FOR_REWARD) {

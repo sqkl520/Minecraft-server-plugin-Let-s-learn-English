@@ -9,6 +9,7 @@ import com.letslearnenglish.minecraftplugin.gui.DailyChallengeGUI;
 import com.letslearnenglish.minecraftplugin.gui.LearningCalendarGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.ProfileGUI;
+import com.letslearnenglish.minecraftplugin.gui.WordBankSelectGUI;
 import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -102,18 +103,28 @@ public class MiscGUIListener implements Listener {
             new MainMenu(plugin).open(player);
             return;
         }
-        if (slot >= 10 && slot <= 16) {
-            List<String> banks = new ArrayList<>(plugin.getWordManager().getAvailableDifficulties());
-            int index = slot - 10;
-            if (index >= 0 && index < banks.size()) {
-                SoundManager.playSound(player, "menu-click");
-                String difficulty = banks.get(index);
-                plugin.getWordLearningManager().startQuiz(player, difficulty, "choice");
-                new WordLearningGUI(plugin).openWithMessage(player, difficulty, "choice");
-                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                        "word.session-start", "difficulty", difficulty, "mode", "choice"));
-            }
+        if (slot < WordBankSelectGUI.BANK_SLOT_START
+                || slot >= WordBankSelectGUI.BANK_SLOT_START + WordBankSelectGUI.BANK_SLOT_COUNT) {
+            return;
         }
+        // R-53 fan-in：与 GUI 同序（getAvailableDifficulties 的 TreeSet 快照）、同截断。
+        List<String> banks = new ArrayList<>(plugin.getWordManager().getAvailableDifficulties());
+        boolean hasMore = banks.size() > WordBankSelectGUI.BANK_SLOT_COUNT;
+        int moreSlot = WordBankSelectGUI.BANK_SLOT_START + WordBankSelectGUI.BANK_SLOT_COUNT - 1;
+        // R-49/R-53：尾槽"更多词库…"提示点击当 no-op（仅播音），不反算打开被隐藏的词库
+        if (hasMore && slot == moreSlot) {
+            SoundManager.playSound(player, "menu-click");
+            return;
+        }
+        int shownCount = hasMore ? WordBankSelectGUI.BANK_SLOT_COUNT - 1 : banks.size();
+        int index = slot - WordBankSelectGUI.BANK_SLOT_START;
+        if (index < 0 || index >= shownCount) return;
+        SoundManager.playSound(player, "menu-click");
+        String difficulty = banks.get(index);
+        plugin.getWordLearningManager().startQuiz(player, difficulty, "choice");
+        new WordLearningGUI(plugin).openWithMessage(player, difficulty, "choice");
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                "word.session-start", "difficulty", difficulty, "mode", "choice"));
     }
 
     private void handleLearningCalendar(Player player, int slot) {
@@ -192,12 +203,17 @@ public class MiscGUIListener implements Listener {
     }
 
     /**
-     * Transfer a behavioral-challenge reward via Vault. Stats are recorded
-     * only when money actually arrived.
+     * R-34/F1-23: route the behavioral-challenge payout through
+     * {@link com.letslearnenglish.minecraftplugin.core.progress.RewardEngine#depositCappedReward}
+     * so it obeys {@code money.daily-cap} and updates the today-coins ledger, and so coin
+     * stats are recorded inside the reward layer — this listener no longer calls Vault or
+     * {@code DatabaseManager.recordCoinsEarned} directly. Returns the actual amount paid;
+     * {@code >0} means money arrived (caller marks claimed), {@code 0} on no-Vault / cap /
+     * failure keeps the reward unclaimed and re-claimable (M12 preserved).
      *
      * @param player the player
      * @param reward the reward amount
-     * @return true only if the deposit succeeded
+     * @return true only if money actually arrived (paid &gt; 0)
      */
     private boolean depositChallengeReward(Player player, double reward) {
         var eco = plugin.getEconomy();
@@ -206,14 +222,8 @@ public class MiscGUIListener implements Listener {
                     + " for " + player.getName() + " not paid: Vault economy unavailable");
             return false;
         }
-        var response = eco.depositPlayer(player, reward);
-        if (response.transactionSuccess()) {
-            plugin.getDatabaseManager().recordCoinsEarned(player.getUniqueId(), reward);
-            return true;
-        }
-        plugin.getLogger().warning("Daily challenge reward deposit failed for "
-                + player.getName() + ": " + response.errorMessage);
-        return false;
+        double paid = plugin.getProgressManager().getRewardEngine().depositCappedReward(player, reward);
+        return paid > 0;
     }
 
     private void handleChallengeComplete(Player player, int slot) {
@@ -221,8 +231,45 @@ public class MiscGUIListener implements Listener {
             SoundManager.playSound(player, "menu-click");
             // F1-09: slot 22 is the "reward already arrived, back to menu"
             // button (NOT a claim action — payout happened before this page
-            // opened). Both slots just return to the main menu.
-            new MainMenu(plugin).open(player);
+            // opened).
+            // R-55: 庆祝页返回改走 popBack（有栈回栈、无栈回主菜单），
+            // 与 DailyChallenge 的 slot 8 返回语义一致，不再绕栈直开主菜单。
+            GuiNavigationManager nav = plugin.getGuiNavigationManager();
+            Runnable backAction = nav.popBack(player.getUniqueId(),
+                    () -> new MainMenu(plugin).open(player));
+            backAction.run();
+        }
+    }
+
+    /**
+     * R-55e: 拖拽 guard（抄 DuelGUIListener / MainMenuListener 的上半区模式）。
+     *
+     * 拖拽是独立事件，点击的 setCancelled(true) 拦不住它 —— 不拦的话
+     * 本监听器辖下各 GUI（隐私设置/词库选择/过往学习/每日挑战/庆祝页）
+     * 的展示物品可被拖进玩家背包。
+     *
+     * 标题白名单与 onInventoryClick 入口保持一致；只在拖拽触及界面
+     * 上半部分时取消，玩家整理自己背包不受影响。
+     */
+    @EventHandler
+    public void onInventoryDrag(org.bukkit.event.inventory.InventoryDragEvent event) {
+        String title = event.getView().getTitle();
+        if (title == null) return;
+
+        if (!title.contains("Privacy Settings") && !title.contains("隐私设置")
+                && !title.contains("Select Word Bank") && !title.contains("选择词库")
+                && !title.contains("过往学习") && !title.contains("Study History")
+                && !title.contains("Daily Challenge") && !title.contains("每日挑战")
+                && !title.contains("Challenge Complete") && !title.contains("挑战完成")) {
+            return;
+        }
+
+        int topSize = event.getView().getTopInventory().getSize();
+        for (int rawSlot : event.getRawSlots()) {
+            if (rawSlot < topSize) {
+                event.setCancelled(true);
+                return;
+            }
         }
     }
 }
