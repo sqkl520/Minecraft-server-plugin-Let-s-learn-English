@@ -92,6 +92,8 @@ public class Leaderboard {
                 entries = new ArrayList<>();
                 int rank = 1;
                 for (UUID id : activeIds) {
+                    // R-05 补漏：隐身玩家（show_in_square=false）不上榜。
+                    if (!store.getProfileSettings(id).isShowInSquare()) continue;
                     PlayerDataStore.PlayerStats stats = store.getPlayerStats(id);
                     String name = store.getPlayerName(id);
                     entries.add(new LeaderboardEntry(id, name, stats.getTotalScore(),

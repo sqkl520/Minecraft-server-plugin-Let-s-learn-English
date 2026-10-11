@@ -17,11 +17,14 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Listener for English Square, Profile, and Achievement Wall GUI interactions.
@@ -33,8 +36,16 @@ import java.util.UUID;
 public class SocialListener implements Listener {
 
     private final LetsLearnEnglish plugin;
-    private EnglishSquareGUI lastSquareGui;
-    private LeaderboardGUI lastLeaderboardGui;
+
+    /**
+     * R-09b: 每位查看者各自的 GUI 快照（按 viewer UUID 分键）。
+     *
+     * 旧代码用两个全局单例字段存"最后打开的 GUI"：A 开广场后 B 再开，
+     * A 的点击会复用 B 的玩家列表（跨玩家串号）。分键后每人只读自己的快照。
+     * 退出时清理条目（见 onPlayerQuit），防 Map 无限增长。
+     */
+    private final Map<UUID, EnglishSquareGUI> squareGuis = new ConcurrentHashMap<>();
+    private final Map<UUID, LeaderboardGUI> leaderboardGuis = new ConcurrentHashMap<>();
 
     /** Player head slots: rows 2-5, skipping first and last columns */
     private static final int[] SQUARE_PLAYER_SLOTS = {
@@ -58,6 +69,13 @@ public class SocialListener implements Listener {
 
     /** 广场里「查看者自己的头像」槽位（EnglishSquareGUI 写死 slot 0，无配置项）。 */
     private static final int SQUARE_OWN_HEAD_SLOT = 0;
+    /**
+     * R-09d 笑话页识别：openHidden 建 27 格小箱子，open 建 54 格大箱子，
+     * 标题却都含"英语广场"/"English Square"。按尺寸分流，不靠标题猜。
+     */
+    private static final int HIDDEN_JOKE_GUI_SIZE = 27;
+    /** 笑话页药水槽位（openHidden 写死 slot 13，无配置项）。 */
+    private static final int HIDDEN_JOKE_POTION_SLOT = 13;
     /** ProfileGUI 的其余固定槽位（GUI 写死，无配置项）。 */
     private static final int PROFILE_CALENDAR_SLOT = 0;
     private static final int PROFILE_ACHIEVEMENT_SLOT = 18;
@@ -65,6 +83,17 @@ public class SocialListener implements Listener {
 
     public SocialListener(LetsLearnEnglish plugin) {
         this.plugin = plugin;
+    }
+
+    /**
+     * R-09b: 玩家退出时清理其 GUI 快照条目，防 Map 无限增长。
+     * （PlayerJoinListener 不在本流白名单内，故在此自包含处理。）
+     */
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        UUID id = event.getPlayer().getUniqueId();
+        squareGuis.remove(id);
+        leaderboardGuis.remove(id);
     }
 
     @EventHandler
@@ -81,6 +110,13 @@ public class SocialListener implements Listener {
                 && !title.contains("Achievement Wall") && !title.contains("成就墙")) {
             return;
         }
+
+        // R-01/R-22: 只处理上半区（Top 容器）点击。玩家背包（下半区）直接 return
+        // 且不 cancel，玩家开着 GUI 也能正常整理背包。
+        if (event.getClickedInventory() == null) return;
+        int topSize = event.getView().getTopInventory().getSize();
+        int rawSlot = event.getRawSlot();
+        if (rawSlot < 0 || rawSlot >= topSize) return;
 
         event.setCancelled(true);
         if (event.getCurrentItem() == null) return;
@@ -100,9 +136,26 @@ public class SocialListener implements Listener {
     }
 
     private void handleEnglishSquareGUI(Player player, int slot, String title) {
+        ConfigManager cm = plugin.getConfigManager();
+
+        // R-09d: 笑话页与广场主页同标题，按库存尺寸分流。
+        // 笑话页只有返回键 + 中央药水：药水只发一行提示，绝不打开任何玩家主页。
+        if (player.getOpenInventory().getTopInventory().getSize() <= HIDDEN_JOKE_GUI_SIZE) {
+            int jokeBackSlot = cm.getGuiSlot("english-square", "back-button", 8);
+            if (slot == jokeBackSlot) {
+                SoundManager.playSound(player, "menu-click");
+                squareGuis.remove(player.getUniqueId());
+                new MainMenu(plugin).open(player);
+            } else if (slot == HIDDEN_JOKE_POTION_SLOT) {
+                SoundManager.playSound(player, "menu-click");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "square.hidden-lore"));
+            }
+            return;
+        }
+
         GuiNavigationManager nav = plugin.getGuiNavigationManager();
         PlayerDataStore store = plugin.getPlayerDataStore();
-        ConfigManager cm = plugin.getConfigManager();
 
         // 槽位一律读 gui-layout 配置（EnglishSquareGUI 渲染时也读同一份配置）
         int backSlot = cm.getGuiSlot("english-square", "back-button", 8);
@@ -114,11 +167,13 @@ public class SocialListener implements Listener {
         int modeAllSlot = cm.getGuiSlot("english-square", "mode-all", 5);
 
         // Determine mode and player list early (needed for slot 0 and head clicks)
+        // R-09b: 只读自己的快照 —— 别人的列表与自己看到的页/模式完全无关
         RankingMode currentMode;
         List<UUID> playerIds;
-        if (lastSquareGui != null) {
-            currentMode = lastSquareGui.getCurrentMode();
-            playerIds = lastSquareGui.getCurrentPlayerIds();
+        EnglishSquareGUI myGui = squareGuis.get(player.getUniqueId());
+        if (myGui != null) {
+            currentMode = myGui.getCurrentMode();
+            playerIds = myGui.getCurrentPlayerIds();
         } else {
             currentMode = RankingMode.ALL_PLAYERS;
             List<UUID> raw = store.getActivePlayerIds();
@@ -134,7 +189,7 @@ public class SocialListener implements Listener {
 
         if (slot == backSlot) {
             SoundManager.playSound(player, "menu-click");
-            lastSquareGui = null;
+            squareGuis.remove(player.getUniqueId());
             new MainMenu(plugin).open(player);
             return;
         }
@@ -146,6 +201,7 @@ public class SocialListener implements Listener {
             nav.pushBack(player.getUniqueId(), () -> {
                 EnglishSquareGUI backGui = new EnglishSquareGUI(plugin);
                 backGui.open(player, cp, cmode);
+                squareGuis.put(player.getUniqueId(), backGui);
             });
             new ProfileGUI(plugin).open(player, player.getUniqueId());
             return;
@@ -163,19 +219,22 @@ public class SocialListener implements Listener {
         }
         if (toggledMode != null) {
             SoundManager.playSound(player, "menu-click");
-            lastSquareGui = new EnglishSquareGUI(plugin);
-            lastSquareGui.open(player, 1, toggledMode);
+            EnglishSquareGUI newGui = new EnglishSquareGUI(plugin);
+            newGui.open(player, 1, toggledMode);
+            squareGuis.put(player.getUniqueId(), newGui);
             return;
         }
 
         if (slot == prevSlot) {
             SoundManager.playSound(player, "menu-click");
-            lastSquareGui = new EnglishSquareGUI(plugin);
-            lastSquareGui.open(player, Math.max(1, page - 1), currentMode);
+            EnglishSquareGUI prevGui = new EnglishSquareGUI(plugin);
+            prevGui.open(player, Math.max(1, page - 1), currentMode);
+            squareGuis.put(player.getUniqueId(), prevGui);
         } else if (slot == nextSlot) {
             SoundManager.playSound(player, "menu-click");
-            lastSquareGui = new EnglishSquareGUI(plugin);
-            lastSquareGui.open(player, page + 1, currentMode);
+            EnglishSquareGUI nextGui = new EnglishSquareGUI(plugin);
+            nextGui.open(player, page + 1, currentMode);
+            squareGuis.put(player.getUniqueId(), nextGui);
         } else {
             int slotIdx = getPlayerSlotIndexOnSquare(slot);
             if (slotIdx < 0) return;
@@ -189,6 +248,7 @@ public class SocialListener implements Listener {
             nav.pushBack(player.getUniqueId(), () -> {
                 EnglishSquareGUI backGui = new EnglishSquareGUI(plugin);
                 backGui.open(player, cp, cmode);
+                squareGuis.put(player.getUniqueId(), backGui);
             });
             PlayerDataStore.ProfileSettings ps = store.getProfileSettings(targetId);
             if (ps.isShowInSquare()) {
@@ -263,7 +323,7 @@ public class SocialListener implements Listener {
         // Back button
         if (slot == backSlot) {
             SoundManager.playSound(player, "menu-click");
-            lastLeaderboardGui = null;
+            leaderboardGuis.remove(player.getUniqueId());
             new MainMenu(plugin).open(player);
             return;
         }
@@ -279,8 +339,9 @@ public class SocialListener implements Listener {
         }
         if (tab >= 0) {
             SoundManager.playSound(player, "menu-click");
-            lastLeaderboardGui = new LeaderboardGUI(plugin);
-            lastLeaderboardGui.open(player, tab);
+            LeaderboardGUI tabGui = new LeaderboardGUI(plugin);
+            tabGui.open(player, tab);
+            leaderboardGuis.put(player.getUniqueId(), tabGui);
             return;
         }
 
@@ -288,7 +349,8 @@ public class SocialListener implements Listener {
         int entryIndex = getLeaderboardSlotIndex(slot);
         if (entryIndex < 0) return;
 
-        LeaderboardGUI gui = lastLeaderboardGui;
+        // R-09b: 只读自己的快照
+        LeaderboardGUI gui = leaderboardGuis.get(player.getUniqueId());
         if (gui == null) return;
 
         List<UUID> playerIds = gui.getDisplayedPlayerIds();
@@ -300,8 +362,17 @@ public class SocialListener implements Listener {
         nav.pushBack(player.getUniqueId(), () -> {
             LeaderboardGUI backGui = new LeaderboardGUI(plugin);
             backGui.open(player, currentTab);
+            leaderboardGuis.put(player.getUniqueId(), backGui);
         });
-        new ProfileGUI(plugin).open(player, targetId);
+        // R-05：与广场点击分支同语义 —— 看别人主页先查 showInSquare，
+        // 隐身者进 openHidden 笑话页；看自己主页不受影响。
+        if (targetId.equals(player.getUniqueId())) {
+            new ProfileGUI(plugin).open(player, targetId);
+        } else if (plugin.getPlayerDataStore().getProfileSettings(targetId).isShowInSquare()) {
+            new ProfileGUI(plugin).open(player, targetId);
+        } else {
+            new EnglishSquareGUI(plugin).openHidden(player, targetId);
+        }
     }
 
     private int getLeaderboardSlotIndex(int slot) {
@@ -332,7 +403,8 @@ public class SocialListener implements Listener {
      * 规则：
      * 1. 取**最长的匹配名字** —— 昵称互为前缀时（如 Bob / Bobby），
      *    短名会命中长名的主页标题，只取第一个命中就会把操作作用到错误的玩家身上。
-     * 2. 候选集合 = PlayerDataStore 的 profile 缓存 + 当前排行榜/广场列表里展示过的玩家 ——
+     * 2. 候选集合 = PlayerDataStore 的 profile 缓存 + 查看者自己快照里展示过的玩家 ——
+     *    （R-09b：只补自己的快照，别人的展示列表与这张主页无关）
      *    玩家在你看他主页的期间退出（QuitEvent 会 unloadProfileSettings 把对方从缓存摘掉）时，
      *    补上展示列表仍能反查出正确的人，而不是解析失败。
      * 3. 解析不出来时返回 {@code null}（而不是静默回落到查看者自己）——
@@ -344,13 +416,15 @@ public class SocialListener implements Listener {
     private UUID extractTargetIdFromTitle(Player viewer, String title) {
         PlayerDataStore store = plugin.getPlayerDataStore();
 
-        // 候选集合：profile 缓存里的玩家优先，再补上当前展示列表里的玩家
+        // 候选集合：profile 缓存里的玩家优先，再补上查看者自己快照里的玩家
         LinkedHashSet<UUID> candidates = new LinkedHashSet<>(store.getActivePlayerIds());
-        if (lastLeaderboardGui != null) {
-            candidates.addAll(lastLeaderboardGui.getDisplayedPlayerIds());
+        LeaderboardGUI myBoard = leaderboardGuis.get(viewer.getUniqueId());
+        if (myBoard != null) {
+            candidates.addAll(myBoard.getDisplayedPlayerIds());
         }
-        if (lastSquareGui != null) {
-            candidates.addAll(lastSquareGui.getCurrentPlayerIds());
+        EnglishSquareGUI mySquare = squareGuis.get(viewer.getUniqueId());
+        if (mySquare != null) {
+            candidates.addAll(mySquare.getCurrentPlayerIds());
         }
 
         UUID bestMatch = null;

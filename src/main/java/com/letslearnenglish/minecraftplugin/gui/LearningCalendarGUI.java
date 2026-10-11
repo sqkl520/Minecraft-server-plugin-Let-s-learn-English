@@ -89,8 +89,11 @@ public class LearningCalendarGUI {
         Map<String, Integer> dayData = plugin.getPlayerDataStore().getSessionDays(player.getUniqueId(), 35);
         LocalDate today = LocalDate.now();
         LocalDate startDate = today.minusDays(34); // 35-day window including today
-        // Align grid start to Monday of startDate's week
-        LocalDate gridStart = startDate.with(DayOfWeek.MONDAY);
+        // Anchor grid to today: start at Monday of today's week, 4 weeks back.
+        // The 5 full weeks then always end on Sunday of today's week, so today
+        // (and all recent days) fall inside the grid; only the oldest head days
+        // (up to 6) may fall outside when the week doesn't align with [today-34, today].
+        LocalDate gridStart = today.with(DayOfWeek.MONDAY).minusWeeks(4);
 
         String noActivity = getCalendarMsg(msg, "legend-no-activity");
         String light = getCalendarMsg(msg, "legend-light");

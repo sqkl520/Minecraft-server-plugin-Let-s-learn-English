@@ -303,7 +303,9 @@ public class AchievementManager {
     }
 
     /**
-     * Unload achievement data from cache (called on player quit).
+     * Unload achievement data from cache (called on player quit, and by
+     * {@code /lea reset} before wiping the achievements rows — R-03：不清此缓存，
+     * {@link #tryUnlock} 的 contains 会命中旧内存态，"删掉的成就"在残留会话里复活）。
      */
     public void unloadPlayer(UUID playerId) {
         unlockedCache.remove(playerId);

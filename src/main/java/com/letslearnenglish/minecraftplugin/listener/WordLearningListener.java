@@ -61,6 +61,13 @@ public class WordLearningListener implements Listener {
             return;
         }
 
+        // R-01 补漏：只处理上半区（Top 容器）点击。玩家背包（下半区）直接 return
+        // 且不 cancel，玩家开着 GUI 也能正常整理背包。
+        if (event.getClickedInventory() == null) return;
+        int topSize = event.getView().getTopInventory().getSize();
+        int rawSlot = event.getRawSlot();
+        if (rawSlot < 0 || rawSlot >= topSize) return;
+
         event.setCancelled(true);
         if (event.getCurrentItem() == null) return;
         if (!(event.getWhoClicked() instanceof Player player)) return;

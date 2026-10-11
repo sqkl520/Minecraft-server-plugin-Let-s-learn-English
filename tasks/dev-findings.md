@@ -6,6 +6,82 @@
 
 ---
 
+## 批次：P0 高危修复（6 流 + 合流测试 GO）
+
+> P0 12 条（R-01~R-09 + R-09b/c/d）全部修复，合流测试 verdict：GO，零阻断。
+> 各流上报的任务外发现归档如下（一律未修）。
+
+### 来自流 1（背包误触）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| 已关闭 | 4 处同类不分区残留（ChatHistory/ScenarioSelect/WordLearning/WrongBookListener） | 与 R-01 同病 | 同根 | 高 | 已关闭（编排者 fan-in 时按统一模式补修） |
+
+### 来自流 3（社交串号）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| F3-01 | `LearnCommand` 命令直开榜单/广场 | 不登记快照：排行榜点头像无反应（与 L-02 同事项）；广场 fallback 重建 ALL_PLAYERS 语义可能与所见页错位 | 命令入口不登记 | 中 | 待排期（P1：命令入口补登记或监听器加无快照兜底） |
+| F3-02 | 笑话页返回 | 直达主菜单而非返回栈（与旧行为一致，刻意保持） | 旧行为 | 低 | 待排期（如产品要"回广场原页"需记页码/模式） |
+| F3-03 | 词库展示顺序 | TreeSet 后为字母序（advanced 排第一），非"初级→中级→高级"语义序 | 排序选型 | 低 | 待排期（Phase 3 polish：显式排序表） |
+| F3-04 | R-09d 尺寸分流约束 | 若未来 openHidden 改 54 格会重新塌回主页分支（约束已写注释） | 尺寸耦合 | 低 | 已记录（code-review 关注点） |
+
+### 来自流 4（隐私与场景）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| 已关闭 | 广场内周/月/总榜仍列隐身者 | getRankedPlayers 未过滤 | 同根残留 | 高 | 已关闭（编排者 fan-in 时补：双方法 SQL 过滤 + ALL_PLAYERS 装配跳过） |
+| F4-01 | `AIChatManager.buildSystemPrompt(ownerId)` | 重启后首次纯命令进个人场景 prompt 回落通用句（不走懒加载） | 读内存不触发加载 | 低 | 待排期 |
+| F4-02 | ScenarioSelectGUI 7 格上限 | 个人场景 ≥2 个时 slot 17 玻璃可点，开启"看不见"的场景 | 无分页/扩容 | 低 | 待排期（GUI 分页范畴） |
+| F4-03 | `getPersonalScenarios` 返回活引用 | 暂无写入方，安全但属潜在污染面 | API 设计 | 低 | 待排期 |
+| F4-04 | 他人成就墙无独立隐私检查 | 目前无直达命令（依赖主页入口守卫），暂无绕过路径 | 纵深缺失 | 低 | 待排期（判断是否需要纵深检查） |
+
+### 来自流 5（数据崩溃）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| F5-01 | `resolvePlayerUUID` 幂等缺口 | reset 删了 player_data 行后，再对同一离线玩家 reset 报 not found（半删状态无法补删） | 解析与被删数据同表 | 低 | 待排期（改走 getOfflinePlayer 或独立 UUID 映射） |
+| F5-02 | `AdminCommandHandler.addWord` | chinese 空串不断言，写入后下次加载被跳过但管理员无感知 | 入口无校验 | 低 | 待排期（加空校验 + i18n 提示） |
+| F5-03 | deletePlayerData 与自动保存竞态 | reset 后 persistLongestStreak/recordCoinsEarned 可能重建残行（重进覆盖，影响极小） | 时序 | 低 | 待排期（备查） |
+| F5-04 | `clearCache()` 不清今日计数器 | reload 后防刷上限残留（"reload 不重置防刷"语义可接受但反直觉） | 语义未对齐 | 低 | 待排期（与 D-10 reload 语义分裂一并定） |
+
+### 来自流 6（日历二确）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| F6-01 | `MainMenuListener.java:170-173` vs `:150-154` | stage1 确认 2-tick 延迟 reopen 与取消竞态：点了取消仍被拽回二确第二页 | 延迟体内无 stage 校验 | 中 | 待排期（P1 D-04 批次一并收敛） |
+| F6-02 | `ConfirmationGUI.isConfirmGUI` 标题子串匹配 | 未来他 GUI 标题含 Confirm/确认会被误判 | 匹配过宽 | 低 | 待排期 |
+
+### 来自流 2 重跑（领取幂等）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| F2R-01 | `hasPendingWordRewardForDate` 时序契约 | "必须在 clearAllWordChallengeClaims 前调用"是隐式契约，调错顺序误判 | 契约隐式 | 低 | 待排期 |
+| F2R-02 | `onWordCorrect` pending 重试 return | 补发失败时本次答对的挑战词不走标记（好在已在全完成集合内，无实际丢失） | 重试与标记耦合 | 低 | 待排期 |
+| F2R-03 | `getTodayChallenges` 无 ORDER BY | 领取 idx 下标与展示可能错位（与 R-33 同根） | 无稳定排序 | 中 | 待排期（P1 R-33 一并修：加 ORDER BY challenge_id） |
+
+### 来自合流测试（建议级，非阻塞）
+
+| # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
+|---|------|------|----------|------|------|
+| T0-01 | 6 处监听器缺 onInventoryDrag guard | Shift+拖拽可带出展示物（仅 DuelGUI/MainMenu 有） | 漏 guard | 低 | 待排期（P1 R-55e/L-10 同事项，合并修） |
+| T0-02 | `clearCache()` 漏清今日计数器 + profile 缓存 | reload 后沿用旧内存值 | 清理不全 | 低 | 待排期（与 F5-04/D-10 一并定 reload 语义） |
+| T0-03 | `SocialListener` 无快照回退重建未过滤隐身 | 与渲染错位但点击仍查开关，只进笑话页不泄主页 | 回退路径漏过滤 | 低 | 待排期 |
+| T0-04 | `loadPlayerLanguages` 缺省 en vs `getPlayerLanguage` 缺省 zh | 默认语言不一致 | fallback 未统一 | 低 | 待排期（与 R-55l 一并定） |
+
+### 本批次语义裁决记录（已定，无需再议）
+
+- GUI 分区判断统一模式 = `getClickedInventory()==null → return；rawSlot<0 或 >=topSize → return；确认上半区后才 cancel`（8 个监听器全覆盖）。
+- 领取防重 = per-player 32 槽条纹锁串行化（Listener 层锁内重读 + Manager 层 guarded UPDATE 双防线，L→M 单向不死锁），失败可重领语义保留。
+- 庆祝双条件 = `allDone && paid`（paid 读内存标记零 DB 开销），pending 时只提示不开页。
+- 社交快照 = 按 viewer UUID 分键双 Map + quit 清理；笑话页按 inventory 尺寸（27/54）分流；词库顺序 = TreeSet 字母序快照。
+- 隐私口径 = GUI 装配过滤 + SQL LEFT JOIN 过滤 + 点击守卫 + 命令直达检查四层；`/le profile` 隐身回聊天提示不开界面。
+- reset = 12 表 + quit 语义内存清理（QuizState→落盘→成就缓存→删表，不可调序）；今日计数器 quit/reset 即时归零。
+- 日历锚点 = `today.with(MONDAY).minusWeeks(4)` 保尾部；二确语言 = per-player (stage, targetLang) 二元组存储。
+- messages 版本 = v9（三处对齐）。
+
+---
+
 ## 批次：Phase 2 复活（4 流 + 合流测试）
 
 > 合流测试 verdict：GO。阻断项为零。以下为本批次上报的任务外发现，一律未修（除注明"已顺手收"两条）。

@@ -75,10 +75,12 @@ public class EnglishSquareGUI {
 
         List<LeaderboardEntry> rankedEntries;
         if (mode == RankingMode.ALL_PLAYERS) {
-            // Original mode: show active players (include self if answered at least once)
+            // Original mode: show active players (include self if answered at least once).
+            // R-05 补漏：隐身玩家（show_in_square=false）不列出。
             List<UUID> allPlayers = store.getActivePlayerIds();
             currentPlayerIds = new ArrayList<>();
             for (UUID id : allPlayers) {
+                if (!store.getProfileSettings(id).isShowInSquare()) continue;
                 PlayerDataStore.PlayerStats s = store.getPlayerStats(id);
                 if (s.getTotalCorrect() + s.getTotalIncorrect() > 0) {
                     currentPlayerIds.add(id);
@@ -167,30 +169,29 @@ public class EnglishSquareGUI {
         }
 
         // ---- Pagination ----
-        boolean pageFull = (endIdx - startIdx) >= PLAYERS_PER_PAGE;
-        if (pageFull) {
-            if (page > 1) {
-                String prevLabel = ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("square.prev-page"));
-                String prevLore = ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("square.prev-page-lore")
-                                .replace("{page}", String.valueOf(page - 1)));
-                int prevSlot = cm.getGuiSlot("english-square", "prev-page", 47);
-                Material prevMaterial = cm.getGuiMaterial("english-square", "prev-page", Material.ARROW);
-                inv.setItem(prevSlot, createItem(prevMaterial, prevLabel,
-                        Collections.singletonList(prevLore)));
-            }
-            if (page < totalPages) {
-                String nextLabel = ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("square.next-page"));
-                String nextLore = ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("square.next-page-lore")
-                                .replace("{page}", String.valueOf(page + 1)));
-                int nextSlot = cm.getGuiSlot("english-square", "next-page", 51);
-                Material nextMaterial = cm.getGuiMaterial("english-square", "next-page", Material.ARROW);
-                inv.setItem(nextSlot, createItem(nextMaterial, nextLabel,
-                        Collections.singletonList(nextLore)));
-            }
+        // R-36: 上一页/下一页各自独立门禁（上一页只看 page>1，下一页只看 page<totalPages）。
+        // 旧 pageFull 联合门禁会让不满的尾页两按钮都不放，玩家卡死翻不回去。
+        if (page > 1) {
+            String prevLabel = ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("square.prev-page"));
+            String prevLore = ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("square.prev-page-lore")
+                            .replace("{page}", String.valueOf(page - 1)));
+            int prevSlot = cm.getGuiSlot("english-square", "prev-page", 47);
+            Material prevMaterial = cm.getGuiMaterial("english-square", "prev-page", Material.ARROW);
+            inv.setItem(prevSlot, createItem(prevMaterial, prevLabel,
+                    Collections.singletonList(prevLore)));
+        }
+        if (page < totalPages) {
+            String nextLabel = ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("square.next-page"));
+            String nextLore = ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("square.next-page-lore")
+                            .replace("{page}", String.valueOf(page + 1)));
+            int nextSlot = cm.getGuiSlot("english-square", "next-page", 51);
+            Material nextMaterial = cm.getGuiMaterial("english-square", "next-page", Material.ARROW);
+            inv.setItem(nextSlot, createItem(nextMaterial, nextLabel,
+                    Collections.singletonList(nextLore)));
         }
 
         // ---- Back button ----

@@ -36,8 +36,13 @@ public class WordBank {
             return;
         }
 
+        int index = 0;
         for (Object item : rawList) {
+            String entryId = difficulty + ".yml words[" + index + "]";
+            index++;
             if (!(item instanceof Map)) {
+                warnSkip(entryId, "词条不是 Map（实际类型="
+                        + (item == null ? "null" : item.getClass().getSimpleName()) + "）");
                 continue;
             }
             // Build a type-checked Map<String, Object> from the raw YAML map
@@ -47,11 +52,21 @@ public class WordBank {
                     wordData.put(key, entry.getValue());
                 }
             }
-            String english = (String) wordData.get("english");
-            String chinese = (String) wordData.get("chinese");
-            String partOfSpeech = (String) wordData.get("part_of_speech");
-            String phonetic = (String) wordData.get("phonetic");
-            String exampleSentence = (String) wordData.get("example_sentence");
+            // R-06：english/chinese 是判分与渲染的必填键，坏一条跳过一条，
+            // 绝不 new Word(null, …) 把 NPE 炸弹埋进词库。
+            String english = asStringOrNull(wordData.get("english"));
+            if (english == null || english.trim().isEmpty()) {
+                warnSkip(entryId, describeBadField(wordData.get("english"), "english"));
+                continue;
+            }
+            String chinese = asStringOrNull(wordData.get("chinese"));
+            if (chinese == null || chinese.trim().isEmpty()) {
+                warnSkip(entryId, describeBadField(wordData.get("chinese"), "chinese"));
+                continue;
+            }
+            String partOfSpeech = asStringOrNull(wordData.get("part_of_speech"));
+            String phonetic = asStringOrNull(wordData.get("phonetic"));
+            String exampleSentence = asStringOrNull(wordData.get("example_sentence"));
 
             List<String> synonyms = new ArrayList<>(4);
             Object synObj = wordData.get("synonyms");
@@ -85,6 +100,36 @@ public class WordBank {
                     exampleSentence, synonyms, antonyms, difficulty, difficultyLevel, reward);
             words.add(word);
         }
+    }
+
+    /**
+     * 宽容取 String：非 String 按 null 处理（YAML 用户手写时 number/boolean 误入字符串
+     * 字段是常态，直接强转会抛 ClassCastException 炸掉整档加载）。
+     */
+    private static String asStringOrNull(Object value) {
+        return value instanceof String str ? str : null;
+    }
+
+    /**
+     * 描述坏字段的诊断串：缺失 / 非 String（含实际类型）/ 空白，三选一。
+     */
+    private static String describeBadField(Object value, String field) {
+        if (value == null) {
+            return "缺少必填字段 '" + field + "'";
+        }
+        if (!(value instanceof String)) {
+            return "字段 '" + field + "' 不是 String（实际类型=" + value.getClass().getSimpleName() + "）";
+        }
+        return "字段 '" + field + "' 为空或空白";
+    }
+
+    /**
+     * R-06 跳过日志：统一走 Bukkit 日志器（WordBank 无 plugin 引用，与现有本类唯一
+     * 日志调用点风格一致）。
+     */
+    private static void warnSkip(String entryId, String reason) {
+        org.bukkit.Bukkit.getLogger().warning(
+                "[LetsLearnEnglish] 跳过坏词条 " + entryId + "： " + reason + "，已跳过不加载。");
     }
 
     public List<Word> selectWordsForSession(int count, Set<String> masteredWords) {

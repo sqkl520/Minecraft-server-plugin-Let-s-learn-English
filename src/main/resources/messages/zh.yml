@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 8
+config-version: 9
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -485,6 +485,7 @@ profile:
   settings-show-in-square-on: "&a当前: 可见"
   settings-show-in-square-off: "&7当前: 隐藏"
   settings-toggle-hint: "&7点击切换"
+  hidden: "{prefix}&7对方开启了隐身，暂时无法查看其主页。"
 
 chat-history:
   title: "&6&lAI 对话历史"

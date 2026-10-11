@@ -86,11 +86,23 @@ public class DailyChallengeManager {
     private final WordManagerImpl wordManager;
     private final Set<UUID> wordChallengeClaimedToday;
 
+    /**
+     * R-02: claim stripe locks. Fixed 32-slot striping by player UUID keeps
+     * concurrent claims of the same challenge serialized without a growing
+     * lock map (nothing to evict, no quit cleanup needed). Constant nesting
+     * order with the listener stripe lock (L then M) — no reverse path, so
+     * no deadlock.
+     */
+    private final Object[] claimStripeLocks = new Object[32];
+
     public DailyChallengeManager(LetsLearnEnglish plugin, WordManagerImpl wordManager) {
         this.plugin = plugin;
         this.wordManager = wordManager;
         // M8 附带 + F1-10：已领取标记集合（Phase 1 流 C 在用，不能删），换线程安全实现
         this.wordChallengeClaimedToday = ConcurrentHashMap.newKeySet();
+        for (int i = 0; i < claimStripeLocks.length; i++) {
+            claimStripeLocks[i] = new Object();
+        }
     }
 
     // ============================================================
@@ -325,12 +337,18 @@ public class DailyChallengeManager {
      * failed deposit leaves the reward re-claimable. The guarded UPDATE keeps
      * this idempotent: double-claims mark at most one row.
      *
+     * <p>R-02: additionally serialized per player on a stripe lock. Any two
+     * claims for the same player run back-to-back, so the "last check → mark"
+     * window in the listener can no longer interleave twice.
+     *
      * @param playerId the player
      * @param type the challenge type
      * @return the reward amount if marked claimed, or 0 if not eligible
      */
     public double claimReward(UUID playerId, ChallengeType type) {
-        return markClaimed(playerId, type);
+        synchronized (getClaimStripeLock(playerId)) {
+            return markClaimed(playerId, type);
+        }
     }
 
     /**
@@ -360,6 +378,17 @@ public class DailyChallengeManager {
             return 0;
         }
         }
+    }
+
+    /**
+     * R-02: stripe-lock lookup shared by {@link #claimReward}. Same player
+     * always maps to the same monitor.
+     *
+     * @param playerId the player
+     * @return the stripe monitor for this player
+     */
+    private Object getClaimStripeLock(UUID playerId) {
+        return claimStripeLocks[(playerId.hashCode() & 0x7fffffff) % claimStripeLocks.length];
     }
 
     // ============================================================
@@ -446,6 +475,22 @@ public class DailyChallengeManager {
         if (freshlyCompleted && plugin.getDatabaseManager().isDailyChallengeWordsCompleted(playerId, today)) {
             onAllWordChallengesComplete(player);
         }
+    }
+
+    /**
+     * R-07: read-only check whether today's word-challenge reward has actually
+     * landed for this player. The claimed flag is only set AFTER the Vault
+     * transfer succeeds (M12), so presence in the set means paid and absence
+     * means pending — no DB round trip needed. Set semantics are day-scoped:
+     * entries are added on successful payout and cleared at midnight
+     * rollover (see {@link #clearAllWordChallengeClaims}), so a stale
+     * cross-day true is impossible.
+     *
+     * @param playerId the player
+     * @return true if today's word reward money has arrived
+     */
+    public boolean isWordRewardPaidToday(UUID playerId) {
+        return wordChallengeClaimedToday.contains(playerId);
     }
 
     /**

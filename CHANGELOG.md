@@ -5,6 +5,23 @@
 > 本版本包含两批改动：v1.0.7 迭代开发（13 个 Story）+ 全项目只读扫描后的缺陷修复批次（中文服止血 / 并发收口 / 仓库卫生）。
 
 ### Fixed
+- **[P0 fan-in]** `ConfigManager.MESSAGE_CONFIG_VERSION` 8→9：messages/zh.yml 与 en.yml 随 P0 新键（`profile.hidden`）升至 v9，代码侧同步升版
+- **[P0 fan-in]** R-01 补漏：ChatHistoryListener / ScenarioSelectListener / WordLearningListener / WrongBookListener 四处同类不分区残留（流 1 上报）按统一模式补 Top 容器判断，下半区直接 return 不 cancel
+- **[P0 fan-in]** R-05 补漏：`PlayerDataStore.getRankedPlayers/getRankedPlayersForPeriod` 加 `LEFT JOIN player_profiles` 隐身过滤；`EnglishSquareGUI` ALL_PLAYERS 装配与 `Leaderboard` ALL_PLAYERS 分支跳过隐身玩家（流 4 上报，PlayerDataStore 禁区残留）
+- **[P0 修复流 2/6 / R-02]** 行为挑战领取防重：`handleDailyChallenge` 领取分支改走 per-player 条纹锁串行化（固定 32 槽位、无 map 增长、无需 quit 清理），锁内重读最新领取态后再执行"判定→转账→标记"全程持锁，任何时序下同一挑战只发一次钱；转账失败仍不标记、走既有 `daily.claim-failed` 可重领（M12 语义不变）
+- **[P0 修复流 2/6 / R-02]** `DailyChallengeManager.claimReward` 加同构 per-player 条纹锁串行化（guarded `UPDATE ... AND claimed=0` 保留为第二道防线）；listener 锁与 manager 锁恒定 L→M 顺序嵌套、无逆序路径，不死锁
+- **[P0 修复流 2/6 / R-07]** `/le challenge` 完成/到账双条件：两处 `completed>=total` 判定追加 `isWordRewardPaidToday` 已到账检查，全完成但未到账时改发既有 `daily-challenge.reward-pending` 提示且不开庆祝页；`DailyChallengeManager` 新增 `isWordRewardPaidToday(UUID)` 只读查询（读已领取标记、零 DB 开销），`hasPendingWordReward` 保持 private 不动
+- **[P0 修复流 5/6 / R-06]** `WordBank.loadWords` 加必填校验：`english`/`chinese` 缺失、非 String 或空白的词条整条跳过并记 WARNING（词库文件名 + words[序号] + 坏字段原因），不再 `new Word(null, …)`；可选字符串字段非 String 时按 null 宽容处理，不再抛 ClassCastException
+- **[P0 修复流 5/6 / R-06]** `WordManagerImpl.loadAllWordBanks` 降级：校验后 0 有效词的词库整档跳过不注册（该难度不可选，玩家走既有未知难度错误提示），控制台记 SEVERE；全档皆空时额外 SEVERE 告警但不炸服
+- **[P0 修复流 5/6 / R-03]** `/lea reset` 删表补全：PLAYER_TABLES 由 4 表扩至 12 表（新增 player_sessions、player_profiles、player_achievements、daily_challenges、daily_challenge_words、ai_chat_history、difficult_words、checkin_data），后 4 表按 `player_uuid` 列删；player_achievements 虽为死表（E-03）仍一并清理免留残行
+- **[P0 修复流 5/6 / R-03]** `/lea reset` 内存态按 quit 语义清理：先 endQuiz/cancelPractice（在线答题中 reset 不留僵尸计时器），再 unloadPlayerData + unloadProfileSettings + AchievementManager.unloadPlayer（成就缓存不清会导致"成就复活"），最后执行删表（顺序不可反，unload 会先落盘）
+- **[P0 修复流 5/6 / R-03]** `PlayerDataStore.unloadPlayerData` 补清今日答题/AI 轮次计数器，reset 与 quit 后防刷上限即时归零（原路径遗漏）
+- **[P0 修复流 6/6 / R-08]** 学习日历网格锚点改锚 today：`gridStart` 取 today 所在周周一往前推 4 周（`today.with(MONDAY).minusWeeks(4)`），35 格恒覆盖 [today-34, today]，尾部最近几天与 today-marker 不再被 `isAfter(today)` 丢弃（仅修锚点，不动 filler/配色/图例）
+- **[P0 修复流 6/6 / R-09]** 二确 targetLang 收敛到 per-player 存储：`confirmStages` 由 `Map<UUID,Integer>` 改存 (stage, targetLang) 二元组，阶段 1 落盘目标语言，阶段 2 点击与 `applySwitch` 读存储里的语言而不再从"当前语言反推"（中途语言变化不再切错方向；取不到存储时回退反推保底）
+- **[P0 修复流 3/6 / R-09b]** 广场/排行榜跨玩家串号根治：`SocialListener` 的 `lastSquareGui`/`lastLeaderboardGui` 全局单例字段改为按 viewer UUID 分键的 `Map<UUID, ...>`，B 的点击不再复用 A 的玩家列表；新增 `PlayerQuitEvent` 清理该玩家条目防泄漏
+- **[P0 修复流 3/6 / R-09d]** 隐身笑话页点药水串主页：`handleEnglishSquareGUI` 开头按 inventory 尺寸分流（27 格=笑话页 / 54 格=广场主页），笑话页 slot 13 药水只发 `square.hidden-lore` 聊天提示、绝不打开任何玩家主页，其余槽位忽略
+- **[P0 修复流 3/6 / R-09c]** 词库点 A 开 B：`WordManagerImpl.getAvailableDifficulties()` 改返回 `TreeSet` 稳定排序快照，GUI 构造快照与点击侧重取两侧迭代顺序恒一致（选型 a，一行排序根治；`WordBankSelectGUI`/`MiscGUIListener` 零改动）
+- **[P0 修复流 3/6 / R-36]** 广场尾页卡死：`EnglishSquareGUI` 分页按钮拆除 `pageFull` 联合门禁，上一页只看 `page>1`、下一页只看 `page<totalPages`，尾页不满也能正常回翻
 - **[Phase 2 fan-in]** 合流测试建议顺手收：`PlayerDataStore.clearCache()` 补 `playerNameCache.clear()`，reload 后不再把旧名写回 `player_data.player_name`（改名场景）
 - **[Phase 2 fan-in]** 合流测试建议顺手收：决斗邀请 60s 过期任务改 `remove(key, value)` 原子校验，旧过期任务不再误清 60s 内发给同一目标的新邀请（与 F1-15 同源）
 - **[Phase 2 fan-in]** `ConfigManager.MESSAGE_CONFIG_VERSION` 7→8：messages/zh.yml 与 en.yml 随 Phase 2 新增键（决斗超时/GM 解散/挑战可见性/真三模式/跨天/TTS 冷却）升至 v8，代码侧同步升版，已部署服务器重启/重载后才会覆盖下发新消息文件
@@ -47,6 +64,8 @@
 - **[Phase 2 复活流 B / FEAT-MODE-01]** choice/fill_blank 模式不再走"聊天栏拼写全词精确匹配"：`submitAnswer` 判分收敛到新 `AnswerChecker`（spelling 原样保留全词拼写；choice 判选项字母 A/B/C/D；fill_blank 判挖空填词），答错/超时反馈在 choice 下展示"字母. 单词"
 - **[Phase 2 复活流 B / FEAT-MODE-01]** `SPELLING_MASTER` 收紧：仅 spelling 模式且本会话至少拼对 1 题才解锁，挂机超时/全错不再能拿
 - **[Phase 2 复活流 B / FEAT-MODE-01]** `/le word <难度> <模式>` 增加 mode 参数校验，非法 mode 回 `word.invalid-mode` 提示（此前直接抛 IllegalArgumentException 原始英文信息）
+- **[P0 修复流 / R-01+R-22]** 四个 GUI 监听器点击分区：`MiscGUIListener` / `DuelGUIListener` / `MainMenuListener` / `SocialListener` 的点击入口统一只处理上半区（Top 容器），玩家背包（下半区）点击直接 return；`setCancelled(true)` 移到确认上半区之后，下半区不再 cancel，玩家开着 GUI 也能正常整理背包
+- **[P0 修复流 / R-01]** 堵住两条高危误触发：DailyChallenge 界面点背包 11/13/15 不再领奖发钱；对决中点背包 22 不再误触退出判负
 
 ### Added
 - **[Phase 2 复活流 B / FEAT-MODE-01]** 新增 `core.word.AnswerChecker`：三模式判分/选项生成/挖空渲染的唯一收敛点（`check`/`buildChoiceOptions`/`blankSentence`/`formatChoiceOptions`），review/决斗/错题练习行为不变
@@ -160,6 +179,13 @@
 - **[Phase 1 止血]** H3+C4 AI 消费上限：发 API 请求前查 `getTodayAiRound`，超 `ai-chat.daily-round-limit`（默认 30）走 `dialogue.daily-limit-reached` 拒绝；每次 API 回复成功 `incrementTodayAiRound`；`max_tokens` 由硬编码 256 改为读 `ai-chat.max-tokens`（默认 128）
 - **[Phase 1 止血]** H1+C2 发音泄题：发音按钮聊天反馈移除英文原词明文，只显示音标（`word.phonetic-feedback`）
 - **[Phase 1 止血]** H1+C2 答案广播泄题：答题广播改为答对后广播"答对+分"（不含答案文本，答案文本永不出现在广播里）；玩家名广播前 `stripColor` + 截断 50 字符防颜色码注入与超长刷屏
+- **[P0 流 4 / R-05]** 排行榜点击直达加 `showInSquare` 检查：`SocialListener.handleLeaderboardGUI` 点开主页前先查目标开关，隐身者进 `openHidden` 笑话页（与广场点击分支同语义）；看自己不受影响
+- **[P0 流 4 / R-05]** `/le profile <玩家>` 加 `showInSquare` 检查：目标隐身时回 `profile.hidden` 聊天提示、不再开界面；看自己不受影响
+- **[P0 流 4 / R-05]** 三条榜单 SQL（`getTopCoins`/`getTopWordsLearned`/`getTopCombo`）`LEFT JOIN player_profiles` 过滤 `show_in_square=0`，无档案行视为默认可见；SQLite/MySQL 同一写法双后端生效
+- **[P0 流 4 / R-04]** `ScenarioSelectGUI` 场景列表改按玩家版 `getScenarioConfigs(Player)`，个人场景出现在列表（展示名与全局同规则取 `display_name`/`display_name_zh`）
+- **[P0 流 4 / R-04]** `ScenarioSelectListener` 场景点击索引改按玩家版 `getAvailableScenarios(Player)`（与 GUI 同序）；`formatScenarioName` 改按玩家解析（走 `getScenarioDisplayName(Player, key)`），个人 key 显示展示名
+- **[P0 流 4 / R-04]** `/le dialogue <场景>` 回显改按玩家版 `getScenarioDisplayName(Player, key)`，个人 key 显示展示名；tab 补全改按玩家版 `getAvailableScenarios(Player)`（控制台回落全局列表）
+- **[P0 流 4]** i18n 新增 `profile.hidden`（zh/en 双语同位新增）；需编排者同步 bump `ConfigManager.MESSAGE_CONFIG_VERSION` 已部署服才能收到新键
 
 ### Added
 - `config.yml` review 段新增 `mastered-review-interval-days` 配置项（默认 30 天），控制已掌握单词低频复习周期
