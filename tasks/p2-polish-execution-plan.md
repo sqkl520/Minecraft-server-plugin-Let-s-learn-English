@@ -142,9 +142,19 @@ R-10（越界选项字母）、R-25（迟到答案反馈）、R-26（宽限任�
 - [x] 编排者 fan-in（S3 冻结接口补齐）：发现 `consumeOfflineDuelNotice` 入队无消费端（S5 重跑未接），已由编排者补在 `PlayerJoinListener.onPlayerJoin`（GM 解散离线方进服收 duel.cancelled-by-gm，读后即清）
 - [x] 3 路 tester 全部回流：构建 **GO**（verify 全绿）/ 架构 **PASS**（2 低危已收口）/ 代码质量 **PASS**（四维度零违规：配置路径/i18n 双侧 508 键对齐/线程安全/资源清理；2 非阻断项已收口——config 注释校正 + acceptDuel R-66 对称守卫）
 - [x] 编排者 fan-in（Code tester 反馈收口）：acceptDuel 补 AI 对话互斥（不消费邀请语义）、config.yml menu-size 注释校正——全树编译 EXIT=0
-- [ ] 最终门禁：`mvn clean verify` 全量重跑（覆盖全部 fan-in 补丁）→ 提交
-- [ ] 提交：git add -A && git commit（P2 批次）
-- [ ] Phase 3 规划 8 路 + 合流`
-- [ ] 修复循环（如有）
-- [ ] mvn clean verify + commit
+- [x] 最终门禁：`mvn clean verify` 全量重跑——BUILD SUCCESS / 26 测试全绿 / JaCoCo 过（覆盖全部 fan-in 补丁）
+- [x] 提交：`716d4fd`（P2 批次，58 文件，+4896/-2960）
 - [ ] Phase 3 规划 8 路 + 合流
+  - [x] 域 4 广场社交：done（`tasks/phase3/plan-social.md`——动态流+cheer+回应闭环，2 新表/sqlite+mysql 兼容/异步快照防主线程查库/隐私四层延伸/互助成就单向接口，M 规模 5 story，15 条验收用例；规划期发现 5 条已记录）
+  - [x] 域 7 音频反馈层：done（`tasks/phase3/plan-audio-feedback.md`——推荐"反馈层先做(3A)/资源包后置(3B 默认关待拍板)"；否决全自定义路线的硬证据=TTS 缓存 .wav 与资源包只吃 .ogg 冲突+枚举音效模型承载不了命名空间键；3A：倒计时改 ActionBar（复用现有定时器）、对决倒计时 30s 全静默重构为 BossBar 排空+三处清理、连击 pitch 公式 clamp(1.0+0.1×(n-1),0.5,1.6)+里程碑铃音、per-player 音效开关（player_profiles 新列槽 16 空闲）；API 已 javap 验证 1.21.4 废弃面；M 规模 11 story + 3B L 4 story；规划期发现 11 条）
+  - [x] 域 2 AI 反馈闭环：done（`tasks/phase3/plan-ai-feedback.md`——混合两段式：本地小结卡同步秒出 + 达标会话异步 AI 结构化点评（JSON+salvage+全败降级）；纠错唯一来源=AI JSON corrections（否决正则扫描）；总结调用不计轮次/不烧冷却（独立 pendingSummaries 去重防 R-18 类坑）；新表 ai_chat_feedback UNIQUE(player_uuid,session_id)；前提=AIChatManager 会话状态收敛为 ChatSessionState + transcript 缓冲；M 偏重 900-1000 行 6 story 25 i18n 键；18 条验收；规划期发现 6 条含 PF-FB-05 该类 1273 行逼近维护极限）
+  - [x] 域 6 家长报告：done（`tasks/phase3/plan-reports.md`——主读者=家长/出报告人=老师；`/lea report <玩家|all> [week|lastweek|<N>d]` + 新权限节点 letslearnenglish.report；周=周一锚点；报告零网络外发/TXT 强制中文/不对玩家隐私开关设限（权限即同意边界+可选 respect-privacy）；主线程零查库（全异步+Result record 协议化）；M 700-900 行 4 story；规划期发现 8 条——其中 PF-RPT-01/02/03 为**实伤**（正确率恒 100%/learning_log 零写入致统计恒 0/current_streak 零写入致 streak 占位符恒 0），已归档 dev-findings P3-01~09）
+  - [x] 域 5 赛季跨服：done（`tasks/phase3/plan-season.md`——拆两批：A 跨服榜+赛季先行（赛季=时间窗口视图零数据重置，复用 getRankedPlayersForPeriod；唯一新表 seasons+season_rewards 台账；多服单发保护=条件 UPDATE 抢占结算权；段位明确不做）→ B 班级（收窄为 OP/老师管理型，玩家自建留域 4）；L 规模 5 story；规划期发现含 **PF-SEA-01 跨服消息通道接收端帧解析缺陷（中-高）**、PF-SEA-02 MySQL 建索引兼容、PF-SEA-03 player_sessions 缺日期索引、PF-SEA-04 learning_log 零写入、PF-SEA-06 硬编码时区）
+  - [x] 域 1 新手引导：done（`tasks/phase3/plan-onboarding.md`——player_data.onboarding_step 四态状态机（老号回填 3 fail-open）；三项关键改造：迷你会话答错原地重试（使"3 题必全对→首成就确定性触发"成结构保证，修掉原案 choice 三连对仅 42% 的漏洞）/领成就改为打开个人主页/手册即唯一交互界面（规避 GUIUtils·拖拽·音效三套扩张）；引导书 WRITTEN_BOOK+PDC+三重补发；M 450-600 行 4 story；规划期发现 7 条）
+  - [x] 域 8 菜单与入口收口：done（`tasks/phase3/plan-menu-config.md`——主菜单 7→9 按钮（空槽 12/16 加对决直按钮+DuelChallengeGUI 头像选择器/签到直按钮，规避 DuelGUI 标题子串误判陷阱）；9 模块开关统一"两层门+数据永不删"规范+边界矩阵；modes.* 7 子键逐一定义语义+max-attempts 两键删除+WordModes 配置真相源+QuizState 快照；PersonalScenarioGUI+PersonalScenarioStore 抽取；challenges-per-day/rewards 接线默认零变化；daily-round-limit 0/负=不限终案；P2-13 二期 25 处裸 getString（新发现 DuelManager 4 处含真 NPE 路径）；死键大扫除 ~28 i18n 键+ProgressGUI+achievements.yml 死链；L 规模 8 story 5 批次；11 条规划期发现 PF-MC-01~11）
+  - [x] 域 3 成就重构（重跑实例 done）：`tasks/phase3/plan-achievements.md`——6 新成就精确判据（review_streak_7/wrong_book_cleared/accuracy_90 整数比较防浮点/duel_first_win 只认打满 5 分/helpful 依赖域 4 getCheerStats/study_days_30 累计制）；数据补充仅两列（player_sessions.review_words + player_data.wrong_book_cleared，均 addColumnIfMissing 零重建）；刷量前置收口 tryUnlock 内且已解锁玩家永不受前置回改；墙 22 格按 5 类分组+10 个可量化成就进度条（复活 achievement.progress 死键）；不做隐藏成就；F1-03 并入本域修；M+ 5 story；规划期发现 10 条（PF-ACH-02 异步线程实伤已即修、PF-ACH-01 假配置、PF-ACH-03 跨服广播语言）
+  - [x] 编排者即修（PF-ACH-02 线程安全实伤）：bye 退出分支 AsyncPlayerChatEvent 异步线程直调 endConversation 链（可达 tryUnlock 通知段与每日挑战记分）→ 切主线程 + 句柄加"仍在场景模式"守卫防 1 tick 窗口重复结算；`mvn clean verify` 26 测试全绿
+  - [x] 编排者即修（PF-MC-01 实伤）：行为挑战领取补 money.enabled 门（关币+vault 时此前仍实发金币，与签到/单词挑战 economy-disabled 语义不一致）——关闭时终态处理（标记已领+提示），编译 EXIT=0，CHANGELOG 已记
+  - [x] 编排者即修（PF-ONB-01/PF-ONB-03 实伤）：FIRST_WORD 成就语义与描述对齐（原需"首场零失误"且与 PERFECT_SESSION 重复，改为至少答对 1 题）；MiscGUIListener 词库选择路径补标识符本地化（F2-13 漏网的新手主路径）；`mvn clean verify` 26 测试全绿 + JaCoCo 过
+  - [x] 编排者即修（PF-SEA-01/02/03 实伤，规划 agent 上报）：跨服接收端按官方协议补帧长消费（原跳过帧长导致短消息带前缀、长消息截断丢失）；`createIndexIfMissing` 修正 MySQL 不支持 `CREATE INDEX IF NOT EXISTS`（查 information_schema 判存在再建）+ 补 player_sessions 两个防全扫索引；编译 EXIT=0，CHANGELOG 已记；跨服实测需双服（单服无法验证）
+  - [x] 合流 `tasks/phase3/plan-master.md` 完成（八域一览/域间冻结接口 7 条/4 波施工顺序/待用户决策 D7-D14/即修实伤表/出口标准）→ 向用户汇报（本会话末尾消息）

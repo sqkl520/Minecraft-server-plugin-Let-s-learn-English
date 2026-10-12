@@ -102,7 +102,12 @@ public class ProfileGUI {
         int sessions = stats.getTotalSessions();
         double coins = plugin.getEconomy() == null ? 0.0
                 : plugin.getEconomy().getBalance(Bukkit.getOfflinePlayer(targetId));
-        int accuracy = totalWords > 0 ? (int) ((double) totalCorrect / totalWords * 100) : 0;
+        // P3-01 修复（Phase 3 规划期发现，编排者即修）：原公式 correct/getTotalWords() 在
+        // M10 语义下分子分母同值（getTotalWords()==totalCorrect），正确率恒显 100%。
+        // 改为 correct/(correct+incorrect)，与 LLEPapiExpansion 的 %lle_accuracy% 同口径。
+        int accuracy = (totalCorrect + totalIncorrect) > 0
+                ? (int) ((double) totalCorrect / (totalCorrect + totalIncorrect) * 100)
+                : 0;
         int unlockedCount = am.getUnlockedCount(targetId);
         int totalAchievements = Achievement.values().length;
 

@@ -18,6 +18,33 @@
 | P2-27 | `ChatHistoryGUI:121/128/146/271` | GUI 越层直调 DatabaseManager（chat-history 既有功能，非本批） | 低 | 待排期（Phase 3：抽 Core 门面收敛） |
 | P2-28 | `AIChatManager` 个人场景持久化 | 类同时承担文件持久化（File/YamlConfiguration/save/.bak，1039-1100 行），建议后续抽 `PersonalScenarioStore`（Arch tester 建议，非本批阻塞） | 低 | 待排期（Phase 3 重构候选） |
 
+### 来自 Phase 3 规划期（各域 agent 上报，未修）
+
+| # | 位置 | 现象 | 严重 | 状态 |
+|---|------|------|------|------|
+| P3-01 | `gui/ProfileGUI.java:105` | 正确率恒显 100%：M10 后 `getTotalWords()` 语义=只计答对（=totalCorrect），GUI 却用 `correct/getTotalWords()`，分子分母同值；PAPI 的 accuracy 是正确算法（correct/(correct+incorrect)），两者打架 | 中 | **已关闭（本轮由编排者修复）**：改为 `totalCorrect/(totalCorrect+totalIncorrect)`，与 PAPI 同口径 |
+| P3-02 | `learning_log` 表 | 全库零写入（无任何 INSERT），`DatabaseManager.getTotalSessions()`（统计 HTTP 服务的 totalLearningSessions 与 7 天会话曲线）恒 0——真数据源是 player_sessions | 中 | 待排期（Phase 3：StatisticsHttpServer 改查 player_sessions，或接线 learning_log 写入——建议前者） |
+| P3-03 | `player_data.current_streak` | 零写入（persistLongestStreak 只写 longest_streak），`%lle_streak%` 与 ProgressGUI 当前连续恒 0——真数据源是 checkin_data.streak_count | 中 | 待排期（Phase 3：streak 占位符/ProgressGUI 改走 CheckInManager.getCheckInInfo，或补 current_streak 写入） |
+| P3-04 | `ProgressGUI.java` | 死类（无实例化点，P2-23 同根）——`/le progress` 实际走 ProfileGUI | 低 | 待排期（Phase 3 清理时与 P2-23 一并处理） |
+| P3-05 | `player_sessions.mode` | 同日合并（UPSERT）时 mode 列不被更新，记录的是当日首场模式 | 低 | 待排期（Phase 3：报告域做模式统计前需定口径） |
+| P3-06 | `checkin_data` | 无逐日历史（只有 last_checkin_date + streak_count），报告域做"本周签到 X 天"需从 player_sessions 或新表推导 | 低 | 待排期（Phase 3 报告域设计输入） |
+| P3-07 | `DataExporter` | 仅导出在线玩家 + CSV 落根目录（非 exports/）；失败判定字符串硬耦合（P2-09 同根） | 低 | 待排期（Phase 3 报告域一并收口） |
+| P3-08 | 决斗 | 零持久化（无对决历史表），对决类统计与"对决首胜"成就无数据源 | 低 | 待排期（Phase 3 成就域/报告域的依赖项） |
+| P3-09 | `word_progress` | INSERT OR REPLACE 语义使增量列不能靠 SQL COALESCE 累加，只能靠缓存侧维护 | 低 | 已记录（数据层约束，Phase 3 新功能设计输入） |
+| P3-10 | `ProxyMessenger` 接收端 | 跨服消息通道 Forward 帧解析缺"帧长消费"（短消息带 2 字节前缀、长消息 UTFDataFormatException 丢失）—— **已由编排者即修**（PF-SEA-01）；单服无法验证，需双服实测确认 | 中-高 | **已关闭**（本轮修复，跨服实测待双服环境） |
+| P3-11 | `DatabaseManager` 建索引 | `CREATE INDEX IF NOT EXISTS` Oracle MySQL 不支持（异常被 fine 吞，ai_chat_history 两索引 MySQL 后端可能从未建立）—— **已由编排者即修**（PF-SEA-02/03：createIndexIfMissing + player_sessions 补两索引） | 中 | **已关闭**（本轮修复） |
+| P3-12 | `AchievementManager:205` | 硬编码 Asia/Shanghai 时区，与全项目"系统时区"口径并存（成就连续天判定在非东八区服会有偏差） | 低 | 待排期（Phase 3：统一时区口径或提为配置） |
+| P3-13 | `AchievementManager:224` | FIRST_WORD 实际要求"整场零失误"（sessionIncorrect==0），与成就描述"答对第 1 个单词"不符且与 PERFECT_SESSION 重复，伤首会话留存 —— **已由编排者即修**（PF-ONB-01：改为会话内至少答对 1 题） | 中 | **已关闭**（本轮修复） |
+| P3-14 | `MiscGUIListener:141` | 词库选择路径的 word.session-start 回显原始英文标识符（F2-13 只修了命令路径，新手主路径漏网）—— **已由编排者即修**（PF-ONB-03：与 LearnCommand 同口径本地化） | 低 | **已关闭**（本轮修复） |
+| P3-15 | `core/progress/Achievement.java` | 死类（零引用），与 core/achievement/Achievement.java 同名构成导入歧义陷阱 | 低 | 待排期（Phase 3 与 P2-23/ProgressGUI 一并清理） |
+| P3-16 | `player_data.created_at/last_login` | 死列（影响注册漏斗统计口径） | 低 | 待排期（Phase 3 报告域设计输入） |
+| P3-17 | `MiscGUIListener.claimBehavioralChallenge` | 行为挑战领取绕过 money.enabled 门（关币+Vault 时仍实发金币）—— **已由编排者即修**（PF-MC-01：关闭时终态标记+economy-disabled 提示，与单词挑战同口径） | 中 | **已关闭**（本轮修复） |
+| P3-18 | `DuelManager` 4 处裸 getString | 其一为真实 NPE 路径（域 8 规划新发现，P2-13 白名单外）；另含 `WordLearningGUI` 标题中英混排、`AchievementManager` 解锁瞬间混服语言取单语言（Domain 8 记录） | 低-中 | 待排期（Phase 3 菜单收口域 MC-7 批次一并收敛，已列入 plan-menu-config.md） |
+| P3-19 | `ChatScenarioListener` bye 分支 | AsyncPlayerChatEvent 异步线程直调 Bukkit API（endConversation 链上可达 tryUnlock 通知段 sendMessage/playSound + 每日挑战记分）—— **已由编排者即修**（PF-ACH-02：bye 切主线程 + handleEndConversation 加"仍在场景模式"守卫） | 中 | **已关闭**（本轮修复，verify 26 测试全绿） |
+| P3-20 | `AchievementManager` unlock-sound | 假配置：`achievement-system.unlock-sound` 只被"判空"消费（留空=不播生效），播放值恒为 SoundManager 的 complete 键、配置的音效名被忽略 | 低 | 待排期（Phase 3 成就域：接线或删键，已列入 plan-achievements.md PF-ACH-01） |
+
+> P3-01~20 来源：Phase 3 规划各域 agent 的"规划期发现"节（plan-social/plan-ai-feedback/plan-reports/plan-audio-feedback/plan-season/plan-onboarding/plan-menu-config/plan-achievements 等文件）。P3-01/P3-10/P3-11/P3-13/P3-14/P3-17/P3-19 因属"可即修的实伤"已由编排者当轮修复并记 CHANGELOG（verify 26 测试全绿）；其余待 Phase 3 施工时按域排期。
+
 ### 来自 S1（GUI 崩溃与音效）
 
 | # | 位置 | 现象 | 严重 | 状态 |

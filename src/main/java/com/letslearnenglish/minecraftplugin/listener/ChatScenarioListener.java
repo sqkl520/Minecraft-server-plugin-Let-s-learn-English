@@ -80,8 +80,13 @@ public class ChatScenarioListener implements Listener {
         // 退出指令
         if (input.equalsIgnoreCase("bye") || input.equalsIgnoreCase("goodbye")
                 || input.equalsIgnoreCase("end") || input.equals("再见") || input.equals("拜拜")) {
-            handleEndConversation(player);
             event.setCancelled(true);
+            // PF-ACH-02（Phase 3 规划期发现，编排者即修）：本监听器运行在
+            // AsyncPlayerChatEvent 的异步线程，endConversation 链上可达
+            // tryUnlock 通知段（player.sendMessage / playSound）与每日挑战的
+            // 记分逻辑——Bukkit API 不得在异步线程直调。切主线程执行。
+            org.bukkit.Bukkit.getScheduler().runTask(plugin,
+                    () -> handleEndConversation(player));
             return;
         }
 
@@ -145,7 +150,12 @@ public class ChatScenarioListener implements Listener {
     }
 
     private void handleEndConversation(Player player) {
-        activePlayers.remove(player.getUniqueId());
+        // PF-ACH-02 配套：切主线程后有 1 tick 窗口，期间 quit/命令退出可能已把
+        // 玩家移出 activePlayers 并结束会话 —— 只有仍在场景模式才执行结束流程，
+        // 防重复结算与重复文案。
+        if (!activePlayers.remove(player.getUniqueId())) {
+            return;
+        }
         aiChatManager.endConversation(player);
 
         String endedMsg = getMessageLine(player, "dialogue.ended");

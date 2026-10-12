@@ -135,18 +135,33 @@ public class ProxyMessenger implements PluginMessageListener {
         ByteArrayDataInput in = ByteStreams.newDataInput(message);
         String subChannel = in.readUTF();
 
-        switch (subChannel) {
-            case "GlobalMessage" -> {
-                String msg = in.readUTF();
-                handleGlobalMessage(msg);
+        // PF-SEA-01（Phase 3 规划期发现，编排者即修）：BungeeCord/Velocity 的 Forward
+        // 投递帧 = [子通道 UTF][short 帧长][载荷字节]。原实现跳过帧长直接 readUTF ——
+        // 短消息会带 2 字节不可见前缀；长消息（modified-UTF ≥128 字节，约 126 ASCII
+        // 字符或 42 个中文字）解码抛 UTFDataFormatException 整条丢失。现按官方协议
+        // 先消费帧长、readFully 取载荷，再在载荷内解析本插件自己的 writeUTF 格式。
+        byte[] payloadBytes;
+        try {
+            int frameLen = in.readShort() & 0xFFFF;
+            payloadBytes = new byte[frameLen];
+            in.readFully(payloadBytes);
+        } catch (Exception e) {
+            // 非法帧（非本插件格式/被截断）——丢弃并记一次 fine，绝不让异常穿出监听器
+            plugin.getLogger().fine("Malformed proxy frame for subChannel " + subChannel + ": " + e);
+            return;
+        }
+        ByteArrayDataInput payload = ByteStreams.newDataInput(payloadBytes);
+
+        try {
+            switch (subChannel) {
+                case "GlobalMessage" -> handleGlobalMessage(payload.readUTF());
+                case "AchievementUnlock" -> handleAchievementBroadcast(payload.readUTF());
+                default -> {
+                    // 忽略未知子通道（可能来自其他插件）
+                }
             }
-            case "AchievementUnlock" -> {
-                String payload = in.readUTF();
-                handleAchievementBroadcast(payload);
-            }
-            default -> {
-                // 忽略未知子通道（可能来自其他插件）
-            }
+        } catch (Exception e) {
+            plugin.getLogger().fine("Malformed proxy payload for subChannel " + subChannel + ": " + e);
         }
     }
 
