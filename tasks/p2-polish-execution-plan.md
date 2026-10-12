@@ -158,3 +158,4 @@ R-10（越界选项字母）、R-25（迟到答案反馈）、R-26（宽限任�
   - [x] 编排者即修（PF-ONB-01/PF-ONB-03 实伤）：FIRST_WORD 成就语义与描述对齐（原需"首场零失误"且与 PERFECT_SESSION 重复，改为至少答对 1 题）；MiscGUIListener 词库选择路径补标识符本地化（F2-13 漏网的新手主路径）；`mvn clean verify` 26 测试全绿 + JaCoCo 过
   - [x] 编排者即修（PF-SEA-01/02/03 实伤，规划 agent 上报）：跨服接收端按官方协议补帧长消费（原跳过帧长导致短消息带前缀、长消息截断丢失）；`createIndexIfMissing` 修正 MySQL 不支持 `CREATE INDEX IF NOT EXISTS`（查 information_schema 判存在再建）+ 补 player_sessions 两个防全扫索引；编译 EXIT=0，CHANGELOG 已记；跨服实测需双服（单服无法验证）
   - [x] 合流 `tasks/phase3/plan-master.md` 完成（八域一览/域间冻结接口 7 条/4 波施工顺序/待用户决策 D7-D14/即修实伤表/出口标准）→ 向用户汇报（本会话末尾消息）
+  - [x] 提交 `fb9604b`：规划期即修 7 项实伤 + 8 域计划 + 总纲（18 文件，+4358/-36；verify 26 测试全绿）
