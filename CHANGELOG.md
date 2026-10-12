@@ -5,6 +5,13 @@
 > 本版本包含两批改动：v1.0.7 迭代开发（13 个 Story）+ 全项目只读扫描后的缺陷修复批次（中文服止血 / 并发收口 / 仓库卫生）。
 
 ### Fixed
+- **[P3 规划期即修 / PF-ACH-02]** AI 对话 bye 退出路径异步线程直调 Bukkit API 修复（编排者即修）：`ChatScenarioListener` 运行在 AsyncPlayerChatEvent 异步线程，bye 分支链上可达 `AchievementManager.tryUnlock` 通知段（sendMessage/playSound）与每日挑战记分——Bukkit API 不得异步直调；bye 分支改为切主线程执行 `handleEndConversation`，并给其加"仍在场景模式才结算"守卫（防 1 tick 窗口内 quit/命令退出后的重复结算）；此缺陷比 F1-03 记录的更严重，属线程安全实伤
+- **[P3 规划期即修 / PF-MC-01]** 行为挑战领取补 `money.enabled` 门（编排者即修）：此前 `claimBehavioralChallenge` 直接走 `depositCappedReward`，服主关币（默认 false）且装了 Vault 时仍会实发金币，与签到/单词挑战的 economy-disabled 语义不一致（F1-11/R-44 残留缺口）；关闭时终态处理（标记已领防按钮永远可点 + 一次 daily-challenge.economy-disabled 提示），与单词挑战侧同口径
+- **[P3 规划期即修 / PF-ONB-01]** FIRST_WORD 成就语义与描述对齐（编排者即修）：原判定 `sessionCorrect>=1 && sessionIncorrect==0` 要求"首场零失误"，与成就描述"答对第 1 个单词"不符、且与 PERFECT_SESSION（整场全对）语义重复——新玩家第一场答错一题就与"初出茅庐"擦肩，伤首会话留存；改为"会话内至少答对 1 题"即解锁（该成就仅解锁不涉经济，无发放面影响）
+- **[P3 规划期即修 / PF-ONB-03]** 词库选择路径标识符本地化补齐（编排者即修）：F2-13 此前只修了 `/le word` 命令路径，`MiscGUIListener.handleWordBankSelect`（新手主路径）仍把 beginner/choice 英文标识符透传给中文玩家；现与 LearnCommand 同口径本地化难度与模式（word.difficulty-*/mode-* 键）
+- **[P3 规划期即修 / PF-SEA-01]** 跨服消息通道接收端帧解析修复（Phase 3 规划 agent 发现、编排者即修）：BungeeCord/Velocity 的 Forward 投递帧为 `[子通道 UTF][short 帧长][载荷字节]`，原接收端跳过帧长直接 `readUTF`——短消息带 2 字节不可见前缀，长消息（modified-UTF ≥128 字节）解码抛异常整条丢失，跨服公告/成就广播通道现状大概率不可用；现按官方协议先消费帧长、readFully 取载荷再解析，非法帧/载荷异常均 fine 记录不穿出监听器（单服无法验证，需双服实测确认）
+- **[P3 规划期即修 / PF-SEA-02+03]** 幂等建索引双后端修正与补索引（编排者即修）：`CREATE INDEX IF NOT EXISTS` 是 MariaDB 扩展、Oracle MySQL 不支持（原异常被 fine 吞，`ai_chat_history` 两索引在 MySQL 后端可能从未建立）——新增 `createIndexIfMissing`（SQLite 原生 IF NOT EXISTS / MySQL 查 information_schema 判存在再建，全程收进 connectionLock 符合 E-04 范式）；顺带补 `player_sessions(uuid, session_date)` 与 `(session_date)` 两个防全扫索引（周/月/赛季/streak/日历多条日期范围查询受益）
+- **[P3 规划期即修 / P3-01]** `ProfileGUI` 正确率恒显 100% 修复：M10 后 `getTotalWords()` 语义为"只计答对"（==totalCorrect），原公式 `correct/getTotalWords()` 分子分母同值；改为 `correct/(correct+incorrect)`，与 PAPI 的 `%lle_accuracy%` 同口径（Phase 3 规划 agent 上报、编排者即修，属数据展示实伤）
 - **[P2 fan-in]** Code tester 收口：`acceptDuel` 复刻 sendDuelRequest 的 R-66 AI 对话互斥（邀请发出后任一方可能已进入对话，接受校验不过不消费邀请、双方提示；接受方用 dialogue.chat-active 通用键）；config.yml menu-size 注释校正（9/18 已不支持，合法域 27/36/45/54）
 - **[P2 fan-in]** Arch tester 收口：`LearnCommand` limit-reached 的 {max} 改读 `getMaxPersonalScenarios()` 公开 getter（消除死 getter、与 AIChatManager 上限常量单一真相源）；`DuelManager.PendingDuel` 收窄为 private（仅本类使用）；`MiscGUIListener` 两处未用 import 清理（ChallengeType/LearningCalendarGUI）
 - **[P2 fan-in / R-69 消费端]** `consumeOfflineDuelNotice` 接入 `PlayerJoinListener.onPlayerJoin`：GM 解散对局时离线的一方下次进服收到 `duel.cancelled-by-gm` 通知（此前仅 S3 侧入队、S5 未接消费端，属集成缺口，编排者 fan-in 补齐）

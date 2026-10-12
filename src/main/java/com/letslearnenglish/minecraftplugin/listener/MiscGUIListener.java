@@ -139,8 +139,33 @@ public class MiscGUIListener implements Listener {
         // F2-05：默认模式走常量，与 LearnCommand.DEFAULT_WORD_MODE 对齐（见字段注释）
         plugin.getWordLearningManager().startQuiz(player, difficulty, DEFAULT_WORD_MODE);
         new WordLearningGUI(plugin).openWithMessage(player, difficulty, DEFAULT_WORD_MODE);
+        // PF-ONB-03（Phase 3 规划期发现，编排者即修）：F2-13 只修了命令路径，词库选择
+        // 这条新手主路径此前仍把英文标识符（beginner/choice）透传给中文玩家；
+        // 现与 LearnCommand.localizeWordDifficulty/localizeWordMode 同口径本地化。
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                "word.session-start", "difficulty", difficulty, "mode", DEFAULT_WORD_MODE));
+                "word.session-start",
+                "difficulty", localizeDifficulty(player, difficulty),
+                "mode", localizeMode(player, DEFAULT_WORD_MODE)));
+    }
+
+    /** PF-ONB-03：难度标识符 → i18n label，未知回落原值（与 LearnCommand 同口径）。 */
+    private String localizeDifficulty(Player player, String difficulty) {
+        return switch (difficulty.toLowerCase(java.util.Locale.ROOT)) {
+            case "beginner" -> plugin.getMessageUtil().getPlayerMessage(player, "word.difficulty-beginner");
+            case "intermediate" -> plugin.getMessageUtil().getPlayerMessage(player, "word.difficulty-intermediate");
+            case "advanced" -> plugin.getMessageUtil().getPlayerMessage(player, "word.difficulty-advanced");
+            default -> difficulty;
+        };
+    }
+
+    /** PF-ONB-03：模式标识符 → i18n label，未知回落原值（与 LearnCommand 同口径）。 */
+    private String localizeMode(Player player, String mode) {
+        return switch (mode) {
+            case "spelling" -> plugin.getMessageUtil().getPlayerMessage(player, "word.mode-spelling");
+            case "choice" -> plugin.getMessageUtil().getPlayerMessage(player, "word.mode-choice");
+            case "fill_blank" -> plugin.getMessageUtil().getPlayerMessage(player, "word.mode-fill_blank");
+            default -> mode;
+        };
     }
 
     private void handleLearningCalendar(Player player, int slot) {
@@ -193,6 +218,20 @@ public class MiscGUIListener implements Listener {
         // after money arrived. On failure the reward stays claimable
         // and the GUI is refreshed unclaimed for retry.
         double reward = cp.type.reward;
+        // PF-MC-01（Phase 3 规划期发现，编排者即修）：行为挑战领取此前直接走
+        // depositCappedReward，未过 money.enabled 门 —— 服主关币（默认 false）且
+        // 装了 Vault 时仍会实发金币，与签到/单词挑战的 economy-disabled 语义不一致
+        // （F1-11/R-44 的残留缺口）。关闭时终态处理：标记已领（防按钮永远可点、
+        // 重复提示）+ 一次 economy-disabled 提示，与单词挑战侧同口径。
+        boolean moneyEnabled = plugin.getConfigManager().getMainConfig()
+                .getBoolean("progress-system.rewards.types.money.enabled", false);
+        if (!moneyEnabled) {
+            plugin.getDailyChallengeManager().claimReward(player.getUniqueId(), cp.type);
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "daily-challenge.economy-disabled"));
+            new DailyChallengeGUI(plugin).open(player);
+            return;
+        }
         if (depositChallengeReward(player, reward)) {
             double marked = plugin.getDailyChallengeManager()
                     .claimReward(player.getUniqueId(), cp.type);

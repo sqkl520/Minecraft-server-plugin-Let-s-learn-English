@@ -222,21 +222,20 @@ public class DatabaseManager {
         );
 
         // Indexes for ai_chat_history
-        try {
-            executeUpdate("CREATE INDEX IF NOT EXISTS " + tablePrefix
-                    + "idx_chat_player_time ON " + tablePrefix
-                    + "ai_chat_history(player_uuid, timestamp)");
-        } catch (SQLException e) {
-            // Index may already exist; non-fatal
-            plugin.getLogger().fine("Index idx_chat_player_time may already exist: " + e.getMessage());
-        }
-        try {
-            executeUpdate("CREATE INDEX IF NOT EXISTS " + tablePrefix
-                    + "idx_chat_session ON " + tablePrefix
-                    + "ai_chat_history(session_id)");
-        } catch (SQLException e) {
-            plugin.getLogger().fine("Index idx_chat_session may already exist: " + e.getMessage());
-        }
+        // PF-SEA-02（Phase 3 规划期发现，编排者即修）：CREATE INDEX IF NOT EXISTS 是
+        // MariaDB 扩展，Oracle MySQL 不支持——异常原被 fine 吞掉，MySQL 后端索引可能
+        // 从未建立。MySQL 分支改为先查 information_schema.statistics 判存在再建；
+        // SQLite 分支保持原样（原生支持 IF NOT EXISTS）。
+        createIndexIfMissing("idx_chat_player_time",
+                "ai_chat_history(player_uuid, timestamp)");
+        createIndexIfMissing("idx_chat_session",
+                "ai_chat_history(session_id)");
+        // PF-SEA-03：player_sessions 被周/月/赛季/streak/日历大量按日期范围查询，
+        // 补 (uuid, session_date) 复合索引防全表扫。
+        createIndexIfMissing("idx_sessions_uuid_date",
+                "player_sessions(uuid, session_date)");
+        createIndexIfMissing("idx_sessions_date",
+                "player_sessions(session_date)");
 
         // Difficult words / Wrong Book table
         executeUpdate(
@@ -257,6 +256,49 @@ public class DatabaseManager {
                         "  streak_count INTEGER DEFAULT 1" +
                         ")"
         );
+    }
+
+    /**
+     * PF-SEA-02/03：幂等建索引 —— SQLite 用原生 {@code CREATE INDEX IF NOT EXISTS}；
+     * MySQL（Oracle 版，不支持 IF NOT EXISTS）先查 information_schema.statistics
+     * 判存在再建。任何失败只 fine 记录（索引非致命），绝不打断建表主流程。
+     *
+     * @param indexName 索引名（不含表前缀，方法内部拼）
+     * @param target    形如 {@code "table(col1, col2)"} 的目标（表名不含前缀）
+     */
+    private void createIndexIfMissing(String indexName, String target) {
+        String fullIndex = tablePrefix + indexName;
+        int paren = target.indexOf('(');
+        String tablePart = tablePrefix + target.substring(0, paren);
+        String columnsPart = target.substring(paren);
+        try {
+            if (isSQLite()) {
+                executeUpdate("CREATE INDEX IF NOT EXISTS " + fullIndex
+                        + " ON " + tablePart + columnsPart);
+                return;
+            }
+            // MySQL：information_schema 查重（当前库内）。
+            // E-04 范式：取连接与语句执行整体收进 connectionLock（executeUpdate 同锁可重入）。
+            synchronized (connectionLock) {
+                String checkSql = "SELECT COUNT(*) FROM information_schema.statistics "
+                        + "WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?";
+                try (java.sql.PreparedStatement stmt = getConnection().prepareStatement(checkSql)) {
+                    stmt.setString(1, tablePart);
+                    stmt.setString(2, fullIndex);
+                    try (java.sql.ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next() && rs.getInt(1) > 0) {
+                            return; // 已存在
+                        }
+                    }
+                }
+                try (java.sql.PreparedStatement stmt = getConnection()
+                        .prepareStatement("CREATE INDEX " + fullIndex + " ON " + tablePart + columnsPart)) {
+                    stmt.executeUpdate();
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().fine("Index " + fullIndex + " skipped: " + e.getMessage());
+        }
     }
 
     /**

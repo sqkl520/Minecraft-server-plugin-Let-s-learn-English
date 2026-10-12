@@ -220,7 +220,11 @@ public class AchievementManager {
                                           int sessionWordsCount, String mode) {
         PlayerDataStore.PlayerStats stats = playerDataStore.getPlayerStats(playerId);
 
-        if (sessionCorrect >= 1 && sessionIncorrect == 0) {
+        // PF-ONB-01（Phase 3 规划期发现，编排者即修）：原条件 sessionCorrect>=1 &&
+        // sessionIncorrect==0 要求"整场零失误"，与成就描述"答对第 1 个单词"不符——
+        // 新玩家第一场只要答错一题就与"初出茅庐"擦肩，伤首会话留存；该语义又与
+        // PERFECT_SESSION（整场全对）重复。改为"会话内至少答对 1 题"即解锁。
+        if (sessionCorrect >= 1) {
             tryUnlock(playerId, Achievement.FIRST_WORD);
         }
 
