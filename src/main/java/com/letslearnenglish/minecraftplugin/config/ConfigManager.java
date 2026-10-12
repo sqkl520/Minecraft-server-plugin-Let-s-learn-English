@@ -22,7 +22,7 @@ import java.util.logging.Level;
  */
 public class ConfigManager {
 
-    private static final int MESSAGE_CONFIG_VERSION = 10;
+    private static final int MESSAGE_CONFIG_VERSION = 11;
 
     /**
      * Config keys the code actually relies on at runtime. Absence is logged as a WARNING on
@@ -43,15 +43,22 @@ public class ConfigManager {
      * Message keys that must exist in every language file. Absence (in zh or en) is logged as a
      * WARNING on startup. These are keys whose callers would otherwise show a visible fallback or,
      * in a few legacy call sites, risk an NPE on a null {@code getString}.
+     *
+     * <p>R-86o：审计名单只保留"活键"（有真实调用点、缺了会明显伤到玩家核心流程）。
+     * 已移除经核实的死键 {@code word.correct}/{@code word.incorrect}（判定文案实际走
+     * {@code word-learning-gui.correct/incorrect}）。
      */
     private static final String[] REQUIRED_MESSAGE_KEYS = {
             "prefix",
             "general.no-permission",
             "general.reload-success",
             "word.session-start",
-            "word.correct",
-            "word.incorrect",
+            "word-learning-gui.session-ended",
+            "dialogue.daily-limit-reached",
             "dialogue.proxy-achievement",
+            "daily-challenge.rollover-voided",
+            "duel.cancelled-by-gm",
+            "duel.opponent-timeout",
             "gui.main-menu-title"
     };
 

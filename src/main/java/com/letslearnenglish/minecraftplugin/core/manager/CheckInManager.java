@@ -47,6 +47,18 @@ public class CheckInManager {
         }
     }
 
+    /**
+     * R-76：移除某玩家的签到互斥锁条目（由 quit 编排点 PlayerJoinListener 调用）。
+     *
+     * <p>原先 playerLocks 只增不删：一次性玩家（退服不再来）的 UUID → Object
+     * 条目永久残留。锁只在 checkIn 的 synchronized 临界区里有意义，玩家离线后
+     * 无保留价值。安全前提与其它 quit 级缓存一致：checkIn 的调用方（/le checkin
+     * 命令、GUI 点击）均在 Bukkit 主线程，移除不会与持锁线程并发。
+     */
+    public void unloadPlayer(UUID playerId) {
+        playerLocks.remove(playerId);
+    }
+
     private CheckInResult checkInLocked(Player player) {
         // 1. Get today's date in server timezone
         String today = LocalDate.now().format(DATE_FORMAT);

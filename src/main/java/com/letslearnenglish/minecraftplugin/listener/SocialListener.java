@@ -330,6 +330,10 @@ public class SocialListener implements Listener {
             UUID targetId = extractTargetIdFromTitle(player, title);
             if (targetId != null && targetId.equals(player.getUniqueId())) {
                 SoundManager.playSound(player, "menu-click");
+                // R-86b：进设置前把「本人主页」帧压入返回栈 —— 设置页返回时弹回本人主页，
+                // 不再绕栈直开（直开会把旧帧留给下一次返回误用，屏幕位置与栈脱节）。
+                nav.pushBack(player.getUniqueId(),
+                        () -> new ProfileGUI(plugin).open(player, player.getUniqueId()));
                 new ProfileGUI(plugin).openSettings(player);
             }
         }

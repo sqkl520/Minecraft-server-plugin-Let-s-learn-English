@@ -165,7 +165,15 @@ public class ProxyMessenger implements PluginMessageListener {
 
         String defaultLang = plugin.getConfigManager().getMainConfig().getString("general.language", "zh");
         org.bukkit.configuration.file.FileConfiguration messages = plugin.getConfigManager().getMessageConfig(defaultLang);
+        // R-78（P2 批次·编排者 fan-in）：模板缺失时不再 NPE 半残——两语言都缺才放弃广播。
         String template = messages.getString("dialogue.proxy-achievement");
+        if (template == null) {
+            template = plugin.getConfigManager().getMessageConfig("zh")
+                    .getString("dialogue.proxy-achievement");
+            if (template == null) {
+                return;
+            }
+        }
         String msg = template.replace("{achievement}", achievementName).replace("{player}", playerName);
         msg = org.bukkit.ChatColor.translateAlternateColorCodes('&', msg);
         Bukkit.broadcastMessage(msg);

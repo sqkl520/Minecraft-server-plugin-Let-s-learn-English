@@ -12,6 +12,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.Arrays;
@@ -93,6 +94,32 @@ public class WrongBookListener implements Listener {
             } else {
                 // Remove from wrong book
                 handleRemove(player, word, currentPage);
+            }
+        }
+    }
+
+    /**
+     * T0-01：拖拽 guard（抄 MiscGUIListener / MainMenuListener 的上半区模式）。
+     *
+     * 拖拽是独立事件，点击的 setCancelled(true) 拦不住它 —— 不拦的话
+     * 错题本的单词条目（PAPER）/导航箭头可被拖进玩家背包。
+     * 标题判定与 {@link #onInventoryClick} 入口一致；只在拖拽触及界面
+     * 上半部分时取消，玩家整理自己背包不受影响。
+     */
+    @EventHandler
+    public void onInventoryDrag(InventoryDragEvent event) {
+        String title = event.getView().getTitle();
+        if (title == null) return;
+
+        if (!title.contains("Wrong Book") && !title.contains("错题本") && !title.contains("Difficult Words")) {
+            return;
+        }
+
+        int topSize = event.getView().getTopInventory().getSize();
+        for (int rawSlot : event.getRawSlots()) {
+            if (rawSlot < topSize) {
+                event.setCancelled(true);
+                return;
             }
         }
     }

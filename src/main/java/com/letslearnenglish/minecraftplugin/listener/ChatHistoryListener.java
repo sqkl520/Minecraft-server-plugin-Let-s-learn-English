@@ -9,6 +9,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataContainer;
@@ -50,6 +51,31 @@ public class ChatHistoryListener implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) return;
 
         handleClick(player, event.getSlot(), event.getCurrentItem(), title);
+    }
+
+    /**
+     * T0-01：拖拽 guard（抄 MiscGUIListener / MainMenuListener 的上半区模式）。
+     *
+     * 拖拽是独立事件，点击的 setCancelled(true) 拦不住它 —— 不拦的话
+     * AI 对话历史/会话详情页的会话条目（BOOK）/导航箭头/页码标记可被拖进玩家背包。
+     * 标题判定与 {@link #onInventoryClick} 入口同源（ChatHistoryGUI.isChatHistoryGUI）；
+     * 只在拖拽触及界面上半部分时取消，玩家整理自己背包不受影响。
+     */
+    @EventHandler
+    public void onInventoryDrag(InventoryDragEvent event) {
+        String title = event.getView().getTitle();
+
+        if (!ChatHistoryGUI.isChatHistoryGUI(title)) {
+            return;
+        }
+
+        int topSize = event.getView().getTopInventory().getSize();
+        for (int rawSlot : event.getRawSlots()) {
+            if (rawSlot < topSize) {
+                event.setCancelled(true);
+                return;
+            }
+        }
     }
 
     private void handleClick(Player player, int slot, ItemStack item, String title) {

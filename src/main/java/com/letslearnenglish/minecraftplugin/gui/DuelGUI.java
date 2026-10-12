@@ -12,6 +12,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.SkullMeta;
 
 import java.util.Arrays;
 import java.util.UUID;
@@ -46,7 +47,7 @@ public class DuelGUI {
                 MessageUtil.getGuiMsg(messages, "duel.gui-title"));
 
         Inventory inv = Bukkit.createInventory(null, 27, title);
-        buildInventory(inv, player, room, messages);
+        buildInventory(inv, room, messages);
         player.openInventory(inv);
     }
 
@@ -146,11 +147,8 @@ public class DuelGUI {
         return title.startsWith(truncateTitleSafe(expectedRaw));
     }
 
-    private void buildInventory(Inventory inv, Player viewer, DuelRoom room, FileConfiguration messages) {
+    private void buildInventory(Inventory inv, DuelRoom room, FileConfiguration messages) {
         inv.clear();
-
-        UUID viewerId = viewer.getUniqueId();
-        boolean isPlayer1 = viewerId.equals(room.getPlayer1());
 
         String p1Name = room.getPlayer1Name();
         String p2Name = room.getPlayer2Name();
@@ -158,13 +156,6 @@ public class DuelGUI {
         int score2 = room.getScore2();
 
         // --- Player 1 score display (left side, slots 10-12) ---
-        Material p1Material;
-        if (isPlayer1) {
-            p1Material = Material.GREEN_WOOL;
-        } else {
-            p1Material = Material.GREEN_STAINED_GLASS;
-        }
-
         // Score visualization: fill slots based on score
         int[] p1Slots = {10, 11, 12, 19, 20}; // up to 5 slots
         for (int i = 0; i < DuelRoom.WIN_SCORE; i++) {
@@ -180,16 +171,9 @@ public class DuelGUI {
                 MessageUtil.getGuiMsg(messages, "duel.player-score")
                         .replace("{player}", p1Name)
                         .replace("{score}", String.valueOf(score1)));
-        inv.setItem(9, createItem(Material.PLAYER_HEAD, p1Label));
+        inv.setItem(9, createSkullItem(room.getPlayer1(), p1Label));
 
         // --- Player 2 score display (right side, slots 14-16) ---
-        Material p2Material;
-        if (!isPlayer1) {
-            p2Material = Material.RED_WOOL;
-        } else {
-            p2Material = Material.RED_STAINED_GLASS;
-        }
-
         // Score visualization: fill slots based on score
         int[] p2Slots = {14, 15, 16, 23, 24}; // up to 5 slots
         for (int i = 0; i < DuelRoom.WIN_SCORE; i++) {
@@ -205,8 +189,7 @@ public class DuelGUI {
                 MessageUtil.getGuiMsg(messages, "duel.player-score")
                         .replace("{player}", p2Name)
                         .replace("{score}", String.valueOf(score2)));
-        String headOwner = p2Name;
-        inv.setItem(17, createSkullItem(headOwner, p2Label));
+        inv.setItem(17, createSkullItem(room.getPlayer2(), p2Label));
 
         // --- Current word (center slot 13) ---
         Word currentWord = room.getCurrentWord();
@@ -252,17 +235,14 @@ public class DuelGUI {
     }
 
     @SuppressWarnings("deprecation")
-    private ItemStack createSkullItem(String owner, String name) {
-        // Use PLAYER_HEAD for modern versions, fallback to SKULL_ITEM
-        Material skullMaterial;
-        try {
-            skullMaterial = Material.valueOf("PLAYER_HEAD");
-        } catch (IllegalArgumentException e) {
-            skullMaterial = Material.valueOf("LEGACY_SKULL_ITEM");
-        }
-        ItemStack item = new ItemStack(skullMaterial);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
+    private ItemStack createSkullItem(UUID ownerId, String name) {
+        // R-70: 头像必须带上皮肤 —— 旧实现只塞了 displayName，owner 参数算而不用，
+        // 双方头像都是无主 Steve/Alex。与 ProfileGUI/EnglishSquareGUI 同款写法：
+        // PLAYER_HEAD + SkullMeta#setOwningPlayer。调用发生在主线程（GUI open），
+        // Bukkit.getOfflinePlayer 主线程调用安全。
+        ItemStack item = new ItemStack(Material.PLAYER_HEAD);
+        if (item.getItemMeta() instanceof SkullMeta meta) {
+            meta.setOwningPlayer(Bukkit.getOfflinePlayer(ownerId));
             meta.setDisplayName(name);
             item.setItemMeta(meta);
         }

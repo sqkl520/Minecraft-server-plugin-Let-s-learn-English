@@ -2,7 +2,7 @@ package com.letslearnenglish.minecraftplugin.core.duel;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
-import com.letslearnenglish.minecraftplugin.core.progress.RewardEngine;
+import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.gui.DuelGUI;
 import org.bukkit.Bukkit;
@@ -14,6 +14,7 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * DuelManager — manages all active 1v1 word duels.
@@ -31,20 +32,47 @@ public class DuelManager {
     public static final int GRACE_PERIOD_SECONDS = 30;
 
     private final LetsLearnEnglish plugin;
-    private final RewardEngine rewardEngine;
 
     // player UUID → DuelRoom they are currently in
     private final Map<UUID, DuelRoom> activeDuels;
-    // Players who are waiting for or currently in a duel
+    // Players currently inside an ACTIVE duel (R-73: pending invitations do
+    // NOT mark busy — see isBusy; marked in acceptDuel, released in cleanup)
     private final Set<UUID> busyPlayers;
-    // Pending duel requests: target UUID → sender UUID
-    private final Map<UUID, UUID> pendingRequests;
+    // Pending duel requests: target UUID → PendingDuel (sender + unique token)
+    private final Map<UUID, PendingDuel> pendingRequests;
     // Disconnect grace timers: disconnected player UUID → (duelRoom, disconnectTimestamp)
     private final Map<UUID, DisconnectInfo> disconnectTimers;
     // Grace period countdown tasks: disconnected player UUID → task
     private final Map<UUID, BukkitTask> graceTasks;
     // Single-question timeout tasks: player1 UUID → task (one entry per room)
     private final Map<UUID, BukkitTask> wordTimeoutTasks;
+    // Request-expiry tasks: target UUID → task (one entry per pending request)
+    private final Map<UUID, BukkitTask> requestExpiryTasks;
+    // R-69: offline duel notices awaiting delivery on next join (one entry per player)
+    private final Map<UUID, OfflineDuelNotice> offlineNotices;
+    // R-68: monotonic token source for pending duel requests
+    private final AtomicLong requestTokenSeq;
+
+    /**
+     * A pending duel request. The unique {@code token} lets the 60-second
+     * expiry task (and acceptDuel) remove exactly the entry it was created
+     * for — the old {@code Map<UUID, UUID>} value (just the sender UUID)
+     * could not distinguish two invitations sent by the SAME player to the
+     * SAME target within the expiry window (R-68).
+     */
+    private record PendingDuel(UUID senderId, long token) { }
+
+    /**
+     * R-69: a notice owed to a player who was offline when their duel was
+     * torn down (GM dismissal). Consumed on next join via
+     * {@link #consumeOfflineDuelNotice(UUID)}.
+     *
+     * @param messageKey      i18n key for the consumer to resolve and send
+     *                        (e.g. {@code "duel.cancelled-by-gm"})
+     * @param otherPlayerName the OTHER duelist's name, usable as the
+     *                        {player} placeholder
+     */
+    public record OfflineDuelNotice(String messageKey, String otherPlayerName) { }
 
     private static class DisconnectInfo {
         final DuelRoom room;
@@ -57,13 +85,15 @@ public class DuelManager {
 
     public DuelManager(LetsLearnEnglish plugin) {
         this.plugin = plugin;
-        this.rewardEngine = plugin.getProgressManager().getRewardEngine();
         this.activeDuels = new ConcurrentHashMap<>();
         this.busyPlayers = ConcurrentHashMap.newKeySet();
         this.pendingRequests = new ConcurrentHashMap<>();
         this.disconnectTimers = new ConcurrentHashMap<>();
         this.graceTasks = new ConcurrentHashMap<>();
         this.wordTimeoutTasks = new ConcurrentHashMap<>();
+        this.requestExpiryTasks = new ConcurrentHashMap<>();
+        this.offlineNotices = new ConcurrentHashMap<>();
+        this.requestTokenSeq = new AtomicLong();
     }
 
     // ==================== Request / Accept ====================
@@ -99,10 +129,45 @@ public class DuelManager {
             return;
         }
 
-        // Clear any old pending request from sender
-        pendingRequests.values().removeIf(v -> v.equals(sender.getUniqueId()));
+        // R-66: AI 对话互斥 —— AI 对话与决斗抢同一份聊天输入，双方任一在
+        // 对话中都拒绝发邀（sender 先查，提示责任归发起方）。
+        AIChatManager aiChatManager = plugin.getAIChatManager();
+        if (aiChatManager != null && aiChatManager.hasActiveConversation(sender)) {
+            sender.sendMessage(getMsg(sender, "duel.sender-chatting"));
+            return;
+        }
 
-        pendingRequests.put(target.getUniqueId(), sender.getUniqueId());
+        if (aiChatManager != null && aiChatManager.hasActiveConversation(target)) {
+            sender.sendMessage(getMsg(sender, "duel.target-chatting", "player", target.getName()));
+            return;
+        }
+
+        // Clear any old pending request from this sender (a player may only have
+        // one outstanding invitation) and cancel its expiry task so it neither
+        // fires a spurious "expired" message nor lingers until shutdown (R-68).
+        for (Map.Entry<UUID, PendingDuel> entry : pendingRequests.entrySet()) {
+            if (entry.getValue().senderId().equals(sender.getUniqueId())) {
+                if (pendingRequests.remove(entry.getKey(), entry.getValue())) {
+                    BukkitTask oldExpiry = requestExpiryTasks.remove(entry.getKey());
+                    if (oldExpiry != null) {
+                        oldExpiry.cancel();
+                    }
+                }
+            }
+        }
+
+        UUID targetId = target.getUniqueId();
+        long token = requestTokenSeq.incrementAndGet();
+        PendingDuel pending = new PendingDuel(sender.getUniqueId(), token);
+
+        // Replace whatever invitation previously targeted this player (possibly
+        // from a different sender): cancel its expiry task first, otherwise the
+        // stale task would linger untracked after firing (R-68).
+        BukkitTask staleExpiry = requestExpiryTasks.remove(targetId);
+        if (staleExpiry != null) {
+            staleExpiry.cancel();
+        }
+        pendingRequests.put(targetId, pending);
 
         // Message to sender
         sender.sendMessage(getMsg(sender, "duel.request-sent", "player", target.getName()));
@@ -115,23 +180,32 @@ public class DuelManager {
         target.sendMessage(acceptMsg);
         target.sendMessage(clickableAccept);
 
-        // Auto-expire pending request after 60 seconds. The remove(key, value) form
-        // ensures a stale expiry task never deletes a NEWER invitation sent to the
-        // same target within the 60s window (same fix as acceptDuel's F1-15).
-        UUID expectedSender = sender.getUniqueId();
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            boolean expired = pendingRequests.remove(target.getUniqueId(), expectedSender);
+        // Auto-expire pending request after 60 seconds. The remove(key, value)
+        // form with the unique token ensures a stale expiry task never deletes a
+        // NEWER invitation standing for the same target (R-68: also covers two
+        // invitations from the SAME sender within the 60s window, where the old
+        // UUID-only value compared equal and ate the newer request). A stale
+        // firing (expired == false) must not untrack the newer request's task,
+        // so the task-map cleanup only runs on a successful expiry.
+        final String senderName = sender.getName();
+        final String targetName = target.getName();
+        BukkitTask expiryTask = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            boolean expired = pendingRequests.remove(targetId, pending);
             if (expired) {
-                Player s = Bukkit.getPlayer(expectedSender);
+                requestExpiryTasks.remove(targetId);
+                Player s = Bukkit.getPlayer(pending.senderId());
                 if (s != null && s.isOnline()) {
-                    s.sendMessage(getMsg(s, "duel.request-expired", "player", target.getName()));
+                    s.sendMessage(getMsg(s, "duel.request-expired", "player", targetName));
+                    SoundManager.playSound(s, "menu-click");
                 }
-                Player t = Bukkit.getPlayer(target.getUniqueId());
+                Player t = Bukkit.getPlayer(targetId);
                 if (t != null && t.isOnline()) {
-                    t.sendMessage(getMsg(t, "duel.request-expired-target", "player", sender.getName()));
+                    t.sendMessage(getMsg(t, "duel.request-expired-target", "player", senderName));
+                    SoundManager.playSound(t, "menu-click");
                 }
             }
         }, 1200L); // 60 seconds = 1200 ticks
+        requestExpiryTasks.put(targetId, expiryTask);
     }
 
     /**
@@ -140,17 +214,21 @@ public class DuelManager {
      * <p>F1-15: the invitation is consumed (removed from pendingRequests) only
      * AFTER every validation passes — a failed accept (offline sender, busy
      * side, answering state) no longer silently eats the request, so the
-     * target can retry without asking the sender to re-invite.
+     * target can retry without asking the sender to re-invite. The final
+     * remove(key, pending) is token-based (R-68): if the request was replaced
+     * or expired between the peek and the consume, the target is told the
+     * invitation has expired instead of the generic no-pending-request.
      */
     public void acceptDuel(Player player) {
         UUID targetId = player.getUniqueId();
         // F1-15: peek first, remove only once all validations pass.
-        UUID senderId = pendingRequests.get(targetId);
+        PendingDuel pending = pendingRequests.get(targetId);
 
-        if (senderId == null) {
+        if (pending == null) {
             player.sendMessage(getMsg(player, "duel.no-pending-request"));
             return;
         }
+        UUID senderId = pending.senderId();
 
         Player sender = Bukkit.getPlayer(senderId);
         if (sender == null || !sender.isOnline()) {
@@ -181,11 +259,33 @@ public class DuelManager {
             return;
         }
 
-        // All validations passed — consume the invitation. The remove(key, value)
-        // form guards the (unlikely) case where a newer request replaced this one.
-        if (!pendingRequests.remove(targetId, senderId)) {
-            player.sendMessage(getMsg(player, "duel.no-pending-request"));
+        // R-66 对称补全（P2 fan-in）：接受时复刻 sendDuelRequest 的 AI 对话互斥 ——
+        // 邀请发出后任一方可能已进入 AI 对话，此时强行开赛会把对话静默挂起。
+        // 校验不过不消费邀请（保持 pending，玩家结束对话后仍可接受）。
+        AIChatManager acceptAiChat = plugin.getAIChatManager();
+        if (acceptAiChat != null && acceptAiChat.hasActiveConversation(sender)) {
+            player.sendMessage(getMsg(player, "duel.target-chatting", "player", sender.getName()));
             return;
+        }
+        if (acceptAiChat != null && acceptAiChat.hasActiveConversation(player)) {
+            // 复用通用"对话中"提示键（dialogue.chat-active：请先输入 bye 结束）
+            player.sendMessage(getMsg(player, "dialogue.chat-active"));
+            return;
+        }
+
+        // All validations passed — consume the invitation. The remove(key, value)
+        // form with the token guards the case where a newer request replaced this
+        // one (R-68) or the 60-second expiry won the race (R-86n/F1-15); the
+        // target is told the invitation lapsed rather than nothing having existed.
+        if (!pendingRequests.remove(targetId, pending)) {
+            player.sendMessage(getMsg(player, "duel.request-expired-target", "player", sender.getName()));
+            return;
+        }
+
+        // Cancel the now-consumed request's expiry task (R-68 leak guard).
+        BukkitTask expiryTask = requestExpiryTasks.remove(targetId);
+        if (expiryTask != null) {
+            expiryTask.cancel();
         }
 
         // Mark both as busy
@@ -407,6 +507,9 @@ public class DuelManager {
                     "score2", String.valueOf(room.getScore(winnerId))));
             removeScoreboard(loser);
             loser.closeInventory();
+            // R-84: 输家也出声 —— 复用现有 "incorrect" 键（无新音效 key），
+            // 与赢家的 "complete" 对称，避免败方全程静默。
+            SoundManager.playSound(loser, "incorrect");
         }
 
         cleanup(room);
@@ -490,8 +593,11 @@ public class DuelManager {
                 disconnectTimers.remove(playerId);
 
                 if (opp != null && opp.isOnline()) {
+                    // R-86n: 文案改带 {seconds} 占位（秒数不再写死 30），
+                    // 与 GRACE_PERIOD_SECONDS 保持单一真相源。
                     opp.sendMessage(getMsg(opp, "duel.opponent-timeout",
-                            "player", player.getName()));
+                            "player", player.getName(),
+                            "seconds", String.valueOf(GRACE_PERIOD_SECONDS)));
                     removeScoreboard(opp);
                     opp.closeInventory();
                     SoundManager.playSound(opp, "complete");
@@ -533,6 +639,14 @@ public class DuelManager {
 
         DuelRoom room = info.room;
         if (!room.isActive()) {
+            // Defense in depth: verified unreachable today — every teardown path
+            // (endDuel / quitDuel / cancelDuelByAdmin / cancelDuelInternal /
+            // grace expiry) deactivates the room AND removes this player's
+            // disconnectTimers entry inside the same main-thread task (cleanup()),
+            // so a later handleReconnect already sees info == null. Kept so a
+            // future reordering of teardown steps degrades gracefully instead of
+            // silently returning. (R-69: offline GM-dismissal notices are
+            // delivered separately via consumeOfflineDuelNotice on join.)
             player.sendMessage(getMsg(player, "duel.duel-already-over"));
             return;
         }
@@ -560,37 +674,16 @@ public class DuelManager {
     // ==================== Cancel / Cleanup ====================
 
     /**
-     * Cancel an active duel by player UUID (used by quit/timeout/forfeit).
-     */
-    public void cancelDuel(UUID playerId) {
-        DuelRoom room = activeDuels.get(playerId);
-        if (room == null) return;
-
-        UUID opponentId = room.getOpponent(playerId);
-        room.setActive(false);
-        cancelWordTimeout(room);
-
-        Player p1 = Bukkit.getPlayer(room.getPlayer1());
-        Player p2 = Bukkit.getPlayer(room.getPlayer2());
-        if (p1 != null) {
-            removeScoreboard(p1);
-            p1.closeInventory();
-        }
-        if (p2 != null) {
-            removeScoreboard(p2);
-            p2.closeInventory();
-        }
-
-        cleanup(room);
-    }
-
-    /**
      * FIX-DUEL-01: GM-forced duel dismissal.
      *
      * <p>Semantics: NO winner/loser is declared — the room is torn down as if
      * cancelled. Both sides are told a GM ended the duel; no forfeit stigma
      * is attached to either player. Does not touch the M4 answering gate or
      * any pending invitations (GM dismissal only targets an ACTIVE room).
+     *
+     * <p>R-69: a side that is offline when the GM dismisses the duel cannot be
+     * messaged — a notice is queued instead and delivered on that player's
+     * next join (see {@link #consumeOfflineDuelNotice(UUID)}).
      *
      * @param gm the admin performing the dismissal (receives confirmation)
      * @param targetName name of one of the two duelists
@@ -616,11 +709,20 @@ public class DuelManager {
             p1.sendMessage(getMsg(p1, "duel.cancelled-by-gm"));
             removeScoreboard(p1);
             p1.closeInventory();
+            // R-84: 轻量音效提示在线方"对局被解散"。
+            SoundManager.playSound(p1, "menu-click");
+        } else {
+            // R-69: 离线方重连后仍要知道对局已被 GM 解散（重连路径已静默）。
+            enqueueOfflineDuelNotice(room.getPlayer1(), room.getPlayer2Name());
         }
         if (p2 != null && p2.isOnline()) {
             p2.sendMessage(getMsg(p2, "duel.cancelled-by-gm"));
             removeScoreboard(p2);
             p2.closeInventory();
+            // R-84: 同上，在线方给个解散音效。
+            SoundManager.playSound(p2, "menu-click");
+        } else {
+            enqueueOfflineDuelNotice(room.getPlayer2(), room.getPlayer1Name());
         }
 
         room.setActive(false);
@@ -634,6 +736,35 @@ public class DuelManager {
         plugin.getLogger().info("Duel between " + room.getPlayer1Name()
                 + " and " + room.getPlayer2Name()
                 + " was force-cancelled by GM " + gm.getName());
+    }
+
+    /**
+     * R-69: queue a one-shot notice for a player who was offline at teardown.
+     *
+     * <p>Overwrite semantics — one pending notice per player at most; the most
+     * recent teardown wins. Entries survive {@link #cleanup(DuelRoom)} on
+     * purpose (the recipient may never come back — that is a bounded, intended
+     * residue, bounded to one entry per UUID), and are removed by
+     * {@link #consumeOfflineDuelNotice(UUID)} on delivery.
+     */
+    private void enqueueOfflineDuelNotice(UUID playerId, String otherPlayerName) {
+        offlineNotices.put(playerId,
+                new OfflineDuelNotice("duel.cancelled-by-gm", otherPlayerName));
+    }
+
+    /**
+     * R-69 (interface frozen for PlayerJoinListener): return and remove the
+     * pending offline duel notice for this player, or {@code null} if none.
+     *
+     * <p>Called on player join; after this call the queue holds no entry for
+     * the player (consume = deliver-once semantics). Idempotent.
+     *
+     * @param playerId the joining player's UUID
+     * @return the pending notice, or {@code null}
+     */
+    public OfflineDuelNotice consumeOfflineDuelNotice(UUID playerId) {
+        if (playerId == null) return null;
+        return offlineNotices.remove(playerId);
     }
 
     private void cancelDuelInternal(DuelRoom room, String reason) {
@@ -674,6 +805,64 @@ public class DuelManager {
         // Cancel the single-question timeout (FIX-DUEL-01)
         BukkitTask wt = wordTimeoutTasks.remove(p1);
         if (wt != null) wt.cancel();
+    }
+
+    // ==================== Shutdown ====================
+
+    /**
+     * R-72: plugin shutdown cleanup — cancel every duel-owned scheduler task,
+     * reset scoreboards of players still in a duel, and clear all state maps.
+     *
+     * <p>Idempotent and NPE-safe: callable at any time (including with no
+     * duels active or a partially initialized state) and safe to call twice.
+     * Player-facing messages are intentionally NOT sent (server is stopping).
+     *
+     * <p>Called from {@code LetsLearnEnglish.onDisable()} (S8). The
+     * offline-notice queue (R-69) is plain in-memory data with no tasks
+     * attached and is cleared here as part of the full reset.
+     */
+    public void shutdown() {
+        // Cancel every tracked task container. BukkitTask.cancel() is
+        // idempotent; guard against null from concurrent removal.
+        cancelAllTasks(graceTasks);
+        cancelAllTasks(wordTimeoutTasks);
+        cancelAllTasks(requestExpiryTasks);
+
+        // Reset scoreboards for players still inside an active duel. Iterate
+        // the rooms' player ids (not activeDuels: two ids map to one room).
+        Set<UUID> seen = new HashSet<>();
+        for (DuelRoom room : activeDuels.values()) {
+            if (room == null || !seen.add(room.getPlayer1())) {
+                continue;
+            }
+            seen.add(room.getPlayer2());
+            Player p1 = Bukkit.getPlayer(room.getPlayer1());
+            if (p1 != null && p1.isOnline()) {
+                removeScoreboard(p1);
+                p1.closeInventory();
+            }
+            Player p2 = Bukkit.getPlayer(room.getPlayer2());
+            if (p2 != null && p2.isOnline()) {
+                removeScoreboard(p2);
+                p2.closeInventory();
+            }
+        }
+
+        // Clear every state map/set.
+        activeDuels.clear();
+        busyPlayers.clear();
+        pendingRequests.clear();
+        disconnectTimers.clear();
+        offlineNotices.clear();
+    }
+
+    private void cancelAllTasks(Map<UUID, BukkitTask> tasks) {
+        for (BukkitTask task : tasks.values()) {
+            if (task != null) {
+                task.cancel();
+            }
+        }
+        tasks.clear();
     }
 
     // ==================== Scoreboard ====================
@@ -763,7 +952,11 @@ public class DuelManager {
 
     private void removeScoreboard(Player player) {
         if (player.isOnline()) {
-            org.bukkit.scoreboard.Scoreboard emptyBoard = Bukkit.getScoreboardManager().getNewScoreboard();
+            var scoreboardManager = Bukkit.getScoreboardManager();
+            // Shutdown hardening (R-72): during onDisable the manager can
+            // already be gone — nothing left to reset in that case.
+            if (scoreboardManager == null) return;
+            org.bukkit.scoreboard.Scoreboard emptyBoard = scoreboardManager.getNewScoreboard();
             player.setScoreboard(emptyBoard);
         }
     }
@@ -830,6 +1023,19 @@ public class DuelManager {
         return activeDuels.containsKey(playerId);
     }
 
+    /**
+     * R-73 semantics: true ONLY while the player is inside an ACTIVE duel
+     * (marked in {@link #acceptDuel} and released in {@link #cleanup(DuelRoom)}).
+     *
+     * <p>A player merely holding a pending invitation — as sender or as
+     * target — is NOT busy: they can still be challenged by a third party,
+     * and sending a new request simply replaces their previous outstanding
+     * invitation (at most one invitation per sender, at most one standing
+     * invitation per target). Consent is enforced at accept time instead:
+     * {@link #acceptDuel} re-validates both sides (busy / answering) before
+     * the duel starts, so a stale invitation can never start a duel against a
+     * player who has since become busy.
+     */
     public boolean isBusy(UUID playerId) {
         return busyPlayers.contains(playerId);
     }

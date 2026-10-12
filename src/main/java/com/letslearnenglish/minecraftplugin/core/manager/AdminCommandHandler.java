@@ -36,13 +36,19 @@ public class AdminCommandHandler {
         this.plugin = plugin;
     }
 
-    public void resetPlayerData(String playerName) {
+    /**
+     * R-86h：重置玩家数据。
+     *
+     * @return true = 找到玩家并已执行重置；false = 在线、数据库、服务器名册都查不到此人
+     *         （调用方据此提示"无数据"，不再对不存在的玩家报成功）
+     */
+    public boolean resetPlayerData(String playerName) {
         plugin.getLogger().info("Admin: Resetting data for player: " + playerName);
 
         UUID playerId = resolvePlayerUUID(playerName);
         if (playerId == null) {
             plugin.getLogger().warning("Admin: Player not found: " + playerName);
-            return;
+            return false;
         }
 
         PlayerDataStore dataStore = plugin.getPlayerDataStore();
@@ -59,8 +65,19 @@ public class AdminCommandHandler {
         plugin.getDatabaseManager().deletePlayerData(playerId);
 
         plugin.getLogger().info("Admin: Player data reset complete for: " + playerName);
+        return true;
     }
 
+    /**
+     * 解析玩家名对应的 UUID，三级查找：在线玩家 → player_data 表 → 服务器名册
+     * （{@link org.bukkit.OfflinePlayer#hasPlayedBefore()}，覆盖"曾玩过但
+     * player_data 残留/半删"的情况，允许补删干净）。
+     *
+     * <p>调用上下文：仅被 {@link #resetPlayerData}（/lea reset）调用，执行在命令
+     * 主线程上，故 {@code Bukkit.getOfflinePlayer(name)} 的阻塞式名册查询安全。
+     *
+     * @return 查到的 UUID；三级都查不到返回 null
+     */
     private UUID resolvePlayerUUID(String playerName) {
         Player target = Bukkit.getPlayer(playerName);
         if (target != null) {
@@ -83,6 +100,13 @@ public class AdminCommandHandler {
             plugin.getLogger().log(Level.WARNING,
                     "Failed to lookup player UUID: " + playerName, e);
         }
+        }
+
+        // F5-01：表里查不到（已被删过一次的行不会再出现在 player_data）时，
+        // 回落服务器名册 —— 名册命中的旧 UUID 仍可能有其余表的残留行可补删。
+        org.bukkit.OfflinePlayer offline = Bukkit.getOfflinePlayer(playerName);
+        if (offline != null && offline.hasPlayedBefore()) {
+            return offline.getUniqueId();
         }
         return null;
     }

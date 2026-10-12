@@ -168,9 +168,16 @@ public class MessageUtil {
      * the whole inventory fails to open. This helper never returns {@code null}:
      * on a miss it returns a visible {@code [?key]} placeholder (colour codes are
      * applied by the caller as before, so the placeholder shows up in-game and the
-     * offending key is obvious instead of silently masked). Deliberately logging-free
-     * — the startup i18n audit ({@link ConfigManager#validateRequiredKeys}) already
-     * covers expected-key diagnostics, and GUI opens are player-facing hot paths.
+     * offending key is obvious instead of silently masked).
+     *
+     * <p>S7 javadoc correction: this helper consults only the single config passed
+     * in — the caller has already resolved the player's language via
+     * {@code getMessageConfig(lang)}. There is no zh/en cross-file merge (and no
+     * zh-file fallback) for the same key here. A {@code null} config or a
+     * {@code null} key also yields a visible placeholder ({@code [?null]} for a
+     * null key) — the method never throws. Deliberately logging-free — the startup
+     * i18n audit ({@link ConfigManager#validateRequiredKeys}) already covers
+     * expected-key diagnostics, and GUI opens are player-facing hot paths.
      *
      * @param messages the per-language message config (may itself be null)
      * @param key      the message key

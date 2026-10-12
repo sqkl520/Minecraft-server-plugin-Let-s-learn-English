@@ -156,6 +156,10 @@ public class MainMenuListener implements Listener {
 
         if (slot != ConfirmationGUI.CONFIRM_SLOT) return;
 
+        // R-86：点击音效不再由 SoundManager 全局兜底（去重时已删除全局 InventoryClick
+        // 播放），确认键这里显式补播 —— 与取消键及主菜单各按钮的显式播放保持一致。
+        SoundManager.playSound(player, "menu-click");
+
         int stage = ConfirmationGUI.getStage(player);
 
         if (stage == 1) {
@@ -168,6 +172,13 @@ public class MainMenuListener implements Listener {
             }
             String resolvedTarget = targetLang;
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                // F6-01：延迟 2 tick 期间玩家可能已点取消（resetStage 清光状态）或已下线 ——
+                // 只有状态仍是「阶段 1 + 同一落盘目标语言」才续开第二页；任一不符直接放弃这次
+                // reopen，绝不把已取消的玩家拽回二确第二页。
+                if (!player.isOnline()) return;
+                if (ConfirmationGUI.getStage(player) != 1) return;
+                String storedTarget = ConfirmationGUI.getTargetLang(player);
+                if (storedTarget == null || !storedTarget.equals(resolvedTarget)) return;
                 ConfirmationGUI confirm = new ConfirmationGUI(plugin, resolvedTarget);
                 confirm.openSecond(player);
             }, 2L);

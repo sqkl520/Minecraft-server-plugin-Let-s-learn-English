@@ -11,7 +11,6 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 
 import java.util.List;
-
 /**
  * Listener for Scenario Select, Difficulty Select, and Reload API GUI interactions.
  */
@@ -44,6 +43,31 @@ public class ScenarioSelectListener implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) return;
 
         handleScenarioSelect(player, event.getSlot());
+    }
+
+    /**
+     * T0-01 残留（P2 fan-in 补装）：拖拽是独立事件，点击的 setCancelled(true) 拦不住它 ——
+     * 不拦的话场景选择 GUI 的展示物品（场景图标/难度/玻璃板）可被拖进玩家背包。
+     * 标题判定与 {@link #onInventoryClick} 入口一致；只在拖拽触及界面上半部分时取消，
+     * 玩家整理自己背包不受影响。
+     */
+    @EventHandler
+    public void onInventoryDrag(org.bukkit.event.inventory.InventoryDragEvent event) {
+        String title = event.getView().getTitle();
+        if (title == null) return;
+
+        if (!title.contains("Scenario Select") && !title.contains("场景选择")
+                && !title.contains("情景对话")) {
+            return;
+        }
+
+        int topSize = event.getView().getTopInventory().getSize();
+        for (int rawSlot : event.getRawSlots()) {
+            if (rawSlot < topSize) {
+                event.setCancelled(true);
+                return;
+            }
+        }
     }
 
     private void handleScenarioSelect(Player player, int slot) {
@@ -95,6 +119,15 @@ public class ScenarioSelectListener implements Listener {
                     "dialogue.ai-not-configured"));
             return;
         }
+        // R-66：答题优先 —— 答题/错题练习中不允许开启 AI 对话（否则对话静默挂起、
+        // 聊天输入被两系统争抢）。条件与 /le dialogue 命令入口的答题分支一致。
+        if (plugin.getWordLearningManager().hasActiveQuiz(player.getUniqueId())
+                || plugin.getWordLearningManager().isPracticingWord(player.getUniqueId())) {
+            player.closeInventory();
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "dialogue.finish-quiz-first"));
+            return;
+        }
         SoundManager.playSound(player, "menu-click");
         String scenario = sortedKeys.get(index);
         String difficulty = plugin.getAIChatManager().getPlayerDifficulty(player);
@@ -119,6 +152,12 @@ public class ScenarioSelectListener implements Listener {
 
         // Let AI start the conversation with an opening line
         plugin.getAIChatManager().triggerAiOpening(player, (aiResponse, errorMsg) -> {
+            if (errorMsg != null) {
+                // 开场白失败不再静默 —— 给玩家明确提示（tests: dialogue.request-failed 键已存在）
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "dialogue.request-failed"));
+                return;
+            }
             if (aiResponse != null) {
                 String aiLabel = plugin.getMessageUtil().getPlayerMessage(player, "dialogue.ai-label");
                 player.sendMessage(aiLabel + aiResponse);

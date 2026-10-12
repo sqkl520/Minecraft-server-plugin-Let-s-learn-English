@@ -88,7 +88,12 @@ public class DuelRoom {
             return AnswerResult.ALREADY_ANSWERED;
         }
 
-        boolean correct = currentWord.getEnglish().equalsIgnoreCase(answer.trim());
+        // F2-07: defend against a null answer — normalize to an empty string
+        // (never equals a real word) so it flows down the WRONG-answer path
+        // instead of NPE-ing. Chat messages are non-null in practice; this is
+        // a pure safety net for programmatic callers.
+        String normalizedAnswer = (answer == null) ? "" : answer.trim();
+        boolean correct = currentWord.getEnglish().equalsIgnoreCase(normalizedAnswer);
 
         if (correct) {
             lastCorrectAnswerer = playerId;

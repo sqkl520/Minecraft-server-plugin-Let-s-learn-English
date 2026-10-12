@@ -6,6 +6,100 @@
 
 ---
 
+## 批次：P2 清理（甲+乙合并批，8 流 + 2 重跑实例）
+
+> 范围：P2 43 条（核实后实修约 38）+ dev-findings 积压。S1/S5 首实例中断（API 500 / watchdog），重跑实例已补全。各流上报的任务外发现归档如下（一律未修）。
+
+### 来自合流 tester（P2 批次）
+
+| # | 位置 | 现象 | 严重 | 状态 |
+|---|------|------|------|------|
+| P2-26 | `AIChatManager:525` ↔ `DailyChallengeManager:225` | Core↔Core 互引（AIChatManager→updateProgress / DailyChallengeManager→isAvailable），当前无递归栈风险，属结构性环（既有，非本批） | 低 | 待排期（Phase 3：以事件/回调打断） |
+| P2-27 | `ChatHistoryGUI:121/128/146/271` | GUI 越层直调 DatabaseManager（chat-history 既有功能，非本批） | 低 | 待排期（Phase 3：抽 Core 门面收敛） |
+| P2-28 | `AIChatManager` 个人场景持久化 | 类同时承担文件持久化（File/YamlConfiguration/save/.bak，1039-1100 行），建议后续抽 `PersonalScenarioStore`（Arch tester 建议，非本批阻塞） | 低 | 待排期（Phase 3 重构候选） |
+
+### 来自 S1（GUI 崩溃与音效）
+
+| # | 位置 | 现象 | 严重 | 状态 |
+|---|------|------|------|------|
+| P2-01 | `LearnCommand` 等各命令入口的 GUI 直开 | 音效单源收口后（menu-open 仅 SoundManager 全局播放），命令直开的插件 GUI 仍会走 InventoryOpen 全局音——覆盖完整；但若将来标题改名未同步 GUIUtils 白名单，该 GUI 静默丢音（既有注释已警示） | 低 | 已记录（维护约束） |
+| P2-02 | `DuelGUIListener` 展示格 | 删全局 InventoryClick 后，对决界面除退出键外其余展示格点击无声——按设计静音（无可点击动作不应有反馈音），非缺陷 | 低 | 已记录（设计确认） |
+| P2-23 | `gui/ProgressGUI.java` | 全库零实例化点（`new ProgressGUI` 仅构造函数），实际 `/le progress` 走 ProfileGUI —— 死类残留 | 低 | 待排期（Phase 3 清理：删除或复活） |
+| P2-24 | `ScenarioSelectListener` AI 未配置分支 / 无权限分支 | 关界面+发消息但零音效（handleScenarioClick 116-121、handleReloadAPI 192）；`WrongBookListener.handlePractice`（Shift+点练习）有效动作无点击音（同页左键删除有音） | 低 | 待排期（Phase 3 音效面试收尾） |
+| P2-25 | `config.yml` `main-menu.scenario-select.back-button` | 疑似死配置（ScenarioSelectGUI 与 listener 双侧硬编码 slot 8，一致无 bug） | 低 | 待排期（Phase 3 配置面清理） |
+
+### 来自 S2（AI 健壮性）
+
+| # | 位置 | 现象 | 严重 | 状态 |
+|---|------|------|------|------|
+| P2-03 | `LearnCommand` 纯命令入口（F4-01 连带） | 场景 key 校验已加（S4），但 `getSortedScenarioKeys` 之外若玩家有 30+ 个人场景且被截断加载，命令直达被截断的场景 key 会报 not-found（数据仍在盘，不出错但不可用）——上限语义的可预期后果 | 低 | 已记录（上限语义） |
+| P2-04 | `AIChatManager.importPersonalScenario` 备份机制 | .bak 只保留一份（覆盖旧 bak）——多次损坏重写后最早备份被顶掉。属尽力而为设计 | 低 | 已记录 |
+| P2-05 | `PlayerJoinListener:89-90`（并行期跨流缺口） | 曾引 CheckInManager/RewardEngine.unloadPlayer 未落盘——S5 重跑已补齐，编译恢复绿色 | — | 已关闭 |
+
+### 来自 S3（决斗全套）
+
+| # | 位置 | 现象 | 严重 | 状态 |
+|---|------|------|------|------|
+| P2-06 | `DuelManager.hasPendingRequest` / `getDuelRoom` | 全库零调用死公共 API | 低 | 待排期（Phase 3 清理） |
+| P2-07 | `DuelManager.DisconnectInfo.disconnectTime` | 只写不读死字段 | 低 | 待排期（Phase 3 清理） |
+| P2-08 | `DuelManager.cancelDuelByAdmin` | 双方都离线时 GM 仍无法解散（R-69 队列只覆盖一名在线场景） | 低 | 已记录（已知限制，待 Phase 3 决策是否扩权） |
+
+### 来自 S4（命令与配置校验）
+
+| # | 位置 | 现象 | 严重 | 状态 |
+|---|------|------|------|------|
+| P2-09 | `AdminCommand` export 判定 | 成功判定与 DataExporter 返回串 `"Export failed"` 前缀字符串硬耦合——DataExporter 改失败文案则静默回归 | 低 | 待排期（Phase 3：改协议化返回） |
+| P2-10 | `AdminCommandHandler.addWord/removeWord` | 未知难度只打 console warning 无 sender 反馈（无调用方传 sender，签名改造量大） | 低 | 已记录 |
+| P2-11 | `error.scenario-save-failed` | 被 S4 改造后失去唯一使用点，成死键候选（已在 dev 文档记录） | 低 | 待排期（死键统一清理时一并删） |
+| P2-12 | `AIChatManager.getMaxPersonalScenarios()` | S2 落盘的公开 getter 当前无引用（S4 用当前条数实填 {max}），保留备用 | 低 | 已记录 |
+
+### 来自 S5（生命周期与数据卫生）
+
+| # | 位置 | 现象 | 严重 | 状态 |
+|---|------|------|------|------|
+| P2-13 | 白名单 13 文件 | 剩余 21 处裸 `messages.getString(`（WordLearningListener 8 / WordLearningManager 9 / WrongBookListener 3 / DailyChallengeManager 1），缺键仍 NPE——GUI 侧已清零，listener/core 侧为二期候选 | 中 | 待排期（Phase 3 GUI/listener 硬化二期，方案同 getGuiMsg 收敛） |
+| P2-14 | `AchievementManager:178` / `:200` | 带默认值 / 紧跟 null 检查的 getString 保持不动（非缺陷，记录豁免原因） | 低 | 已记录 |
+
+### 来自 S6（词库内容）
+
+| # | 位置 | 现象 | 严重 | 状态 |
+|---|------|------|------|------|
+| P2-15 | `advanced.yml` dingle | 疑似生成期噪声词（极度生僻、与 dingy 形近易混） | 低 | 待排期（Phase 3 内容调优复核） |
+| P2-16 | `beginner.yml` 同义词面 | 超纲面大于 tome 单点：cat→feline、dog→canine、eat→consume/dine、baby→infant 等 | 低 | 待排期（Phase 3 内容调优：批量审同义词级别） |
+| P2-17 | words/README | "beginner 用 1~2 级"与数据（26 个 level 3）不一致 | 低 | 待排期（文档校正） |
+| P2-18 | 词库字母覆盖面 | beginner 均匀、intermediate 偏 a-i、advanced 96% 集中 a-d——Phase 3 扩充选词参考 | 低 | 已记录 |
+
+### 来自 S7（GUI 硬化）
+
+| # | 位置 | 现象 | 严重 | 状态 |
+|---|------|------|------|------|
+| P2-19 | `ChatHistoryEntry.extractScenarioFromSystemPrompt` | 缺省返回硬编码英文 "Unknown"（数据层，白名单外） | 低 | 待排期（Phase 3 随 i18n 二期） |
+| P2-20 | `WordBankSelectGUI:92` | 保留 getString+null 判的字母大写化兜底（体验优于 [?key]，S7 自决保留，加 config null 护） | 低 | 已记录（设计确认） |
+
+### 来自 S8（入口与配置）
+
+| # | 位置 | 现象 | 严重 | 状态 |
+|---|------|------|------|------|
+| P2-21 | `ChatAnswerListener.broadcastCorrectAnswer` 3 秒在线缓存 | 刚进服玩家 3 秒内收不到答对广播（R-86m 修语言时保留的既有缓存） | 低 | 待排期（Phase 3：改为事件驱动失效或缩 TTL） |
+| P2-22 | `daily-reminder` 双通道去重 | 定时发全员时也写 joinReminderSent（S8 自决共享去重）——若编排者要两通道独立，删一行即可 | 低 | 已记录（设计确认，保留共享） |
+
+### 本批次语义裁决记录（已定，无需再议）
+
+- 音效单源 = menu-open 仅 SoundManager 全局 InventoryOpen 播（白名单 16 GUI 全覆盖）；menu-click 仅各 listener 显式播放（全局 InventoryClick 已删，装饰格/背包点击不再误响）；未知音效键首次 WARNING 防刷屏。
+- 音效对称补齐 = 学习超时/决斗败者播 incorrect；邀请过期/GM 解散/对决退出键播 menu-click；签到成功播 correct。
+- menu-size = 合法域 [27,54] 且 9 的倍数（<27 布局不够，按钮槽位固定 10-18），非法回落 27 + WARNING。
+- 个人场景 = slug 尾附 CRC32 短码防碰撞；同名幂等更新（updated 语义）；512KB / 30 条上限（超限 limitReached 拒绝）；损坏文件 .bak 备份后重写；ImportResult(key, updated, saveFailed, limitReached)。
+- AI 上下文 = max-context-pairs 真接线（默认 6 完整 user/assistant 对）+ token 预算双约束；system 永不裁（单独超预算 WARNING 一次）。
+- TTS = 空/octet-stream Content-Type 过魔数校验（RIFF/ID3/0xFFEx）才落盘；毒缓存发现即删；空响应体不落盘。
+- 决斗 = PendingDuel(senderId, token) 原子消费；OfflineDuelNotice 离线通知队列（consumeOfflineDuelNotice）；shutdown() 幂等（S8 onDisable 调用）；对手超时文案 {seconds} 占位脱钩。
+- 互斥矩阵（对称） = 答题中/决斗中不可开 AI 对话（finish-quiz-first / finish-duel-first）；AI 对话中不可开答题（chat-active）、不可发起/接受决斗（sender/target-chatting）。
+- 挑战进度显示 = 写入侧（updateProgress）+ 读侧（getTodayChallenges）+ GUI 渲染 + 聊天渲染四处同口径 clamp（min(progress, target)）。
+- 词库语义序 = beginner→intermediate→advanced→其它字母序（DIFFICULTY_ORDER 表 + LinkedHashSet 保序）。
+- reload 语义维持 = clearCache 不清两套今日计数器（防刷不重置）；quit 清（unloadPlayerData）；今日金币 cache 由 HotReloadManager 单独重置（既定）。
+- 阈值裁决保留项 = R-59 quit 计入 session/分数；R-71 保留词优先（accept/quit/cancel 名玩家不可被挑战）；R-86l 细粒度权限暂不接线；F1-22 重启丢今日计数；F1-19 daily-round-limit=0=拒绝全部（已文档化）。
+
+---
+
 ## 批次：P0 高危修复（6 流 + 合流测试 GO）
 
 > P0 12 条（R-01~R-09 + R-09b/c/d）全部修复，合流测试 verdict：GO，零阻断。

@@ -3,6 +3,7 @@ package com.letslearnenglish.minecraftplugin.gui;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager.ChallengeProgress;
 import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager.ChallengeType;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -37,7 +38,7 @@ public class DailyChallengeGUI {
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("daily.title"));
+                MessageUtil.getGuiMsg(messages, "daily.title"));
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
         List<ChallengeProgress> challenges = plugin.getDailyChallengeManager().getTodayChallenges(player.getUniqueId());
@@ -51,27 +52,30 @@ public class DailyChallengeGUI {
             String status;
             if (cp.claimed) {
                 mat = Material.LIME_DYE;
-                status = messages.getString("daily.claimed");
+                status = MessageUtil.getGuiMsg(messages, "daily.claimed");
             } else if (cp.completed) {
                 mat = Material.GOLD_INGOT;
-                status = messages.getString("daily.completed");
+                status = MessageUtil.getGuiMsg(messages, "daily.completed");
             } else {
                 mat = Material.PAPER;
-                status = messages.getString("daily.in-progress");
+                status = MessageUtil.getGuiMsg(messages, "daily.in-progress");
             }
 
-            String desc = messages.getString(type.descKey)
+            String desc = MessageUtil.getGuiMsg(messages, type.descKey)
                     .replace("{target}", String.valueOf(type.target));
+            // S7：展示层 clamp —— 已完成挑战的 progress 在写入侧仍可能继续累加（写入侧修复在 S5 流），
+            // 这里显示 Math.min(progress, target)，不再出现 47/10；target<=0 时原样显示（本渲染路径无除法，不涉除零）。
+            int displayProgress = type.target > 0 ? Math.min(cp.progress, type.target) : cp.progress;
             List<String> lore = new ArrayList<>();
             lore.add(ChatColor.translateAlternateColorCodes('&', "&7" + desc));
             lore.add(ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("daily.progress")
-                            .replace("{progress}", String.valueOf(cp.progress))
+                    MessageUtil.getGuiMsg(messages, "daily.progress")
+                            .replace("{progress}", String.valueOf(displayProgress))
                             .replace("{target}", String.valueOf(type.target))));
             lore.add(ChatColor.translateAlternateColorCodes('&', status));
             if (!cp.claimed) {
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily.reward-hint")
+                        MessageUtil.getGuiMsg(messages, "daily.reward-hint")
                                 .replace("{reward}", String.valueOf((int) type.reward))));
             }
 
@@ -83,9 +87,9 @@ public class DailyChallengeGUI {
         // Back button
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("gui.back-button")),
+                        MessageUtil.getGuiMsg(messages, "gui.back-button")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
-                        messages.getString("gui.back-lore")))));
+                        MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
 
         // FIX-CHAL-01: cross-visibility (read-only) — word-challenge progress
         // line at slot 22 (mirrors ChallengeCompleteGUI's center-bottom slot).
@@ -98,18 +102,18 @@ public class DailyChallengeGUI {
                 ? Material.LIME_DYE : Material.BOOK;
         List<String> wordLore = new ArrayList<>();
         wordLore.add(ChatColor.translateAlternateColorCodes('&',
-                messages.getString("daily.word-progress")
+                MessageUtil.getGuiMsg(messages, "daily.word-progress")
                         .replace("{progress}", String.valueOf(wordDone))
                         .replace("{total}", String.valueOf(wordTotal))));
         wordLore.add(ChatColor.translateAlternateColorCodes('&',
-                messages.getString("daily.word-hint")));
+                MessageUtil.getGuiMsg(messages, "daily.word-hint")));
         if (wordTotal > 0 && wordDone >= wordTotal) {
             wordLore.add(ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("daily.word-done")));
+                    MessageUtil.getGuiMsg(messages, "daily.word-done")));
         }
         inv.setItem(22, createItem(wordMat,
                 ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily.word-title")),
+                        MessageUtil.getGuiMsg(messages, "daily.word-title")),
                 wordLore));
 
         player.openInventory(inv);
@@ -122,7 +126,7 @@ public class DailyChallengeGUI {
             case COMBO_5 -> "daily.name-combo-5";
             case AI_CHAT_5 -> "daily.name-ai-chat-5";
         };
-        return ChatColor.translateAlternateColorCodes('&', messages.getString(key));
+        return ChatColor.translateAlternateColorCodes('&', MessageUtil.getGuiMsg(messages, key));
     }
 
     private ItemStack createItem(Material material, String name, List<String> lore) {

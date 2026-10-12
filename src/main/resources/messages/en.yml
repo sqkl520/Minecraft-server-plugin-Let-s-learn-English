@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 10
+config-version: 11
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -39,6 +39,14 @@ word:
   phonetic-feedback: "&dPronunciation &7phonetic: &f{phonetic}"
   mode-review: "Review"
   invalid-mode: "{prefix}&cUnknown learning mode: &e{mode}&c. Valid modes: &espelling&c, &echoice&c, &efill_blank"
+  invalid-difficulty: "{prefix}&cInvalid difficulty! Available: &e{options}"
+  no-words-available: "{prefix}&cNo words available for this difficulty yet. Try another one!"
+  difficulty-beginner: "Beginner"
+  difficulty-intermediate: "Intermediate"
+  difficulty-advanced: "Advanced"
+  mode-spelling: "Spelling"
+  mode-choice: "Choice"
+  mode-fill_blank: "Fill-blank"
 
 review:
   notification: "{prefix}&6You have &e{count} &6words due for review! Type &e/le review &6to start"
@@ -87,6 +95,9 @@ dialogue:
   more-scenarios-lore: "&7{count} more scenario(s) not shown, paging coming soon"
   more-difficulties: "&e&lMore difficulties…"
   more-difficulties-lore: "&7{count} more difficultie(s) not shown, paging coming soon"
+  finish-quiz-first: "{prefix}&cYou're in a quiz! Finish or stop it first before starting AI dialogue."
+  chat-active: "{prefix}&7You're chatting with AI! Type &fbye &7to end the current conversation first."
+  scenario-not-found: "{prefix}&cScenario '{key}' not found. Use &e/le dialogue &cto see available scenarios."
 
 achievement:
   unlock-title: "&6&lAchievement Unlocked!"
@@ -156,6 +167,8 @@ admin:
   duel-cancel-offline: "{prefix}&cPlayer &e{player} &cis not online!"
   duel-cancel-not-in-duel: "{prefix}&cPlayer &e{player} &cis not in a duel!"
   duel-cancelled: "{prefix}&aForce-dismissed the duel between &e{player1} &aand &e{player2} &a(no winner declared)"
+  player-no-data: "{prefix}&cNo data found for that player (may have been reset or never joined)."
+  export-failed: "{prefix}&cExport failed! Please check the console logs."
 
 wordbank:
   export-success: "{prefix}&aWord bank &e{difficulty} &aexported! &7File: &f{file} &7({count} words)"
@@ -211,7 +224,7 @@ help:
   leaderboard: "&e/le leaderboard &7- View the leaderboard"
   challenge: "&e/le challenge &7- View today's challenge progress"
   history: "&e/le history &7- View AI chat history"
-  duel: "&e/le duel <player> &7- Challenge a player to a word duel"
+  duel: "&e/le duel <player|accept|quit|gui|cancel> &7- Word duel (challenge/accept/quit/reopen GUI/admin dismiss)"
   wrong: "&e/le wrong &7- View your Wrong Book"
   checkin: "&e/le checkin &7- Daily check-in for coins"
   save_scenario: "&e/le save_scenario <name> &7- Export current AI scenario as share code"
@@ -231,6 +244,9 @@ scenario:
   save-name-invalid: "{prefix}&cInvalid scenario name! Only Chinese/English letters, digits, and underscores allowed; max 32 characters."
   save-prompt-too-long: "{prefix}&cScenario prompt is too long ({length}/{max} chars). Please simplify and try again."
   load-success: "{prefix}&aScenario '{name}' loaded! You can now select it in /le dialogue~"
+  load-updated: "{prefix}&aScenario '{name}' updated! You can now select it in /le dialogue~"
+  load-save-failed: "{prefix}&cFailed to save the scenario. Check logs or contact an admin."
+  limit-reached: "{prefix}&ePersonal scenario limit reached (max {max})."
   load-invalid: "{prefix}&cInvalid scenario code. Please check if it was copied completely."
   load-name-invalid: "{prefix}&cInvalid scenario name in the code~"
   load-no-permission: "{prefix}&cYou don't have permission to import scenarios. Please contact an admin."
@@ -246,12 +262,14 @@ duel:
   finish-duel-first: "{prefix}&cYou are in a duel! Finish it or use /le duel quit to leave first."
   player-offline: "{prefix}&cThat player is offline!"
   no-pending-request: "{prefix}&cYou have no pending duel invitations!"
-  usage: "{prefix}&eUsage: /le duel <player> &7challenge | /le duel accept &7accept | /le duel quit &7quit | /le duel gui &7reopen GUI"
+  usage: "{prefix}&eUsage: /le duel <player> &7challenge | /le duel accept &7accept | /le duel quit &7quit | /le duel gui &7reopen GUI | /le duel cancel <player> &7(admin)"
   request-sent: "{prefix}&aYou sent a word duel challenge to &e{player}!"
   request-received: "{prefix}&6★ &e{player} &6has challenged you to a word duel!"
   accept-hint: "&6Click here or type &e/le duel accept &6to accept!"
   request-expired: "{prefix}&7Your duel invitation to &e{player} &7has expired!"
   request-expired-target: "{prefix}&7Duel invitation from &e{player} &7has expired!"
+  sender-chatting: "{prefix}&cYou're in an AI chat! Type bye to end it first, then send the duel request."
+  target-chatting: "{prefix}&c{player} is chatting with AI and can't accept a duel right now!"
   started: "{prefix}&aWord Duel started! Opponent: &e{player} &aFirst to 5 wins! &c⚠ Warning: all chat counts as answers during the duel!"
   cancelled: "{prefix}&cThe duel has been cancelled!"
   cancelled-by-gm: "{prefix}&cThis duel was dismissed by an admin. No winner declared."
@@ -267,7 +285,7 @@ duel:
   forfeit: "{prefix}&cYou forfeited the duel!"
   opponent-forfeit: "{prefix}&6★ &a{player} &aforfeited! You win!"
   opponent-disconnected: "{prefix}&e{player} &cdisconnected! Waiting &e{seconds} &cs for reconnect..."
-  opponent-timeout: "{prefix}&6★ &e{player} &cdid not reconnect in 30s, you win!"
+  opponent-timeout: "{prefix}&6★ &e{player} &cdid not reconnect in {seconds}s, you win!"
   grace-countdown: "{prefix}&c{player} &cwill forfeit in &e{seconds} &cs..."
   reconnected: "{prefix}&aYou have reconnected! The duel resumes!"
   opponent-reconnected: "{prefix}&a{player} &ahas reconnected! Duel resumes!"

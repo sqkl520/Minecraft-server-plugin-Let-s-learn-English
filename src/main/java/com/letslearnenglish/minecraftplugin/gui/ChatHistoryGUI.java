@@ -1,8 +1,8 @@
 package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
-import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.data.ChatHistoryEntry;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -98,7 +98,7 @@ public class ChatHistoryGUI {
         FileConfiguration msg = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                msg.getString("chat-history.title"));
+                MessageUtil.getGuiMsg(msg, "chat-history.title"));
         Inventory gui = Bukkit.createInventory(null, GUI_SIZE, title);
 
         // Background
@@ -113,8 +113,8 @@ public class ChatHistoryGUI {
         }
 
         // Back button (upper-right corner, unified with other GUIs)
-        String backLabel = msg.getString("chat-history.back-button");
-        String backLore = msg.getString("chat-history.back-lore");
+        String backLabel = MessageUtil.getGuiMsg(msg, "chat-history.back-button");
+        String backLore = MessageUtil.getGuiMsg(msg, "chat-history.back-lore");
         gui.setItem(BACK_SLOT, createItem(Material.RED_STAINED_GLASS_PANE, backLabel, backLore));
 
         // Get sessions
@@ -130,8 +130,8 @@ public class ChatHistoryGUI {
 
         if (sessions.isEmpty()) {
             // Empty state
-            String emptyLabel = msg.getString("chat-history.empty");
-            String emptyLore = msg.getString("chat-history.empty-lore");
+            String emptyLabel = MessageUtil.getGuiMsg(msg, "chat-history.empty");
+            String emptyLore = MessageUtil.getGuiMsg(msg, "chat-history.empty-lore");
             gui.setItem(22, createItem(Material.PAPER, emptyLabel, emptyLore));
         } else {
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm");
@@ -150,7 +150,7 @@ public class ChatHistoryGUI {
 
                 String scenario = ChatHistoryEntry.extractScenarioFromSystemPrompt(systemContent);
                 String dateStr = session.getTimestamp() != null
-                        ? sdf.format(session.getTimestamp()) : msg.getString("chat-history.unknown-date");
+                        ? sdf.format(session.getTimestamp()) : MessageUtil.getGuiMsg(msg, "chat-history.unknown-date");
                 String userPreview = firstUserContent != null
                         ? (firstUserContent.length() > 40
                                 ? firstUserContent.substring(0, 40) + "..."
@@ -158,21 +158,21 @@ public class ChatHistoryGUI {
                         : "";
 
                 List<String> lore = new ArrayList<>();
-                String dateFormat = msg.getString("chat-history.session-date");
+                String dateFormat = MessageUtil.getGuiMsg(msg, "chat-history.session-date");
                 lore.add(ChatColor.translateAlternateColorCodes('&',
                         dateFormat.replace("{date}", dateStr)));
-                String scenarioFormat = msg.getString("chat-history.session-scenario");
+                String scenarioFormat = MessageUtil.getGuiMsg(msg, "chat-history.session-scenario");
                 lore.add(ChatColor.translateAlternateColorCodes('&',
                         scenarioFormat.replace("{scenario}", scenario)));
                 if (!userPreview.isEmpty()) {
-                    String previewFormat = msg.getString("chat-history.session-preview");
+                    String previewFormat = MessageUtil.getGuiMsg(msg, "chat-history.session-preview");
                     lore.add(ChatColor.translateAlternateColorCodes('&',
                             previewFormat.replace("{msg}", userPreview)));
                 }
-                String clickHint = msg.getString("chat-history.click-to-view");
+                String clickHint = MessageUtil.getGuiMsg(msg, "chat-history.click-to-view");
                 lore.add(ChatColor.translateAlternateColorCodes('&', clickHint));
 
-                String itemFormat = msg.getString("chat-history.session-item-format");
+                String itemFormat = MessageUtil.getGuiMsg(msg, "chat-history.session-item-format");
                 // 会话身份存进 PersistentDataContainer —— 不写进 lore，
                 // 否则玩家悬停就会看到 "SessionID: xxx" 这类内部硬编码英文。
                 ItemStack sessionItem = createItemLore(Material.BOOK,
@@ -188,8 +188,8 @@ public class ChatHistoryGUI {
 
         // Previous page button (slot 47)
         if (page > 1) {
-            String prevLabel = msg.getString("chat-history.prev-page");
-            String prevLore = msg.getString("chat-history.prev-page-lore");
+            String prevLabel = MessageUtil.getGuiMsg(msg, "chat-history.prev-page");
+            String prevLore = MessageUtil.getGuiMsg(msg, "chat-history.prev-page-lore");
             ItemStack prevItem = createItem(Material.ARROW,
                     prevLabel,
                     prevLore.replace("{page}", String.valueOf(page - 1)));
@@ -199,8 +199,8 @@ public class ChatHistoryGUI {
 
         // Next page button (slot 51)
         if (page < totalPages) {
-            String nextLabel = msg.getString("chat-history.next-page");
-            String nextLore = msg.getString("chat-history.next-page-lore");
+            String nextLabel = MessageUtil.getGuiMsg(msg, "chat-history.next-page");
+            String nextLore = MessageUtil.getGuiMsg(msg, "chat-history.next-page-lore");
             ItemStack nextItem = createItem(Material.ARROW,
                     nextLabel,
                     nextLore.replace("{page}", String.valueOf(page + 1)));
@@ -209,7 +209,7 @@ public class ChatHistoryGUI {
         }
 
         // Page indicator (slot 45)
-        String pageFormat = msg.getString("chat-history.page-indicator");
+        String pageFormat = MessageUtil.getGuiMsg(msg, "chat-history.page-indicator");
         ItemStack pageIndicator = createItem(Material.NAME_TAG,
                 "&e" + pageFormat.replace("{current}", String.valueOf(page))
                         .replace("{total}", String.valueOf(totalPages)),
@@ -218,7 +218,8 @@ public class ChatHistoryGUI {
         setPageIndex(pageIndicator, page);
         gui.setItem(PAGE_INDICATOR_SLOT, pageIndicator);
 
-        SoundManager.playSound(player, "menu-open");
+        // R-86 音效去重（S1 裁决）：menu-open 由 SoundManager 全局 InventoryOpen
+        // 唯一播放，本处显式播放移除（原先双声）。
         player.openInventory(gui);
     }
 
@@ -231,7 +232,7 @@ public class ChatHistoryGUI {
         FileConfiguration msg = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                msg.getString("chat-history.session-title"));
+                MessageUtil.getGuiMsg(msg, "chat-history.session-title"));
         Inventory gui = Bukkit.createInventory(null, GUI_SIZE, title);
 
         // Background
@@ -246,8 +247,8 @@ public class ChatHistoryGUI {
         }
 
         // Back button — returns to session list (unified slot with list view)
-        String backLabel = msg.getString("chat-history.back-to-list");
-        String backLore = msg.getString("chat-history.back-to-list-lore");
+        String backLabel = MessageUtil.getGuiMsg(msg, "chat-history.back-to-list");
+        String backLore = MessageUtil.getGuiMsg(msg, "chat-history.back-to-list-lore");
         gui.setItem(BACK_SLOT, createItem(Material.RED_STAINED_GLASS_PANE, backLabel, backLore));
 
         // 返回页码 / 会话身份存在 PersistentDataContainer 里（不是物品名，玩家看不到），
@@ -282,15 +283,15 @@ public class ChatHistoryGUI {
             switch (entry.getRole()) {
                 case "system":
                     mat = Material.NAME_TAG;
-                    rolePrefix = msg.getString("chat-history.role-system");
+                    rolePrefix = MessageUtil.getGuiMsg(msg, "chat-history.role-system");
                     break;
                 case "user":
                     mat = Material.PAPER;
-                    rolePrefix = msg.getString("chat-history.role-user");
+                    rolePrefix = MessageUtil.getGuiMsg(msg, "chat-history.role-user");
                     break;
                 case "assistant":
                     mat = Material.WRITABLE_BOOK;
-                    rolePrefix = msg.getString("chat-history.role-assistant");
+                    rolePrefix = MessageUtil.getGuiMsg(msg, "chat-history.role-assistant");
                     break;
                 default:
                     mat = Material.PAPER;
@@ -327,7 +328,8 @@ public class ChatHistoryGUI {
                     lore));
         }
 
-        SoundManager.playSound(player, "menu-open");
+        // R-86 音效去重（S1 裁决）：menu-open 由 SoundManager 全局 InventoryOpen
+        // 唯一播放，本处显式播放移除（原先双声）。
         player.openInventory(gui);
     }
 

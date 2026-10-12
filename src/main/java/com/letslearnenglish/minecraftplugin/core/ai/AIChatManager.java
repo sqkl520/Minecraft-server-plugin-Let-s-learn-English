@@ -18,12 +18,15 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
+import java.util.zip.CRC32;
 
 /**
  * AI 对话管理器 — 基于 DeepSeek API 的智能情景对话
@@ -50,7 +53,15 @@ public class AIChatManager {
     private static final long AUTH_CIRCUIT_COOLDOWN_MS = 5 * 60 * 1000L;
     private static final double TEMPERATURE = 0.8;
     private static final int DEFAULT_MAX_CONTEXT_TOKENS = 2000;
+    /** R-63：ai-chat.max-context-pairs 默认值（最多携带最近 N 轮 user/assistant 对）。 */
+    private static final int DEFAULT_MAX_CONTEXT_PAIRS = 6;
     private static final int CHARS_PER_TOKEN_ESTIMATE = 4;
+    /** R-62：单玩家个人场景数量上限（超出只加载前 N 条 / 新导入被拒）。 */
+    private static final int MAX_PERSONAL_SCENARIOS = 30;
+    /** R-62：个人场景文件大小上限（512KB）——超限视为异常，不解析。 */
+    private static final long MAX_PERSONAL_SCENARIO_FILE_BYTES = 512 * 1024L;
+    /** 个人场景 key 前缀：personal:<uuid前8>:<slug>。 */
+    private static final String PERSONAL_KEY_PREFIX = "personal:";
 
     private final LetsLearnEnglish plugin;
     private final Gson gson = new Gson();
@@ -62,6 +73,8 @@ public class AIChatManager {
     private volatile String apiKey;
     private volatile String model;
     private volatile int maxContextTokens;
+    /** R-63：最多携带最近 N 轮 user/assistant 对（与 token 预算双重约束）。 */
+    private volatile int maxContextPairs;
     private volatile int timeoutSeconds;
     private volatile int rateLimitSeconds;
     private volatile int maxInputLength;
@@ -70,6 +83,10 @@ public class AIChatManager {
     private volatile int dailyRoundLimit;
     private volatile int countMinRounds;
     private volatile boolean debug;
+    /** R-67：关服标志 —— shutdown() 置位后，在途 HTTP 回调链不再碰 scheduler/DB。 */
+    private volatile boolean shuttingDown = false;
+    /** R-63：system prompt 单独超预算的 WARNING 只打一次（reload 时重置）。 */
+    private volatile boolean systemOverBudgetWarned = false;
     /** R-20：鉴权熔断"开启至"时间戳（毫秒）；&gt; now 即熔断中。成功请求/reload 清零。 */
     private volatile long authCircuitOpenUntil = 0L;
 
@@ -168,6 +185,8 @@ public class AIChatManager {
         this.apiUrl = config.getString("ai-chat.api-url", DEFAULT_API_URL);
         this.model = config.getString("ai-chat.model", DEFAULT_MODEL);
         this.maxContextTokens = config.getInt("ai-chat.max-context-tokens", DEFAULT_MAX_CONTEXT_TOKENS);
+        // R-63：接线原死键 ai-chat.max-context-pairs（语义=最多携带最近 N 轮 user/assistant 对）。
+        this.maxContextPairs = Math.max(1, config.getInt("ai-chat.max-context-pairs", DEFAULT_MAX_CONTEXT_PAIRS));
         this.timeoutSeconds = config.getInt("ai-chat.timeout-seconds", 15);
         this.rateLimitSeconds = config.getInt("ai-chat.rate-limit-seconds", 3);
         this.maxInputLength = config.getInt("ai-chat.max-input-length", 200);
@@ -179,6 +198,8 @@ public class AIChatManager {
 
         // R-20：重载配置（含 /lea reload 与 API 密钥重载）时清掉鉴权熔断，换了 Key 立即恢复。
         this.authCircuitOpenUntil = 0L;
+        // R-63：配置可能改了 token 预算 —— 重置 system 超预算的单次 WARNING 标志。
+        this.systemOverBudgetWarned = false;
 
         if (debug) {
             plugin.getLogger().info("[AI-Debug] Debug logging enabled for AI Chat.");
@@ -189,6 +210,14 @@ public class AIChatManager {
         if (debug) {
             plugin.getLogger().info("[AI-Debug] " + msg);
         }
+    }
+
+    /**
+     * R-67：关服/禁用后在途异步链的统一短路守卫。
+     * 关服后回调若继续执行，会碰已关闭的 DB，或在已禁用插件上 runTask（IllegalStateException 刷栈）。
+     */
+    private boolean isShuttingDownOrDisabled() {
+        return shuttingDown || !plugin.isEnabled();
     }
 
     private void loadScenariosConfig() {
@@ -326,6 +355,23 @@ public class AIChatManager {
         lastRequestTime.put(player.getUniqueId(), System.currentTimeMillis());
     }
 
+    /**
+     * F1-08：只读预检 —— 玩家此刻是否还能成功发起一次玩家消息（不消费冷却、不写任何状态）。
+     * 检查 每日轮次上限 + 冷却；读取异常时不预拦（正式检查 dispatchChat 会给出准确提示）。
+     * 预检与正式检查存在时间差竞态，属提示语义级，可接受。
+     */
+    public boolean canSendChat(Player player) {
+        if (getRemainingCooldown(player) > 0) {
+            return false;
+        }
+        try {
+            return plugin.getPlayerDataStore().getTodayAiRound(player.getUniqueId()) < dailyRoundLimit;
+        } catch (Exception e) {
+            debugLog("[" + player.getName() + "] canSendChat 预检读取今日 AI 轮次失败: " + e.getMessage());
+            return true;
+        }
+    }
+
     // ============================================================
     //  难度管理
     // ============================================================
@@ -378,7 +424,13 @@ public class AIChatManager {
         final String finalSessionId = sessionId;
         final String finalPrompt = systemPrompt;
         CompletableFuture.runAsync(() -> {
-            plugin.getDatabaseManager().insertChatHistory(playerId, finalSessionId, "system", finalPrompt);
+            // R-67：关服后在途写库直接短路（DB 已关闭，继续写会刷异常栈）。
+            if (isShuttingDownOrDisabled()) return;
+            try {
+                plugin.getDatabaseManager().insertChatHistory(playerId, finalSessionId, "system", finalPrompt);
+            } catch (Exception e) {
+                debugLog("[startConversation] 写入 system prompt 到数据库失败: " + e.getMessage());
+            }
         });
     }
 
@@ -411,6 +463,20 @@ public class AIChatManager {
             LinkedHashMap<String, ScenarioConfig> mine = personalScenarios.get(ownerId);
             if (mine != null) {
                 sc = mine.get(scenarioKey);
+            }
+            // F4-01：个人场景且该玩家的内存副本从未加载过（mine == null）时懒加载一次
+            // （落盘→内存，直接调用安全，不会递归）；仍 miss 才回落通用句。
+            // 用 mine == null 而非纯 key miss 守卫 —— 保持"懒加载最多 1 次/玩家/进程"防刷屏语义。
+            if (sc == null && mine == null
+                    && scenarioKey != null && scenarioKey.startsWith(PERSONAL_KEY_PREFIX)) {
+                reloadPersonalScenarios(ownerId);
+                mine = personalScenarios.get(ownerId);
+                if (mine != null) {
+                    sc = mine.get(scenarioKey);
+                }
+                if (sc == null) {
+                    debugLog("个人场景懒加载后仍未找到 key=" + scenarioKey + " owner=" + ownerId);
+                }
             }
         }
         DifficultyConfig dc = difficulties.get(difficultyKey);
@@ -493,8 +559,10 @@ public class AIChatManager {
     }
 
     /**
-     * Trim the conversation context so total estimated tokens stay within
-     * {@code maxContextTokens}. The system prompt (index 0) is ALWAYS preserved.
+     * Trim the conversation context so it stays within both budgets:
+     * estimated tokens ≤ {@code maxContextTokens} and complete user/assistant
+     * pairs ≤ {@code maxContextPairs} (R-63: ai-chat.max-context-pairs).
+     * The system prompt (index 0) is ALWAYS preserved.
      * Only complete user/assistant pairs are removed, starting from the oldest
      * (closest to index 1). This guarantees the message list never breaks the
      * required user/assistant alternation after the system prompt.
@@ -506,32 +574,75 @@ public class AIChatManager {
             totalTokens += estimateTokens(pair.content());
         }
 
-        // Remove oldest user/assistant pairs until within budget.
-        // Index 0 = system prompt (never remove).
-        // Index 1 = oldest user, index 2 = oldest assistant, etc.
-        while (totalTokens > maxContextTokens && context.size() >= 3) {
-            // We need at least system + one pair. Iterate to find the first user+assistant pair.
-            Iterator<MessagePair> it = context.iterator();
-            it.next(); // skip system prompt — NEVER remove
+        // Remove oldest user/assistant pairs until within the token budget.
+        while (totalTokens > maxContextTokens) {
+            int removedTokens = removeOldestPair(context);
+            if (removedTokens < 0) break; // 没有可删的完整对（只剩 system/尾部在途 user），防死循环
+            totalTokens -= removedTokens;
+        }
 
-            // Find and remove the oldest user message (immediately after system)
-            if (it.hasNext()) {
-                MessagePair removed = it.next();
-                totalTokens -= estimateTokens(removed.content());
-                it.remove();
-            }
-            // Find and remove the oldest assistant message (next in sequence)
-            if (it.hasNext()) {
-                MessagePair removed = it.next();
-                totalTokens -= estimateTokens(removed.content());
-                it.remove();
-            }
+        // R-63：轮数上限（最多携带最近 N 轮）—— 与 token 预算双重约束。
+        while (countCompletePairs(context) > maxContextPairs) {
+            int removedTokens = removeOldestPair(context);
+            if (removedTokens < 0) break;
+            totalTokens -= removedTokens;
         }
 
         if (totalTokens > maxContextTokens) {
+            // R-63：system 永不裁是既定语义；若 system 单独超预算至少 WARNING 一次（进程内单次，防刷屏）。
+            MessagePair first = context.peekFirst();
+            if (!systemOverBudgetWarned && first != null && "system".equals(first.role())) {
+                int systemTokens = estimateTokens(first.content());
+                if (systemTokens > maxContextTokens) {
+                    systemOverBudgetWarned = true;
+                    plugin.getLogger().warning("AI system prompt alone exceeds ai-chat.max-context-tokens ("
+                            + systemTokens + " > " + maxContextTokens + "). The system prompt is never"
+                            + " trimmed — consider raising the limit or shortening the scenario prompt.");
+                }
+            }
             debugLog("上下文裁剪后仍超出 token 限制 — total=" + totalTokens
                     + " limit=" + maxContextTokens + " messages=" + context.size());
         }
+    }
+
+    /**
+     * R-63：移除最旧的 user/assistant 完整对（system 永不删；正用于发送的尾部 user 永不删）。
+     *
+     * @return 被移除消息的估算 token 合计；没有可移除的完整对时返回 -1
+     */
+    private int removeOldestPair(Deque<MessagePair> context) {
+        // 至少保留 system + 一条消息（与原逻辑一致：size < 3 不裁）
+        if (context.size() < 3) return -1;
+        Iterator<MessagePair> it = context.iterator();
+        it.next(); // skip system prompt — NEVER remove
+        MessagePair oldest = it.next();
+        if ("assistant".equals(oldest.role())) return -1; // 形态异常（system 后直接 assistant）——宁可不裁
+        int removedTokens = estimateTokens(oldest.content());
+        it.remove();
+        if (it.hasNext()) {
+            MessagePair second = it.next();
+            if ("assistant".equals(second.role())) {
+                removedTokens += estimateTokens(second.content());
+                it.remove();
+            }
+        }
+        return removedTokens;
+    }
+
+    /** R-63：统计完整 user/assistant 对数量（system 不计；尾部单独的 user 不计）。 */
+    private int countCompletePairs(Deque<MessagePair> context) {
+        int pairs = 0;
+        boolean sawUser = false;
+        for (MessagePair msg : context) {
+            if ("system".equals(msg.role())) continue;
+            if ("user".equals(msg.role())) {
+                sawUser = true;
+            } else if ("assistant".equals(msg.role()) && sawUser) {
+                pairs++;
+                sawUser = false;
+            }
+        }
+        return pairs;
     }
 
     // ============================================================
@@ -637,7 +748,13 @@ public class AIChatManager {
         // Write user message to DB asynchronously
         if (sessionId != null) {
             CompletableFuture.runAsync(() -> {
-                plugin.getDatabaseManager().insertChatHistory(playerId, sessionId, "user", finalSanitized);
+                // R-67：关服后在途写库直接短路（DB 已关闭，继续写会刷异常栈）。
+                if (isShuttingDownOrDisabled()) return;
+                try {
+                    plugin.getDatabaseManager().insertChatHistory(playerId, sessionId, "user", finalSanitized);
+                } catch (Exception e) {
+                    debugLog("[" + player.getName() + "] 写入用户消息到数据库失败: " + e.getMessage());
+                }
             });
         }
 
@@ -646,10 +763,19 @@ public class AIChatManager {
                 + " body-size=" + gson.toJson(requestBody).length() + "B");
 
         CompletableFuture.supplyAsync(() -> {
+            // R-67：关服后不再发起/继续 HTTP 请求（快速短路，让后续回调链走守卫分支）。
+            if (isShuttingDownOrDisabled()) {
+                return null;
+            }
             try {
                 long startTime = System.currentTimeMillis();
                 String response = sendHttpRequest(requestBody);
                 long elapsed = System.currentTimeMillis() - startTime;
+
+                // R-67：请求在途期间关服 —— 丢弃响应，不再写库/计数/改内存状态。
+                if (isShuttingDownOrDisabled()) {
+                    return null;
+                }
 
                 debugLog("[" + player.getName() + "] API 响应(" + elapsed + "ms, "
                         + (response != null ? response.length() : 0) + "字符): "
@@ -694,10 +820,18 @@ public class AIChatManager {
             }
         }).thenAcceptAsync(responseText -> {
             pendingRequests.remove(playerId);
+            // R-67：关服后不再入 scheduler / 不再回调（回调链会碰已禁用插件与已关闭 GUI）。
+            if (isShuttingDownOrDisabled()) return;
             callback.onResponse(responseText, null);
-        }, runnable -> plugin.getServer().getScheduler().runTask(plugin, runnable))
+        }, runnable -> {
+            // R-67：关服后 executor 不再向已禁用插件注册 task（否则 runTask 抛 IllegalStateException 刷栈）。
+            if (isShuttingDownOrDisabled()) return;
+            plugin.getServer().getScheduler().runTask(plugin, runnable);
+        })
         .exceptionally(throwable -> {
             pendingRequests.remove(playerId);
+            // R-67：关服后不再记日志/不再入 scheduler。
+            if (isShuttingDownOrDisabled()) return null;
             Throwable cause = (throwable instanceof CompletionException) ? throwable.getCause() : throwable;
             // R-20：按异常类型分流提示并在 401/403 时熔断（classifyFailure 内处理）。
             String errorKey = classifyFailure(cause);
@@ -846,29 +980,105 @@ public class AIChatManager {
     // ============================================================
 
     /**
+     * R-61：个人场景导入结果（冻结接口，LearnCommand 调用点消费）。
+     * <ul>
+     *   <li>{@code key} — 成功导入/覆盖时的个人场景 key；失败（{@code saveFailed} 或
+     *       {@code limitReached}）时为 {@code null}</li>
+     *   <li>{@code updated} — true 表示覆盖了已存在的同名场景（幂等更新），false 表示新增</li>
+     *   <li>{@code saveFailed} — true 表示写盘失败（内存未更新），调用点不得报成功</li>
+     *   <li>{@code limitReached} — true 表示已达个人场景数量上限被拒（未写盘、未改内存；
+     *       与 saveFailed 互斥，供调用点区分"上限拒绝"与"保存失败"两种提示）</li>
+     * </ul>
+     */
+    public static record ImportResult(String key, boolean updated, boolean saveFailed,
+                                      boolean limitReached) {}
+
+    /**
+     * R-61：slug 生成 —— 可读前缀 + 名称 CRC32 短码（8 位十六进制）。
+     * 纯中文名（如"开会"/"购物"）归一化后 slug 全为 "_"，靠短码区分产出不同 key，
+     * 不再互相静默覆盖；同名重复导入归属同一 key（幂等更新语义）。
+     */
+    private static String personalScenarioSlug(String name) {
+        String normalized = name.toLowerCase(java.util.Locale.ROOT);
+        String slug = normalized.replaceAll("[^a-z0-9_]", "_");
+        if (slug.isEmpty()) slug = "custom";
+        if (slug.length() > 24) slug = slug.substring(0, 24);
+        CRC32 crc = new CRC32();
+        crc.update(normalized.getBytes(StandardCharsets.UTF_8));
+        return slug + "_" + String.format("%08x", crc.getValue());
+    }
+
+    /**
      * 导入一条玩家个人场景：落盘到该玩家的个人场景文件，并加载进内存。
      * 不触碰全局 ai_scenarios.yml，不触发全局 reload，不影响其他玩家。
      *
      * @param player 导入者
      * @param name   场景展示名（调用方已校验：≤32 字符，仅中英文/数字/下划线）
      * @param prompt 场景 prompt（调用方已校验长度）
-     * @return 个人场景 key（全局唯一），落盘失败返回 null
+     * @return {@link ImportResult}（冻结接口）：成功时 key 非空；覆盖同名场景时
+     *         {@code updated=true}；写盘失败 {@code saveFailed=true}；数量达上限被拒
+     *         {@code limitReached=true}。saveFailed / limitReached 时调用点不得报成功。
      */
-    public String importPersonalScenario(Player player, String name, String prompt) {
+    public ImportResult importPersonalScenario(Player player, String name, String prompt) {
         UUID ownerId = player.getUniqueId();
-        String slug = name.toLowerCase().replaceAll("[^a-z0-9_]", "_");
-        if (slug.isEmpty()) slug = "custom";
-        if (slug.length() > 24) slug = slug.substring(0, 24);
-        // key 全局唯一：personal:<uuid前8>:<slug>，避免两玩家同名场景互相覆盖
-        String key = "personal:" + ownerId.toString().substring(0, 8) + ":" + slug;
+        String slug = personalScenarioSlug(name);
+        // key 全局唯一：personal:<uuid前8>:<slug>，避免两玩家同名场景互相覆盖；
+        // slug 尾附名称短码 —— 同名幂等复用同一 key，异名（含纯中文名）互不覆盖。
+        String key = PERSONAL_KEY_PREFIX + ownerId.toString().substring(0, 8) + ":" + slug;
+
+        // R-62：先确保内存副本反映最新磁盘状态（懒加载 + 文件大小/条数上限一并生效）。
+        LinkedHashMap<String, ScenarioConfig> mine = personalScenarios.get(ownerId);
+        if (mine == null) {
+            reloadPersonalScenarios(ownerId);
+            mine = personalScenarios.get(ownerId);
+        }
+        if (mine == null) {
+            mine = personalScenarios.computeIfAbsent(ownerId, k -> new LinkedHashMap<>());
+        }
 
         File dir = new File(plugin.getDataFolder(), "player_scenarios");
         if (!dir.exists() && !dir.mkdirs()) {
             plugin.getLogger().warning("Failed to create player_scenarios directory.");
-            return null;
+            return new ImportResult(null, false, true, false);
         }
         File file = new File(dir, ownerId + ".yml");
-        YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
+        // R-62：超大文件与 reload 同策略 —— 不解析（视为损坏），走下方备份 + 干净重写。
+        YamlConfiguration config = new YamlConfiguration();
+        ConfigurationSection existing = null;
+        if (file.exists()) {
+            if (file.length() > MAX_PERSONAL_SCENARIO_FILE_BYTES) {
+                plugin.getLogger().warning("Personal scenario file for " + ownerId + " exceeds "
+                        + (MAX_PERSONAL_SCENARIO_FILE_BYTES / 1024)
+                        + "KB — not parsed; will be backed up and rewritten cleanly.");
+            } else {
+                config = YamlConfiguration.loadConfiguration(file);
+                existing = config.getConfigurationSection("scenarios");
+            }
+        }
+        boolean exists = mine.containsKey(key) || (existing != null && existing.contains(key));
+
+        // R-62：数量上限 —— 仅拒绝"新增"；同名覆盖更新不占新额度，幂等更新始终放行。
+        if (!exists && mine.size() >= MAX_PERSONAL_SCENARIOS) {
+            debugLog("[" + player.getName() + "] 个人场景导入被拒 — 已达上限 "
+                    + MAX_PERSONAL_SCENARIOS);
+            return new ImportResult(null, false, false, true);
+        }
+
+        // R-61(d)：文件有内容但解析不出 scenarios 段（损坏/空表）→ save 前备份为 .bak，
+        // 防止"仅含新场景"的覆盖把旧数据清光（只保留一份 bak，覆盖旧 bak）。
+        if (file.exists() && file.length() > 0 && existing == null) {
+            File backup = new File(dir, ownerId + ".yml.bak");
+            try {
+                Files.copy(file.toPath(), backup.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                plugin.getLogger().warning("Personal scenario file for " + ownerId
+                        + " appears corrupted (no 'scenarios' section) — backed up to "
+                        + backup.getName() + " before overwrite.");
+            } catch (IOException e) {
+                plugin.getLogger().warning("Failed to back up corrupted personal scenario file for "
+                        + ownerId + ": " + e.getMessage());
+            }
+        }
+
         config.set("scenarios." + key + ".display_name", name);
         config.set("scenarios." + key + ".display_name_zh", name);
         config.set("scenarios." + key + ".material", "PAPER");
@@ -878,7 +1088,7 @@ public class AIChatManager {
         } catch (IOException e) {
             plugin.getLogger().warning("Failed to save personal scenario for "
                     + player.getName() + ": " + e.getMessage());
-            return null;
+            return new ImportResult(null, false, true, false);
         }
 
         ScenarioConfig sc = new ScenarioConfig(key);
@@ -886,13 +1096,14 @@ public class AIChatManager {
         sc.displayNameZh = name;
         sc.material = Material.PAPER;
         sc.prompt = prompt;
-        personalScenarios.computeIfAbsent(ownerId, k -> new LinkedHashMap<>()).put(key, sc);
-        return key;
+        mine.put(key, sc);
+        return new ImportResult(key, exists, false, false);
     }
 
     /**
      * 重载指定玩家的个人场景（从磁盘读入内存）。仅影响该玩家，不碰全局。
      * 个人文件损坏/缺失时清空其内存个人场景，保证"坏文件不炸全局"。
+     * R-62：文件大小上限（超限 warn + 视为空表）；单玩家场景条数上限（只加载前 N 条 + warn）。
      */
     public void reloadPersonalScenarios(UUID ownerId) {
         LinkedHashMap<String, ScenarioConfig> mine =
@@ -902,13 +1113,27 @@ public class AIChatManager {
         if (!file.exists()) {
             return;
         }
+        // R-62(a)：文件大小上限 —— 超限不解析（防止巨大/被污染的 YAML 拖垮主线程），视为空表。
+        if (file.length() > MAX_PERSONAL_SCENARIO_FILE_BYTES) {
+            plugin.getLogger().warning("Personal scenario file for " + ownerId + " exceeds "
+                    + (MAX_PERSONAL_SCENARIO_FILE_BYTES / 1024) + "KB — skipped without parsing.");
+            return;
+        }
         try {
             YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
             ConfigurationSection section = config.getConfigurationSection("scenarios");
             if (section == null) {
                 return;
             }
+            // R-62(b)：条数上限 —— 超出时只加载前 N 条并 warn（按文件中的键顺序）。
+            int loaded = 0;
             for (String key : section.getKeys(false)) {
+                if (loaded >= MAX_PERSONAL_SCENARIOS) {
+                    plugin.getLogger().warning("Personal scenario file for " + ownerId
+                            + " contains more than " + MAX_PERSONAL_SCENARIOS
+                            + " scenarios — only the first " + MAX_PERSONAL_SCENARIOS + " are loaded.");
+                    break;
+                }
                 ConfigurationSection sec = section.getConfigurationSection(key);
                 if (sec == null) continue;
                 ScenarioConfig sc = new ScenarioConfig(key);
@@ -921,6 +1146,7 @@ public class AIChatManager {
                 }
                 sc.prompt = sec.getString("prompt", "");
                 mine.put(key, sc);
+                loaded++;
             }
         } catch (Exception e) {
             // 个人文件损坏：清空内存副本（已 clear），只记 warning，不影响全局与他人
@@ -929,14 +1155,15 @@ public class AIChatManager {
         }
     }
 
-    /** 获取指定玩家的个人场景（内存副本；懒加载，保证下次登录仍可用）。 */
+    /** 获取指定玩家的个人场景（内存副本的防御性拷贝；懒加载，保证下次登录仍可用）。 */
     public LinkedHashMap<String, ScenarioConfig> getPersonalScenarios(UUID ownerId) {
         LinkedHashMap<String, ScenarioConfig> mine = personalScenarios.get(ownerId);
         if (mine == null) {
             reloadPersonalScenarios(ownerId);
             mine = personalScenarios.get(ownerId);
         }
-        return (mine != null) ? mine : new LinkedHashMap<>();
+        // F4-03：返回防御性拷贝 —— 调用方拿到的是快照，修改/迭代不会污染内部状态。
+        return (mine != null) ? new LinkedHashMap<>(mine) : new LinkedHashMap<>();
     }
 
     /** 获取指定玩家可见的全部场景 key（全局场景 + 其个人场景）。 */
@@ -1016,7 +1243,16 @@ public class AIChatManager {
         return maxPromptLength;
     }
 
+    /**
+     * R-62：单玩家个人场景数量上限（供调用点填充 {@code scenario.limit-reached} 的 {max} 占位）。
+     */
+    public int getMaxPersonalScenarios() {
+        return MAX_PERSONAL_SCENARIOS;
+    }
+
     public void shutdown() {
+        // R-67：先置关服标志（幂等），让所有在途 HTTP 回调链短路 —— 不再碰 scheduler/DB。
+        shuttingDown = true;
         // HttpClient is static and shared — no explicit shutdown needed.
         // Clear in-memory state so stale references don't leak.
         conversationContexts.clear();

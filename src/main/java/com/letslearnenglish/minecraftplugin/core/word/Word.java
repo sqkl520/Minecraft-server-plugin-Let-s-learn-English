@@ -93,16 +93,29 @@ public class Word {
         return "Word{english='" + english + "', chinese='" + chinese + "'}";
     }
 
+    /**
+     * F2-04：词身份收窄为 english（大小写不敏感）+ part_of_speech。
+     *
+     * <p>原先把 reward（可调的经济属性）纳入判等，同一词在奖励调整后即判"不同词"，
+     * 使依赖 equals 的集合去重 / 干扰项排除随 reward 漂移而失效。收窄后同英文不同
+     * reward 视为同一个词；已核对消费点：{@link WordBank#getRandomWords(int, Word)}
+     * 的 exclude 过滤（语义反而更稳：同词各变体一律排除）、
+     * {@link AnswerChecker#buildChoiceOptions} 另有英文名二次过滤兜底；
+     * 全项目无 Set&lt;Word&gt;/Map&lt;Word,*&gt; 容器消费（已 grep 核实）。
+     */
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof Word word)) return false;
+        String pos = partOfSpeech == null ? "" : partOfSpeech;
+        String otherPos = word.partOfSpeech == null ? "" : word.partOfSpeech;
         return english.equalsIgnoreCase(word.english)
-                && Double.compare(reward, word.reward) == 0;
+                && pos.equalsIgnoreCase(otherPos);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(english.toLowerCase(), reward);
+        return Objects.hash(english.toLowerCase(),
+                partOfSpeech == null ? "" : partOfSpeech.toLowerCase());
     }
 }

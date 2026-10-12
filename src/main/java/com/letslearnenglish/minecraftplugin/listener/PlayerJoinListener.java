@@ -57,18 +57,47 @@ public class PlayerJoinListener implements Listener {
             }, 40L);
         }
 
+        // S5：join 每日提醒接线（R-86p 冻结接口，实现在 LetsLearnEnglish）。
+        // 编译期即存在（方法已随 S8 落地）；内部自行判断 daily-reminder.enabled /
+        // on-join / 当日去重，关闭或未命中时零输出。
+        plugin.sendJoinDailyReminderIfEnabled(joining);
+
+        // P2 fan-in（S3 冻结接口的消费端）：GM 解散对局时离线的一方在下次进服
+        // 收到 duel.cancelled-by-gm 通知（consumeOfflineDuelNotice 读后即清）。
+        var duelManager = plugin.getDuelManager();
+        if (duelManager != null) {
+            var notice = duelManager.consumeOfflineDuelNotice(joining.getUniqueId());
+            if (notice != null) {
+                joining.sendMessage(plugin.getMessageUtil().getPlayerMessage(joining,
+                        notice.messageKey(), "player", notice.otherPlayerName()));
+            }
+        }
+
         plugin.getDailyChallengeManager().checkAndAssign(event.getPlayer().getUniqueId());
     }
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
-        // H9：下线清理答题态 — endQuiz 取消倒计时并移除 QuizState（含 WordManager 侧
-        // endSession 落掌握度），cancelPractice 清错题本练习态；不结算、不发奖励
+        // H9（R-59 校正）：下线清理答题态 — endQuiz 取消倒计时并移除 QuizState，
+        // 随后经 WordManager 侧 endSession 走与正常结束相同的结算：掌握度落库、
+        // 学习分累计、复习种子写入、榜单增量（quit 计入 session 与分数为既定裁决，
+        // rage quit 不豁免）；cancelPractice 清错题本练习态。
+        // 仅不发会话金币奖励、不触发完成庆祝（不奖励没走完的会话）。
         plugin.getWordLearningManager().endQuiz(playerId);
         plugin.getWordLearningManager().cancelPractice(playerId);
         plugin.getPlayerDataStore().unloadPlayerData(playerId);
         plugin.getAchievementManager().unloadPlayer(playerId);
         plugin.getPlayerDataStore().unloadProfileSettings(playerId);
+        // S5 quit 编排点：各服务的内存卫生统一在此收口（方向 Listener → 服务，
+        // 无反向依赖、不成环；PlayerDataStore 只管自己的 map，不反向调这些服务）：
+        // - 返回栈（R-41）：防泄漏 + 防重进点到持旧 Player/GUI 引用的过期闭包
+        // - 签到锁（R-76）：per-player 锁条目下线后不再需要
+        // - 经济提示去重（F1-24）：经济未启用提示的 per-player 每自然日去重条目
+        // TTS 发音冷却（R-64）由 WordLearningListener 自注册 quit 事件清理
+        // （该监听器在 LetsLearnEnglish 内匿名 new，本类无实例引用可调其方法）。
+        plugin.getGuiNavigationManager().clearPlayer(playerId);
+        plugin.getCheckInManager().unloadPlayer(playerId);
+        plugin.getProgressManager().getRewardEngine().unloadPlayer(playerId);
     }
 }
