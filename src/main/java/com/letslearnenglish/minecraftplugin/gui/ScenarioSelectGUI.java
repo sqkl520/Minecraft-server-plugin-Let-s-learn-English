@@ -1,7 +1,6 @@
 package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
-import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager.DifficultyConfig;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager.ScenarioConfig;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
@@ -174,7 +173,8 @@ public class ScenarioSelectGUI {
                     apiReload, apiStatus));
         }
 
-        SoundManager.playSound(player, "menu-open");
+        // R-86：menu-open 不再在此显式播放 —— SoundManager.onInventoryOpen 会对所有
+        // 插件 GUI 全局播一次，此处保留会双声（去重方向与理由见 SoundManager 类注释）。
         player.openInventory(gui);
     }
 

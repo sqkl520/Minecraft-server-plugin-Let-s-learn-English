@@ -744,6 +744,14 @@ public class PlayerDataStore {
      *
      * <p>R-03：补清两套今日计数器 —— 原实现只清持久化缓存，防刷上限（今日答题/AI 轮次）
      * 的内存态被漏掉，reset 后不重进服上限不归零。
+     *
+     * <p>S5 裁决：本方法只清自己持有的 map（含 R-28 的 conversationCountCache）。
+     * 其余服务的 quit 级清理（GuiNavigationManager 返回栈 / CheckInManager 签到锁 /
+     * RewardEngine 经济提示去重）<strong>不</strong>在这里反向调用 —— RewardEngine 已依赖
+     * PlayerDataStore（getTodayAnswerCount 等），由此反向调用会引入双向依赖。
+     * 统一收口在 {@code PlayerJoinListener.onPlayerQuit}（Listener → 服务单向，
+     * 无环）。{@link #clearCache()}（reload 路径）刻意不清两套今日计数器：
+     * reload 不重置防刷是既定语义（F5-04/T0-02 裁决）。
      */
     public void unloadPlayerData(UUID playerId) {
         savePlayerData(playerId);

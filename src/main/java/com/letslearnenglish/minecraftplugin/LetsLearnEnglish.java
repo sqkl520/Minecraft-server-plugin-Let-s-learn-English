@@ -60,6 +60,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 
 public final class LetsLearnEnglish extends JavaPlugin {
 
@@ -105,6 +106,12 @@ public final class LetsLearnEnglish extends JavaPlugin {
     private Economy economy = null;
 
     private final Map<UUID, String> playerLanguage = new ConcurrentHashMap<>();
+
+    /** R-75：自递归午夜 rollover 任务的当前引用（重载先 cancel 再重排，停用 cancel）。主线程访问。 */
+    private BukkitTask midnightTask;
+
+    /** R-86p：join 每日提醒去重 — 玩家 UUID → 最近发送的自然日（quit 不清，按日期懒判定）。 */
+    private final Map<UUID, LocalDate> joinReminderSent = new ConcurrentHashMap<>();
 
     @Override
     public void onLoad() {
@@ -195,17 +202,41 @@ public final class LetsLearnEnglish extends JavaPlugin {
         getLogger().info("  Plugin enabled successfully! (Time: " + loadTime + "ms)");
         getLogger().info("============================================");
 
+        // F0-08：checker 实例照常创建（PlayerJoinListener 会调用 notifyPlayer——未发起/未完成
+        // 检查时其内部 isUpdateAvailable/checkComplete 守卫为 safe no-op，不会 NPE）；
+        // 仅"发起联网检查"受 general.check-updates 控制，关=不连 GitHub API。
         this.updateChecker = new UpdateChecker(this);
-        updateChecker.checkAsync();
+        if (configManager.getMainConfig().getBoolean("general.check-updates", true)) {
+            updateChecker.checkAsync();
+        } else {
+            getLogger().info("Update check disabled (general.check-updates=false).");
+        }
     }
 
     @Override
     public void onDisable() {
         getLogger().info("Saving player data...");
 
+        // R-75：自递归午夜任务在停用时取消（下次 enable 会重新排程）。
+        if (midnightTask != null) {
+            midnightTask.cancel();
+            midnightTask = null;
+        }
+
         if (wordLearningManager != null) {
             wordLearningManager.clearAllSessions();
             getLogger().info("Cleared all active word learning sessions.");
+        }
+
+        // R-72：决斗房间清理（清任务/记分板/map，shutdown() 幂等）。
+        // 放在数据落盘之前、会话清理之后：先清活动对局态，再进入持久化阶段；
+        // try/catch 兜底任何清理异常，保证 onDisable 后续步骤（落盘/关库）不被拖垮。
+        if (duelManager != null) {
+            try {
+                duelManager.shutdown();
+            } catch (Throwable t) {
+                getLogger().warning("Failed to shut down duel manager: " + t.getMessage());
+            }
         }
 
         savePlayerLanguages();
@@ -313,9 +344,6 @@ public final class LetsLearnEnglish extends JavaPlugin {
             return;
         }
 
-        String rawMessage = configManager.getMainConfig().getString("daily-reminder.message",
-                "{prefix}&6It's time to learn English! Use &e/le menu &6to start!");
-
         Set<Integer> remindedHours = new HashSet<>();
         final Set<Integer> effectiveHours = new HashSet<>(reminderHours);
 
@@ -330,17 +358,62 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
             if (currentMinute == 0 && effectiveHours.contains(currentHour) && !remindedHours.contains(currentHour)) {
                 remindedHours.add(currentHour);
-                String defaultLang = configManager.getMainConfig().getString("general.language", "zh");
-                String prefix = configManager.getMainConfig().getString("prefix." + defaultLang, "&8[&b英语学习&8] &f");
-                String message = rawMessage.replace("{prefix}", prefix);
+                // R-86p：逐玩家组装（{player}/{prefix} 全量替换），而非全员发同一份文本。
+                LocalDate today = LocalDate.now();
                 for (Player player : getServer().getOnlinePlayers()) {
-                    player.sendMessage(ChatColor.translateAlternateColorCodes('&', message));
+                    player.sendMessage(buildDailyReminderMessage(player));
+                    // R-86p：共享去重 map——定时提醒已覆盖的玩家，当日 join 不再重复发。
+                    joinReminderSent.put(player.getUniqueId(), today);
                 }
                 getLogger().info("Daily study reminder sent to all online players at hour " + currentHour + ":00");
             }
         }, 1200L, 1200L);
 
         getLogger().info("Daily study reminder scheduled at hours: " + effectiveHours);
+    }
+
+    /**
+     * R-86p：join 时的每日学习提醒（S5 的 PlayerJoinListener 调用此冻结接口）。
+     *
+     * <p>条件：{@code daily-reminder.enabled} 且 {@code daily-reminder.on-join} 均为 true。
+     * 行为与定时提醒共用同一文案组装逻辑（{@link #buildDailyReminderMessage(Player)}），
+     * 只发给该玩家；同一玩家同一自然日只发一次（{@link #joinReminderSent} 去重，
+     * quit 不清、按日期懒判定）。定时提醒发全员时也写该 map——两条通道共享去重：
+     * 当日定时提醒已覆盖的在线玩家，之后 join 不再重复收到。
+     */
+    public void sendJoinDailyReminderIfEnabled(Player player) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+        if (!configManager.getMainConfig().getBoolean("daily-reminder.enabled", true)) {
+            return;
+        }
+        if (!configManager.getMainConfig().getBoolean("daily-reminder.on-join", true)) {
+            return;
+        }
+        LocalDate today = LocalDate.now();
+        LocalDate last = joinReminderSent.get(player.getUniqueId());
+        if (today.equals(last)) {
+            return;
+        }
+        joinReminderSent.put(player.getUniqueId(), today);
+        player.sendMessage(buildDailyReminderMessage(player));
+    }
+
+    /**
+     * R-86p：每日提醒文案组装（定时提醒与 join 提醒共用）。
+     * 模板来自 config.yml 的 {@code daily-reminder.message}（既定架构：该键是 config 不是 i18n），
+     * {prefix} 按 {@code general.language} 取前缀，{player} 替换为玩家名。
+     */
+    private String buildDailyReminderMessage(Player player) {
+        String rawMessage = configManager.getMainConfig().getString("daily-reminder.message",
+                "{prefix}&6It's time to learn English! Use &e/le menu &6to start!");
+        String defaultLang = configManager.getMainConfig().getString("general.language", "zh");
+        String prefix = configManager.getMainConfig().getString("prefix." + defaultLang, "&8[&b英语学习&8] &f");
+        String message = rawMessage
+                .replace("{player}", player.getName())
+                .replace("{prefix}", prefix);
+        return ChatColor.translateAlternateColorCodes('&', message);
     }
 
     private void scheduleDatabaseBackup() {
@@ -362,12 +435,34 @@ public final class LetsLearnEnglish extends JavaPlugin {
     }
 
     /**
-     * M8：午夜跨天任务 — 启动时对齐到下一个午夜，之后每 24h 触发一次。
-     * 在线玩家重跑 checkAndAssign（分配新一天的行为挑战 + 单词挑战）；
-     * 昨日未领奖励作废（行为挑战数据天然按 challenge_date 隔离，无需删行），
-     * 有作废的玩家会收到 daily-challenge.rollover-voided 提示，领完的不打扰。
+     * M8：午夜跨天任务入口。
+     *
+     * <p>R-75：不再用 runTaskTimer 固定 24h 周期（DST 切换后偏离午夜、停机后丢一次）。
+     * 改为自递归的一次性延迟任务：每次排程重新按 Calendar 对齐到"次日 0:00:01"计算 delay，
+     * 任务体执行完 rollover 后自行重排下一次。重载/重复调用时先 cancel 旧任务再排新
+     * （{@link #midnightTask} 实例字段持引用），onDisable 亦会 cancel。
+     *
+     * <p>停机 catch-up：不做（保持现状语义）——服务器停机跨过午夜时该次 rollover
+     * 不补跑；玩家 join 时 PlayerJoinListener 的 {@code dailyChallengeManager.checkAndAssign}
+     * 兜底分配当日挑战（昨日未领奖励按 challenge_date 天然隔离作废，只是无 rollover 提示）。
      */
     private void scheduleMidnightRollover() {
+        if (midnightTask != null) {
+            midnightTask.cancel();
+            midnightTask = null;
+        }
+        scheduleNextMidnightRollover();
+    }
+
+    /**
+     * R-75：排程下一次午夜 rollover（自递归调度）。
+     * delay 按 Calendar 对齐到次日 0:00:01（墙钟语义，DST 切换日自动正确）；
+     * 任务体执行现有全部 rollover 逻辑，末尾再调本方法续排下一天。
+     */
+    private void scheduleNextMidnightRollover() {
+        if (!isEnabled()) {
+            return;
+        }
         Calendar now = Calendar.getInstance();
         Calendar nextMidnight = (Calendar) now.clone();
         nextMidnight.add(Calendar.DAY_OF_MONTH, 1);
@@ -377,27 +472,32 @@ public final class LetsLearnEnglish extends JavaPlugin {
         nextMidnight.set(Calendar.MILLISECOND, 0);
         long delayTicks = Math.max(1200L,
                 (nextMidnight.getTimeInMillis() - now.getTimeInMillis()) / 50L);
-        long periodTicks = 24L * 60L * 60L * 20L;
 
-        getServer().getScheduler().runTaskTimer(this, () -> {
-            String yesterday = LocalDate.now().minusDays(1).toString();
-            for (Player player : getServer().getOnlinePlayers()) {
-                UUID playerId = player.getUniqueId();
-                // 先查昨日作废（必须在清标记之前），再分配今日挑战
-                int voidedBehavior = dailyChallengeManager.countUnclaimedForDate(playerId, yesterday);
-                boolean voidedWord = dailyChallengeManager.hasPendingWordRewardForDate(playerId, yesterday);
-                dailyChallengeManager.checkAndAssign(playerId);
-                if (voidedBehavior > 0 || voidedWord) {
-                    player.sendMessage(messageUtil.getPlayerMessage(player,
-                            "daily-challenge.rollover-voided"));
+        midnightTask = getServer().getScheduler().runTaskLater(this, () -> {
+            try {
+                // 昨日未领作废提示（必须在清标记之前），再分配今日挑战
+                String yesterday = LocalDate.now().minusDays(1).toString();
+                for (Player player : getServer().getOnlinePlayers()) {
+                    UUID playerId = player.getUniqueId();
+                    int voidedBehavior = dailyChallengeManager.countUnclaimedForDate(playerId, yesterday);
+                    boolean voidedWord = dailyChallengeManager.hasPendingWordRewardForDate(playerId, yesterday);
+                    dailyChallengeManager.checkAndAssign(playerId);
+                    if (voidedBehavior > 0 || voidedWord) {
+                        player.sendMessage(messageUtil.getPlayerMessage(player,
+                                "daily-challenge.rollover-voided"));
+                    }
                 }
+                dailyChallengeManager.clearAllWordChallengeClaims();
+                wordManager.getReviewScheduler().clearNotifiedDates();
+                getLogger().info("Midnight rollover done: daily challenges reassigned.");
+            } finally {
+                // R-75 自续：放在 finally——即使本次 rollover 抛异常，也照旧重排下一天，
+                // 保证调度链路不会静默中断（与旧 runTaskTimer 的"周期性必然再触发"语义对齐）。
+                scheduleNextMidnightRollover();
             }
-            dailyChallengeManager.clearAllWordChallengeClaims();
-            wordManager.getReviewScheduler().clearNotifiedDates();
-            getLogger().info("Midnight rollover done: daily challenges reassigned.");
-        }, delayTicks, periodTicks);
+        }, delayTicks);
 
-        getLogger().info("Midnight rollover scheduled, first run in "
+        getLogger().info("Midnight rollover scheduled, next run in "
                 + (delayTicks / 20L) + " seconds.");
     }
 
@@ -600,10 +700,13 @@ public final class LetsLearnEnglish extends JavaPlugin {
             return;
         }
         FileConfiguration langConfig = YamlConfiguration.loadConfiguration(langFile);
+        // T0-04：缺省与 getPlayerLanguage 同源（config general.language，默认 zh），
+        // 旧值 "en" 会在玩家条目只有 UUID 无值时才命中，属不一致的隐性回归。
+        String defaultLang = configManager.getMainConfig().getString("general.language", "zh");
         for (String key : langConfig.getKeys(false)) {
             try {
                 UUID uuid = UUID.fromString(key);
-                playerLanguage.put(uuid, langConfig.getString(key, "en"));
+                playerLanguage.put(uuid, langConfig.getString(key, defaultLang));
             } catch (IllegalArgumentException e) {
                 getLogger().warning("Invalid UUID in player_lang.yml: " + key);
             }

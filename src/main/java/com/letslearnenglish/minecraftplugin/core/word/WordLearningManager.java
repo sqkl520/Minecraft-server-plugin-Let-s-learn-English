@@ -19,6 +19,7 @@ import org.bukkit.scheduler.BukkitTask;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager.ChallengeType;
+import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.progress.RewardEngine;
 import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
 
@@ -192,6 +193,11 @@ public class WordLearningManager implements Listener {
             LearningSession session = state.session;
             Word currentWord = session.getCurrentWord();
             if (currentWord == null) return null;
+
+            // R-84：超时判错补音效（与 ChatAnswerListener 答错分支的 "incorrect" 对称）。
+            // handleTimeout 的唯一调用方（startAnswerTimer 的倒计时到点分支）持有
+            // Player 对象，可直接播；死亡暂停走 cancelAnswerTimer，不会误播。
+            SoundManager.playSound(player, "incorrect");
 
             state.consecutiveCorrect = 0;
             session.addScore(-INCORRECT_PENALTY);
@@ -427,6 +433,12 @@ public class WordLearningManager implements Listener {
                 .giveStoppedSessionMoneyReward(player, maxComboReached, answered, total);
     }
 
+    /**
+     * R-59 行为描述（既定裁决，保留原行为）：下线时清答题态并<strong>照常结算</strong>。
+     * endSession 会落掌握度、累计学习分/会话数、写复习种子、同步榜单——rage quit
+     * 与正常结束同等待遇（不豁免）；唯一不发的是会话走完才有的金币奖励与完成庆祝。
+     * 旧注释"不结算"与实际不符，已随 R-59 校正。
+     */
     public void endQuiz(UUID playerId) {
         QuizState state = quizStates.get(playerId);
         if (state != null && state.answerTaskId.get() != -1) {

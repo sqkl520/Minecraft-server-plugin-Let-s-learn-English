@@ -7,134 +7,6 @@ difficulty: "advanced"
 description: "Advanced English Word Bank - Advanced Vocabulary"
 
 words:
-  - english: "ambiguous"
-    chinese: "模棱两可的"
-    part_of_speech: "adjective"
-    phonetic: "/æmˈbɪɡ.ju.əs/"
-    example_sentence: "The contract contains several ambiguous clauses."
-    synonyms:
-      - "vague"
-      - "unclear"
-    antonyms:
-      - "clear"
-      - "definite"
-    difficulty_level: 8
-
-  - english: "benevolent"
-    chinese: "仁慈的；慈善的"
-    part_of_speech: "adjective"
-    phonetic: "/bəˈnev.əl.ənt/"
-    example_sentence: "The benevolent donor gave millions to charity."
-    synonyms:
-      - "kind"
-      - "generous"
-    antonyms:
-      - "malevolent"
-      - "cruel"
-    difficulty_level: 8
-
-  - english: "comprehensive"
-    chinese: "全面的；综合的"
-    part_of_speech: "adjective"
-    phonetic: "/ˌkɒm.prɪˈhen.sɪv/"
-    example_sentence: "We need a comprehensive review of the system."
-    synonyms:
-      - "thorough"
-      - "complete"
-    antonyms:
-      - "limited"
-      - "superficial"
-    difficulty_level: 7
-
-  - english: "deteriorate"
-    chinese: "恶化"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈtɪə.ri.ə.reɪt/"
-    example_sentence: "His health began to deteriorate rapidly."
-    synonyms:
-      - "worsen"
-      - "weaken"
-    antonyms:
-      - "improve"
-      - "recover"
-    difficulty_level: 8
-
-  - english: "elaborate"
-    chinese: "精心制作的；详细阐述"
-    part_of_speech: "verb"
-    phonetic: "/ɪˈlæb.ər.ət/"
-    example_sentence: "Could you elaborate on your proposal?"
-    synonyms:
-      - "detailed"
-      - "complex"
-    antonyms:
-      - "simple"
-      - "brief"
-    difficulty_level: 7
-
-  - english: "fluctuate"
-    chinese: "波动"
-    part_of_speech: "verb"
-    phonetic: "/ˈflʌk.tʃu.eɪt/"
-    example_sentence: "Stock prices fluctuate throughout the day."
-    synonyms:
-      - "vary"
-      - "oscillate"
-    antonyms:
-      - "stabilize"
-      - "steady"
-    difficulty_level: 8
-
-  - english: "hypothetical"
-    chinese: "假设的"
-    part_of_speech: "adjective"
-    phonetic: "/ˌhaɪ.pəˈθet.ɪ.kəl/"
-    example_sentence: "Let's consider a hypothetical situation."
-    synonyms:
-      - "theoretical"
-      - "speculative"
-    antonyms:
-      - "actual"
-      - "real"
-    difficulty_level: 8
-
-  - english: "inevitable"
-    chinese: "不可避免的"
-    part_of_speech: "adjective"
-    phonetic: "/ɪˈnev.ɪ.tə.bəl/"
-    example_sentence: "Change is inevitable in life."
-    synonyms:
-      - "unavoidable"
-      - "certain"
-    antonyms:
-      - "avoidable"
-      - "preventable"
-    difficulty_level: 7
-
-  - english: "meticulous"
-    chinese: "一丝不苟的"
-    part_of_speech: "adjective"
-    phonetic: "/məˈtɪk.jə.ləs/"
-    example_sentence: "She is meticulous about her work."
-    synonyms:
-      - "careful"
-      - "precise"
-    antonyms:
-      - "careless"
-      - "sloppy"
-    difficulty_level: 8
-
-  - english: "phenomenon"
-    chinese: "现象"
-    part_of_speech: "noun"
-    phonetic: "/fɪˈnɒm.ɪ.nən/"
-    example_sentence: "Global warming is a complex phenomenon."
-    synonyms:
-      - "occurrence"
-      - "event"
-    antonyms: []
-    difficulty_level: 7
-
   - english: "accessible"
     chinese: "易接近的；可获得的"
     part_of_speech: "adjective"
@@ -245,6 +117,19 @@ words:
     antonyms:
       - "preserve"
     difficulty_level: 7
+
+  - english: "ambiguous"
+    chinese: "模棱两可的"
+    part_of_speech: "adjective"
+    phonetic: "/æmˈbɪɡ.ju.əs/"
+    example_sentence: "The contract contains several ambiguous clauses."
+    synonyms:
+      - "vague"
+      - "unclear"
+    antonyms:
+      - "clear"
+      - "definite"
+    difficulty_level: 8
 
   - english: "amiable"
     chinese: "和蔼的"
@@ -380,6 +265,15 @@ words:
     antonyms: []
     difficulty_level: 7
 
+  - english: "becoming"
+    chinese: "得体的；相称的"
+    part_of_speech: "adjective"
+    phonetic: "/bɪˈkʌm.ɪŋ/"
+    example_sentence: "She wore a becoming blue dress to the party."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
   - english: "behalf"
     chinese: "代表"
     part_of_speech: "noun"
@@ -388,6 +282,19 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 7
+
+  - english: "benevolent"
+    chinese: "仁慈的；慈善的"
+    part_of_speech: "adjective"
+    phonetic: "/bəˈnev.əl.ənt/"
+    example_sentence: "The benevolent donor gave millions to charity."
+    synonyms:
+      - "kind"
+      - "generous"
+    antonyms:
+      - "malevolent"
+      - "cruel"
+    difficulty_level: 8
 
   - english: "beware"
     chinese: "小心；谨防"
@@ -479,6 +386,17 @@ words:
     antonyms: []
     difficulty_level: 7
 
+  - english: "brisk"
+    chinese: "轻快的；凛冽的"
+    part_of_speech: "adjective"
+    phonetic: "/brɪsk/"
+    example_sentence: "We took a brisk walk in the cold morning air."
+    synonyms:
+      - "quick"
+    antonyms:
+      - "slow"
+    difficulty_level: 8
+
   - english: "broaden"
     chinese: "拓宽"
     part_of_speech: "verb"
@@ -551,17 +469,6 @@ words:
       - "evasive"
     difficulty_level: 7
 
-  - english: "proficient"
-    chinese: "熟练的；精通的"
-    part_of_speech: "adjective"
-    phonetic: "/prəˈfɪʃ.ənt/"
-    example_sentence: "She is proficient in three foreign languages."
-    synonyms:
-      - "skilled"
-      - "competent"
-    antonyms: []
-    difficulty_level: 7
-
   - english: "caption"
     chinese: "标题；说明文字"
     part_of_speech: "noun"
@@ -630,16 +537,6 @@ words:
     antonyms: []
     difficulty_level: 7
 
-  - english: "vigilance"
-    chinese: "警觉；警惕"
-    part_of_speech: "noun"
-    phonetic: "/ˈvɪdʒ.ɪ.ləns/"
-    example_sentence: "Constant vigilance keeps the camp safe at night."
-    synonyms:
-      - "watchfulness"
-    antonyms: []
-    difficulty_level: 7
-
   - english: "cease"
     chinese: "停止"
     part_of_speech: "verb"
@@ -696,15 +593,6 @@ words:
     example_sentence: "Kindness and courage characterize the old teacher."
     synonyms:
       - "define"
-    antonyms: []
-    difficulty_level: 7
-
-  - english: "enchantment"
-    chinese: "魅力；魔法"
-    part_of_speech: "noun"
-    phonetic: "/ɪnˈtʃɑːnt.mənt/"
-    example_sentence: "The old castle holds a strange enchantment for visitors."
-    synonyms: []
     antonyms: []
     difficulty_level: 7
 
@@ -1104,6 +992,19 @@ words:
     antonyms: []
     difficulty_level: 7
 
+  - english: "comprehensive"
+    chinese: "全面的；综合的"
+    part_of_speech: "adjective"
+    phonetic: "/ˌkɒm.prɪˈhen.sɪv/"
+    example_sentence: "We need a comprehensive review of the system."
+    synonyms:
+      - "thorough"
+      - "complete"
+    antonyms:
+      - "limited"
+      - "superficial"
+    difficulty_level: 7
+
   - english: "compress"
     chinese: "压缩"
     part_of_speech: "verb"
@@ -1331,6 +1232,16 @@ words:
     antonyms:
       - "careless"
     difficulty_level: 8
+
+  - english: "consecrate"
+    chinese: "奉献；使神圣"
+    part_of_speech: "verb"
+    phonetic: "/ˈkɒn.sɪ.kreɪt/"
+    example_sentence: "They gathered to consecrate the new church."
+    synonyms:
+      - "dedicate"
+    antonyms: []
+    difficulty_level: 9
 
   - english: "consensus"
     chinese: "共识"
@@ -1764,28 +1675,6 @@ words:
     antonyms: []
     difficulty_level: 8
 
-  - english: "turmoil"
-    chinese: "骚动；混乱"
-    part_of_speech: "noun"
-    phonetic: "/ˈtɜː.mɔɪl/"
-    example_sentence: "The country fell into turmoil after the election."
-    synonyms:
-      - "chaos"
-    antonyms:
-      - "calm"
-    difficulty_level: 8
-
-  - english: "brisk"
-    chinese: "轻快的；凛冽的"
-    part_of_speech: "adjective"
-    phonetic: "/brɪsk/"
-    example_sentence: "We took a brisk walk in the cold morning air."
-    synonyms:
-      - "quick"
-    antonyms:
-      - "slow"
-    difficulty_level: 8
-
   - english: "criterion"
     chinese: "标准"
     part_of_speech: "noun"
@@ -1816,16 +1705,6 @@ words:
       - "critical"
     antonyms:
       - "trivial"
-    difficulty_level: 8
-
-  - english: "excursion"
-    chinese: "短途旅行"
-    part_of_speech: "noun"
-    phonetic: "/ɪkˈskɜː.ʃən/"
-    example_sentence: "The class went on an excursion to the museum."
-    synonyms:
-      - "trip"
-    antonyms: []
     difficulty_level: 8
 
   - english: "crumb"
@@ -2035,17 +1914,6 @@ words:
     antonyms: []
     difficulty_level: 8
 
-  - english: "musty"
-    chinese: "发霉的；陈腐的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈmʌs.ti/"
-    example_sentence: "The old books in the cellar smell musty."
-    synonyms:
-      - "stale"
-    antonyms:
-      - "fresh"
-    difficulty_level: 8
-
   - english: "dangle"
     chinese: "悬垂"
     part_of_speech: "verb"
@@ -2087,16 +1955,6 @@ words:
       - "elevate"
     difficulty_level: 8
 
-  - english: "wrangle"
-    chinese: "争吵"
-    part_of_speech: "noun"
-    phonetic: "/ˈræŋ.ɡəl/"
-    example_sentence: "A loud wrangle broke out over the bill."
-    synonyms:
-      - "quarrel"
-    antonyms: []
-    difficulty_level: 8
-
   - english: "debilitate"
     chinese: "使衰弱"
     part_of_speech: "verb"
@@ -2136,15 +1994,6 @@ words:
     antonyms: []
     difficulty_level: 8
 
-  - english: "becoming"
-    chinese: "得体的；相称的"
-    part_of_speech: "adjective"
-    phonetic: "/bɪˈkʌm.ɪŋ/"
-    example_sentence: "She wore a becoming blue dress to the party."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 8
-
   - english: "decimal"
     chinese: "小数的"
     part_of_speech: "adjective"
@@ -2170,15 +2019,6 @@ words:
     part_of_speech: "noun"
     phonetic: "/dek/"
     example_sentence: "Passengers stood on the ship's deck."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 8
-
-  - english: "wane"
-    chinese: "衰落；月缺"
-    part_of_speech: "verb"
-    phonetic: "/weɪn/"
-    example_sentence: "Support for the old policy began to wane."
     synonyms: []
     antonyms: []
     difficulty_level: 8
@@ -2280,17 +2120,6 @@ words:
     example_sentence: "English is the default language of the app."
     synonyms: []
     antonyms: []
-    difficulty_level: 8
-
-  - english: "vanquish"
-    chinese: "征服；击败"
-    part_of_speech: "verb"
-    phonetic: "/ˈvæŋ.kwɪʃ/"
-    example_sentence: "The young knight vowed to vanquish the dragon."
-    synonyms:
-      - "conquer"
-    antonyms:
-      - "surrender"
     difficulty_level: 8
 
   - english: "defect"
@@ -2447,17 +2276,6 @@ words:
     antonyms: []
     difficulty_level: 8
 
-  - english: "exquisite"
-    chinese: "精美的；绝妙的"
-    part_of_speech: "adjective"
-    phonetic: "/ekˈskwɪz.ɪt/"
-    example_sentence: "The museum displays exquisite jade carvings."
-    synonyms:
-      - "elegant"
-    antonyms:
-      - "crude"
-    difficulty_level: 8
-
   - english: "delinquent"
     chinese: "违法的；失职的"
     part_of_speech: "adjective"
@@ -2539,17 +2357,6 @@ words:
       - "praise"
     difficulty_level: 9
 
-  - english: "succinct"
-    chinese: "简明的"
-    part_of_speech: "adjective"
-    phonetic: "/səkˈsɪŋkt/"
-    example_sentence: "He gave a succinct report of the trip."
-    synonyms:
-      - "concise"
-    antonyms:
-      - "wordy"
-    difficulty_level: 9
-
   - english: "deplete"
     chinese: "耗尽"
     part_of_speech: "verb"
@@ -2595,15 +2402,6 @@ words:
     part_of_speech: "verb"
     phonetic: "/dɪˈpəʊz/"
     example_sentence: "The rebels moved to depose the king."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 9
-
-  - english: "instalment"
-    chinese: "分期付款；连载的一期"
-    part_of_speech: "noun"
-    phonetic: "/ɪnˈstɔːl.mənt/"
-    example_sentence: "She paid for the piano by monthly instalment."
     synonyms: []
     antonyms: []
     difficulty_level: 9
@@ -2729,6 +2527,19 @@ words:
       - "wealthy"
     difficulty_level: 9
 
+  - english: "deteriorate"
+    chinese: "恶化"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈtɪə.ri.ə.reɪt/"
+    example_sentence: "His health began to deteriorate rapidly."
+    synonyms:
+      - "worsen"
+      - "weaken"
+    antonyms:
+      - "improve"
+      - "recover"
+    difficulty_level: 8
+
   - english: "dethrone"
     chinese: "废黜王位"
     part_of_speech: "verb"
@@ -2825,16 +2636,6 @@ words:
     example_sentence: "The room was devoid of furniture."
     synonyms:
       - "empty"
-    antonyms: []
-    difficulty_level: 9
-
-  - english: "consecrate"
-    chinese: "奉献；使神圣"
-    part_of_speech: "verb"
-    phonetic: "/ˈkɒn.sɪ.kreɪt/"
-    example_sentence: "They gathered to consecrate the new church."
-    synonyms:
-      - "dedicate"
     antonyms: []
     difficulty_level: 9
 
@@ -3069,6 +2870,16 @@ words:
       - "conceal"
     difficulty_level: 9
 
+  - english: "discontent"
+    chinese: "不满"
+    part_of_speech: "noun"
+    phonetic: "/ˌdɪs.kənˈtent/"
+    example_sentence: "Low pay caused wide discontent among workers."
+    synonyms: []
+    antonyms:
+      - "satisfaction"
+    difficulty_level: 7
+
   - english: "discord"
     chinese: "不和"
     part_of_speech: "noun"
@@ -3079,16 +2890,6 @@ words:
     antonyms:
       - "harmony"
     difficulty_level: 9
-
-  - english: "discontent"
-    chinese: "不满"
-    part_of_speech: "noun"
-    phonetic: "/ˌdɪs.kənˈtent/"
-    example_sentence: "Low pay caused wide discontent among workers."
-    synonyms: []
-    antonyms:
-      - "satisfaction"
-    difficulty_level: 7
 
   - english: "discreet"
     chinese: "谨慎的"
@@ -3158,16 +2959,6 @@ words:
     phonetic: "/dɪsˈmeɪ/"
     example_sentence: "To our dismay, the train had left."
     synonyms: []
-    antonyms: []
-    difficulty_level: 7
-
-  - english: "traverse"
-    chinese: "横越；穿过"
-    part_of_speech: "verb"
-    phonetic: "/trəˈvɜːs/"
-    example_sentence: "They traverse the desert on camels."
-    synonyms:
-      - "cross"
     antonyms: []
     difficulty_level: 7
 
@@ -3383,3 +3174,212 @@ words:
     antonyms:
       - "active"
     difficulty_level: 9
+
+  - english: "elaborate"
+    chinese: "精心制作的；详细阐述"
+    part_of_speech: "verb"
+    phonetic: "/ɪˈlæb.ər.ət/"
+    example_sentence: "Could you elaborate on your proposal?"
+    synonyms:
+      - "detailed"
+      - "complex"
+    antonyms:
+      - "simple"
+      - "brief"
+    difficulty_level: 7
+
+  - english: "enchantment"
+    chinese: "魅力；魔法"
+    part_of_speech: "noun"
+    phonetic: "/ɪnˈtʃɑːnt.mənt/"
+    example_sentence: "The old castle holds a strange enchantment for visitors."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "excursion"
+    chinese: "短途旅行"
+    part_of_speech: "noun"
+    phonetic: "/ɪkˈskɜː.ʃən/"
+    example_sentence: "The class went on an excursion to the museum."
+    synonyms:
+      - "trip"
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "exquisite"
+    chinese: "精美的；绝妙的"
+    part_of_speech: "adjective"
+    phonetic: "/ekˈskwɪz.ɪt/"
+    example_sentence: "The museum displays exquisite jade carvings."
+    synonyms:
+      - "elegant"
+    antonyms:
+      - "crude"
+    difficulty_level: 8
+
+  - english: "fluctuate"
+    chinese: "波动"
+    part_of_speech: "verb"
+    phonetic: "/ˈflʌk.tʃu.eɪt/"
+    example_sentence: "Stock prices fluctuate throughout the day."
+    synonyms:
+      - "vary"
+      - "oscillate"
+    antonyms:
+      - "stabilize"
+      - "steady"
+    difficulty_level: 8
+
+  - english: "hypothetical"
+    chinese: "假设的"
+    part_of_speech: "adjective"
+    phonetic: "/ˌhaɪ.pəˈθet.ɪ.kəl/"
+    example_sentence: "Let's consider a hypothetical situation."
+    synonyms:
+      - "theoretical"
+      - "speculative"
+    antonyms:
+      - "actual"
+      - "real"
+    difficulty_level: 8
+
+  - english: "inevitable"
+    chinese: "不可避免的"
+    part_of_speech: "adjective"
+    phonetic: "/ɪˈnev.ɪ.tə.bəl/"
+    example_sentence: "Change is inevitable in life."
+    synonyms:
+      - "unavoidable"
+      - "certain"
+    antonyms:
+      - "avoidable"
+      - "preventable"
+    difficulty_level: 7
+
+  - english: "instalment"
+    chinese: "分期付款；连载的一期"
+    part_of_speech: "noun"
+    phonetic: "/ɪnˈstɔːl.mənt/"
+    example_sentence: "She paid for the piano by monthly instalment."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 9
+
+  - english: "meticulous"
+    chinese: "一丝不苟的"
+    part_of_speech: "adjective"
+    phonetic: "/məˈtɪk.jə.ləs/"
+    example_sentence: "She is meticulous about her work."
+    synonyms:
+      - "careful"
+      - "precise"
+    antonyms:
+      - "careless"
+      - "sloppy"
+    difficulty_level: 8
+
+  - english: "musty"
+    chinese: "发霉的；陈腐的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈmʌs.ti/"
+    example_sentence: "The old books in the cellar smell musty."
+    synonyms:
+      - "stale"
+    antonyms:
+      - "fresh"
+    difficulty_level: 8
+
+  - english: "phenomenon"
+    chinese: "现象"
+    part_of_speech: "noun"
+    phonetic: "/fɪˈnɒm.ɪ.nən/"
+    example_sentence: "Global warming is a complex phenomenon."
+    synonyms:
+      - "occurrence"
+      - "event"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "proficient"
+    chinese: "熟练的；精通的"
+    part_of_speech: "adjective"
+    phonetic: "/prəˈfɪʃ.ənt/"
+    example_sentence: "She is proficient in three foreign languages."
+    synonyms:
+      - "skilled"
+      - "competent"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "succinct"
+    chinese: "简明的"
+    part_of_speech: "adjective"
+    phonetic: "/səkˈsɪŋkt/"
+    example_sentence: "He gave a succinct report of the trip."
+    synonyms:
+      - "concise"
+    antonyms:
+      - "wordy"
+    difficulty_level: 9
+
+  - english: "traverse"
+    chinese: "横越；穿过"
+    part_of_speech: "verb"
+    phonetic: "/trəˈvɜːs/"
+    example_sentence: "They traverse the desert on camels."
+    synonyms:
+      - "cross"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "turmoil"
+    chinese: "骚动；混乱"
+    part_of_speech: "noun"
+    phonetic: "/ˈtɜː.mɔɪl/"
+    example_sentence: "The country fell into turmoil after the election."
+    synonyms:
+      - "chaos"
+    antonyms:
+      - "calm"
+    difficulty_level: 8
+
+  - english: "vanquish"
+    chinese: "征服；击败"
+    part_of_speech: "verb"
+    phonetic: "/ˈvæŋ.kwɪʃ/"
+    example_sentence: "The young knight vowed to vanquish the dragon."
+    synonyms:
+      - "conquer"
+    antonyms:
+      - "surrender"
+    difficulty_level: 8
+
+  - english: "vigilance"
+    chinese: "警觉；警惕"
+    part_of_speech: "noun"
+    phonetic: "/ˈvɪdʒ.ɪ.ləns/"
+    example_sentence: "Constant vigilance keeps the camp safe at night."
+    synonyms:
+      - "watchfulness"
+    antonyms: []
+    difficulty_level: 7
+
+  - english: "wane"
+    chinese: "衰落；月缺"
+    part_of_speech: "verb"
+    phonetic: "/weɪn/"
+    example_sentence: "Support for the old policy began to wane."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+
+  - english: "wrangle"
+    chinese: "争吵"
+    part_of_speech: "noun"
+    phonetic: "/ˈræŋ.ɡəl/"
+    example_sentence: "A loud wrangle broke out over the bill."
+    synonyms:
+      - "quarrel"
+    antonyms: []
+    difficulty_level: 8

@@ -162,8 +162,11 @@ public class AchievementManager {
         if (player != null && player.isOnline()) {
             FileConfiguration messages = plugin.getConfigManager()
                     .getMessageConfig(plugin.getPlayerLanguage(player));
-            String title = messages.getString("achievement.unlock-title");
-            String fmt = messages.getString("achievement.unlock-format");
+            // P2 fan-in（S7 上报）：裸 getString 收敛——缺键显示 [?key] 占位而非 NPE
+            String title = com.letslearnenglish.minecraftplugin.util.MessageUtil
+                    .getGuiMsg(messages, "achievement.unlock-title");
+            String fmt = com.letslearnenglish.minecraftplugin.util.MessageUtil
+                    .getGuiMsg(messages, "achievement.unlock-format");
             String name = achievement.getDisplayName(plugin.getPlayerLanguage(player));
             String desc = achievement.getDisplayDesc(plugin.getPlayerLanguage(player));
             player.sendMessage(ChatColor.translateAlternateColorCodes('&',
@@ -270,9 +273,15 @@ public class AchievementManager {
 
     private void checkDailyStreak(UUID playerId) {
         java.util.Set<String> days = new java.util.LinkedHashSet<>();
+        // R-79：原先无 LIMIT 全表扫该玩家全部历史 session_date（老玩家可达数千行）。
+        // player_sessions 的 UNIQUE(uuid, session_date) 保证一天至多一行，而下方连续
+        // 判定只回看 today-29..today 这 30 天（i < 30），故最新的 30 行必然覆盖全部
+        // 判定窗口内的行；LIMIT 40 = 判定窗口 30 天 + 10 天裕量（防未来放宽窗口时
+        // 忘记同步调整截断值）。LIMIT 值必须 ≥ 判定窗口天数，否则会把窗口截断、
+        // 连续天数少算。多取的行不影响逻辑（Set.contains 只看窗口内日期）。
         String daySql = "SELECT session_date FROM "
                 + plugin.getDatabaseManager().getTablePrefix()
-                + "player_sessions WHERE uuid = ? ORDER BY session_date DESC";
+                + "player_sessions WHERE uuid = ? ORDER BY session_date DESC LIMIT 40";
         Connection conn = plugin.getDatabaseManager().getConnection();
         synchronized (plugin.getDatabaseManager().getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(daySql)) {

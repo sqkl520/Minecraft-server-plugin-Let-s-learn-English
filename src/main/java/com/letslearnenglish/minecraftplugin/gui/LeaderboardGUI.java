@@ -3,6 +3,7 @@ package com.letslearnenglish.minecraftplugin.gui;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.LeaderboardEntry;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -80,15 +81,15 @@ public class LeaderboardGUI {
         switch (tab) {
             case 1:
                 entries = plugin.getProgressManager().getLeaderboard().getCachedWordsLeaderboard();
-                subtabLabel = messages.getString("leaderboard.tab-words");
+                subtabLabel = MessageUtil.getGuiMsg(messages, "leaderboard.tab-words");
                 break;
             case 2:
                 entries = plugin.getProgressManager().getLeaderboard().getCachedComboLeaderboard();
-                subtabLabel = messages.getString("leaderboard.tab-combo");
+                subtabLabel = MessageUtil.getGuiMsg(messages, "leaderboard.tab-combo");
                 break;
             default:
                 entries = plugin.getProgressManager().getLeaderboard().getCachedCoinsLeaderboard();
-                subtabLabel = messages.getString("leaderboard.tab-coins");
+                subtabLabel = MessageUtil.getGuiMsg(messages, "leaderboard.tab-coins");
                 break;
         }
 
@@ -98,7 +99,7 @@ public class LeaderboardGUI {
         }
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("leaderboard.title")
+                MessageUtil.getGuiMsg(messages, "leaderboard.title")
                         + " | " + ChatColor.stripColor(ChatColor.translateAlternateColorCodes('&', subtabLabel)));
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
@@ -124,20 +125,20 @@ public class LeaderboardGUI {
                 String scoreLabel;
                 switch (tab) {
                     case 1:
-                        scoreLabel = messages.getString("leaderboard.entry-words");
+                        scoreLabel = MessageUtil.getGuiMsg(messages, "leaderboard.entry-words");
                         break;
                     case 2:
-                        scoreLabel = messages.getString("leaderboard.entry-combo");
+                        scoreLabel = MessageUtil.getGuiMsg(messages, "leaderboard.entry-combo");
                         break;
                     default:
-                        scoreLabel = messages.getString("leaderboard.entry-coins");
+                        scoreLabel = MessageUtil.getGuiMsg(messages, "leaderboard.entry-coins");
                         break;
                 }
                 lore.add(ChatColor.translateAlternateColorCodes('&',
                         scoreLabel.replace("{score}", String.valueOf(entry.score))));
                 lore.add("");
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("leaderboard.click-hint")));
+                        MessageUtil.getGuiMsg(messages, "leaderboard.click-hint")));
                 meta.setLore(lore);
                 head.setItemMeta(meta);
             }
@@ -147,19 +148,19 @@ public class LeaderboardGUI {
         // ---- Empty state ----
         if (entries.isEmpty()) {
             String emptyLabel = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("leaderboard.empty"));
+                    MessageUtil.getGuiMsg(messages, "leaderboard.empty"));
             ItemStack emptyItem = createItem(Material.BARRIER, emptyLabel, Collections.emptyList());
             inv.setItem(22, emptyItem);
         }
 
         // ---- Back button (slot 8) ----
         String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
-                messages.getString("gui.back-button"));
+                MessageUtil.getGuiMsg(messages, "gui.back-button"));
         int backSlot = cm.getGuiSlot("leaderboard", "back-button", BACK_SLOT);
         Material backMaterial = cm.getGuiMaterial("leaderboard", "back-button", Material.RED_STAINED_GLASS_PANE);
         inv.setItem(backSlot, createItem(backMaterial, backLabel,
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
-                        messages.getString("gui.back-lore")))));
+                        MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
 
         player.openInventory(inv);
     }
@@ -172,8 +173,8 @@ public class LeaderboardGUI {
         boolean selected = (activeTab == tabIndex);
         Material displayMat = selected ? Material.LIME_STAINED_GLASS_PANE : mat;
         String label = ChatColor.translateAlternateColorCodes('&',
-                (selected ? "&a&l" : "&7") + messages.getString(messageKey));
-        String hint = messages.getString(selected ? "leaderboard.selected" : "leaderboard.switch-hint");
+                (selected ? "&a&l" : "&7") + MessageUtil.getGuiMsg(messages, messageKey));
+        String hint = MessageUtil.getGuiMsg(messages, selected ? "leaderboard.selected" : "leaderboard.switch-hint");
         inv.setItem(slot, createItem(displayMat, label,
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', hint))));
     }

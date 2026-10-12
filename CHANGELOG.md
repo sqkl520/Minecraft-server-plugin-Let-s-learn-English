@@ -5,6 +5,53 @@
 > 本版本包含两批改动：v1.0.7 迭代开发（13 个 Story）+ 全项目只读扫描后的缺陷修复批次（中文服止血 / 并发收口 / 仓库卫生）。
 
 ### Fixed
+- **[P2 fan-in]** Code tester 收口：`acceptDuel` 复刻 sendDuelRequest 的 R-66 AI 对话互斥（邀请发出后任一方可能已进入对话，接受校验不过不消费邀请、双方提示；接受方用 dialogue.chat-active 通用键）；config.yml menu-size 注释校正（9/18 已不支持，合法域 27/36/45/54）
+- **[P2 fan-in]** Arch tester 收口：`LearnCommand` limit-reached 的 {max} 改读 `getMaxPersonalScenarios()` 公开 getter（消除死 getter、与 AIChatManager 上限常量单一真相源）；`DuelManager.PendingDuel` 收窄为 private（仅本类使用）；`MiscGUIListener` 两处未用 import 清理（ChallengeType/LearningCalendarGUI）
+- **[P2 fan-in / R-69 消费端]** `consumeOfflineDuelNotice` 接入 `PlayerJoinListener.onPlayerJoin`：GM 解散对局时离线的一方下次进服收到 `duel.cancelled-by-gm` 通知（此前仅 S3 侧入队、S5 未接消费端，属集成缺口，编排者 fan-in 补齐）
+- **[P2 fan-in]** `MESSAGE_CONFIG_VERSION` 10→11：zh.yml/en.yml 随 P2 新增 14 键（invalid-difficulty/no-words-available/difficulty-*/mode-*/finish-quiz-first/chat-active/scenario-not-found/load-updated/load-save-failed/limit-reached/sender-chatting/target-chatting/player-no-data/export-failed）、改写 3 键（duel.usage·help.duel 补 cancel 双入口、opponent-timeout 改 {seconds} 占位）升至 v11
+- **[P2 S1 / R-46+R-86i]** 主菜单 menu-size 崩溃根治：合法域收紧为 [27,54] 且 9 的倍数（按钮槽位固定 10-18，9/18 会 ArrayIndexOutOfBounds 开菜单即崩），非法回落 27 + WARNING
+- **[P2 S1 / R-86]** 音效双声根治：menu-open 收口为 SoundManager 全局 InventoryOpen 唯一播点（MainMenu/ScenarioSelectGUI/ChatHistoryGUI 显式播放删除，16 个插件 GUI 全覆盖）；menu-click 全局 InventoryClick 删除（点背景玻璃/自己背包不再误响），各 listener 显式播放为唯一来源，DuelGUIListener 退出键补播；未知音效键首次 WARNING 防刷屏
+- **[P2 S1 / F6-01]** 二确 stage1 延迟 reopen 竞态：延迟体内三连复查（isOnline + stage==1 + targetLang 与落盘一致），已取消的玩家不再被拽回第二页
+- **[P2 S1 / F6-02]** `ConfirmationGUI.isConfirmGUI` 由裸子串匹配改为与标题生成同源等值比对（zh/en 双查、同 key 同颜色转换），不再误吞其它含"确认"字样的界面点击
+- **[P2 S1 / F2-05]** `MiscGUIListener` 默认模式写死 "choice" 收敛为本地常量（与 LearnCommand.DEFAULT_WORD_MODE 对齐注释）
+- **[P2 S1 / R-86b]** 隐私设置页返回走返回栈：SocialListener 进入设置前 pushBack「本人主页」帧、MiscGUIListener 返回键 popBack（fallback 开本人主页），返回栈不再残留旧帧
+- **[P2 S2 / R-61+R-86f]** 个人场景覆盖与崩溃链：slug 尾附 CRC32 短码（纯中文名"开会/购物"归一化后不再互撞）；同名幂等更新语义；save 失败/上限拒绝不再报成功；返回值改 `ImportResult(key, updated, saveFailed, limitReached)`（LearnCommand 四路分支消费）；损坏文件 save 前 .bak 备份防清空
+- **[P2 S2 / R-62]** 个人场景文件上限：>512KB 不解析（warn 视为空表）、单玩家 >30 条只加载前 30 并 warn；import 未达上限才放行新增（同名更新永远放行）
+- **[P2 S2 / R-63]** `ai-chat.max-context-pairs` 死配置接线：上下文构建按"最多最近 N 对完整 user/assistant"截取（默认 6，与 token 预算双约束）；system prompt 永不裁语义保留，单独超预算 WARNING 一次
+- **[P2 S2 / R-65]** TTS 内容校验加固：空 / octet-stream Content-Type 不再 fail-open，过魔数校验（WAV RIFF / MP3 ID3 / 0xFFEx）才落盘；毒缓存发现即删；空响应体不落盘
+- **[P2 S2 / R-67]** shutdown 在途请求守卫：volatile shuttingDown + 所有 HTTP 回调链入口 `isShuttingDownOrDisabled()` 检查（含 user 写库 try/catch），关服回调不再碰 scheduler/DB
+- **[P2 S2 / F4-01+F4-03]** 个人场景懒加载补漏：`buildSystemPrompt` 对 personal: key 内存 miss 时先触发懒加载再构建（重启后纯命令进入不再回落通用句）；`getPersonalScenarios` 返回防御性拷贝；开场白请求失败不再静默（发 dialogue.request-failed）
+- **[P2 S2 / F1-08]** "AI 正在输入"提示移到计数检查之后：新增只读预检 `canSendChat`，超限/冷却时不再先显示输入中再报错
+- **[P2 S3 / R-68+F1-15]** 决斗邀请假过期根治：pendingRequests 值改 `PendingDuel(senderId, token)`（AtomicLong 令牌），过期任务按 token 匹配（同方重发不再误删新邀请）；acceptDuel 全校验通过才原子消费（失败发 request-expired-target 而非吞掉）
+- **[P2 S3 / R-69]** GM 解散离线通知：新增 `Map<UUID, OfflineDuelNotice>` 队列（覆盖式），`cancelDuelByAdmin` 对离线方入队（duel.cancelled-by-gm + 对方玩家名），`consumeOfflineDuelNotice(UUID)` 供 join 消费；重连静默问题根治（already-over 残分支保留为纵深防御并补注释）
+- **[P2 S3 / R-70]** 对决头像真设置皮肤：`createSkullItem(UUID)` 用 SkullMeta.setOwningPlayer（此前 owner 参数悬空双方都是 Steve 头）；p1/p2Material 死变量清理
+- **[P2 S3 / R-72]** 新增 `DuelManager.shutdown()`（幂等）：取消全部任务容器、重置在场玩家记分板+关 GUI、清空 5 个 map/set；LetsLearnEnglish.onDisable 接线（null 防护 + try/catch）
+- **[P2 S3 / R-84+R-86n]** 决斗音效对称：邀请过期双方/GM 解散双方 menu-click、败者 incorrect（均 isOnline 内）；opponent-timeout 调用点补传 {seconds}=GRACE_PERIOD_SECONDS（文案脱钩硬编码 30）
+- **[P2 S3]** 决斗卫生清理：rewardEngine 死字段删除、`cancelDuel(UUID)` 死方法整体删除（opponentId 死变量随之消灭）、`DuelRoom.submitAnswer` answer null 防护、isBusy javadoc 语义说明
+- **[P2 S4 / R-86c+连带]** `/le word` difficulty 归一化 + 存在性校验（resolveDifficulty 大小写不敏感解析回规范 key，非法发 word.invalid-difficulty 列可用难度）；无可学词 IllegalStateException 兜底（word.no-words-available，不再冒泡零反馈）
+- **[P2 S4 / F2-13]** `/le word` 成功提示 difficulty/mode 走 i18n label（word.difficulty-*/mode-*，未知标识符回落原值），中文玩家不再看到 beginner/choice 英文标识符
+- **[P2 S4 / R-86d]** `getBehavioralName` 裸 getString 防护（缺 key 回落 key 名，不再 NPE 中断整段挑战列表）
+- **[P2 S4 / R-66 对称]** `/le dialogue` 启动前守卫：决斗中（duel.finish-duel-first）→ 答题中（dialogue.finish-quiz-first）→ 已有对话（dialogue.chat-active）；场景 key 存在性校验（dialogue.scenario-not-found，大小写不敏感解析）；tab 补全 mode 列表从 VALID_WORD_MODES 常量派生
+- **[P2 S4 / R-86h]** Admin 三连：reset 未找到玩家发 admin.player-no-data 不再报成功（Handler resetPlayerData 返回 boolean）；export 失败（返回串 "Export failed" 前缀）发 admin.export-failed 不再打"完成"；F5-01 配套：resolvePlayerUUID 补 Bukkit.getOfflinePlayer 三级查找（半删状态可补删）
+- **[P2 S4 / R-86q]** plugin.yml learnadmin aliases 清理（[lea, learnadmin]→[lea]）；签到成功补 correct 音效
+- **[P2 S5 / R-64]** TTS 发音冷却收口：WordLearningListener 自注册 quit 清 pronounceCooldown（匿名 new 无实例引用的自包含方案）；冷却下限 1→0（0/负数=不启用，跳过判定与时间戳写入）
+- **[P2 S5 / T0-01]** drag guard 补装三个 listener（WordLearningListener/WrongBookListener/ChatHistoryListener）+ 编排者补 ScenarioSelectListener：全库 8 个处理库存点击的 listener 全部有 onInventoryDrag 上半区守卫
+- **[P2 S5 / R-41+R-76+F1-24]** quit 内存卫生收口：新增 `GuiNavigationManager.clearPlayer` / `CheckInManager.unloadPlayer`（playerLocks 泄漏）/ `RewardEngine.unloadPlayer`（economyDisabledNotified 泄漏），统一在 PlayerJoinListener.onPlayerQuit 编排（Listener→服务单向无环，PlayerDataStore 不反向调用）
+- **[P2 S5 / F1-04]** 金币提示小数格式化：`{earned}` 走 formatCoins（整数值显示 490 非 490.0，小数两位），三处替换
+- **[P2 S5 / F2-01]** 每日挑战 MySQL 分支补 `ON DUPLICATE KEY UPDATE`（与 SQLite OR REPLACE 对齐幂等）
+- **[P2 S5 / F2-04]** `Word.equals/hashCode` 收窄为 english(ignoreCase)+part_of_speech（reward 漂移不再影响集合去重/干扰项排除；消费点已核查、单测语义兼容）
+- **[P2 S5 / R-79+R-74+R-59]** `checkDailyStreak` 查询加 LIMIT 40（≥30 天判定窗口无截断）；重抽概率注释校正（24% 高频路径非"理论不可能"）；quit 结算误导注释三处校正（下线照常结算、仅不发走完会话金币/庆祝）
+- **[P2 S5 / R-84+F3-03]** 学习超时补 incorrect 音效（与答错对称）；词库展示语义序 beginner→intermediate→advanced→其它字母序（DIFFICULTY_ORDER + LinkedHashSet 保序，WordBankSelectGUI 展示随之修正）
+- **[P2 S6]** 三档词库全量字母序重排（beginner 123 / intermediate 4 / advanced 17 处乱序归零，317/349/330 零丢失、双库解析验证）；book 超纲同义词 tome 删除；leisure/idle 例句改自然搭配
+- **[P2 S7]** 8 个 GUI 裸 getString 收敛为 MessageUtil.getGuiMsg（145 处，131 唯一键双语零缺键；缺键显示 [?key] 不再 NPE 炸界面），标题 NPE 面清零；DailyChallengeGUI 挑战名防护 + 进度展示 clamp；MessageUtil.getGuiMsg javadoc 校正；ChallengeCompleteGUI 注释校正
+- **[P2 S8 / R-75]** 午夜任务改自递归一次性调度（每次触发后按墙钟重算次日 0:00:01 的 delay，DST 不再漂移；重载先 cancel 旧任务防 double-schedule；onDisable cancel）
+- **[P2 S8 / R-86p]** 每日提醒占位符全量替换（{player}/{prefix}，含 config.yml 文案）、新增 join 提醒通道 `sendJoinDailyReminderIfEnabled`（enabled + on-join 双条件 + Map<UUID,LocalDate> 每日去重，与定时通道共享去重）；on-join 死配置接线
+- **[P2 S8 / F0-08+T0-04+R-86o]** `general.check-updates` 开关接线（关=不连 GitHub API）；`loadPlayerLanguages` 缺省语言与 getPlayerLanguage 同源（en 残留消除）；REQUIRED_MESSAGE_KEYS 审计扩展至 11 活键（移除死键 word.correct/incorrect，新增 5 个核心流程键）
+- **[P2 S8 / config]** config.yml 注释诚实化：check-updates / on-join 已接线、max-context-pairs 语义、modes.* 预留说明、challenges-per-day 与 rewards.* 如实标注"当前硬编码修改暂不生效"（键名数值零改动）
+- **[P2 fan-in / R-86m]** 答对广播按收件人各自语言渲染（zh/en 各渲染一次按收件人语言取用，不再是答题者语言全员共用）；模板缺键 zh 兜底、两语言都缺才放弃
+- **[P2 fan-in / R-78]** 跨服成就广播模板缺键兜底（两语言都缺才放弃，不再 NPE 半残）
+- **[P2 fan-in / R-66 反向]** AI 对话中不可开新答题：`/le word`（LearnCommand.startWordQuiz）与词库选择 GUI（MiscGUIListener）补 dialogue.chat-active 守卫，与"答题中不可开对话"对称
+- **[P2 fan-in / R-79 显示]** `/le challenge` 聊天侧行为挑战进度 clamp（min(progress,target)），与 GUI 侧同口径消除 "47/10" 显示；AchievementManager 解锁提示两处裸 getString 收敛 getGuiMsg；ChatAnswerListener 裸 getString 收敛；MainMenu 关于错题本槽位的陈旧注释校正
 - **[P1 fan-in]** 单词挑战被动完成路径 R-44 对齐：`DailyChallengeManager.onAllWordChallengesComplete` 在 `money.enabled=false` 时改发 `daily-challenge.economy-disabled` 并标记已处理（避免每答对一题重入刷 `reward-pending`，默认配置即触发）；Vault 瞬时失败/超 cap 仍走 `reward-pending` 可重试
 - **[P1 fan-in]** `WordLearningManager` 构造器自注册监听器加 `getServer()` 判空：R-13 死亡保护让本类 implements Listener 并在构造器 registerEvents，纯逻辑单测用 mock 插件构造（getServer 返回 null）会 NPE 炸测试；判空后测试环境跳过注册、生产不受影响
 - **[P1 fan-in]** `ConfigManager.MESSAGE_CONFIG_VERSION` 9→10：messages/zh.yml 与 en.yml 随 P1 新增约 30 键升至 v10，代码侧同步升版

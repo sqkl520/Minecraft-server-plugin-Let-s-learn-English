@@ -5,6 +5,7 @@ import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -103,20 +104,56 @@ public class TtsManager {
                 if (responseCode == 200) {
                     // M20：VoiceRSS 出错时也可能回 200 + 文本 "ERROR: ..."。
                     // 非音频 Content-Type 一律不落盘，防止错误文本毒化 .wav 缓存。
+                    File outputFile = new File(cacheDir, sanitizeFileName(word) + ".wav");
                     String contentType = conn.getContentType();
                     if (!isAudioContentType(contentType)) {
                         plugin.getLogger().warning("TTS VoiceRSS returned non-audio Content-Type: "
                                 + contentType + " — not caching (word: " + word + ").");
+                        // R-65(c)：若旧缓存文件已被毒化，尽力删除（失败忽略）。
+                        deleteCachedAudioQuietly(outputFile);
                         future.complete(null);
                         return;
                     }
-                    File outputFile = new File(cacheDir, sanitizeFileName(word) + ".wav");
-                    try (InputStream is = conn.getInputStream();
-                         OutputStream fos = new FileOutputStream(outputFile)) {
-                        byte[] buffer = new byte[4096];
-                        int bytesRead;
-                        while ((bytesRead = is.read(buffer)) != -1) {
-                            fos.write(buffer, 0, bytesRead);
+                    boolean needsMagicCheck = contentType == null || contentType.isEmpty()
+                            || contentType.toLowerCase(java.util.Locale.ROOT)
+                                    .startsWith("application/octet-stream");
+                    try (InputStream is = conn.getInputStream()) {
+                        // R-65：先读前 12 字节 —— 空/不可信 Content-Type 时用魔数探测真实内容。
+                        byte[] head = new byte[12];
+                        int headLen = 0;
+                        while (headLen < head.length) {
+                            int read = is.read(head, headLen, head.length - headLen);
+                            if (read <= 0) break;
+                            headLen += read;
+                        }
+                        if (headLen == 0) {
+                            // R-65：空响应体（即使 Content-Type 是 audio/*）不是有效音频，不落盘。
+                            plugin.getLogger().fine("TTS response for word '" + word
+                                    + "' is empty — not caching.");
+                            deleteCachedAudioQuietly(outputFile);
+                            future.complete(null);
+                            return;
+                        }
+                        if (needsMagicCheck) {
+                            byte[] probe = (headLen == head.length) ? head
+                                    : java.util.Arrays.copyOf(head, headLen);
+                            if (!looksLikeAudio(probe)) {
+                                // 魔数不符 → 视为错误体，不落盘；旧毒缓存尽力删除。
+                                plugin.getLogger().fine("TTS response for word '" + word
+                                        + "' failed audio magic-byte check (Content-Type: "
+                                        + contentType + ") — not caching.");
+                                deleteCachedAudioQuietly(outputFile);
+                                future.complete(null);
+                                return;
+                            }
+                        }
+                        try (OutputStream fos = new FileOutputStream(outputFile)) {
+                            fos.write(head, 0, headLen);
+                            byte[] buffer = new byte[4096];
+                            int bytesRead;
+                            while ((bytesRead = is.read(buffer)) != -1) {
+                                fos.write(buffer, 0, bytesRead);
+                            }
                         }
                     }
                     plugin.getLogger().fine("TTS audio cached for word: " + word);
@@ -163,13 +200,37 @@ public class TtsManager {
 
     /**
      * Get the cached audio file for a word, or null if not cached.
+     * R-65：缓存命中也要过魔数校验 —— 旧版本可能已把错误体写成 .wav，
+     * 不符则删除该（毒）缓存并返回 null，走下载路径以新校验重建。
      */
     public File getCachedAudio(String word) {
         File f = new File(cacheDir, sanitizeFileName(word) + ".wav");
         if (f.exists() && f.length() > 0) {
+            if (!cachedFileLooksLikeAudio(f)) {
+                plugin.getLogger().fine("Removing poisoned TTS cache file (failed audio magic check): "
+                        + f.getName());
+                deleteCachedAudioQuietly(f);
+                return null;
+            }
             return f;
         }
         return null;
+    }
+
+    /** R-65：读取缓存文件前 12 字节做魔数探测；读失败/过短一律视为不是音频。 */
+    private boolean cachedFileLooksLikeAudio(File f) {
+        try (InputStream is = new FileInputStream(f)) {
+            byte[] head = new byte[12];
+            int n = 0;
+            while (n < head.length) {
+                int read = is.read(head, n, head.length - n);
+                if (read <= 0) break;
+                n += read;
+            }
+            return looksLikeAudio((n == head.length) ? head : java.util.Arrays.copyOf(head, n));
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**
@@ -205,17 +266,54 @@ public class TtsManager {
     }
 
     /**
-     * M20：判断响应是否为可缓存的音频。
-     * 放行 audio/* 与 application/octet-stream；Content-Type 缺失时放行
-     * （不断网关/旧代理可能 strip 响应头，宁可信其有）；
+     * M20：判断响应头声明是否为可缓存的音频。
+     * 放行 audio/* 与 application/octet-stream；
      * 其余（text/*、application/json 等错误体）一律拦截。
+     * R-65：Content-Type 缺失/octet-stream 不再直接 fail-open —— 调用方会用
+     * {@link #looksLikeAudio} 按响应实际魔数做二次探测，不符则不落盘。
      */
     private boolean isAudioContentType(String contentType) {
         if (contentType == null || contentType.isEmpty()) {
+            // R-65：空 header —— 交由魔数探测决定
             return true;
         }
         String lower = contentType.toLowerCase(java.util.Locale.ROOT);
         return lower.startsWith("audio/") || lower.startsWith("application/octet-stream");
+    }
+
+    /**
+     * R-65：按响应体前若干字节的魔数探测是否像音频。
+     * 识别：WAV（"RIFF"）、MP3（"ID3" 或 MPEG 帧同步 0xFF 0xEx/0xFF 0xFx）。
+     * 空/过短数据一律视为不像（错误体不落盘）。
+     */
+    private static boolean looksLikeAudio(byte[] head) {
+        if (head == null || head.length < 4) {
+            return false;
+        }
+        // WAV: "RIFF"
+        if (head[0] == 'R' && head[1] == 'I' && head[2] == 'F' && head[3] == 'F') {
+            return true;
+        }
+        // MP3 with ID3 tag
+        if (head[0] == 'I' && head[1] == 'D' && head[2] == '3') {
+            return true;
+        }
+        // MP3 MPEG frame sync: 0xFF 0xEx / 0xFF 0xFx (0xFB included)
+        if ((head[0] & 0xFF) == 0xFF && (head[1] & 0xE0) == 0xE0) {
+            return true;
+        }
+        return false;
+    }
+
+    /** R-65(c)：尽力删除（可能已被毒化的）缓存文件；失败忽略。 */
+    private void deleteCachedAudioQuietly(File f) {
+        try {
+            if (f != null && f.exists() && !f.delete()) {
+                plugin.getLogger().fine("Could not delete poisoned TTS cache file: " + f.getName());
+            }
+        } catch (Exception ignored) {
+            // best-effort only
+        }
     }
 
     private Sound resolveSound(String name) {

@@ -13,6 +13,8 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -26,6 +28,19 @@ public class WordLearningListener implements Listener {
 
     public WordLearningListener(LetsLearnEnglish plugin) {
         this.plugin = plugin;
+    }
+
+    /**
+     * R-64：发音冷却 map 的 quit 收口 —— 本监听器自清（自注册 quit 事件）。
+     *
+     * <p>原先 pronounceCooldown 只 put 不删：一次性玩家（退服不再来）的 UUID
+     * 条目永久残留。清理挂在本类自己的 quit 处理器上，避免让 PlayerJoinListener
+     * 持有本类实例（LetsLearnEnglish.registerListeners 里是匿名 new，无公开引用），
+     * 也避免 PlayerDataStore 反向调 listener 的跨层依赖。
+     */
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        pronounceCooldown.remove(event.getPlayer().getUniqueId());
     }
 
     @EventHandler
@@ -73,6 +88,32 @@ public class WordLearningListener implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) return;
 
         handleWordLearningGUI(player, event.getSlot());
+    }
+
+    /**
+     * T0-01：拖拽 guard（抄 MiscGUIListener / MainMenuListener 的上半区模式）。
+     *
+     * 拖拽是独立事件，点击的 setCancelled(true) 拦不住它 —— 不拦的话
+     * 单词学习 GUI 的展示物品（发音按钮/停止/返回等）可被拖进玩家背包。
+     * 标题判定与 {@link #onInventoryClick} 入口一致；只在拖拽触及界面
+     * 上半部分时取消，玩家整理自己背包不受影响。
+     */
+    @EventHandler
+    public void onInventoryDrag(InventoryDragEvent event) {
+        String title = event.getView().getTitle();
+        if (title == null) return;
+
+        if (!title.contains("Word Learning") && !title.contains("单词学习")) {
+            return;
+        }
+
+        int topSize = event.getView().getTopInventory().getSize();
+        for (int rawSlot : event.getRawSlots()) {
+            if (rawSlot < topSize) {
+                event.setCancelled(true);
+                return;
+            }
+        }
     }
 
     private void startAnswerForCurrentWord(Player player, WordLearningManager wlManager) {
@@ -161,18 +202,22 @@ public class WordLearningListener implements Listener {
         }
 
         // M20：冷却内点击只提示，不调 API
-        int cooldownSeconds = Math.max(1, plugin.getConfigManager().getMainConfig()
+        // R-64：下限从 1 放宽到 0 —— 配 0（或负数）表示不启用冷却，
+        // 此时完全跳过冷却判定与时间戳写入，管理员可显式关掉该限制。
+        int cooldownSeconds = Math.max(0, plugin.getConfigManager().getMainConfig()
                 .getInt("tts.pronounce-cooldown-seconds", 5));
-        long now = System.currentTimeMillis();
-        Long lastClick = pronounceCooldown.get(player.getUniqueId());
-        if (lastClick != null && now - lastClick < cooldownSeconds * 1000L) {
-            long remain = cooldownSeconds - (now - lastClick) / 1000L;
-            SoundManager.playSound(player, "incorrect");
-            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "word.pronunciation-cooldown", "seconds", String.valueOf(Math.max(1, remain))));
-            return;
+        if (cooldownSeconds > 0) {
+            long now = System.currentTimeMillis();
+            Long lastClick = pronounceCooldown.get(player.getUniqueId());
+            if (lastClick != null && now - lastClick < cooldownSeconds * 1000L) {
+                long remain = cooldownSeconds - (now - lastClick) / 1000L;
+                SoundManager.playSound(player, "incorrect");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "word.pronunciation-cooldown", "seconds", String.valueOf(Math.max(1, remain))));
+                return;
+            }
+            pronounceCooldown.put(player.getUniqueId(), now);
         }
-        pronounceCooldown.put(player.getUniqueId(), now);
 
         SoundManager.playSound(player, "menu-click");
         ttsManager.playPronunciationCue(player);

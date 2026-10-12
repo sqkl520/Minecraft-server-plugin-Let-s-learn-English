@@ -2,6 +2,7 @@ package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -32,7 +33,8 @@ import java.util.List;
  * F1-09: the word-challenge reward is auto-deposited BEFORE this page opens
  * (see DailyChallengeManager M12 deposit-then-mark), so slot 22 is NOT a
  * "click to claim" button — it honestly says the reward already arrived and
- * just returns to the main menu.
+ * just pops the GUI stack back (popBack — identical handler to slot 8,
+ * see MiscGUIListener#handleChallengeComplete; NOT a direct main-menu open).
  */
 public class ChallengeCompleteGUI {
 
@@ -49,7 +51,7 @@ public class ChallengeCompleteGUI {
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("daily-challenge.complete-title"));
+                MessageUtil.getGuiMsg(messages, "daily-challenge.complete-title"));
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
         // Fill with decorative glass
@@ -65,11 +67,11 @@ public class ChallengeCompleteGUI {
         if (skullMeta != null) {
             skullMeta.setOwningPlayer(player);
             skullMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("daily-challenge.player-head")
+                    MessageUtil.getGuiMsg(messages, "daily-challenge.player-head")
                             .replace("{player}", player.getName())));
             List<String> headLore = new ArrayList<>();
             headLore.add(ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("daily-challenge.player-head-lore")));
+                    MessageUtil.getGuiMsg(messages, "daily-challenge.player-head-lore")));
             skullMeta.setLore(headLore);
             head.setItemMeta(skullMeta);
         }
@@ -78,40 +80,41 @@ public class ChallengeCompleteGUI {
         // Fireworks / celebration item (slot 13)
         ItemStack firework = createItem(Material.FIREWORK_ROCKET,
                 ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily-challenge.firework")),
+                        MessageUtil.getGuiMsg(messages, "daily-challenge.firework")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily-challenge.firework-lore"))));
+                        MessageUtil.getGuiMsg(messages, "daily-challenge.firework-lore"))));
         inv.setItem(13, firework);
 
         // Reward display (slot 15)
         String rewardStr = String.valueOf((int) reward);
         ItemStack rewardItem = createItem(Material.GOLD_INGOT,
                 ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily-challenge.reward-title")
+                        MessageUtil.getGuiMsg(messages, "daily-challenge.reward-title")
                                 .replace("{reward}", rewardStr)),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily-challenge.reward-lore")
+                        MessageUtil.getGuiMsg(messages, "daily-challenge.reward-lore")
                                 .replace("{reward}", rewardStr))));
         inv.setItem(15, rewardItem);
 
         // F1-09: "already claimed, back to menu" button (slot 22).
         // The reward auto-arrived before this page opened — the old
         // "Claim Reward!" text misled players into thinking the click
-        // itself pays out. Behavior unchanged (open main menu), but the
+        // itself pays out. Behavior unchanged (popBack: back-stack if any,
+        // main menu otherwise — same handler as slot 8), but the
         // wording now matches reality.
         ItemStack claimedBtn = createItem(Material.LIME_DYE,
                 ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily-challenge.claimed-button")),
+                        MessageUtil.getGuiMsg(messages, "daily-challenge.claimed-button")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("daily-challenge.claimed-button-lore"))));
+                        MessageUtil.getGuiMsg(messages, "daily-challenge.claimed-button-lore"))));
         inv.setItem(22, claimedBtn);
 
         // Back button (slot 8)
         ItemStack backBtn = createItem(Material.RED_STAINED_GLASS_PANE,
                 ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("gui.back-button")),
+                        MessageUtil.getGuiMsg(messages, "gui.back-button")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("gui.back-lore"))));
+                        MessageUtil.getGuiMsg(messages, "gui.back-lore"))));
         inv.setItem(8, backBtn);
 
         SoundManager.playSound(player, "complete");

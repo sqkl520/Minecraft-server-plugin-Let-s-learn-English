@@ -7,6 +7,7 @@ import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -59,26 +60,43 @@ public class ChatAnswerListener implements Listener {
             cachedOnlinePlayers = new ArrayList<>(Bukkit.getOnlinePlayers());
             playersCacheTimestamp = now;
         }
-        String answererLang = plugin.getPlayerLanguage(answerer);
-        FileConfiguration msgs = plugin.getConfigManager().getMessageConfig(answererLang);
-        String template = msgs.getString("word-learning-gui.answer-broadcast-correct");
-        if (template == null) {
-            return;
-        }
         String safeName = sanitizeBroadcastName(answerer.getName());
-        String broadcastMsg = ChatColor.translateAlternateColorCodes('&',
-                template.replace("{player}", safeName)
-                        .replace("{score}", String.valueOf(score)));
+        String scoreText = String.valueOf(score);
+        // R-86m（P2 批次）：按每位收件人自己的语言渲染——不再是"答题者语言全员共用"。
+        // 双语各渲染一次后按收件人语言取用（最多 2 次模板解析）。
+        String zhMsg = renderBroadcastTemplate("zh", safeName, scoreText);
+        String enMsg = renderBroadcastTemplate("en", safeName, scoreText);
         for (Player online : cachedOnlinePlayers) {
             if (!online.equals(answerer) && online.isOnline()) {
                 // B2：隐私开关查的是收件人自己的设置，不是答题者的
                 PlayerDataStore.ProfileSettings ps = plugin.getPlayerDataStore()
                         .getProfileSettings(online.getUniqueId());
                 if (ps.isShowAnswers()) {
-                    online.sendMessage(broadcastMsg);
+                    String rendered = "zh".equalsIgnoreCase(plugin.getPlayerLanguage(online))
+                            ? zhMsg : enMsg;
+                    if (rendered != null) {
+                        online.sendMessage(rendered);
+                    }
                 }
             }
         }
+    }
+
+    /**
+     * R-86m：按指定语言渲染广播模板；该语言缺键时回落 zh，两语言都缺返回 null（放弃广播）。
+     */
+    private String renderBroadcastTemplate(String lang, String safeName, String scoreText) {
+        String template = plugin.getConfigManager().getMessageConfig(lang)
+                .getString("word-learning-gui.answer-broadcast-correct");
+        if (template == null && !"zh".equalsIgnoreCase(lang)) {
+            template = plugin.getConfigManager().getMessageConfig("zh")
+                    .getString("word-learning-gui.answer-broadcast-correct");
+        }
+        if (template == null) {
+            return null;
+        }
+        return ChatColor.translateAlternateColorCodes('&',
+                template.replace("{player}", safeName).replace("{score}", scoreText));
     }
 
     /**
@@ -195,15 +213,17 @@ public class ChatAnswerListener implements Listener {
             }
 
             if (result.correct) {
-                SoundManager.playSound(player, "correct");                String comboMsg = "";
+                SoundManager.playSound(player, "correct");
+                String comboMsg = "";
                 if (result.consecutiveCorrect > 1) {
+                    // P2 收尾：裸 getString 收敛为 getGuiMsg（缺键返回 [?key] 不 NPE）
                     comboMsg = " " + ChatColor.translateAlternateColorCodes('&',
-                            msgs.getString("word-learning-gui.combo-message")
+                            MessageUtil.getGuiMsg(msgs, "word-learning-gui.combo-message")
                                     .replace("{count}", String.valueOf(result.consecutiveCorrect))
                                     .replace("{multiplier}", String.valueOf(result.comboMultiplier)));
                 }
                 player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                        msgs.getString("word-learning-gui.correct")
+                        MessageUtil.getGuiMsg(msgs, "word-learning-gui.correct")
                                 .replace("{score}", String.valueOf(result.comboScore))
                                 .replace("{combo}", comboMsg)));
 
@@ -215,7 +235,7 @@ public class ChatAnswerListener implements Listener {
             } else {
                 SoundManager.playSound(player, "incorrect");
                 player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                        msgs.getString("word-learning-gui.incorrect")
+                        MessageUtil.getGuiMsg(msgs, "word-learning-gui.incorrect")
                                 .replace("{answer}", result.correctAnswer)));
             }
 

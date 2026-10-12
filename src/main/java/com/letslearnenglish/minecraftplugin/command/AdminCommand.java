@@ -58,6 +58,13 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                 break;
             case "export":
                 String filePath = plugin.getDataExporter().exportAllData();
+                // R-86h：DataExporter 失败时返回 "Export failed: ..." 串（不抛异常），
+                // 原先无论成败都打"导出完成"。命中失败前缀即按失败告知并返回。
+                if (filePath == null || filePath.startsWith("Export failed")) {
+                    sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                            "admin.export-failed"));
+                    break;
+                }
                 sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                         "admin.export-complete", "file", filePath));
                 break;
@@ -115,7 +122,15 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleReset(CommandSender sender, String playerName) {
-        plugin.getAdminCommandHandler().resetPlayerData(playerName);
+        // R-86h：Handler 返回 false = 在线/库里/名册都查不到此人，原先照报"已重置"。
+        // 未找到时明确告知，不再对不存在的玩家报成功。
+        boolean found = plugin.getAdminCommandHandler().resetPlayerData(playerName);
+        if (!found) {
+            // 冻结键 admin.player-no-data 无占位符（执行计划 §三），不传多余参数
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                    "admin.player-no-data"));
+            return;
+        }
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "admin.player-reset", "player", playerName));
     }

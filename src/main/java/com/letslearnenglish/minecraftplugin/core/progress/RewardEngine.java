@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.core.progress;
 
 import java.time.LocalDate;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -42,7 +43,8 @@ public class RewardEngine {
     /**
      * R-44 fan-in：{@code progress.economy-disabled} 的 per-player 每自然日去重。
      * money.enabled=false 但 Vault 存在时，发币入口每天只提示一次，避免每答对一题刷屏。
-     * 条目随自然日用 {@link LocalDate#equals} 判新鲜，跨天自动失效（无需清理）。
+     * 条目随自然日用 {@link LocalDate#equals} 判新鲜，跨天自动失效（无需清理）；
+     * F1-24：quit 时经 {@link #unloadPlayer} 移除，防一次性玩家的 UUID 条目永久残留。
      */
     private final Map<UUID, LocalDate> economyDisabledNotified = new ConcurrentHashMap<>();
 
@@ -123,7 +125,7 @@ public class RewardEngine {
             String msg = plugin.getMessageUtil().getPlayerMessage(player,
                     "progress.daily-cap-reached",
                     "cap", String.valueOf(dailyCap),
-                    "earned", String.valueOf(getTodayCoinsEarned(id)));
+                    "earned", formatCoins(getTodayCoinsEarned(id)));
             if (msg != null && !msg.isEmpty()) {
                 player.sendMessage(msg);
             }
@@ -187,6 +189,30 @@ public class RewardEngine {
     }
 
     /**
+     * F1-24：移除某玩家的 quit 级残留条目（由 quit 编排点 PlayerJoinListener 调用）。
+     *
+     * <p>只清 {@code economyDisabledNotified}（per-player 去重提示，quit 后无保留意义）。
+     * {@code todayCoinsCache} 刻意<strong>不</strong>在此清：它是防刷日限账本，
+     * quit 不清是既定语义（清了解除日限即等于放开刷币），仅由
+     * {@link #resetDailyCoinsCache()}（reload）和跨天懒清零管理。
+     */
+    public void unloadPlayer(UUID playerId) {
+        economyDisabledNotified.remove(playerId);
+    }
+
+    /**
+     * F1-04：金币金额的玩家可见格式化 —— 整数值不带小数点（{@code 490}），
+     * 非整数值保留两位小数（{@code 490.5}）。避免 {@code String.valueOf(double)}
+     * 把 {@code 490.0} 原样渲染给玩家。仅用于 i18n 占位符（Vault 展示走其在
+     * {@code eco.format} 的职责，不替换）。
+     */
+    private String formatCoins(double v) {
+        return v == Math.floor(v)
+                ? String.valueOf((long) v)
+                : String.format(Locale.ROOT, "%.2f", v);
+    }
+
+    /**
      * 金币门"部分发放"：给定拟发金额，返回在不突破 daily-cap 前提下实际可发金额。
      * 若已无剩余额度，发送 cap 提示并返回 0。
      *
@@ -205,7 +231,7 @@ public class RewardEngine {
             String msg = plugin.getMessageUtil().getPlayerMessage(player,
                     "progress.daily-cap-reached",
                     "cap", String.valueOf(dailyCap),
-                    "earned", String.valueOf(getTodayCoinsEarned(player.getUniqueId())));
+                    "earned", formatCoins(getTodayCoinsEarned(player.getUniqueId())));
             if (msg != null && !msg.isEmpty()) {
                 player.sendMessage(msg);
             }
@@ -218,7 +244,7 @@ public class RewardEngine {
             String msg = plugin.getMessageUtil().getPlayerMessage(player,
                     "progress.daily-cap-reached",
                     "cap", String.valueOf(dailyCap),
-                    "earned", String.valueOf(getTodayCoinsEarned(player.getUniqueId())));
+                    "earned", formatCoins(getTodayCoinsEarned(player.getUniqueId())));
             if (msg != null && !msg.isEmpty()) {
                 player.sendMessage(msg);
             }

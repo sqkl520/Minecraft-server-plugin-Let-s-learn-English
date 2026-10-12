@@ -47,6 +47,11 @@ public class DuelGUIListener implements Listener {
 
         // Slot 22 = Quit button
         if (event.getSlot() == QUIT_SLOT) {
+            // R-86（P2 fan-in）：点击音效不再由 SoundManager 全局兜底（全局
+            // InventoryClick 已删除），对决退出键这里显式补播——其余展示格
+            // 按设计静音（无可点击动作，不应有反馈音）。
+            com.letslearnenglish.minecraftplugin.core.SoundManager
+                    .playSound(player, "menu-click");
             player.closeInventory();
             DuelManager duelManager = plugin.getDuelManager();
             if (duelManager != null) {

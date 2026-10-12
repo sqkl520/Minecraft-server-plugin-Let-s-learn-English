@@ -2,7 +2,6 @@ package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
-import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -35,12 +34,16 @@ public class MainMenu {
 
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "gui.main-menu-title"));
-        // R-46: menu-size 非法回落 — Bukkit 只接受 9 的倍数（最大 54），非法值直接炸
-        // IllegalArgumentException。回落 27 并记 WARNING，填充循环按实际 size 走。
+        // R-46/R-86i: menu-size 非法回落 — Bukkit 只接受 9 的倍数（最大 54），非法值直接炸
+        // IllegalArgumentException。且本菜单按钮槽位固定在 10-18（word-learning 11 ~
+        // language-toggle 18），布局至少需要 27 格：9/18 虽通过 Bukkit 校验，但按钮 setItem
+        // 越界会抛 ArrayIndexOutOfBoundsException、开菜单即崩，故最小合法值提为 27 ——
+        // 低于 27 / 非 9 倍数 / 超 54 一律 WARNING 回落 27。填充循环按实际 size 走；
+        // 点击侧（MainMenuListener）按同一份配置槽位判定，渲染与点击天然一致。
         int size = plugin.getConfigManager().getMainConfig().getInt("gui.menu-size", 27);
-        if (size != 9 && size != 18 && size != 27 && size != 36 && size != 45 && size != 54) {
+        if (size < 27 || size > 54 || size % 9 != 0) {
             plugin.getLogger().warning("Invalid gui.menu-size: " + size
-                    + " (must be one of 9/18/27/36/45/54). Falling back to 27.");
+                    + " (must be one of 27/36/45/54; at least 27 slots are required for the button layout). Falling back to 27.");
             size = 27;
         }
 
@@ -88,8 +91,9 @@ public class MainMenu {
         String wrongLore = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "main-menu.wrong-book-lore"));
         // R-47: 错题本按钮接配置（与其它 6 按钮一致；此前 slot 14 / BOOKSHELF 写死。
-        // 注意 MainMenuListener.handleMainMenu 仍按 slot 14 判定 —— 管理员改了配置后需
-        // 同步改监听器，见 R-47 报告；默认值保持 14 因此默认行为零变化）。
+        // P2 fan-in（S1 上报）：MainMenuListener.handleMainMenu 已改读同一份
+        // gui-layout.main-menu 配置（getGuiSlot + 相同默认值），两侧不再漂移；
+        // 管理员改配置槽位后渲染与点击自动对齐。
         menu.setItem(cm.getGuiSlot("main-menu", "wrong-book", 14), createMenuItem(cm.getGuiMaterial("main-menu", "wrong-book", Material.BOOKSHELF), wrongName, wrongLore));
 
         String btnName = ChatColor.translateAlternateColorCodes('&',
@@ -98,7 +102,8 @@ public class MainMenu {
                 MessageUtil.getGuiMsg(messages, "language.button-lore"));
         menu.setItem(cm.getGuiSlot("main-menu", "language-toggle", 18), createMenuItem(cm.getGuiMaterial("main-menu", "language-toggle", Material.RED_BED), btnName, btnLore));
 
-        SoundManager.playSound(player, "menu-open");
+        // R-86：menu-open 不再在此显式播放 —— SoundManager.onInventoryOpen 会对所有
+        // 插件 GUI 全局播一次，此处保留会双声（去重方向与理由见 SoundManager 类注释）。
         player.openInventory(menu);
     }
 

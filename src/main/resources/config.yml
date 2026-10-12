@@ -28,6 +28,8 @@ general:
 
   # 启动时联网检查版本更新
   # 关闭后不会连接 GitHub API，适合无网络的内网服务器
+  # F0-08：现已真正接线——false 时跳过 UpdateChecker.checkAsync（含玩家进服的
+  # 更新提示均安全静默），只记一条 info 日志
   check-updates: true
 
   # 自动保存间隔（分钟），玩家数据自动保存至数据库
@@ -112,6 +114,8 @@ word-system:
     mastered-review-interval-days: 30
 
   # --- 学习模式配置 ---
+  # 预留配置：当前判定逻辑写死（max-attempts / option-count / show-first-letter / time-limit
+  # 等键尚未被代码读取），接线计划见 Phase 3。修改本段当前暂不生效。
   modes:
     # 拼写模式：看中文含义，输入英文单词
     spelling:
@@ -143,8 +147,8 @@ ai-chat:
   api-url: "https://api.deepseek.com/v1/chat/completions"
   # 模型名称
   model: "deepseek-chat"
-  # 最大对话上下文对数（保留最近 N 轮对话）
-  # 值越大对话越连贯，但每次请求消耗更多 token
+  # 同时携带的最近对话轮数上限（与 token 预算双重约束）
+  # 值越大对话越连贯，但每次请求消耗更多 token；R-63 起已真正接线
   max-context-pairs: 6
   # 最大上下文 token 数（近似估算，1 token ≈ 4 英文字符）
   # 当上下文 token 估算值超过此限制时，自动裁剪最早的对话轮次
@@ -250,7 +254,8 @@ progress-system:
 gui:
   # 主菜单标题（颜色代码使用 & 符号）
   main-menu-title: "&6&lLet's Learn English!"
-  # 菜单大小：9 / 18 / 27 / 36 / 45 / 54
+  # 菜单大小：27 / 36 / 45 / 54（按钮布局固定 10-18 槽，至少需要 27 格；
+  # 9/18 会因按钮越界在打开菜单时崩溃，故非法值一律回落 27 并记 WARNING）
   menu-size: 27
   # 是否使用自定义材质（需要额外的资源包）
   custom-textures: false
@@ -425,14 +430,15 @@ proxy:
 # ============================================================
 daily-reminder:
   # 是否启用每日学习提醒
+  # 关闭后：定时提醒与进服提醒（on-join）都不再发送
   enabled: true
-  # 玩家进服时是否发送学习提醒
-  # 开启后，玩家每次进入服务器都会收到一条鼓励学习消息
+  # 玩家进服时是否发送学习提醒（R-86p：现已接线）
+  # 开启后，同一玩家每个自然日首次进服会收到一条鼓励学习消息（每日去重，repeat 进服不打扰）
   on-join: true
   # 提醒时间（24小时制的小时数），可设置多个时间点
   # 例如 [9, 14, 20] 表示早9点、下午2点、晚8点各提醒一次
   reminder-hours: [9, 14, 20]
-  # 提醒消息（可使用 {player} 占位符）
+  # 提醒消息（支持 {player} 玩家名 / {prefix} 前缀 占位符，R-86p 起逐玩家替换，两种通道共用）
   message: "{prefix}&6是时候学英语了！输入 &e/le menu &6开始学习吧！"
 
 # ============================================================
@@ -442,12 +448,16 @@ daily-challenges:
   # 是否启用每日挑战
   enabled: true
   # 每天分配给每个玩家的任务挑战数量
+  # 注意：当前实现为硬编码（固定从 4 种挑战类型中抽 3 个），修改本键暂不生效，
+  # 整理计划见 CHANGELOG
   challenges-per-day: 3
   # 每日单词挑战数量（从词库中随机选择）
   word-count: 5
   # 完成所有每日单词挑战后的奖励金币
   word-challenge-reward: 100.0
   # 各挑战的奖励金币数
+  # 注意：当前实现为硬编码（定义在 DailyChallengeManager.ChallengeType 枚举，
+  # 即下列默认值本身），修改本段暂不生效，整理计划见 CHANGELOG
   rewards:
     answer_10: 30
     session_3: 50

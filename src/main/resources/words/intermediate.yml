@@ -7,126 +7,6 @@ difficulty: "intermediate"
 description: "Intermediate English Word Bank - Common Vocabulary"
 
 words:
-  - english: "adventure"
-    chinese: "冒险"
-    part_of_speech: "noun"
-    phonetic: "/ədˈven.tʃər/"
-    example_sentence: "They went on an exciting adventure in the mountains."
-    synonyms:
-      - "journey"
-      - "expedition"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "brilliant"
-    chinese: "杰出的；明亮的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈbrɪl.jənt/"
-    example_sentence: "She had a brilliant idea for the project."
-    synonyms:
-      - "excellent"
-      - "outstanding"
-    antonyms:
-      - "dull"
-      - "mediocre"
-    difficulty_level: 4
-
-  - english: "celebrate"
-    chinese: "庆祝"
-    part_of_speech: "verb"
-    phonetic: "/ˈsel.ə.breɪt/"
-    example_sentence: "We celebrate Christmas with our family every year."
-    synonyms:
-      - "commemorate"
-      - "honor"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "discover"
-    chinese: "发现"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈskʌv.ər/"
-    example_sentence: "Scientists discover new species every year."
-    synonyms:
-      - "find"
-      - "uncover"
-    antonyms:
-      - "hide"
-      - "conceal"
-    difficulty_level: 4
-
-  - english: "environment"
-    chinese: "环境"
-    part_of_speech: "noun"
-    phonetic: "/ɪnˈvaɪ.rən.mənt/"
-    example_sentence: "We should protect the environment for future generations."
-    synonyms:
-      - "surroundings"
-      - "nature"
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "familiar"
-    chinese: "熟悉的"
-    part_of_speech: "adjective"
-    phonetic: "/fəˈmɪl.i.ər/"
-    example_sentence: "This song sounds familiar to me."
-    synonyms:
-      - "known"
-      - "recognizable"
-    antonyms:
-      - "unfamiliar"
-      - "strange"
-    difficulty_level: 4
-
-  - english: "generous"
-    chinese: "慷慨的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈdʒen.ər.əs/"
-    example_sentence: "He is very generous and always helps others."
-    synonyms:
-      - "charitable"
-      - "kind"
-    antonyms:
-      - "selfish"
-      - "stingy"
-    difficulty_level: 4
-
-  - english: "hesitate"
-    chinese: "犹豫"
-    part_of_speech: "verb"
-    phonetic: "/ˈhez.ɪ.teɪt/"
-    example_sentence: "Don't hesitate to ask if you need help."
-    synonyms:
-      - "pause"
-      - "waver"
-    antonyms:
-      - "decide"
-      - "proceed"
-    difficulty_level: 5
-
-  - english: "imagine"
-    chinese: "想象"
-    part_of_speech: "verb"
-    phonetic: "/ɪˈmædʒ.ɪn/"
-    example_sentence: "Can you imagine living on Mars?"
-    synonyms:
-      - "envision"
-      - "picture"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "journey"
-    chinese: "旅程"
-    part_of_speech: "noun"
-    phonetic: "/ˈdʒɜː.ni/"
-    example_sentence: "The journey from Beijing to Shanghai takes about 5 hours by train."
-    synonyms:
-      - "trip"
-      - "voyage"
-    antonyms: []
-    difficulty_level: 4
-
   - english: "ability"
     chinese: "能力"
     part_of_speech: "noun"
@@ -163,6 +43,17 @@ words:
     antonyms: []
     difficulty_level: 4
 
+  - english: "adventure"
+    chinese: "冒险"
+    part_of_speech: "noun"
+    phonetic: "/ədˈven.tʃər/"
+    example_sentence: "They went on an exciting adventure in the mountains."
+    synonyms:
+      - "journey"
+      - "expedition"
+    antonyms: []
+    difficulty_level: 4
+
   - english: "advice"
     chinese: "建议"
     part_of_speech: "noun"
@@ -183,6 +74,17 @@ words:
     antonyms: []
     difficulty_level: 4
 
+  - english: "announce"
+    chinese: "宣布"
+    part_of_speech: "verb"
+    phonetic: "/əˈnaʊns/"
+    example_sentence: "They announced the result yesterday."
+    synonyms:
+      - "declare"
+      - "publish"
+    antonyms: []
+    difficulty_level: 4
+
   - english: "annoyed"
     chinese: "恼怒的"
     part_of_speech: "adjective"
@@ -194,17 +96,6 @@ words:
     antonyms:
       - "calm"
       - "pleased"
-    difficulty_level: 4
-
-  - english: "announce"
-    chinese: "宣布"
-    part_of_speech: "verb"
-    phonetic: "/əˈnaʊns/"
-    example_sentence: "They announced the result yesterday."
-    synonyms:
-      - "declare"
-      - "publish"
-    antonyms: []
     difficulty_level: 4
 
   - english: "anxious"
@@ -418,6 +309,19 @@ words:
       - "dim"
     difficulty_level: 4
 
+  - english: "brilliant"
+    chinese: "杰出的；明亮的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈbrɪl.jənt/"
+    example_sentence: "She had a brilliant idea for the project."
+    synonyms:
+      - "excellent"
+      - "outstanding"
+    antonyms:
+      - "dull"
+      - "mediocre"
+    difficulty_level: 4
+
   - english: "broad"
     chinese: "宽广的"
     part_of_speech: "adjective"
@@ -538,6 +442,17 @@ words:
     synonyms:
       - "care"
       - "warning"
+    antonyms: []
+    difficulty_level: 4
+
+  - english: "celebrate"
+    chinese: "庆祝"
+    part_of_speech: "verb"
+    phonetic: "/ˈsel.ə.breɪt/"
+    example_sentence: "We celebrate Christmas with our family every year."
+    synonyms:
+      - "commemorate"
+      - "honor"
     antonyms: []
     difficulty_level: 4
 
@@ -667,18 +582,6 @@ words:
     synonyms:
       - "weather"
     antonyms: []
-    difficulty_level: 4
-
-  - english: "witty"
-    chinese: "机智的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈwɪt.i/"
-    example_sentence: "She gave a witty reply."
-    synonyms:
-      - "smart"
-      - "bright"
-    antonyms:
-      - "stupid"
     difficulty_level: 4
 
   - english: "clothing"
@@ -1589,6 +1492,19 @@ words:
       - "encourage"
     difficulty_level: 4
 
+  - english: "discover"
+    chinese: "发现"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈskʌv.ər/"
+    example_sentence: "Scientists discover new species every year."
+    synonyms:
+      - "find"
+      - "uncover"
+    antonyms:
+      - "hide"
+      - "conceal"
+    difficulty_level: 4
+
   - english: "disgust"
     chinese: "厌恶"
     part_of_speech: "noun"
@@ -2163,6 +2079,30 @@ words:
     antonyms: []
     difficulty_level: 5
 
+  - english: "environment"
+    chinese: "环境"
+    part_of_speech: "noun"
+    phonetic: "/ɪnˈvaɪ.rən.mənt/"
+    example_sentence: "We should protect the environment for future generations."
+    synonyms:
+      - "surroundings"
+      - "nature"
+    antonyms: []
+    difficulty_level: 5
+
+  - english: "familiar"
+    chinese: "熟悉的"
+    part_of_speech: "adjective"
+    phonetic: "/fəˈmɪl.i.ər/"
+    example_sentence: "This song sounds familiar to me."
+    synonyms:
+      - "known"
+      - "recognizable"
+    antonyms:
+      - "unfamiliar"
+      - "strange"
+    difficulty_level: 4
+
   - english: "famine"
     chinese: "饥荒"
     part_of_speech: "noun"
@@ -2732,6 +2672,19 @@ words:
     antonyms: []
     difficulty_level: 6
 
+  - english: "generous"
+    chinese: "慷慨的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈdʒen.ər.əs/"
+    example_sentence: "He is very generous and always helps others."
+    synonyms:
+      - "charitable"
+      - "kind"
+    antonyms:
+      - "selfish"
+      - "stingy"
+    difficulty_level: 4
+
   - english: "glacier"
     chinese: "冰川"
     part_of_speech: "noun"
@@ -3272,6 +3225,19 @@ words:
       - "confident"
     difficulty_level: 6
 
+  - english: "hesitate"
+    chinese: "犹豫"
+    part_of_speech: "verb"
+    phonetic: "/ˈhez.ɪ.teɪt/"
+    example_sentence: "Don't hesitate to ask if you need help."
+    synonyms:
+      - "pause"
+      - "waver"
+    antonyms:
+      - "decide"
+      - "proceed"
+    difficulty_level: 5
+
   - english: "hibernate"
     chinese: "冬眠"
     part_of_speech: "verb"
@@ -3340,17 +3306,6 @@ words:
     phonetic: "/hɔːs/"
     example_sentence: "His voice was hoarse from shouting."
     synonyms: []
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "leisure"
-    chinese: "闲暇"
-    part_of_speech: "noun"
-    phonetic: "/ˈleʒ.ər/"
-    example_sentence: "He reads novels in his leisure."
-    synonyms:
-      - "pastime"
-      - "interest"
     antonyms: []
     difficulty_level: 4
 
@@ -3529,7 +3484,7 @@ words:
     chinese: "闲置的"
     part_of_speech: "adjective"
     phonetic: "/ˈaɪ.dəl/"
-    example_sentence: "Do not leave machines idle."
+    example_sentence: "The machines stood idle all day."
     synonyms: []
     antonyms:
       - "busy"
@@ -3576,6 +3531,17 @@ words:
     antonyms:
       - "real"
     difficulty_level: 5
+
+  - english: "imagine"
+    chinese: "想象"
+    part_of_speech: "verb"
+    phonetic: "/ɪˈmædʒ.ɪn/"
+    example_sentence: "Can you imagine living on Mars?"
+    synonyms:
+      - "envision"
+      - "picture"
+    antonyms: []
+    difficulty_level: 4
 
   - english: "immerse"
     chinese: "沉浸"
@@ -3738,3 +3704,37 @@ words:
     antonyms:
       - "exclusive"
     difficulty_level: 5
+
+  - english: "journey"
+    chinese: "旅程"
+    part_of_speech: "noun"
+    phonetic: "/ˈdʒɜː.ni/"
+    example_sentence: "The journey from Beijing to Shanghai takes about 5 hours by train."
+    synonyms:
+      - "trip"
+      - "voyage"
+    antonyms: []
+    difficulty_level: 4
+
+  - english: "leisure"
+    chinese: "闲暇"
+    part_of_speech: "noun"
+    phonetic: "/ˈleʒ.ər/"
+    example_sentence: "He reads novels at his leisure."
+    synonyms:
+      - "pastime"
+      - "interest"
+    antonyms: []
+    difficulty_level: 4
+
+  - english: "witty"
+    chinese: "机智的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈwɪt.i/"
+    example_sentence: "She gave a witty reply."
+    synonyms:
+      - "smart"
+      - "bright"
+    antonyms:
+      - "stupid"
+    difficulty_level: 4

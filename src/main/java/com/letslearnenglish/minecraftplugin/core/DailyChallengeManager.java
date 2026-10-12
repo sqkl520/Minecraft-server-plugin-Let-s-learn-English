@@ -140,7 +140,11 @@ public class DailyChallengeManager {
 
         // Assign 3 random challenges (pick 3 from 4 types).
         // FIX-DAY-01：过滤不可用挑战 — 无 AI Key 的服务器抽不到 AI_CHAT_5。
-        // 抽中不可用项则整体重抽，最多重试 5 轮（4 选 3，数学上必有可用解）。
+        // 抽中不可用项则整体重抽，最多重试 5 轮。
+        // R-74 概率校正：4 选 3 且恰有 1 项不可用时（典型场景 = 无 AI Key），
+        // 单轮抽到全可用组合的概率为 1/4（4 个三元子集中只有 1 个不含坏项），
+        // 故 5 轮全失败概率 ≈ (3/4)^5 ≈ 24% —— 下面的兜底分支是高频路径（约每 4 个
+        // 新玩家就有 1 个走到），不是原注释所称"理论上不可能"。
         List<ChallengeType> picked = null;
         for (int attempt = 0; attempt < 5 && picked == null; attempt++) {
             List<ChallengeType> allTypes = new ArrayList<>(Arrays.asList(ChallengeType.values()));
@@ -158,7 +162,8 @@ public class DailyChallengeManager {
             }
         }
         if (picked == null) {
-            // 极端兜底：5 轮都没抽出全可用组合（理论上不可能），退化为过滤后取前 3
+            // R-74：兜底分支（约 24% 概率命中，见上）—— 过滤后确定性取前 3：
+            // 直接按枚举序收集全部可用项，打乱后截断，不再靠随机重抽撞运气。
             picked = new ArrayList<>();
             for (ChallengeType ct : ChallengeType.values()) {
                 if (isChallengeAvailable(ct)) {
@@ -180,8 +185,16 @@ public class DailyChallengeManager {
         String insertSql = "INSERT OR REPLACE INTO " + tablePrefix
                 + "daily_challenges (uuid, challenge_date, challenge_id, progress, completed, claimed) VALUES (?, ?, ?, 0, 0, 0)";
         if (!plugin.getDatabaseManager().isSQLite()) {
+            // F2-01：MySQL 分支补 ON DUPLICATE KEY，保并发幂等 —— 双路径（join 与
+            // updateProgress 的 R-32 补分配）同时走 checkAndAssign 时，第二次 INSERT
+            // 撞主键 (uuid, challenge_date, challenge_id) 不再抛 SQLException 记 WARNING，
+            // 而是 no-op 忽略（challenge_id = challenge_id 为 MySQL 8 合法自赋值）。
+            // 撞键时不动既有行（比 SQLite 分支的 INSERT OR REPLACE 更保守：不会把
+            // 已积累的 progress/completed 重置）。正常路径有外层 COUNT 预检，本就不会
+            // 撞键，此保护仅兜住并发窗口。
             insertSql = "INSERT INTO " + tablePrefix
-                    + "daily_challenges (uuid, challenge_date, challenge_id, progress, completed, claimed) VALUES (?, ?, ?, 0, 0, 0)";
+                    + "daily_challenges (uuid, challenge_date, challenge_id, progress, completed, claimed) VALUES (?, ?, ?, 0, 0, 0) "
+                    + "ON DUPLICATE KEY UPDATE challenge_id = challenge_id";
         }
 
         Connection insertConn = plugin.getDatabaseManager().getConnection();
@@ -240,7 +253,12 @@ public class DailyChallengeManager {
                 while (rs.next()) {
                     ChallengeType type = ChallengeType.fromId(rs.getString("challenge_id"));
                     if (type != null) {
-                        list.add(new ChallengeProgress(type, rs.getInt("progress"),
+                        // R-79：读取侧同样 clamp —— 修复前写入的超靶旧行（如已领取的
+                        // 47/10）不会再有写入机会去改写，只能在读侧收敛；展示方
+                        // （DailyChallengeGUI 的 daily.progress、/le challenge）直读此值。
+                        // 无逻辑分支读 progress，clamp 只影响展示。
+                        list.add(new ChallengeProgress(type,
+                                Math.min(rs.getInt("progress"), type.target),
                                 rs.getBoolean("completed"), rs.getBoolean("claimed")));
                     }
                 }
@@ -331,6 +349,11 @@ public class DailyChallengeManager {
         int newProgress = currentProgress + increment;
         boolean nowCompleted = newProgress >= type.target;
         if (alreadyCompleted) nowCompleted = true;
+        // R-79：写入侧 clamp —— completed 后继续答题/对话时 progress 原样累加，
+        // 展示出来就是 "47/10" 这类超靶读数（GUI 槽位 11/13/15 与 /le challenge
+        // 都直读本值）。封顶在 target：完成判定已在上两行算完，clamp 不影响任何
+        // 状态迁移，只让展示与实际语义一致。
+        newProgress = Math.min(newProgress, type.target);
 
         String updateSql = "UPDATE " + tablePrefix
                 + "daily_challenges SET progress = ?, completed = ? WHERE uuid = ? AND challenge_date = ? AND challenge_id = ?";

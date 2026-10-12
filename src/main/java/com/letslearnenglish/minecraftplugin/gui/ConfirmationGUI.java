@@ -47,8 +47,30 @@ public class ConfirmationGUI {
         this.targetLang = targetLang;
     }
 
+    /**
+     * F6-02：判定标题是否为本二确界面。
+     *
+     * <p>旧实现是裸子串 {@code contains("Confirm") || contains("确认")} —— 过宽：
+     * 任何未来标题含这两个词的界面（如"确认操作"类提示页）都会被调用方
+     * （{@code MainMenuListener}）误当作二确界面，被确认/取消槽位逻辑捕获甚至吞掉点击。
+     *
+     * <p>新实现与 {@link #open}/{@link #openSecond} 的标题生成完全同源：按 zh/en 两份
+     * 配置读 {@link #CONFIRM_TITLE_KEY}，经相同的 {@code &} 颜色码转换后做等值比对。
+     * open 侧不截断标题（标题短，本类也不像 DuelGUI 那样预截断），故用等值而非前缀；
+     * 配置缺键时两侧同为 {@code getGuiMsg} 的 {@code [?key]} 占位符，比对仍然一致 ——
+     * 不会把本类自己生成的标题排除掉。
+     */
     public static boolean isConfirmGUI(String title) {
-        return title.contains("Confirm") || title.contains("确认");
+        if (title == null || title.isEmpty()) return false;
+        LetsLearnEnglish plugin = LetsLearnEnglish.getInstance();
+        if (plugin == null || plugin.getConfigManager() == null) return false;
+        for (String lang : new String[] { "zh", "en" }) {
+            String expected = ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(
+                            plugin.getConfigManager().getMessageConfig(lang), CONFIRM_TITLE_KEY));
+            if (title.equals(expected)) return true;
+        }
+        return false;
     }
 
     public static int getStage(Player player) {

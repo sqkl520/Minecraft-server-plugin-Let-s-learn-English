@@ -17,7 +17,7 @@ commands:
     usage: /<command> [subcommand]
   learnadmin:
     description: "Admin command for plugin configuration and data management"
-    aliases: [lea, learnadmin]
+    aliases: [lea]
     usage: /<command> [subcommand]
     permission: letslearnenglish.admin
 

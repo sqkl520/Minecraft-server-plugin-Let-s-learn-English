@@ -4,6 +4,7 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.achievement.AchievementManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -44,17 +45,17 @@ public class ProfileGUI {
         if (targetName == null) {
             Player targetPlayer = Bukkit.getPlayer(targetId);
             targetName = targetPlayer != null ? targetPlayer.getName()
-                    : messages.getString("profile.unknown-player");
+                    : MessageUtil.getGuiMsg(messages, "profile.unknown-player");
         }
 
         String title;
         if (isOwn) {
             title = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("profile.title")
+                    MessageUtil.getGuiMsg(messages, "profile.title")
                             .replace("{player}", viewer.getName()));
         } else {
             title = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("profile.viewing-title")
+                    MessageUtil.getGuiMsg(messages, "profile.viewing-title")
                             .replace("{name}", targetName));
         }
 
@@ -68,11 +69,11 @@ public class ProfileGUI {
         // 只隐藏数值行；标签行保留。自己主页（isOwn）零改动。
         boolean hideResults = !isOwn && !ps.isShowResults();
         String hiddenValue = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("profile.stats-hidden-value"));
+                MessageUtil.getGuiMsg(messages, "profile.stats-hidden-value"));
         String ageUnsetLine = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("profile.age-unset"));
+                MessageUtil.getGuiMsg(messages, "profile.age-unset"));
         String ageHiddenLine = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("profile.age-hidden"));
+                MessageUtil.getGuiMsg(messages, "profile.age-hidden"));
 
         fillBorder(inv);
 
@@ -89,7 +90,7 @@ public class ProfileGUI {
         if (head.getItemMeta() instanceof SkullMeta hm) {
             hm.setOwningPlayer(Bukkit.getOfflinePlayer(targetId));
             hm.setDisplayName(ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("profile.head-name-color") + targetName));
+                    MessageUtil.getGuiMsg(messages, "profile.head-name-color") + targetName));
             head.setItemMeta(hm);
         }
         inv.setItem(4, head);
@@ -108,15 +109,15 @@ public class ProfileGUI {
         // Words learned — slot 11 (R-38: 他人关 showResults 时只隐藏数值行，标签保留)
         inv.setItem(11, createInfoItem(Material.BOOK,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("profile.stats-words-label")),
+                        MessageUtil.getGuiMsg(messages, "profile.stats-words-label")),
                 hideResults
                         ? Collections.singletonList(hiddenValue)
                         : Arrays.asList(
                         ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("profile.stats-words-value")
+                                MessageUtil.getGuiMsg(messages, "profile.stats-words-value")
                                         .replace("{words}", String.valueOf(totalWords))),
                         ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("profile.stats-words-detail")
+                                MessageUtil.getGuiMsg(messages, "profile.stats-words-detail")
                                         .replace("{correct}", String.valueOf(totalCorrect))
                                         .replace("{incorrect}", String.valueOf(totalIncorrect)))
                 )));
@@ -124,12 +125,12 @@ public class ProfileGUI {
         // Accuracy — slot 12 (R-38)
         inv.setItem(12, createInfoItem(Material.EXPERIENCE_BOTTLE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("profile.stats-accuracy-label")),
+                        MessageUtil.getGuiMsg(messages, "profile.stats-accuracy-label")),
                 hideResults
                         ? Collections.singletonList(hiddenValue)
                         : Collections.singletonList(
                         ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("profile.stats-accuracy-value")
+                                MessageUtil.getGuiMsg(messages, "profile.stats-accuracy-value")
                                         .replace("{accuracy}", String.valueOf(accuracy)))
                 )));
 
@@ -141,17 +142,17 @@ public class ProfileGUI {
         if (!isOwn) {
             ageLine = ageHiddenLine;
             ageLore = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("profile.age-hidden-hint"));
+                    MessageUtil.getGuiMsg(messages, "profile.age-hidden-hint"));
         } else if (age <= 0) {
             ageLine = ageUnsetLine;
             ageLore = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("profile.age-hint"));
+                    MessageUtil.getGuiMsg(messages, "profile.age-hint"));
         } else {
             ageLine = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("profile.age")
+                    MessageUtil.getGuiMsg(messages, "profile.age")
                             .replace("{age}", String.valueOf(age)));
             ageLore = ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("profile.age-hint"));
+                    MessageUtil.getGuiMsg(messages, "profile.age-hint"));
         }
         inv.setItem(13, createInfoItem(Material.CAKE, ageLine,
                 Collections.singletonList(ageLore)));
@@ -159,60 +160,60 @@ public class ProfileGUI {
         // Sessions — slot 14 (R-38)
         inv.setItem(14, createInfoItem(Material.CLOCK,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("profile.stats-sessions-label")),
+                        MessageUtil.getGuiMsg(messages, "profile.stats-sessions-label")),
                 hideResults
                         ? Collections.singletonList(hiddenValue)
                         : Collections.singletonList(
                         ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("profile.stats-sessions-value")
+                                MessageUtil.getGuiMsg(messages, "profile.stats-sessions-value")
                                         .replace("{sessions}", String.valueOf(sessions)))
                 )));
 
         // Coins — slot 15 (R-38: 金币余额非本人一律只隐藏数值行，标签保留)
         String coinsLine = isOwn
                 ? ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("profile.stats-coins-value")
+                        MessageUtil.getGuiMsg(messages, "profile.stats-coins-value")
                                 .replace("{coins}", plugin.getEconomy() == null ? "0"
                                         : plugin.getEconomy().format(coins)))
                 : hiddenValue;
         inv.setItem(15, createInfoItem(Material.GOLD_INGOT,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("profile.stats-coins-label")),
+                        MessageUtil.getGuiMsg(messages, "profile.stats-coins-label")),
                 Collections.singletonList(coinsLine)));
 
         // Achievement wall button — slot 18 (bottom-left) with count
         String achWallLabel = ChatColor.translateAlternateColorCodes('&', "&e&l" +
-                messages.getString("profile.stats-achievements-label"));
+                MessageUtil.getGuiMsg(messages, "profile.stats-achievements-label"));
         String achWallCount = plugin.getMessageUtil().getPlayerMessage(viewer,
                 "profile.stats-achievements-value",
                 "unlocked", String.valueOf(unlockedCount),
                 "total", String.valueOf(totalAchievements));
         String achWallHint = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("profile.achievements-hint"));
+                MessageUtil.getGuiMsg(messages, "profile.achievements-hint"));
         inv.setItem(18, createItem(Material.PAINTING, achWallLabel,
                 Arrays.asList(achWallCount, achWallHint)));
 
         // Back button — slot 8
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("gui.back-button")),
+                        MessageUtil.getGuiMsg(messages, "gui.back-button")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
-                        messages.getString("gui.back-lore")))));
+                        MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
 
         // Settings button — slot 26 (bottom-right, only own)
         if (isOwn) {
             inv.setItem(26, createItem(Material.COMPARATOR,
                     ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("profile.settings-button")),
+                            MessageUtil.getGuiMsg(messages, "profile.settings-button")),
                     Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("profile.settings-lore")))));
+                            MessageUtil.getGuiMsg(messages, "profile.settings-lore")))));
         } else {
             // 别人主页 — 显示灰色玻璃板表示设置不可用
             inv.setItem(26, createItem(Material.GRAY_STAINED_GLASS_PANE,
                     ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("profile.settings-locked")),
+                            MessageUtil.getGuiMsg(messages, "profile.settings-locked")),
                     Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("profile.settings-locked-lore")))));
+                            MessageUtil.getGuiMsg(messages, "profile.settings-locked-lore")))));
         }
 
         viewer.openInventory(inv);
@@ -225,7 +226,7 @@ public class ProfileGUI {
         FileConfiguration messages = plugin.getConfigManager()
                 .getMessageConfig(plugin.getPlayerLanguage(viewer));
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("profile.settings-title"));
+                MessageUtil.getGuiMsg(messages, "profile.settings-title"));
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
         UUID playerId = viewer.getUniqueId();
@@ -250,13 +251,13 @@ public class ProfileGUI {
         inv.setItem(11, createItem(
                 showAnswersOn ? Material.LIME_DYE : Material.GRAY_DYE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("profile.settings-show-answers")),
+                        MessageUtil.getGuiMsg(messages, "profile.settings-show-answers")),
                 Arrays.asList(
                         ChatColor.translateAlternateColorCodes('&', showAnswersOn
-                                ? messages.getString("profile.settings-show-answers-on")
-                                : messages.getString("profile.settings-show-answers-off")),
+                                ? MessageUtil.getGuiMsg(messages, "profile.settings-show-answers-on")
+                                : MessageUtil.getGuiMsg(messages, "profile.settings-show-answers-off")),
                         ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("profile.settings-toggle-hint"))
+                                MessageUtil.getGuiMsg(messages, "profile.settings-toggle-hint"))
                 )));
 
         // Show results toggle — slot 13
@@ -264,13 +265,13 @@ public class ProfileGUI {
         inv.setItem(13, createItem(
                 showResultsOn ? Material.LIME_DYE : Material.GRAY_DYE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("profile.settings-show-results")),
+                        MessageUtil.getGuiMsg(messages, "profile.settings-show-results")),
                 Arrays.asList(
                         ChatColor.translateAlternateColorCodes('&', showResultsOn
-                                ? messages.getString("profile.settings-show-results-on")
-                                : messages.getString("profile.settings-show-results-off")),
+                                ? MessageUtil.getGuiMsg(messages, "profile.settings-show-results-on")
+                                : MessageUtil.getGuiMsg(messages, "profile.settings-show-results-off")),
                         ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("profile.settings-toggle-hint"))
+                                MessageUtil.getGuiMsg(messages, "profile.settings-toggle-hint"))
                 )));
 
         // Show in square toggle — slot 15
@@ -278,21 +279,21 @@ public class ProfileGUI {
         inv.setItem(15, createItem(
                 showInSquareOn ? Material.LIME_DYE : Material.GRAY_DYE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("profile.settings-show-in-square")),
+                        MessageUtil.getGuiMsg(messages, "profile.settings-show-in-square")),
                 Arrays.asList(
                         ChatColor.translateAlternateColorCodes('&', showInSquareOn
-                                ? messages.getString("profile.settings-show-in-square-on")
-                                : messages.getString("profile.settings-show-in-square-off")),
+                                ? MessageUtil.getGuiMsg(messages, "profile.settings-show-in-square-on")
+                                : MessageUtil.getGuiMsg(messages, "profile.settings-show-in-square-off")),
                         ChatColor.translateAlternateColorCodes('&',
-                                messages.getString("profile.settings-toggle-hint"))
+                                MessageUtil.getGuiMsg(messages, "profile.settings-toggle-hint"))
                 )));
 
         // Back button — slot 8
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
-                        messages.getString("gui.back-button")),
+                        MessageUtil.getGuiMsg(messages, "gui.back-button")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
-                        messages.getString("gui.back-lore")))));
+                        MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
 
         viewer.openInventory(inv);
     }

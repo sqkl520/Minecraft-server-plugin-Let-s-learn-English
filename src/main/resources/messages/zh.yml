@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 10
+config-version: 11
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -39,6 +39,14 @@ word:
   phonetic-feedback: "&d发音 &7音标: &f{phonetic}"
   mode-review: "复习"
   invalid-mode: "{prefix}&c未知的学习模式: &e{mode}&c，可用模式: &espelling &7/ &echoice &7/ &efill_blank"
+  invalid-difficulty: "{prefix}&c无效的难度喵~ 可用难度: &e{options}"
+  no-words-available: "{prefix}&c该难度暂时没有可学习的单词喵~ 换个难度试试吧"
+  difficulty-beginner: "初级"
+  difficulty-intermediate: "中级"
+  difficulty-advanced: "高级"
+  mode-spelling: "拼写"
+  mode-choice: "选择题"
+  mode-fill_blank: "填空题"
 
 review:
   notification: "{prefix}&6你有 &e{count} &6个单词需要复习！输入 &e/le review &6开始复习"
@@ -87,6 +95,9 @@ dialogue:
   more-scenarios-lore: "&7还有 {count} 个场景未显示，翻页功能即将上线"
   more-difficulties: "&e&l更多难度…"
   more-difficulties-lore: "&7还有 {count} 个难度未显示，翻页功能即将上线"
+  finish-quiz-first: "{prefix}&c你正在答题中喵~ 请先完成或结束当前答题，再开始 AI 对话"
+  chat-active: "{prefix}&7你正在与 AI 对话中喵~ 请先输入 &fbye &7结束当前对话"
+  scenario-not-found: "{prefix}&c场景 '{key}' 不存在喵~ 输入 &e/le dialogue &c查看可用场景"
 
 achievement:
   unlock-title: "&6&l成就解锁！"
@@ -156,6 +167,8 @@ admin:
   duel-cancel-offline: "{prefix}&c玩家 &e{player} &c不在线或不存在喵~"
   duel-cancel-not-in-duel: "{prefix}&c玩家 &e{player} &c当前不在对决中喵~"
   duel-cancelled: "{prefix}&a已强制解散 &e{player1} &a与 &e{player2} &a的对决（不判胜负）"
+  player-no-data: "{prefix}&c未找到该玩家的数据喵~（可能已重置或从未加入）"
+  export-failed: "{prefix}&c数据导出失败喵~ 请查看控制台日志"
 
 wordbank:
   export-success: "{prefix}&a单词库 &e{difficulty} &a已导出！&7文件: &f{file} &7(共 {count} 个单词)"
@@ -211,7 +224,7 @@ help:
   leaderboard: "&e/le leaderboard &7- 查看排行榜"
   challenge: "&e/le challenge &7- 查看今日挑战进度"
   history: "&e/le history &7- 查看 AI 对话历史"
-  duel: "&e/le duel <玩家名> &7- 发起单词对决"
+  duel: "&e/le duel <玩家名|accept|quit|gui|cancel> &7- 单词对决（发起/接受/退出/重开界面/管理员解散）"
   wrong: "&e/le wrong &7- 查看错题本"
   checkin: "&e/le checkin &7- 每日签到获取金币"
   save_scenario: "&e/le save_scenario <名称> &7- 导出当前 AI 场景为分享码"
@@ -231,6 +244,9 @@ scenario:
   save-name-invalid: "{prefix}&c场景名称不合法喵~ 仅允许中英文/数字/下划线，最长32字符"
   save-prompt-too-long: "{prefix}&c场景 Prompt 过长喵~ ({length}/{max} 字符)，请精简后再试"
   load-success: "{prefix}&a场景 '{name}' 已加载! 现在可以在 /le dialogue 中选择了喵~"
+  load-updated: "{prefix}&a场景 '{name}' 已更新喵~ 现在可以在 /le dialogue 中选择了"
+  load-save-failed: "{prefix}&c场景保存失败喵~ 请检查日志或联系管理员"
+  limit-reached: "{prefix}&e个人场景数量已达上限喵~（最多 {max} 个）"
   load-invalid: "{prefix}&c无效的场景码喵~ 请检查是否完整复制"
   load-name-invalid: "{prefix}&c场景名称不合法喵~"
   load-no-permission: "{prefix}&c你没有导入场景的权限喵~ 请联系管理员"
@@ -246,12 +262,14 @@ duel:
   finish-duel-first: "{prefix}&c你正在对决中喵~ 请先完成对决，或输入 /le duel quit 退出"
   player-offline: "{prefix}&c该玩家已离线喵~"
   no-pending-request: "{prefix}&c你没有待接受的对决邀请喵~"
-  usage: "{prefix}&e用法: /le duel <玩家名> &7发起对决 | /le duel accept &7接受 | /le duel quit &7退出 | /le duel gui &7重开界面"
+  usage: "{prefix}&e用法: /le duel <玩家名> &7发起对决 | /le duel accept &7接受 | /le duel quit &7退出 | /le duel gui &7重开界面 | /le duel cancel <玩家名> &7（管理员）"
   request-sent: "{prefix}&a你向 &e{player} &a发起了单词对决挑战喵~"
   request-received: "{prefix}&6★ &e{player} &6向你发起了单词对决挑战！"
   accept-hint: "&6点击这里或输入 &e/le duel accept &6接受挑战！"
   request-expired: "{prefix}&7你对 &e{player} &7的对决邀请已过期喵~"
   request-expired-target: "{prefix}&7来自 &e{player} &7的对决邀请已过期喵~"
+  sender-chatting: "{prefix}&c你正在 AI 对话中喵~ 请先输入 bye 结束对话，再发起对决"
+  target-chatting: "{prefix}&c{player} 正在 AI 对话中，暂时无法接受挑战喵~"
   started: "{prefix}&a单词对决开始！对手: &e{player} &a先得5分者获胜！&c⚠ 注意：决斗中所有聊天都算作答案喵~"
   cancelled: "{prefix}&c对决已取消喵~"
   cancelled-by-gm: "{prefix}&c本次对决已被管理员解散，不判胜负喵~"
@@ -267,7 +285,7 @@ duel:
   forfeit: "{prefix}&c你放弃了这场对决喵~"
   opponent-forfeit: "{prefix}&6★ &a{player} &a放弃了对决！你赢了喵~"
   opponent-disconnected: "{prefix}&e{player} &c断线了！等待 &e{seconds} &c秒重连..."
-  opponent-timeout: "{prefix}&6★ &e{player} &c未能在 30 秒内重连，你赢了喵~"
+  opponent-timeout: "{prefix}&6★ &e{player} &c未能在 {seconds} 秒内重连，你赢了喵~"
   grace-countdown: "{prefix}&c{player} &c将在 &e{seconds} &c秒后判负..."
   reconnected: "{prefix}&a你已重新连接！对决继续喵~"
   opponent-reconnected: "{prefix}&a{player} &a已重新连接！对决继续喵~"

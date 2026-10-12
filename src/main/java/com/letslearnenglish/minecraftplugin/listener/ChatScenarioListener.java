@@ -66,6 +66,15 @@ public class ChatScenarioListener implements Listener {
             return; // 不是对话模式，正常聊天
         }
 
+        // R-66 纵深防御：答题/决斗优先 —— 玩家在答题或决斗中时，对话侧不处理该消息
+        // （正常流 ChatAnswerListener 已先 cancel 事件使其不可达；此处防竞态窗口。
+        //  不 cancel、不提示、不消费 —— 让给答题/决斗路径处理）。
+        if (plugin.getWordLearningManager().hasActiveQuiz(player.getUniqueId())
+                || (plugin.getDuelManager() != null
+                        && plugin.getDuelManager().isInDuel(player.getUniqueId()))) {
+            return;
+        }
+
         String input = event.getMessage().trim();
 
         // 退出指令
@@ -102,8 +111,12 @@ public class ChatScenarioListener implements Listener {
             return;
         }
 
-        String aiTyping = getMessageLine(player, "dialogue.ai-typing");
-        broadcastToPlayer(player, aiTyping);
+        // F1-08：先只读预检（每日轮次上限 / 冷却）——未通过时不显示"AI 正在输入"，
+        // 交给 chatAsync 的正式检查给出准确拒绝提示（预检与正式检查间的时间差属提示语义级）。
+        if (aiChatManager.canSendChat(player)) {
+            String aiTyping = getMessageLine(player, "dialogue.ai-typing");
+            broadcastToPlayer(player, aiTyping);
+        }
 
         aiChatManager.chatAsync(player, input, (aiResponse, errorMsg) -> {
             Bukkit.getScheduler().runTask(plugin, () -> {

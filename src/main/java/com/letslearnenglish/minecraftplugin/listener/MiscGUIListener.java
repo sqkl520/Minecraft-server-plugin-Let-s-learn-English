@@ -1,12 +1,10 @@
 package com.letslearnenglish.minecraftplugin.listener;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
-import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager.ChallengeType;
 import com.letslearnenglish.minecraftplugin.core.GuiNavigationManager;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.gui.DailyChallengeGUI;
-import com.letslearnenglish.minecraftplugin.gui.LearningCalendarGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.ProfileGUI;
 import com.letslearnenglish.minecraftplugin.gui.WordBankSelectGUI;
@@ -24,6 +22,12 @@ import java.util.UUID;
  * Listener for Privacy Settings, Word Bank Select, and Learning Calendar GUI interactions.
  */
 public class MiscGUIListener implements Listener {
+
+    /**
+     * F2-05：默认单词模式的本地副本 —— 与 {@code LearnCommand.DEFAULT_WORD_MODE} 对齐
+     * （该常量为 private、跨包不可见，无法直接引用；将来改默认模式时两处需同步修改）。
+     */
+    private static final String DEFAULT_WORD_MODE = "choice";
 
     private final LetsLearnEnglish plugin;
 
@@ -82,7 +86,12 @@ public class MiscGUIListener implements Listener {
     private void handlePrivacySettings(Player player, int slot) {
         if (slot == 8) {
             SoundManager.playSound(player, "menu-click");
-            new ProfileGUI(plugin).open(player, player.getUniqueId());
+            // R-86b：设置页返回走返回栈 —— SocialListener 在进入设置前压入「本人主页」帧，
+            // 这里弹回；无栈时 fallback 也开本人主页（防无动作）。与其它返回键语义一致。
+            GuiNavigationManager nav = plugin.getGuiNavigationManager();
+            Runnable backAction = nav.popBack(player.getUniqueId(),
+                    () -> new ProfileGUI(plugin).open(player, player.getUniqueId()));
+            backAction.run();
         } else if (slot == 11 || slot == 13 || slot == 15) {
             SoundManager.playSound(player, "menu-click");
             PlayerDataStore store = plugin.getPlayerDataStore();
@@ -121,10 +130,17 @@ public class MiscGUIListener implements Listener {
         if (index < 0 || index >= shownCount) return;
         SoundManager.playSound(player, "menu-click");
         String difficulty = banks.get(index);
-        plugin.getWordLearningManager().startQuiz(player, difficulty, "choice");
-        new WordLearningGUI(plugin).openWithMessage(player, difficulty, "choice");
+        // R-66 反向（P2 编排者 fan-in）：AI 对话进行中不开新答题（与 /le word 入口对称守卫）。
+        if (plugin.getAIChatManager().hasActiveConversation(player)) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "dialogue.chat-active"));
+            return;
+        }
+        // F2-05：默认模式走常量，与 LearnCommand.DEFAULT_WORD_MODE 对齐（见字段注释）
+        plugin.getWordLearningManager().startQuiz(player, difficulty, DEFAULT_WORD_MODE);
+        new WordLearningGUI(plugin).openWithMessage(player, difficulty, DEFAULT_WORD_MODE);
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                "word.session-start", "difficulty", difficulty, "mode", "choice"));
+                "word.session-start", "difficulty", difficulty, "mode", DEFAULT_WORD_MODE));
     }
 
     private void handleLearningCalendar(Player player, int slot) {

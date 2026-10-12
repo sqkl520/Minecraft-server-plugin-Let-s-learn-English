@@ -83,11 +83,13 @@ public class WordBankSelectGUI {
     /**
      * 词库显示名：先查 messages 里的 {@code word-bank.difficulty-<key>}，
      * 缺失时回退到「首字母大写化」的 key（纯装饰性兜底，不构成硬编码文案）。
+     * S7：保留原 getString + null 判语义（回退文案比 [?key] 占位更好），仅补 messages
+     * 自身为 null 时的防护（此前会在词库按钮渲染处 NPE）。
      */
     private String getDisplayName(String bankKey, FileConfiguration messages) {
         String lower = bankKey.toLowerCase();
         String key = "word-bank.difficulty-" + lower;
-        String configured = messages.getString(key);
+        String configured = messages == null ? null : messages.getString(key);
         if (configured != null && !configured.isEmpty()) {
             return configured;
         }

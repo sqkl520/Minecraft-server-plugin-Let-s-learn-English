@@ -23,6 +23,15 @@ public class WordManagerImpl {
 
     private static final Set<String> VALID_MODES = Set.of("spelling", "choice", "fill_blank");
 
+    /**
+     * F3-03：难度语义序优先级表（内置档位）。未列出的键（自定义词库）优先级 100
+     * 排在其后，同优先级按字母序。
+     */
+    private static final Map<String, Integer> DIFFICULTY_ORDER = Map.of(
+            "beginner", 0,
+            "intermediate", 1,
+            "advanced", 2);
+
     private final LetsLearnEnglish plugin;
     private final ConfigManager configManager;
     private final PlayerDataStore playerDataStore;
@@ -128,6 +137,11 @@ public class WordManagerImpl {
     /**
      * End a player's learning session.
      *
+     * <p>结算与调用来源无关：正常答完（buildResult）、手动停止（stopQuiz）、下线
+     * （endQuiz）三条路径都走这里 —— 落掌握度、累计学习分与会话数、写复习种子。
+     * R-59 校正：下线结算属既定裁决（rage quit 不豁免，session 与分数照记），
+     * 区别只在调用方是否继续发"走完会话才有"的金币奖励/庆祝。
+     *
      * <p>H8：结算时把会话学习分累加入 PlayerStats.totalScore（学习分口径，
      * 与金币 total_coins_* 完全分离）。复习结算只对答对词 recordReview 晋级，
      * 答错词 resetReview 回到 1h 间隔；普通学习结算对答过的词写复习种子。
@@ -183,12 +197,23 @@ public class WordManagerImpl {
     /**
      * Get all available difficulty levels.
      *
-     * R-09c: 返回按字母序排好的快照 —— 底层是 ConcurrentHashMap，
-     * 直接包 keySet 会让 GUI 构造快照与点击侧重取两次迭代出不同顺序（词库点 A 开 B）。
+     * R-09c: 返回排好序的稳定快照 —— 底层是 ConcurrentHashMap，直接包 keySet
+     * 会让 GUI 构造快照与点击侧重取两次迭代出不同顺序（词库点 A 开 B）。
      * 排序后两侧恒一致；命令/挑战等只读遍历方不受影响。
+     *
+     * F3-03：排序从纯字母序改为语义序（beginner → intermediate → advanced，
+     * 自定义词库按字母序排其后）——字母序会把 advanced 排最前，词库选择界面
+     * 首屏全是高阶档，与"由易到难"的学习动线相反。返回类型保持 Set
+     * （LinkedHashSet 保序），WordBankSelectGUI 渲染与 MiscGUIListener 点击
+     * 下标映射按此顺序自动传导，两侧依旧同序。
      */
     public Set<String> getAvailableDifficulties() {
-        return Collections.unmodifiableSet(new TreeSet<>(wordBanks.keySet()));
+        List<String> sorted = new ArrayList<>(wordBanks.keySet());
+        sorted.sort(Comparator
+                .comparingInt((String name) -> DIFFICULTY_ORDER.getOrDefault(
+                        name.toLowerCase(Locale.ROOT), 100))
+                .thenComparing(Comparator.<String>naturalOrder()));
+        return Collections.unmodifiableSet(new LinkedHashSet<>(sorted));
     }
 
     public ReviewScheduler getReviewScheduler() {

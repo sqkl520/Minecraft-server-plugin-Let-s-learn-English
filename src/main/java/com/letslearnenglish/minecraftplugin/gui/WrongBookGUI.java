@@ -3,6 +3,7 @@ package com.letslearnenglish.minecraftplugin.gui;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.data.DifficultWord;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -76,7 +77,7 @@ public class WrongBookGUI {
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("wrong-book.title-page")
+                MessageUtil.getGuiMsg(messages, "wrong-book.title-page")
                         .replace("{page}", String.valueOf(page)));
 
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
@@ -109,8 +110,8 @@ public class WrongBookGUI {
             ItemMeta bookMeta = book.getItemMeta();
             if (bookMeta != null) {
                 bookMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.empty")));
-                String emptyLore = messages.getString("wrong-book.empty-lore");
+                        MessageUtil.getGuiMsg(messages, "wrong-book.empty")));
+                String emptyLore = MessageUtil.getGuiMsg(messages, "wrong-book.empty-lore");
                 bookMeta.setLore(Collections.singletonList(
                         ChatColor.translateAlternateColorCodes('&', emptyLore)));
                 book.setItemMeta(bookMeta);
@@ -134,24 +135,24 @@ public class WrongBookGUI {
 
                 Material mat = Material.PAPER;
                 String itemName = ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.word-name")
+                        MessageUtil.getGuiMsg(messages, "wrong-book.word-name")
                                 .replace("{word}", wordKey));
                 List<String> lore = new ArrayList<>();
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.word-chinese")
+                        MessageUtil.getGuiMsg(messages, "wrong-book.word-chinese")
                                 .replace("{chinese}", chinese)));
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.word-count")
+                        MessageUtil.getGuiMsg(messages, "wrong-book.word-count")
                                 .replace("{count}", String.valueOf(dw.getWrongCount()))));
                 SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm");
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.word-date")
+                        MessageUtil.getGuiMsg(messages, "wrong-book.word-date")
                                 .replace("{date}", sdf.format(new Date(dw.getAddedAt())))));
                 lore.add("");
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.click-remove")));
+                        MessageUtil.getGuiMsg(messages, "wrong-book.click-remove")));
                 lore.add(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.shift-practice")));
+                        MessageUtil.getGuiMsg(messages, "wrong-book.shift-practice")));
 
                 inv.setItem(invSlot, createItem(mat, itemName, lore));
             }
@@ -162,9 +163,9 @@ public class WrongBookGUI {
         if (page > 1) {
             inv.setItem(PREV_SLOT, createItem(Material.ARROW,
                     ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("wrong-book.prev-page")),
+                            MessageUtil.getGuiMsg(messages, "wrong-book.prev-page")),
                     Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("wrong-book.prev-page-lore")
+                            MessageUtil.getGuiMsg(messages, "wrong-book.prev-page-lore")
                                     .replace("{page}", String.valueOf(page - 1))))));
         }
 
@@ -173,7 +174,7 @@ public class WrongBookGUI {
         ItemMeta piMeta = pageIndicator.getItemMeta();
         if (piMeta != null) {
             piMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("wrong-book.page-indicator")
+                    MessageUtil.getGuiMsg(messages, "wrong-book.page-indicator")
                             .replace("{current}", String.valueOf(page))
                             .replace("{total}", String.valueOf(totalPages))));
             pageIndicator.setItemMeta(piMeta);
@@ -183,17 +184,17 @@ public class WrongBookGUI {
         // Back button (upper-right corner, unified with other GUIs)
         inv.setItem(BACK_SLOT, createItem(Material.RED_STAINED_GLASS_PANE,
                 ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("gui.back-button")),
+                        MessageUtil.getGuiMsg(messages, "gui.back-button")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("gui.back-lore")))));
+                        MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
 
         // Next page
         if (page < totalPages) {
             inv.setItem(NEXT_SLOT, createItem(Material.ARROW,
                     ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("wrong-book.next-page")),
+                            MessageUtil.getGuiMsg(messages, "wrong-book.next-page")),
                     Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("wrong-book.next-page-lore")
+                            MessageUtil.getGuiMsg(messages, "wrong-book.next-page-lore")
                                     .replace("{page}", String.valueOf(page + 1))))));
         }
 

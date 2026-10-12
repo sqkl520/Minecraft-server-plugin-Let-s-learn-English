@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.command;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
 import com.letslearnenglish.minecraftplugin.core.ai.ScenarioCodec;
 import com.letslearnenglish.minecraftplugin.gui.ChatHistoryGUI;
@@ -21,6 +22,7 @@ import org.bukkit.entity.Player;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,8 +47,12 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             "menu", "word", "dialogue", "progress", "review", "stats", "help", "square", "profile", "leaderboard", "challenge", "history", "duel", "wrong", "checkin", "save_scenario", "load_scenario"
     );
 
+    /**
+     * FEAT-MODE-01：合法学习模式。S4：校验与 tab 补全共用同一真相源 —— 补全不再维护
+     * 第二份硬编码列表；LinkedHashSet 保证补全展示顺序稳定（spelling/choice/fill_blank）。
+     */
     private static final java.util.Set<String> VALID_WORD_MODES =
-            java.util.Set.of("spelling", "choice", "fill_blank");
+            new java.util.LinkedHashSet<>(Arrays.asList("spelling", "choice", "fill_blank"));
 
     /** FEAT-MODE-01：choice 是新手默认模式（与 GUI 入口、getMode 回落一致）。 */
     private static final String DEFAULT_WORD_MODE = "choice";
@@ -144,8 +150,11 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         if (args.length <= 1) {
             new WordBankSelectGUI(plugin).open(player);
         } else {
-            String difficulty = args[1];
-            String mode = args.length > 2 ? args[2].toLowerCase() : DEFAULT_WORD_MODE;
+            // R-86c：difficulty 先归一化再校验存在性（大小写不敏感匹配后解析回词库
+            // 规范 key）。原先直接透传原始输入，大小写不符 / 难度不存在都会抛英文
+            // IllegalArgumentException 给玩家。
+            String normalizedDifficulty = args[1].toLowerCase(Locale.ROOT);
+            String mode = args.length > 2 ? args[2].toLowerCase(Locale.ROOT) : DEFAULT_WORD_MODE;
             // FEAT-MODE-01：mode 参数先校验再透传。非法 mode 回 i18n 提示，不再把
             // WordManagerImpl 的 IllegalArgumentException 原始英文抛给玩家。
             if (!VALID_WORD_MODES.contains(mode)) {
@@ -153,20 +162,83 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                         "word.invalid-mode", "mode", args[2]));
                 return;
             }
+            String difficulty = resolveDifficulty(normalizedDifficulty);
+            if (difficulty == null) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "word.invalid-difficulty",
+                        "options", String.join(", ",
+                                plugin.getWordManager().getAvailableDifficulties())));
+                return;
+            }
             startWordQuiz(player, difficulty, mode);
         }
     }
 
+    /**
+     * R-86c：把归一化后的难度输入解析回 {@link com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl}
+     * 的规范难度 key（词库名可能带自定义大小写）；不存在返回 null。
+     */
+    private String resolveDifficulty(String normalizedInput) {
+        for (String candidate : plugin.getWordManager().getAvailableDifficulties()) {
+            if (candidate.toLowerCase(Locale.ROOT).equals(normalizedInput)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
     private void startWordQuiz(Player player, String difficulty, String mode) {
+        // R-66 反向（P2 编排者 fan-in）：AI 对话进行中不开新答题会话 ——
+        // ChatScenarioListener 以 HIGH 优先级消费聊天，答题输入会被 AI 侧拦走
+        // （与"答题中开对话"对称的饥饿态）。先提示结束对话（冻结键 chat-active）。
+        if (plugin.getAIChatManager().hasActiveConversation(player)) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "dialogue.chat-active"));
+            return;
+        }
         try {
             plugin.getWordLearningManager().startQuiz(player, difficulty, mode);
             new WordLearningGUI(plugin).openWithMessage(player, difficulty, mode);
+            // F2-13：{difficulty}/{mode} 的值走 i18n label 键，不再把英文标识符
+            // （beginner/choice）直接透传给玩家；未知标识符回落原值保证信息不丢。
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "word.session-start", "difficulty", difficulty, "mode", mode));
+                    "word.session-start",
+                    "difficulty", localizeWordDifficulty(player, difficulty),
+                    "mode", localizeWordMode(player, mode)));
         } catch (IllegalArgumentException e) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "general.error", "message", e.getMessage()));
+        } catch (IllegalStateException e) {
+            // S4：难度存在但无词可学（selectWordsForSession 空）时 WordManagerImpl 抛
+            // IllegalStateException，原先冒泡出 onCommand —— 玩家零反馈。改为 i18n 提示。
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "word.no-words-available"));
         }
+    }
+
+    /**
+     * F2-13：学习难度标识符 → i18n label。未知难度回落原值（同 review 路径的
+     * {@code word.mode-review} 用法风格，绝不把空值塞进占位符）。
+     */
+    private String localizeWordDifficulty(Player player, String difficulty) {
+        return switch (difficulty.toLowerCase(Locale.ROOT)) {
+            case "beginner" -> plugin.getMessageUtil().getPlayerMessage(player, "word.difficulty-beginner");
+            case "intermediate" -> plugin.getMessageUtil().getPlayerMessage(player, "word.difficulty-intermediate");
+            case "advanced" -> plugin.getMessageUtil().getPlayerMessage(player, "word.difficulty-advanced");
+            default -> difficulty;
+        };
+    }
+
+    /**
+     * F2-13：学习模式标识符 → i18n label。未知模式回落原值。
+     */
+    private String localizeWordMode(Player player, String mode) {
+        return switch (mode) {
+            case "spelling" -> plugin.getMessageUtil().getPlayerMessage(player, "word.mode-spelling");
+            case "choice" -> plugin.getMessageUtil().getPlayerMessage(player, "word.mode-choice");
+            case "fill_blank" -> plugin.getMessageUtil().getPlayerMessage(player, "word.mode-fill_blank");
+            default -> mode;
+        };
     }
 
     private void handleDialogueCommand(Player player, String[] args) {
@@ -184,7 +256,38 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length > 1) {
             // 直接开始指定场景
-            String scenario = args[1].toLowerCase();
+            String scenario = resolveScenarioKey(player, args[1].toLowerCase(Locale.ROOT));
+            // S4/R-86e 场景校验：key 不存在时原先静默以通用 prompt 兜底并回显原始
+            // key。resolveScenarioKey 先查玩家可见全集（getScenarioConfigs 会懒加载
+            // 个人场景，personal: 前缀），与 GUI 路径的可见范围完全一致；大小写
+            // 不敏感匹配后解析回规范 key，再判不存在才拒绝。
+            if (scenario == null) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "dialogue.scenario-not-found", "key", args[1]));
+                return;
+            }
+            // S4 互斥：答题 / 错题练习 / 决斗 / 已有 AI 对话进行中时不重复开聊
+            // （/le dialogue 的退出语义在上面 isInScenarioMode 分支已提前处理，不受影响）。
+            // 决斗优先判：决斗中本身就有答题态，报"先结束对决"比报"先结束答题"更准确。
+            var duelManager = plugin.getDuelManager();
+            if (duelManager != null && duelManager.isInDuel(player.getUniqueId())) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "duel.finish-duel-first"));
+                return;
+            }
+            var wordManager = plugin.getWordLearningManager();
+            if (wordManager != null
+                    && (wordManager.hasActiveQuiz(player.getUniqueId())
+                            || wordManager.isPracticingWord(player.getUniqueId()))) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "dialogue.finish-quiz-first"));
+                return;
+            }
+            if (plugin.getAIChatManager().hasActiveConversation(player)) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "dialogue.chat-active"));
+                return;
+            }
             plugin.getChatScenarioListener().addPlayer(player);
             plugin.getAIChatManager().startConversation(player, scenario);
             // R-04：场景名按玩家版解析（全局 + 个人场景），与 GUI 入口保持一致
@@ -197,6 +300,20 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         } else {
             new ScenarioSelectGUI(plugin).open(player);
         }
+    }
+
+    /**
+     * S4：把归一化（小写）的场景输入解析回玩家可见场景的规范 key ——
+     * 全局 + 个人场景大小写不敏感匹配（个人场景 key 前缀 personal:）；
+     * 不存在返回 null。getScenarioConfigs(player) 内部会懒加载个人场景文件。
+     */
+    private String resolveScenarioKey(Player player, String normalizedInput) {
+        for (String candidate : plugin.getAIChatManager().getScenarioConfigs(player).keySet()) {
+            if (candidate.toLowerCase(Locale.ROOT).equals(normalizedInput)) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     private void handleProgressCommand(Player player) {
@@ -332,10 +449,15 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                         : (cp.completed
                                 ? "daily-challenge.behavioral-completed"
                                 : "daily-challenge.behavioral-progress");
+                // P2 fan-in（S7 上报）：聊天侧进度与 GUI 展示层同口径 clamp，
+                // 不再出现 "47/10" 式超量显示（target<=0 时原样）。
+                int displayProgress = cp.type.target > 0
+                        ? Math.min(cp.progress, cp.type.target)
+                        : cp.progress;
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         statusKey,
                         "name", getBehavioralName(player, cp.type),
-                        "progress", String.valueOf(cp.progress),
+                        "progress", String.valueOf(displayProgress),
                         "target", String.valueOf(cp.type.target)));
             }
         }
@@ -387,9 +509,14 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             case COMBO_5 -> "daily.name-combo-5";
             case AI_CHAT_5 -> "daily.name-ai-chat-5";
         };
-        String lang = plugin.getPlayerLanguage(player);
-        return org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                plugin.getConfigManager().getMessageConfig(lang).getString(key));
+        // R-86d：裸 getString 缺键返回 null 会让 translateAlternateColorCodes NPE，
+        // 中断整段挑战列表输出。缺键回落 key 名（可见且可定位），不再炸。
+        String raw = plugin.getConfigManager()
+                .getMessageConfig(plugin.getPlayerLanguage(player)).getString(key);
+        if (raw == null) {
+            return key;
+        }
+        return org.bukkit.ChatColor.translateAlternateColorCodes('&', raw);
     }
 
     /**
@@ -499,6 +626,9 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                     "checkin.success",
                     "streak", String.valueOf(result.streak()),
                     "coins", coinsStr));
+            // S4：签到成功加"正向反馈"音效（复用 correct 键，与判对/成就同语义）。
+            // 已签过分支不加音效 —— 那是失败路径，给"正确"音反而误导。
+            SoundManager.playSound(player, "correct");
             // R-44：0 金币不是"成功发了 0 块"，是经济开关没开 —— 补一行说明，
             // 免得玩家以为签到奖励吞了。只在 money.enabled=false 时出现。
             if (result.economyDisabled()) {
@@ -611,18 +741,29 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
 
         // H7：导入改为玩家个人场景 — 不写全局 ai_scenarios.yml、不 reload 全局，
         // 只落盘到该玩家的个人文件并刷新其内存副本，不影响他人。
-        String key = aiChatManager.importPersonalScenario(player, name, prompt);
-        if (key == null) {
+        // R-61/86f（S2 冻结接口，执行计划明确 S4 在此调用点消费）：返回 ImportResult
+        // record —— 上限拒绝 / 写盘失败 / 覆盖更新 / 新增成功四种结果分别提示，
+        // 失败不再落入"已加载"报成功。
+        AIChatManager.ImportResult result = aiChatManager.importPersonalScenario(player, name, prompt);
+        if (result.limitReached()) {
+            // limitReached=true 时个人场景数恰为上限，直接读公开上限 getter 填 {max}
+            //（P2 fan-in：Arch tester 指出 getMaxPersonalScenarios 无调用方成死 getter，
+            // 改用它取真实上限值，与 AIChatManager 私有常量单一真相源）。
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "scenario.limit-reached",
+                    "max", String.valueOf(aiChatManager.getMaxPersonalScenarios())));
+            return;
+        }
+        if (result.key() == null || result.saveFailed()) {
             plugin.getLogger().warning("Failed to save imported personal scenario for "
                     + player.getName());
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "general.error", "message",
-                    plugin.getMessageUtil().getPlayerMessage(player, "error.scenario-save-failed")));
+                    "scenario.load-save-failed"));
             return;
         }
-
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                "scenario.load-success", "name", name));
+                result.updated() ? "scenario.load-updated" : "scenario.load-success",
+                "name", name));
     }
 
     private void sendHelpMessage(Player player) {
@@ -661,7 +802,8 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                     }
                 }
             } else if (args.length == 3) {
-                for (String mode : Arrays.asList("spelling", "choice", "fill_blank")) {
+                // S4：补全候选直接从 VALID_WORD_MODES 派生，与校验共用同一真相源
+                for (String mode : VALID_WORD_MODES) {
                     if (mode.startsWith(args[2].toLowerCase())) {
                         completions.add(mode);
                     }
