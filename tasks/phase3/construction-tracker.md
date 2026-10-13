@@ -68,3 +68,5 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 ### Wave 2 回流状态
 - [x] W2-D 挑战经济参数：done（challenges-per-day 钳 [1,4] + 可用集合 shuffled 取 N（R-74 重抽链整体删除）+ rewards.* 四键接线（getChallengeReward 公开 API，缺键/非法/≤0 回落枚举默认；注意 YAML Integer 装箱不能用 isDouble 判定——改用 instanceof Number）+ F1-12 CHALLENGE_SLOTS={11,13,15,17} + binarySearch 查位映射；默认 3 逐位等价冒烟过）
 - [ ] W2-A 广场社交 / W2-B 主菜单 / W2-C modes / W2-E 家长报告
+- [x] W2-B 主菜单与对决选择器：done（主菜单 9 按钮双侧同源 + 模块门渲染/点击 + DuelChallengeGUI 在线选择器 + Listener 等值标题判定；**标题避碰实测 16 项断言全绿**——含"被否标题确实会炸"的对抗性证明 + 预 fan-in 窗口 [?key] 占位时等值判定仍自洽；EOL 考场记：git ls-files --eol 才是判据）
+- [ ] W2-A 广场社交 / W2-C modes / W2-E 家长报告
