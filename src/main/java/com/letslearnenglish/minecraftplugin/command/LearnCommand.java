@@ -4,6 +4,8 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
 import com.letslearnenglish.minecraftplugin.core.ai.ScenarioCodec;
+import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.RankingMode;
+import com.letslearnenglish.minecraftplugin.core.word.WordModes;
 import com.letslearnenglish.minecraftplugin.gui.ChatHistoryGUI;
 import com.letslearnenglish.minecraftplugin.gui.EnglishSquareGUI;
 import com.letslearnenglish.minecraftplugin.gui.LeaderboardGUI;
@@ -46,16 +48,6 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     private static final List<String> SUBCOMMANDS = Arrays.asList(
             "menu", "word", "dialogue", "progress", "review", "stats", "help", "guide", "square", "profile", "leaderboard", "challenge", "history", "duel", "wrong", "checkin", "save_scenario", "load_scenario"
     );
-
-    /**
-     * FEAT-MODE-01：合法学习模式。S4：校验与 tab 补全共用同一真相源 —— 补全不再维护
-     * 第二份硬编码列表；LinkedHashSet 保证补全展示顺序稳定（spelling/choice/fill_blank）。
-     */
-    private static final java.util.Set<String> VALID_WORD_MODES =
-            new java.util.LinkedHashSet<>(Arrays.asList("spelling", "choice", "fill_blank"));
-
-    /** FEAT-MODE-01：choice 是新手默认模式（与 GUI 入口、getMode 回落一致）。 */
-    private static final String DEFAULT_WORD_MODE = "choice";
 
     /**
      * R-40：庆祝页"今日已展示"去重（内存态，按自然日键）。
@@ -115,7 +107,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 handleStatsCommand(player);
                 break;
             case "square":
-                handleSquareCommand(player);
+                handleSquareCommand(player, args);
                 break;
             case "profile":
                 handleProfileCommand(player, args);
@@ -170,19 +162,44 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             return;
         }
         if (args.length <= 1) {
+            // MC-3：三模式全关时词库选择 GUI 的每次点击都必然被拒（无可用模式），
+            // 无参 /le word 直接回 word.no-modes-enabled（验收 5.(c).3），不再开死界面。
+            if (WordModes.firstEnabledMode(plugin.getConfigManager()) == null) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "word.no-modes-enabled"));
+                return;
+            }
             new WordBankSelectGUI(plugin).open(player);
         } else {
             // R-86c：difficulty 先归一化再校验存在性（大小写不敏感匹配后解析回词库
             // 规范 key）。原先直接透传原始输入，大小写不符 / 难度不存在都会抛英文
             // IllegalArgumentException 给玩家。
             String normalizedDifficulty = args[1].toLowerCase(Locale.ROOT);
-            String mode = args.length > 2 ? args[2].toLowerCase(Locale.ROOT) : DEFAULT_WORD_MODE;
-            // FEAT-MODE-01：mode 参数先校验再透传。非法 mode 回 i18n 提示，不再把
-            // WordManagerImpl 的 IllegalArgumentException 原始英文抛给玩家。
-            if (!VALID_WORD_MODES.contains(mode)) {
-                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                        "word.invalid-mode", "mode", args[2]));
-                return;
+            // MC-3：默认模式（无参）从固定常量改为 WordModes.firstEnabledMode ——
+            // Wave 2 裁决：优先 choice（FEAT-MODE-01 新手默认），choice 被关时按
+            // spelling→fill_blank 回落；全关时拒绝（word.no-modes-enabled）。
+            String mode;
+            if (args.length > 2) {
+                mode = args[2].toLowerCase(Locale.ROOT);
+                // MC-3 模式门（R-55f）：先辨"未知模式"（invalid-mode，信息里带可用列表）
+                // 与"已知但被管理员关闭"（word.mode-disabled）两种拒绝语义，再放行。
+                if (!WordModes.isKnownMode(mode)) {
+                    player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                            "word.invalid-mode", "mode", args[2]));
+                    return;
+                }
+                if (!WordModes.isEnabled(plugin.getConfigManager(), mode)) {
+                    player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                            "word.mode-disabled"));
+                    return;
+                }
+            } else {
+                mode = WordModes.firstEnabledMode(plugin.getConfigManager());
+                if (mode == null) {
+                    player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                            "word.no-modes-enabled"));
+                    return;
+                }
             }
             String difficulty = resolveDifficulty(normalizedDifficulty);
             if (difficulty == null) {
@@ -233,10 +250,12 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             new WordLearningGUI(plugin).openWithMessage(player, difficulty, mode);
             // F2-13：{difficulty}/{mode} 的值走 i18n label 键，不再把英文标识符
             // （beginner/choice）直接透传给玩家；未知标识符回落原值保证信息不丢。
+            // MC-3：default 用 WordModes 单一实现（PF-MC-11 收口：原本类私有
+            // localizeWordMode 删除）。
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "word.session-start",
-                    "difficulty", localizeWordDifficulty(player, difficulty),
-                    "mode", localizeWordMode(player, mode)));
+                    "difficulty", WordModes.localizeDifficulty(plugin.getMessageUtil(), player, difficulty),
+                    "mode", WordModes.localizeMode(plugin.getMessageUtil(), player, mode)));
         } catch (IllegalArgumentException e) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "general.error", "message", e.getMessage()));
@@ -246,31 +265,6 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "word.no-words-available"));
         }
-    }
-
-    /**
-     * F2-13：学习难度标识符 → i18n label。未知难度回落原值（同 review 路径的
-     * {@code word.mode-review} 用法风格，绝不把空值塞进占位符）。
-     */
-    private String localizeWordDifficulty(Player player, String difficulty) {
-        return switch (difficulty.toLowerCase(Locale.ROOT)) {
-            case "beginner" -> plugin.getMessageUtil().getPlayerMessage(player, "word.difficulty-beginner");
-            case "intermediate" -> plugin.getMessageUtil().getPlayerMessage(player, "word.difficulty-intermediate");
-            case "advanced" -> plugin.getMessageUtil().getPlayerMessage(player, "word.difficulty-advanced");
-            default -> difficulty;
-        };
-    }
-
-    /**
-     * F2-13：学习模式标识符 → i18n label。未知模式回落原值。
-     */
-    private String localizeWordMode(Player player, String mode) {
-        return switch (mode) {
-            case "spelling" -> plugin.getMessageUtil().getPlayerMessage(player, "word.mode-spelling");
-            case "choice" -> plugin.getMessageUtil().getPlayerMessage(player, "word.mode-choice");
-            case "fill_blank" -> plugin.getMessageUtil().getPlayerMessage(player, "word.mode-fill_blank");
-            default -> mode;
-        };
     }
 
     private void handleDialogueCommand(Player player, String[] args) {
@@ -394,8 +388,25 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         new ProfileGUI(plugin).open(player, player.getUniqueId());
     }
 
-    private void handleSquareCommand(Player player) {
-        new EnglishSquareGUI(plugin).open(player, 1);
+    /**
+     * /le square [feed|weekly|monthly|alltime|all]（Wave 2 域 4）：无参 / 非法值
+     * 走默认落点（{@code EnglishSquareGUI.open} 读 {@code english-square.default-mode}，
+     * 缺省 feed——两处不重复读配置）；显式模式直达对应页。榜单/social 模块门
+     * 的回落由 GUI open 内的防御分支统一处理（本方法不重复判门）。
+     */
+    private void handleSquareCommand(Player player, String[] args) {
+        RankingMode mode = null;
+        if (args.length > 1) {
+            mode = switch (args[1].toLowerCase(Locale.ROOT)) {
+                case "feed" -> RankingMode.FEED;
+                case "weekly" -> RankingMode.WEEKLY;
+                case "monthly" -> RankingMode.MONTHLY;
+                case "alltime" -> RankingMode.ALL_TIME_COINS;
+                case "all" -> RankingMode.ALL_PLAYERS;
+                default -> null; // 非法值忽略，开默认落点（plan-social §3.4）
+            };
+        }
+        new EnglishSquareGUI(plugin).open(player, 1, mode);
     }
 
     private void handleLeaderboardCommand(Player player) {
@@ -709,6 +720,10 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             // S4：签到成功加"正向反馈"音效（复用 correct 键，与判对/成就同语义）。
             // 已签过分支不加音效 —— 那是失败路径，给"正确"音反而误导。
             SoundManager.playSound(player, "correct");
+            // Wave 2 域 4（广场社交）：签到成功 → 产生/合并一条 CHECKIN 动态
+            // （SocialManager 内部自判 social.enabled 与产生侧隐身门，异步写库；
+            // 重复签/断签失败分支到不了这里，与 plan-social §1.4 产生规则一致）。
+            plugin.getSocialManager().recordCheckin(player.getUniqueId(), result.streak());
             // R-44：0 金币不是"成功发了 0 块"，是经济开关没开 —— 补一行说明，
             // 免得玩家以为签到奖励吞了。只在 money.enabled=false 时出现。
             if (result.economyDisabled()) {
@@ -883,8 +898,9 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                     }
                 }
             } else if (args.length == 3) {
-                // S4：补全候选直接从 VALID_WORD_MODES 派生，与校验共用同一真相源
-                for (String mode : VALID_WORD_MODES) {
+                // MC-3：补全候选从 WordModes.enabledModes 派生（保序 spelling→choice→
+                // fill_blank），被管理员关闭的模式剔除；与 mode 校验共用同一真相源。
+                for (String mode : WordModes.enabledModes(plugin.getConfigManager())) {
                     if (mode.startsWith(args[2].toLowerCase())) {
                         completions.add(mode);
                     }
@@ -925,6 +941,14 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 if (!p.getName().equals(sender.getName())
                         && p.getName().toLowerCase().startsWith(profileInput)) {
                     completions.add(p.getName());
+                }
+            }
+        } else if (args.length == 2 && "square".equalsIgnoreCase(args[0])) {
+            // Wave 2 域 4：/le square 的可选模式参数（与 handleSquareCommand 的白名单同源）
+            String squareInput = args[1].toLowerCase();
+            for (String mode : Arrays.asList("feed", "weekly", "monthly", "alltime", "all")) {
+                if (mode.startsWith(squareInput)) {
+                    completions.add(mode);
                 }
             }
         } else if (args.length == 3

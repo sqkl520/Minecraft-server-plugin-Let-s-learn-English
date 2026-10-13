@@ -118,26 +118,38 @@ word-system:
     mastered-review-interval-days: 30
 
   # --- 学习模式配置 ---
-  # 预留配置：当前各键尚未被代码读取（判定逻辑写死），修改本段暂不生效；
-  # 接线计划见 Phase 3（Wave 2 的 MC-3）。
+  # Phase 3 已接线（Wave 2 · MC-3）：以下各键均被代码读取，/lea reload 即时生效
+  #（判分大小写 / 选项数 / 倒计时在开局时快照，改动对下一局生效；提示显隐实时生效）。
+  # 命名注意：填空模式 canonical 键名为 fill_blank（下划线）；旧名 fill-blank（连字符）
+  # 仍被兼容读取（新名存在时优先），存量配置文件不失效。
   modes:
     # 拼写模式：看中文含义，输入英文单词
     spelling:
+      # 是否启用该模式（false：/le word 指定该模式拒绝、tab 补全剔除、默认模式解析跳过）
       enabled: true
-      max-attempts: 3
-      case-sensitive: false          # 是否区分大小写
+      # 是否区分大小写（仅影响全词文本比较：spelling/fill_blank 整词判定与 choice 的
+      # "直接输全词"兜底；choice 的 A/B/C/D 字母选择恒大小写不敏感）
+      case-sensitive: false
 
     # 选择题模式：看中文含义，从选项中选出正确答案
     choice:
+      # 是否启用该模式（语义同上）
       enabled: true
-      option-count: 4                # 选项数量
-      time-limit: 30                 # 答题时限（秒），0 不限制
+      # 选项数量，读取钳位 [2, 4]（越界记一次 WARNING 并钳位）
+      option-count: 4
+      # 单题倒计时（秒）：0 = 跟随全局 word-system.answer-timeout；>0 = 覆盖 choice 会话
+      # 单题倒计时。仅 choice 有此键；spelling/fill_blank/review 恒用全局值。
+      time-limit: 0
 
     # 填空模式：看英文句子，填入缺少的单词
-    fill-blank:
+    # 旧名 fill-blank（连字符）仍兼容读取；删除本段 max-attempts 键——从未被读取，
+    # 如需"每词三试"机制请单开 Story（属新机制而非配置接线）。
+    fill_blank:
+      # 是否启用该模式（语义同上）
       enabled: true
-      show-first-letter: true        # 是否显示首字母提示
-      max-attempts: 3
+      # 是否显示首字母提示（false：挖空卡不渲染提示行、聊天不发 fill-blank-hint 行；
+      # 题目本身与判定不变）
+      show-first-letter: true
 
 # ============================================================
 #  单词对决 (Word Duel)
@@ -292,8 +304,8 @@ progress-system:
 gui:
   # 主菜单标题（颜色代码使用 & 符号）
   main-menu-title: "&6&lLet's Learn English!"
-  # 菜单大小：27 / 36 / 45 / 54（按钮布局固定 10-18 槽，至少需要 27 格；
-  # 9/18 会因按钮越界在打开菜单时崩溃，故非法值一律回落 27 并记 WARNING）
+  # 菜单大小：27 / 36 / 45 / 54（按钮布局固定 10-18 槽、含 12/16 新增的对决/签到按钮，
+  # 至少需要 27 格；9/18 会因按钮越界在打开菜单时崩溃，故非法值一律回落 27 并记 WARNING）
   menu-size: 27
   # 是否使用自定义材质（需要额外的资源包）
   custom-textures: false
@@ -364,6 +376,15 @@ gui-layout:
     daily-challenge:
       slot: 10
       material: "WRITABLE_BOOK"
+    # Phase 3 · MC-1 新增：单词对决（主菜单 slot 12）/ 每日签到（主菜单 slot 16）
+    # 渲染侧（MainMenu）与点击侧（MainMenuListener）读同一份配置 + 同一模块门；
+    # 对应模块（duel.enabled / checkin.enabled）关闭时该槽回落灰玻璃占位。
+    duel:
+      slot: 12
+      material: "DIAMOND_SWORD"
+    checkin:
+      slot: 16
+      material: "SUNFLOWER"
   word-learning:
     back-button:
       slot: 8
@@ -411,6 +432,9 @@ gui-layout:
     mode-all:
       slot: 5
       material: "PLAYER_HEAD"
+    mode-feed:
+      slot: 6
+      material: "BELL"
   leaderboard:
     back-button:
       slot: 8
@@ -514,16 +538,17 @@ daily-challenges:
   #   数据保留：既有挑战行保留，重开后继续
   enabled: true
   # 每天分配给每个玩家的任务挑战数量
-  # 注意：当前实现为硬编码（固定从 4 种挑战类型中抽 3 个），修改本键暂不生效，
-  # 整理计划见 CHANGELOG
+  # 分配数量（1-4，受可用类型数限制）：超出 [1,4] 会被钳位并告警；
+  # 无 AI Key 等导致可用类型不足时按可用数分配（如配 4 只得 3）。
+  # Phase 3 · MC-5 起真接线，/lea reload 即时生效（默认 3 = 原硬编码行为）。
   challenges-per-day: 3
   # 每日单词挑战数量（从词库中随机选择）
   word-count: 5
   # 完成所有每日单词挑战后的奖励金币
   word-challenge-reward: 100.0
   # 各挑战的奖励金币数
-  # 注意：当前实现为硬编码（定义在 DailyChallengeManager.ChallengeType 枚举，
-  # 即下列默认值本身），修改本段暂不生效，整理计划见 CHANGELOG
+  # 每类挑战奖励金币（缺键/非法回落内置默认 30/50/25/40）；
+  # ≤0 视为非法同样回落默认（避免"0 金币死领取"）；/lea reload 即时生效。
   rewards:
     answer_10: 30
     session_3: 50
@@ -609,3 +634,53 @@ statistics-server:
   auth:
     username: "admin"
     password: "changeme"
+
+# ============================================================
+#  学习报告 (Learning Report)
+# ============================================================
+# 家长/老师学习报告：/lea report <玩家|all> [week|lastweek|<N>d]
+# 报告文件为纯文本 TXT（UTF-8 + BOM + CRLF），强制中文（language 可配），
+# 落 plugins/LetsLearnEnglish/exports/reports/ —— 由老师/服主自行转发给家长。
+report:
+  # 是否启用 /lea report 报告功能。false 时命令提示 report.disabled（真接线，非静默 no-op）
+  enabled: true
+  # 默认统计周期: week(本周一~今天) / lastweek(上一完整周)
+  # 命令行的周期参数可覆盖；家长抽查可用 7d/30d 形式
+  period: "week"
+  # 报告文件语言（给家长看，独立于玩家与执行者语言）: zh / en
+  language: "zh"
+  # 时长估算系数: 每题折合的分钟数（默认 0.5 = 每题 30 秒，与 answer-timeout 默认一致）
+  minutes-per-question: 0.5
+  # 报告文件保留天数（exports/reports/report_*.txt 的清理阈值），0 = 不清理
+  keep-days: 30
+  # 是否尊重玩家隐私开关（showInSquare）。
+  # false（默认）= 报告属管理/监护通道，不受玩家展示开关约束 —— 权限即同意边界；
+  # true = 隐身玩家不出现在批量报告、单报拒发（与榜单过滤同口径）
+  respect-privacy: false
+  batch:
+    # /lea report all 的单次最大玩家数（按窗口内活跃人数取前 N，超出截断并标注）
+    max-players: 50
+  # 错题列表截断长度（报告文件与批量逐人小节）
+  weak-words-limit: 5
+
+# ============================================================
+#  广场社交 (Square Social) — Wave 2（域 4）
+# ============================================================
+social:
+  # 是否启用广场社交（动态流 + 鼓励）。false 时：不产生动态、动态按钮隐藏、
+  # 鼓励点击无效、进服摘要不发（四处接线，非静默 no-op）
+  enabled: true
+  feed:
+    # 动态保留天数，过期动态连同其鼓励记录一并清理；0 表示永久保留（不推荐）
+    retention-days: 7
+  cheer:
+    # 是否启用鼓励按钮
+    enabled: true
+    # 连续点击防抖（毫秒），防宏连点
+    click-debounce-ms: 750
+  # 玩家进服时提示"离线期间收到的鼓励"
+  notify-on-join: true
+
+english-square:
+  # 广场打开时的默认模式: feed（动态流，推荐）/ all（玩家列表）
+  default-mode: "feed"

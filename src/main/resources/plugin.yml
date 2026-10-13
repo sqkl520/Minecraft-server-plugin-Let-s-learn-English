@@ -19,7 +19,10 @@ commands:
     description: "Admin command for plugin configuration and data management"
     aliases: [lea]
     usage: /<command> [subcommand]
-    permission: letslearnenglish.admin
+    # 注意：此处故意不设命令级 permission——US-RPT-3 权限最小化后由
+    # AdminCommand.onCommand 逐子命令判定（report 接受 letslearnenglish.report
+    # 或 admin，其余子命令维持 admin）。恢复命令级 admin 门会让仅持 report
+    # 权限的老师在执行器之前就被 Bukkit 拦下，/lea report 功能失效。
 
 permissions:
   letslearnenglish.use:
@@ -39,4 +42,7 @@ permissions:
     default: true
   letslearnenglish.scenario.import:
     description: "Allows importing shared AI scenario codes as personal scenarios"
+    default: op
+  letslearnenglish.report:
+    description: "Allows generating student learning reports (/lea report)"
     default: op

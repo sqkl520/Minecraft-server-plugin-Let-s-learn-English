@@ -3,6 +3,7 @@ package com.letslearnenglish.minecraftplugin.listener;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.GuiNavigationManager;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.core.word.WordModes;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.gui.DailyChallengeGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
@@ -15,6 +16,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -22,12 +24,6 @@ import java.util.UUID;
  * Listener for Privacy Settings, Word Bank Select, and Learning Calendar GUI interactions.
  */
 public class MiscGUIListener implements Listener {
-
-    /**
-     * F2-05：默认单词模式的本地副本 —— 与 {@code LearnCommand.DEFAULT_WORD_MODE} 对齐
-     * （该常量为 private、跨包不可见，无法直接引用；将来改默认模式时两处需同步修改）。
-     */
-    private static final String DEFAULT_WORD_MODE = "choice";
 
     private final LetsLearnEnglish plugin;
 
@@ -145,45 +141,35 @@ public class MiscGUIListener implements Listener {
                     "dialogue.chat-active"));
             return;
         }
+        // MC-3（F2-05 收口）：默认模式从私有常量改为 WordModes.firstEnabledMode ——
+        // Wave 2 裁决：默认模式解析优先 choice（FEAT-MODE-01）；choice 被关时按
+        // spelling→fill_blank 回落；三模式全关时拒绝。
+        // （word.no-modes-enabled），不再回落到可能已关闭的 choice。
+        // 顺序对齐 /le word 命令路径（模式门先于引导接管）：全关时不落进 step==1 教程。
+        String mode = WordModes.firstEnabledMode(plugin.getConfigManager());
+        if (mode == null) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "word.no-modes-enabled"));
+            return;
+        }
         // 域 1 新手引导拦截：step==1 的"首次答题"改开 3 词迷你会话（接管开局则直接返回）。
         if (plugin.getOnboardingManager().interceptQuizStart(player, difficulty)) {
             return;
         }
-        // F2-05：默认模式走常量，与 LearnCommand.DEFAULT_WORD_MODE 对齐（见字段注释）
-        var session = plugin.getWordLearningManager().startQuiz(player, difficulty, DEFAULT_WORD_MODE);
+        var session = plugin.getWordLearningManager().startQuiz(player, difficulty, mode);
         // Wave 1 fan-in（S-F 上报纵深）：word 门关闭时 startQuiz 返回 null 已发
         // module.disabled——此处不再开 GUI / 发 session-start（上方兜底门之外的第二道防线）。
         if (session == null) {
             return;
         }
-        new WordLearningGUI(plugin).openWithMessage(player, difficulty, DEFAULT_WORD_MODE);
+        new WordLearningGUI(plugin).openWithMessage(player, difficulty, mode);
         // PF-ONB-03（Phase 3 规划期发现，编排者即修）：F2-13 只修了命令路径，词库选择
         // 这条新手主路径此前仍把英文标识符（beginner/choice）透传给中文玩家；
-        // 现与 LearnCommand.localizeWordDifficulty/localizeWordMode 同口径本地化。
+        // MC-3（PF-MC-11 收口）：本地化改走 WordModes 单一实现（本类私有副本删除）。
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                 "word.session-start",
-                "difficulty", localizeDifficulty(player, difficulty),
-                "mode", localizeMode(player, DEFAULT_WORD_MODE)));
-    }
-
-    /** PF-ONB-03：难度标识符 → i18n label，未知回落原值（与 LearnCommand 同口径）。 */
-    private String localizeDifficulty(Player player, String difficulty) {
-        return switch (difficulty.toLowerCase(java.util.Locale.ROOT)) {
-            case "beginner" -> plugin.getMessageUtil().getPlayerMessage(player, "word.difficulty-beginner");
-            case "intermediate" -> plugin.getMessageUtil().getPlayerMessage(player, "word.difficulty-intermediate");
-            case "advanced" -> plugin.getMessageUtil().getPlayerMessage(player, "word.difficulty-advanced");
-            default -> difficulty;
-        };
-    }
-
-    /** PF-ONB-03：模式标识符 → i18n label，未知回落原值（与 LearnCommand 同口径）。 */
-    private String localizeMode(Player player, String mode) {
-        return switch (mode) {
-            case "spelling" -> plugin.getMessageUtil().getPlayerMessage(player, "word.mode-spelling");
-            case "choice" -> plugin.getMessageUtil().getPlayerMessage(player, "word.mode-choice");
-            case "fill_blank" -> plugin.getMessageUtil().getPlayerMessage(player, "word.mode-fill_blank");
-            default -> mode;
-        };
+                "difficulty", WordModes.localizeDifficulty(plugin.getMessageUtil(), player, difficulty),
+                "mode", WordModes.localizeMode(plugin.getMessageUtil(), player, mode)));
     }
 
     private void handleLearningCalendar(Player player, int slot) {
@@ -212,10 +198,12 @@ public class MiscGUIListener implements Listener {
             backAction.run();
             return;
         }
-        // Claim buttons at slots 11, 13, 15
-        if (slot == 11 || slot == 13 || slot == 15) {
+        // Claim buttons：槽位查位映射（MC-5/F1-12）——与 DailyChallengeGUI.CHALLENGE_SLOTS
+        // 共用同一份槽位真相（WrongBook 模式），不再手写 (slot-11)/2 魔法反算。
+        // 索引语义与渲染侧一致：列表第 i 项渲染在 CHALLENGE_SLOTS[i]。
+        int idx = Arrays.binarySearch(DailyChallengeGUI.CHALLENGE_SLOTS, slot);
+        if (idx >= 0) {
             SoundManager.playSound(player, "menu-click");
-            int idx = (slot - 11) / 2; // 11->0, 13->1, 15->2
             // R-02: run the whole claim under the player's stripe lock so two
             // rapid clicks of the same button can never interleave a double pay.
             synchronized (getClaimStripeLock(player.getUniqueId())) {
@@ -232,7 +220,7 @@ public class MiscGUIListener implements Listener {
      * deposit leaves the reward unmarked and re-claimable.
      *
      * @param player the clicking player
-     * @param idx index into today's challenge list (0..2)
+     * @param idx index into today's challenge list (0..CHALLENGE_SLOTS.length-1)
      */
     private void claimBehavioralChallenge(Player player, int idx) {
         var challenges = plugin.getDailyChallengeManager().getTodayChallenges(player.getUniqueId());
@@ -242,7 +230,10 @@ public class MiscGUIListener implements Listener {
         // M12: deposit-then-mark. Transfer first, mark claimed only
         // after money arrived. On failure the reward stays claimable
         // and the GUI is refreshed unclaimed for retry.
-        double reward = cp.type.reward;
+        // MC-5：奖励金额走 DailyChallengeManager.getChallengeReward（唯一读取口，
+        // 读 daily-challenges.rewards.<id>，缺键/非法/≤0 回落枚举默认），
+        // 直读 cp.type.reward 已废除（PF-MC-09）。
+        double reward = plugin.getDailyChallengeManager().getChallengeReward(cp.type);
         // PF-MC-01（Phase 3 规划期发现，编排者即修）：行为挑战领取此前直接走
         // depositCappedReward，未过 money.enabled 门 —— 服主关币（默认 false）且
         // 装了 Vault 时仍会实发金币，与签到/单词挑战的 economy-disabled 语义不一致

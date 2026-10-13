@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.command;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.manager.DataExporter;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -11,6 +12,7 @@ import org.bukkit.entity.Player;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.io.File;
 
 /**
@@ -22,6 +24,7 @@ import java.io.File;
  * - /lea reset      Reset a player's learning data
  * - /lea info       Show plugin information
  * - /lea duel cancel &lt;player&gt;  Force-dismiss an active word duel (GM adjudication)
+ * - /lea report     Generate a learning report for a player or all active players
  */
 public class AdminCommand implements CommandExecutor, TabCompleter {
 
@@ -29,7 +32,7 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
 
     private static final List<String> SUBCOMMANDS = Arrays.asList(
             "reload", "export", "reset", "info", "help", "ignore-update", "broadcast",
-            "exportwordbank", "importwordbank", "duel"
+            "exportwordbank", "importwordbank", "duel", "report"
     );
 
     public AdminCommand(LetsLearnEnglish plugin) {
@@ -38,7 +41,12 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!sender.hasPermission("letslearnenglish.admin")) {
+        // US-RPT-3 权限最小化（plan-reports §1.1）：不再顶部统一 admin 门。
+        // report 子命令接受 letslearnenglish.report 或 admin 任一；其余子命令
+        // （含无参 help 显示）维持 letslearnenglish.admin。只发报告权限的老师/
+        // 家长代表可用 /lea report，而 reset/reload/broadcast 仍被拒绝。
+        String subCommand = args.length > 0 ? args[0].toLowerCase(Locale.ROOT) : "";
+        if (!hasPermissionFor(sender, subCommand)) {
             sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "general.no-permission"));
             return true;
         }
@@ -48,8 +56,6 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        String subCommand = args[0].toLowerCase();
-
         switch (subCommand) {
             case "reload":
                 plugin.getHotReloadManager().reloadAll();
@@ -57,16 +63,16 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                         "general.reload-success"));
                 break;
             case "export":
-                String filePath = plugin.getDataExporter().exportAllData();
-                // R-86h：DataExporter 失败时返回 "Export failed: ..." 串（不抛异常），
-                // 原先无论成败都打"导出完成"。命中失败前缀即按失败告知并返回。
-                if (filePath == null || filePath.startsWith("Export failed")) {
+                // US-RPT-3：DataExporter 返回 ExportResult 协议对象（原 "Export failed: ..."
+                // 字符串前缀判定已消——P2-09 教训落地）。失败按字段判定，不需要嗅探内容。
+                DataExporter.ExportResult exportResult = plugin.getDataExporter().exportAllData();
+                if (!exportResult.success()) {
                     sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                             "admin.export-failed"));
                     break;
                 }
                 sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
-                        "admin.export-complete", "file", filePath));
+                        "admin.export-complete", "file", exportResult.filePath()));
                 break;
             case "reset":
                 if (args.length > 1) {
@@ -90,6 +96,9 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                 break;
             case "duel":
                 handleDuelCancel(sender, args);
+                break;
+            case "report":
+                handleReport(sender, args);
                 break;
             case "exportwordbank":
                 if (args.length > 1) {
@@ -186,6 +195,49 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
         duelManager.cancelDuelByAdmin(sender, args[2]);
     }
 
+    /**
+     * US-RPT-3 权限最小化（plan-reports §1.1）：逐子命令权限判定。
+     *
+     * <p>{@code report} 子命令接受 {@code letslearnenglish.report} 或
+     * {@code letslearnenglish.admin} 任一；其余一切子命令（以及隐式的子命令名）
+     * 维持 {@code letslearnenglish.admin}。只看子命令名、不看后续参数——权限判定
+     * 不受 args[1]（玩家名/period）影响。
+     *
+     * <p>无参（{@code args.length == 0}）走 admin：help 列表含 reset/broadcast 等
+     * 管理操作说明，仅 report 权限者不应看到全量管理帮助。
+     */
+    private boolean hasPermissionFor(CommandSender sender, String subCommand) {
+        if ("report".equals(subCommand)) {
+            return sender.hasPermission("letslearnenglish.report")
+                    || sender.hasPermission("letslearnenglish.admin");
+        }
+        return sender.hasPermission("letslearnenglish.admin");
+    }
+
+    /**
+     * US-RPT-3：{@code /lea report <玩家|all> [week|lastweek|<N>d]}。
+     *
+     * <p>本方法只做参数解析与转派：目标解析/UUID 三级查找/在线快照在主线程
+     * （{@link AdminCommandHandler#generateReport}），DB 查询/渲染/写文件在
+     * ReportGenerator 内部异步执行。{@code all} 为保留字（plan §1.1 文档化：
+     * 名为 all 的玩家走不了单报）。
+     */
+    private void handleReport(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "report.usage"));
+            return;
+        }
+        String target = args[1];
+        String periodSpec = args.length > 2 ? args[2] : null;
+        String defaultSpec = plugin.getConfigManager().getMainConfig()
+                .getString("report.period", "week");
+        if ("all".equalsIgnoreCase(target)) {
+            plugin.getAdminCommandHandler().generateBatchReport(sender, periodSpec, defaultSpec);
+        } else {
+            plugin.getAdminCommandHandler().generateReport(sender, target, periodSpec, defaultSpec);
+        }
+    }
+
     private void sendPluginInfo(CommandSender sender) {
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "plugin-info.header"));
@@ -227,6 +279,8 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "admin-help.duel-cancel"));
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "admin-help.report"));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "admin-help.footer"));
     }
 
@@ -235,16 +289,47 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
         List<String> completions = new ArrayList<>();
 
         if (args.length == 1) {
+            boolean isAdmin = sender.hasPermission("letslearnenglish.admin");
+            boolean isReport = sender.hasPermission("letslearnenglish.report");
             for (String sub : SUBCOMMANDS) {
+                // US-RPT-3：补全按权限过滤——只有 report 权限的老师不看到管理子命令名
+                if (!isAdmin && !(isReport && "report".equals(sub))) {
+                    continue;
+                }
                 if (sub.startsWith(args[0].toLowerCase())) {
                     completions.add(sub);
                 }
             }
         } else if (args.length == 2) {
+            // W2 代码质量 tester 收口：args≥2 分支补权限复核——只有 report 权限的老师
+            // 不应通过补全看到重置/决斗管理等子命令的存在（args==1 已过滤，此处对齐）。
+            boolean isAdmin = sender.hasPermission("letslearnenglish.admin");
+            boolean isReport = sender.hasPermission("letslearnenglish.report");
+            if (!isAdmin && !(isReport && "report".equalsIgnoreCase(args[0]))) {
+                return completions;
+            }
             if ("duel".equalsIgnoreCase(args[0])) {
                 // FIX-DUEL-01: /lea duel <cancel>
                 if ("cancel".startsWith(args[1].toLowerCase())) {
                     completions.add("cancel");
+                }
+            } else if ("report".equalsIgnoreCase(args[0])) {
+                // US-RPT-3: /lea report <在线名 ∪ 库内名 ∪ all>（plan §3.3）
+                String prefix = args[1].toLowerCase();
+                if ("all".startsWith(prefix)) {
+                    completions.add("all");
+                }
+                plugin.getServer().getOnlinePlayers().stream()
+                        .map(Player::getName)
+                        .filter(name -> name.toLowerCase().startsWith(prefix))
+                        .forEach(completions::add);
+                if (prefix.length() >= 1) {
+                    for (String name : plugin.getAdminCommandHandler()
+                            .getKnownPlayerNames(args[1], 25)) {
+                        if (!completions.contains(name)) {
+                            completions.add(name);
+                        }
+                    }
                 }
             } else if ("reset".equalsIgnoreCase(args[0])) {
                 plugin.getServer().getOnlinePlayers().stream()
@@ -281,6 +366,14 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                     .map(Player::getName)
                     .filter(name -> name.toLowerCase().startsWith(args[2].toLowerCase()))
                     .forEach(completions::add);
+        } else if (args.length == 3 && "report".equalsIgnoreCase(args[0])) {
+            // US-RPT-3: /lea report <玩家> <周期>（plan §3.3 第三参数候选）
+            String prefix = args[2].toLowerCase();
+            for (String period : new String[]{"week", "lastweek", "7d", "14d", "30d"}) {
+                if (period.startsWith(prefix)) {
+                    completions.add(period);
+                }
+            }
         }
 
         return completions;

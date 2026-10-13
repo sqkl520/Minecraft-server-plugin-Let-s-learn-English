@@ -14,8 +14,10 @@ import com.letslearnenglish.minecraftplugin.core.manager.AdminCommandHandler;
 import com.letslearnenglish.minecraftplugin.core.manager.CheckInManager;
 import com.letslearnenglish.minecraftplugin.core.manager.DataExporter;
 import com.letslearnenglish.minecraftplugin.core.manager.HotReloadManager;
+import com.letslearnenglish.minecraftplugin.core.manager.ReportGenerator;
 import com.letslearnenglish.minecraftplugin.core.manager.StatisticsHttpServer;
 import com.letslearnenglish.minecraftplugin.core.onboarding.OnboardingManager;
+import com.letslearnenglish.minecraftplugin.core.social.SocialManager;
 import com.letslearnenglish.minecraftplugin.core.progress.ProgressManagerImpl;
 import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
@@ -24,6 +26,7 @@ import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.listener.ChatAnswerListener;
 import com.letslearnenglish.minecraftplugin.listener.ChatHistoryListener;
 import com.letslearnenglish.minecraftplugin.listener.ChatScenarioListener;
+import com.letslearnenglish.minecraftplugin.listener.DuelChallengeListener;
 import com.letslearnenglish.minecraftplugin.listener.DuelGUIListener;
 import com.letslearnenglish.minecraftplugin.listener.DuelListener;
 import com.letslearnenglish.minecraftplugin.listener.MainMenuListener;
@@ -81,6 +84,9 @@ public final class LetsLearnEnglish extends JavaPlugin {
     private DataExporter dataExporter;
     private HotReloadManager hotReloadManager;
 
+    // US-RPT-3（域 6 家长报告）：/lea report 的报告生成器（构造注入 db/word 依赖）
+    private ReportGenerator reportGenerator;
+
     private LetsLearnEnglishAPI api;
 
     private UpdateChecker updateChecker;
@@ -103,6 +109,8 @@ public final class LetsLearnEnglish extends JavaPlugin {
     private CheckInManager checkInManager;
 
     private OnboardingManager onboardingManager;
+
+    private SocialManager socialManager;
 
     private StatisticsHttpServer statisticsHttpServer;
 
@@ -165,8 +173,12 @@ public final class LetsLearnEnglish extends JavaPlugin {
         // 无需改 registerListeners；位置在 registerListeners 之前（构造即完成注册）。
         this.onboardingManager = new OnboardingManager(this);
 
+        // Wave 2 域 4（广场社交）：FeedCache 预热与周期刷新见下方启动异步块（startupWarmup）。
+        this.socialManager = new SocialManager(this);
+
         this.adminCommandHandler = new AdminCommandHandler(this);
         this.dataExporter = new DataExporter(this, playerDataStore);
+        this.reportGenerator = new ReportGenerator(this, databaseManager, wordManager);
         this.hotReloadManager = new HotReloadManager(this, configManager);
 
         this.soundManager = new SoundManager(this);
@@ -195,6 +207,9 @@ public final class LetsLearnEnglish extends JavaPlugin {
         getServer().getScheduler().runTaskAsynchronously(this, () -> {
             progressManager.getLeaderboard().loadFromDB();
             progressManager.getLeaderboard().refreshCache();
+            // Wave 2 域 4：广场社交缓存预热 + 保留清理 + 周期刷新排程
+            //（对齐 cleanupOldChatHistory 的启动异步模式）。
+            socialManager.startupWarmup();
         });
 
         // Statistics HTTP Dashboard
@@ -293,6 +308,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new ChatAnswerListener(this), this);
         getServer().getPluginManager().registerEvents(new ChatHistoryListener(this), this);
         getServer().getPluginManager().registerEvents(new DuelGUIListener(this), this);
+        getServer().getPluginManager().registerEvents(new DuelChallengeListener(this), this);
         getServer().getPluginManager().registerEvents(new DuelListener(this), this);
         getServer().getPluginManager().registerEvents(new com.letslearnenglish.minecraftplugin.listener.WrongBookListener(this), this);
         getServer().getPluginManager().registerEvents(soundManager, this);
@@ -655,6 +671,11 @@ public final class LetsLearnEnglish extends JavaPlugin {
         return dataExporter;
     }
 
+    /** US-RPT-3（域 6）：/lea report 的报告生成器（未启用前为 null，命令侧不触碰）。 */
+    public ReportGenerator getReportGenerator() {
+        return reportGenerator;
+    }
+
     public HotReloadManager getHotReloadManager() {
         return hotReloadManager;
     }
@@ -689,6 +710,11 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     public OnboardingManager getOnboardingManager() {
         return onboardingManager;
+    }
+
+    /** Wave 2 域 4：广场社交管理器（GUI/Listener/成就接线四处消费）。 */
+    public SocialManager getSocialManager() {
+        return socialManager;
     }
 
     public ProxyMessenger getProxyMessenger() {

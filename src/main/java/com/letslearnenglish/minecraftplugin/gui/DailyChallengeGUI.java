@@ -16,16 +16,29 @@ import org.bukkit.inventory.meta.ItemMeta;
 import java.util.*;
 
 /**
- * Daily Challenge GUI — shows today's 3 challenges with progress and claim buttons.
+ * Daily Challenge GUI — shows today's challenges (up to N, see CHALLENGE_SLOTS)
+ * with progress and claim buttons.
  *
  * 27-slot layout:
  *   Row 1 (0-8): header + back button
- *   Row 2 (9-17): 3 challenge slots at 11, 13, 15
+ *   Row 2 (9-17): challenge slots — first N entries of {@link #CHALLENGE_SLOTS}
+ *                  (11/13/15/17; N=3 renders 11/13/15 exactly like before)
  *   Row 3 (18-26): word-challenge visibility line (FIX-CHAL-01, slot 22)
  */
 public class DailyChallengeGUI {
 
     private static final int GUI_SIZE = 27;
+
+    /**
+     * MC-5（F1-12 配套）：行为挑战条目槽位（27 格行 2 的均匀间隔满行）。
+     * 渲染取前 N 个（N = 今日实际分配数 ≤ 4）；
+     * {@link com.letslearnenglish.minecraftplugin.listener.MiscGUIListener} 的
+     * 点击→下标映射与本常量共用同一份槽位真相（避免"点 A 领 B"漂移），
+     * 不要再出现手写的 {@code (slot-11)/2}。
+     *
+     * 必须保持升序 —— 点击侧用 {@link java.util.Arrays#binarySearch} 查位。
+     */
+    public static final int[] CHALLENGE_SLOTS = {11, 13, 15, 17};
 
     private final LetsLearnEnglish plugin;
 
@@ -43,8 +56,8 @@ public class DailyChallengeGUI {
 
         List<ChallengeProgress> challenges = plugin.getDailyChallengeManager().getTodayChallenges(player.getUniqueId());
 
-        int[] slots = {11, 13, 15};
-        for (int i = 0; i < Math.min(challenges.size(), slots.length); i++) {
+        // MC-5：取前 N 个（N ≤ 4 = CHALLENGE_SLOTS.length，分配侧已按配置/可用数封顶）。
+        for (int i = 0; i < Math.min(challenges.size(), CHALLENGE_SLOTS.length); i++) {
             ChallengeProgress cp = challenges.get(i);
             ChallengeType type = cp.type;
 
@@ -74,12 +87,14 @@ public class DailyChallengeGUI {
                             .replace("{target}", String.valueOf(type.target))));
             lore.add(ChatColor.translateAlternateColorCodes('&', status));
             if (!cp.claimed) {
+                // MC-5：奖励展示走配置化读取口（与领取到账同一数值来源，缺键/非法回落默认）。
                 lore.add(ChatColor.translateAlternateColorCodes('&',
                         MessageUtil.getGuiMsg(messages, "daily.reward-hint")
-                                .replace("{reward}", String.valueOf((int) type.reward))));
+                                .replace("{reward}", String.valueOf((int) plugin.getDailyChallengeManager()
+                                        .getChallengeReward(type)))));
             }
 
-            inv.setItem(slots[i], createItem(mat,
+            inv.setItem(CHALLENGE_SLOTS[i], createItem(mat,
                     ChatColor.translateAlternateColorCodes('&', "&e" + getChallengeName(type, messages)),
                     lore));
         }

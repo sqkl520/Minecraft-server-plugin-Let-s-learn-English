@@ -4,6 +4,7 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.gui.ConfirmationGUI;
 import com.letslearnenglish.minecraftplugin.gui.DailyChallengeGUI;
+import com.letslearnenglish.minecraftplugin.gui.DuelChallengeGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.WordBankSelectGUI;
 import com.letslearnenglish.minecraftplugin.gui.WrongBookGUI;
@@ -135,6 +136,49 @@ public class MainMenuListener implements Listener {
         } else if (slot == cm.getGuiSlot("main-menu", "language-toggle", 18)) {
             SoundManager.playSound(player, "menu-click");
             handleLanguageSwitch(player);
+        } else if (slot == cm.getGuiSlot("main-menu", "duel", 12)) {
+            // Phase 3 · MC-1（R-82）：【单词对决】点击分支。与渲染侧 MainMenu 读同一份
+            // gui-layout.main-menu 配置（fallback 12 两侧一致），改槽位后双侧自动对齐。
+            // 门语义（plan-menu-config §4.2）：duel.enabled=false 时"发起"恒被拦
+            //（module.disabled 兜底），但"已在局中"放行重开界面 —— 关开关后进行中的
+            // 对局仍可退出/重开，与 LearnCommand duel 分支的 duel.enabled || inDuel 同款。
+            var duelManager = plugin.getDuelManager();
+            if (duelManager == null) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "general.error", "message",
+                        plugin.getMessageUtil().getPlayerMessage(player, "error.duel-unavailable")));
+                return;
+            }
+            boolean inDuel = duelManager.isInDuel(player.getUniqueId());
+            if (!inDuel && !cm.isDuelEnabled()) {
+                // 僵尸界面兜底：渲染侧已把该槽收回为玻璃占位，这里覆盖"关闭前已打开的
+                // 菜单残留按钮"的存量点击（与 SocialListener 榜单占位槽拒绝同模式）。
+                SoundManager.playSound(player, "menu-click");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "module.disabled"));
+                return;
+            }
+            SoundManager.playSound(player, "menu-click");
+            if (inDuel) {
+                // 已在局中：重开当前对决界面（等价 /le duel gui）
+                duelManager.reopenDuelGUI(player);
+            } else {
+                // 发起：打开在线玩家选择器（点头像 = sendDuelRequest，全部忙态/互斥
+                // 守卫在 DuelManager 内部复用，本处不预判）
+                new DuelChallengeGUI(plugin).open(player);
+            }
+        } else if (slot == cm.getGuiSlot("main-menu", "checkin", 16)) {
+            // Phase 3 · MC-1：【每日签到】点击分支 —— 直接 performCommand("le checkin")
+            //（签到是瞬时动作：一条聊天消息 + 音效，不开专属界面）。
+            // 点击侧模块门（僵尸界面兜底）与渲染侧同源；命令侧亦有门（纵深）。
+            if (!cm.isCheckinEnabled()) {
+                SoundManager.playSound(player, "menu-click");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "module.disabled"));
+                return;
+            }
+            SoundManager.playSound(player, "menu-click");
+            player.performCommand("le checkin");
         }
     }
 

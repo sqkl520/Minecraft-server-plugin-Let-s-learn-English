@@ -97,6 +97,10 @@ public class GUIUtils {
                 || title.contains("对话详情")
                 || title.contains("Word Duel")
                 || title.contains("单词对决")
+                // duel.challenge-title（Phase 3 · MC-1「发起对决」选择器；
+                // 标题刻意不含"单词对决"子串——见 DuelChallengeGUI 的标题避碰红线）
+                || title.contains("Pick a Duel Opponent")
+                || title.contains("选择对决对手")
                 || title.contains("Wrong Book")
                 || title.contains("错题本")
                 // 旧错题本标题（现为「Wrong Book | Page N / 错题本 | 第 N 页」），保留待统一清理

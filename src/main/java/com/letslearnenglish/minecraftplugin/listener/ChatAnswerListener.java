@@ -193,10 +193,13 @@ public class ChatAnswerListener implements Listener {
             // R-10：choice 模式下敲了越界选项字母（小词库只有 A/B 却输入 C/D）属"无效输入"，
             // 不当答错结算（不清连击 / 不扣分 / 不进错题本）。判定收敛在 AnswerChecker，
             // 这里仅在 submitAnswer 之前拦截并提示；计时器未被取消，玩家可在剩余倒计时内重答。
+            // MC-3：caseSensitive 走会话快照（与 submitAnswer 内部判分同参数，
+            // 防"判分判对的输入被前置无效判定抢先拦下"）。
             if (AnswerChecker.isChoice(mode)) {
                 Word currentWord = wlManager.getCurrentWord(player.getUniqueId());
                 java.util.List<Word> options = wlManager.getChoiceOptions(player.getUniqueId());
-                if (AnswerChecker.isInvalidChoiceInput(mode, currentWord, answer, options)) {
+                if (AnswerChecker.isInvalidChoiceInput(mode, currentWord, answer, options,
+                        wlManager.isCaseSensitive(player.getUniqueId()))) {
                     player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                             "word-learning-gui.invalid-option"));
                     return;

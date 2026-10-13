@@ -70,3 +70,10 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - [ ] W2-A 广场社交 / W2-B 主菜单 / W2-C modes / W2-E 家长报告
 - [x] W2-B 主菜单与对决选择器：done（主菜单 9 按钮双侧同源 + 模块门渲染/点击 + DuelChallengeGUI 在线选择器 + Listener 等值标题判定；**标题避碰实测 16 项断言全绿**——含"被否标题确实会炸"的对抗性证明 + 预 fan-in 窗口 [?key] 占位时等值判定仍自洽；EOL 考场记：git ls-files --eol 才是判据）
 - [ ] W2-A 广场社交 / W2-C modes / W2-E 家长报告
+- [x] W2-C modes 接线：done（WordModes 209 行配置真相源双读兼容 + AnswerChecker 参数化四签名保留 + QuizState 快照 + 三入口接线；**fan-in 裁决：firstEnabledMode 优先 choice**——修回 plan §1.(c) 固定序与 §4.3 逐位一致的内部矛盾，恢复 FEAT-MODE-01 "choice 新手默认" 语义）。范围外：PF-MC-07 残留（WordManagerImpl VALID_MODES）、PF-MC-11 第四份 localize（OnboardingManager:502）、word.invalid-mode 文案不动态收窄——记 Wave 4
+- [ ] W2-A 广场社交 / W2-E 家长报告
+- [ ] W2-A 广场社交：**首实例 API 502 中断**（已落盘：SocialManager 487 行 / FeedTextFormatter / DatabaseManager 两表+8方法 / Leaderboard FEED / EnglishSquareGUI FEED 渲染 / schema.sql；编译绿）；**重跑实例已启动**续写剩余：SocialListener 路由 / PlayerJoinListener 摘要 / LearnCommand 参数 / checkHelpAchievement 接线 / showSessionComplete 钩子 / DI 预热
+- [x] W2-E 家长报告：done（ReportGenerator 1130 行全异步 + ReportPeriod 纯函数周一锚点 + 权限最小化 hasPermissionFor（plugin.yml 命令级门删除——Bukkit 前置拦截）+ ExportResult 协议化 + 规则引擎"给家长的话"零 AI 调用 + 降级路径（first_learned_at 未落地 → 新词节省略，不写死键）；**62 i18n 键待 fan-in**（41 文件模板 + 14 聊天 + 1 改键 admin-help.report）；范围外：plan 键名与实际代码不一致以代码为准（report.generated 非 chat-generated）、ReportGenerator 合并单类（原 plan 拆两文件）
+- [x] 编排者 fan-in（Wave 2 主体）：i18n 双侧落盘完成（638=638 键级对称：report 62 键 / square.feed 23 键 / main-menu 4 键 / word 2 键，占位符逐键对照代码调用点校正 16 处）+ config.yml social/english-square 段补齐（真解析过；report 段 W2-E 已落）+ 重复顶级键清理（square/main-menu/word 三次合并）
+- [ ] W2-A 第 3 实例运行中（第 1/2 实例先后被 API 502/524 中断；主体已落盘，续写 SocialListener 路由 / PlayerJoinListener / LearnCommand / checkHelpAchievement 接线）
+- [x] W2 三维 tester：架构 PASS（七项全过，仅 WARN 建议级）；构建 GO 修复后复验（F-1 duel.challenge-* 4 键遗漏已补 + **新增自动化键核对 scripts/audit-i18n-keys.js** 又抓出 admin-help.report 漏网已补；现 643=643 对称 + verify 33 测试全绿；F-2 ProgressGUI 死类残留归 MC-7 不阻断）；代码质量 tester 运行中

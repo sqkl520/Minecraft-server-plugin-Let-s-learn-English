@@ -5,6 +5,7 @@ import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import com.letslearnenglish.minecraftplugin.core.word.AnswerChecker;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
+import com.letslearnenglish.minecraftplugin.core.word.WordModes;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -186,6 +187,9 @@ public class WordLearningGUI {
     /**
      * FEAT-MODE-01：fill_blank 渲染 — 挖空例句卡 + 首字母提示 lore。
      * 空位不带答案（缺例句/例句不含目标词时显示纯 "_____"）。
+     *
+     * <p>MC-3：首字母提示行按 {@code modes.fill_blank.show-first-letter} 短路
+     * （展示层实时读配置，reload 即时生效）；false 时只隐藏提示行，题目本身与判定不变。
      */
     private void renderFillBlankCard(Inventory inv, ConfigManager cm,
                                      FileConfiguration messages, Word currentWord) {
@@ -199,19 +203,25 @@ public class WordLearningGUI {
                 MessageUtil.getGuiMsg(messages, "word-learning-gui.fill-blank-sentence")
                         .replace("{sentence}", AnswerChecker.blankSentence(currentWord)));
 
-        String hintLine = ChatColor.translateAlternateColorCodes('&',
-                MessageUtil.getGuiMsg(messages, "word-learning-gui.fill-blank-hint")
-                        .replace("{letter}", AnswerChecker.firstLetterHint(currentWord)));
-
         String viewLore = ChatColor.translateAlternateColorCodes('&', "&7" +
                 MessageUtil.getGuiMsg(messages, "word-learning-gui.current-word-lore-1"));
 
+        java.util.List<String> lore = new java.util.ArrayList<>();
+        lore.add(sentenceLine);
+        if (WordModes.showFirstLetter(cm)) {
+            lore.add(ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(messages, "word-learning-gui.fill-blank-hint")
+                            .replace("{letter}", AnswerChecker.firstLetterHint(currentWord))));
+        }
+        lore.add(viewLore);
+
         inv.setItem(cm.getGuiSlot("word-learning", "current-word", 13),
                 createItem(cm.getGuiMaterial("word-learning", "current-word", Material.BOOK),
-                        wordLabel, new String[] { sentenceLine, hintLine, viewLore }));
+                        wordLabel, lore.toArray(new String[0])));
     }
 
-    private String getComboLabel(int combo, double multiplier, FileConfiguration messages) {        if (combo <= 0) {
+    private String getComboLabel(int combo, double multiplier, FileConfiguration messages) {
+        if (combo <= 0) {
             return ChatColor.translateAlternateColorCodes('&', "&7" +
                     MessageUtil.getGuiMsg(messages, "word-learning-gui.combo-none"));
         }

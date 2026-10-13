@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.logging.Level;
 
@@ -268,6 +269,49 @@ public class DatabaseManager {
                         "  streak_count INTEGER DEFAULT 1" +
                         ")"
         );
+
+        // Wave 2 域 4（广场社交）：学习动态流 —— 每玩家 × 每自然日 × 每事件类型
+        // UPSERT 合并为 1 行（防刷屏 = 结构聚合，见 plan-social §1.4）。
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "social_feed (" +
+                        "  id INTEGER PRIMARY KEY " + (isSQLite() ? "AUTOINCREMENT" : "AUTO_INCREMENT") + "," +
+                        "  player_uuid VARCHAR(36) NOT NULL," +
+                        "  feed_date DATE NOT NULL," +
+                        "  event_type VARCHAR(16) NOT NULL," +
+                        "  events_count INT DEFAULT 1," +
+                        "  sum_correct INT DEFAULT 0," +
+                        "  sum_total INT DEFAULT 0," +
+                        "  last_mode VARCHAR(16)," +
+                        "  last_streak INT DEFAULT 0," +
+                        "  achievement_id VARCHAR(64)," +
+                        "  cheer_count INT DEFAULT 0," +
+                        "  created_at BIGINT NOT NULL," +
+                        "  updated_at BIGINT NOT NULL," +
+                        "  UNIQUE(player_uuid, feed_date, event_type)" +
+                        ")"
+        );
+        // Wave 2 域 4：鼓励记录 —— 一人一条动态至多一次（UNIQUE 硬约束）。
+        // 注意：玩家列名是 cheerer_uuid（既有的 uuid / player_uuid 两套之外第三套，
+        // 见 deletePlayerData 的顺序敏感特殊处理）。
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "social_cheers (" +
+                        "  id INTEGER PRIMARY KEY " + (isSQLite() ? "AUTOINCREMENT" : "AUTO_INCREMENT") + "," +
+                        "  feed_id INTEGER NOT NULL," +
+                        "  cheerer_uuid VARCHAR(36) NOT NULL," +
+                        "  created_at BIGINT NOT NULL," +
+                        "  read_by_owner BOOLEAN DEFAULT 0," +
+                        "  UNIQUE(feed_id, cheerer_uuid)" +
+                        ")"
+        );
+        // 索引经 createIndexIfMissing（PF-SEA-02：MySQL 不支持 CREATE INDEX IF NOT EXISTS）
+        createIndexIfMissing("idx_feed_order",
+                "social_feed(feed_date, updated_at)");
+        createIndexIfMissing("idx_feed_player",
+                "social_feed(player_uuid, feed_date)");
+        createIndexIfMissing("idx_cheers_feed",
+                "social_cheers(feed_id)");
+        createIndexIfMissing("idx_cheers_cheerer",
+                "social_cheers(cheerer_uuid)");
     }
 
     /**
@@ -1365,6 +1409,437 @@ public class DatabaseManager {
         }
     }
 
+    // ============================================================
+    //  Square Social (Feed + Cheers) —— Wave 2 域 4
+    // ============================================================
+
+    /**
+     * 一条动态流缓存行（{@code social_feed} 的读取投影 + JOIN 出的作者名）。
+     * 只承载原始数据；语言侧渲染由 {@code SocialManager}/{@code FeedTextFormatter} 完成。
+     */
+    public record FeedRow(long id, UUID authorId, String authorName, String eventType,
+                          int eventsCount, int sumCorrect, int sumTotal, String lastMode,
+                          int lastStreak, String achievementId, int cheerCount, long updatedAt) { }
+
+    /** {@link #cheerFeed} 的结果三态：写入成功 / 已鼓励过 / 条目已不存在。 */
+    public enum CheerResult { OK, ALREADY, GONE }
+
+    /**
+     * 动态流写入（UPSERT 合并，无读-改-写）。
+     *
+     * <p>合并键 {@code UNIQUE(player_uuid, feed_date, event_type)}：同日同类型累加
+     * {@code events_count} 与 SESSION_DONE 的 {@code sum_correct/sum_total}；覆写
+     * "最近一次"列（{@code last_mode}/{@code last_streak}/{@code achievement_id}，
+     * 用 COALESCE/IF 保护"本次为 null/0 时不抹掉旧值"的跨类型场景）；刷新
+     * {@code updated_at}（排序键）。鼓励不改 updated_at，排序稳定。
+     *
+     * @param playerId      动态作者
+     * @param eventType     SESSION_DONE / ACHIEVEMENT / CHECKIN
+     * @param correctDelta  SESSION_DONE 本次答对（其余类型传 0）
+     * @param totalDelta    SESSION_DONE 本次题数（其余类型传 0）
+     * @param lastMode      SESSION_DONE 本次模式（其余类型传 null）
+     * @param lastStreak    CHECKIN 连续天数（其余类型传 0）
+     * @param achievementId ACHIEVEMENT 成就 id（其余类型传 null）
+     */
+    public void upsertFeedEvent(UUID playerId, String eventType, int correctDelta, int totalDelta,
+                                String lastMode, int lastStreak, String achievementId) {
+        String now = LocalDate.now().toString();
+        long ts = System.currentTimeMillis();
+        String sql;
+        if (isSQLite()) {
+            sql = "INSERT INTO " + tablePrefix + "social_feed (player_uuid, feed_date, event_type,"
+                    + " events_count, sum_correct, sum_total, last_mode, last_streak, achievement_id,"
+                    + " cheer_count, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, 0, ?, ?)"
+                    + " ON CONFLICT(player_uuid, feed_date, event_type) DO UPDATE SET"
+                    + " events_count = events_count + 1,"
+                    + " sum_correct = sum_correct + excluded.sum_correct,"
+                    + " sum_total = sum_total + excluded.sum_total,"
+                    + " last_mode = COALESCE(excluded.last_mode, last_mode),"
+                    + " last_streak = CASE WHEN excluded.last_streak > 0 THEN excluded.last_streak ELSE last_streak END,"
+                    + " achievement_id = COALESCE(excluded.achievement_id, achievement_id),"
+                    + " updated_at = excluded.updated_at";
+        } else {
+            sql = "INSERT INTO " + tablePrefix + "social_feed (player_uuid, feed_date, event_type,"
+                    + " events_count, sum_correct, sum_total, last_mode, last_streak, achievement_id,"
+                    + " cheer_count, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, 0, ?, ?)"
+                    + " ON DUPLICATE KEY UPDATE"
+                    + " events_count = events_count + 1,"
+                    + " sum_correct = sum_correct + VALUES(sum_correct),"
+                    + " sum_total = sum_total + VALUES(sum_total),"
+                    + " last_mode = COALESCE(VALUES(last_mode), last_mode),"
+                    + " last_streak = IF(VALUES(last_streak) > 0, VALUES(last_streak), last_streak),"
+                    + " achievement_id = COALESCE(VALUES(achievement_id), achievement_id),"
+                    + " updated_at = VALUES(updated_at)";
+        }
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, now);
+                stmt.setString(3, eventType);
+                stmt.setInt(4, Math.max(0, correctDelta));
+                stmt.setInt(5, Math.max(0, totalDelta));
+                stmt.setString(6, lastMode);
+                stmt.setInt(7, lastStreak);
+                stmt.setString(8, achievementId);
+                stmt.setLong(9, ts);
+                stmt.setLong(10, ts);
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to upsert feed event " + eventType + " for " + playerId, e);
+            }
+        }
+    }
+
+    /**
+     * 动态流缓存读取（FeedCache 刷新专用）。
+     *
+     * <p>读取侧隐私过滤与榜单同款：{@code LEFT JOIN player_profiles} +
+     * {@code COALESCE(show_in_square,1) <> 0}（隐身者条目对所有人隐藏，含本人）。
+     * {@code retentionDays <= 0} = 不设日期下限（永久保留）。作者名经
+     * {@code LEFT JOIN player_data} 取（MAX() 包住兼容 ONLY_FULL_GROUP_BY；本方法
+     * 可能在异步线程被调用，结果消费阶段不得调 Bukkit API），空回落 uuid 字符串。
+     *
+     * @param retentionDays 保留的自然日天数（含今天）；&lt;=0 表示不过滤
+     * @param limit         返回行数上限（按 updated_at 倒序）
+     */
+    public List<FeedRow> getFeedCacheRows(int retentionDays, int limit) {
+        List<FeedRow> rows = new ArrayList<>();
+        StringBuilder sql = new StringBuilder("SELECT f.id, f.player_uuid, MAX(p.player_name) AS player_name,"
+                + " f.event_type, f.events_count, f.sum_correct, f.sum_total, f.last_mode,"
+                + " f.last_streak, f.achievement_id, f.cheer_count, f.updated_at"
+                + " FROM " + tablePrefix + "social_feed f"
+                + " LEFT JOIN " + tablePrefix + "player_data p ON p.uuid = f.player_uuid"
+                + " LEFT JOIN " + tablePrefix + "player_profiles pf ON pf.uuid = f.player_uuid"
+                + " WHERE COALESCE(pf.show_in_square, 1) <> 0");
+        if (retentionDays > 0) {
+            sql.append(" AND f.feed_date >= ?");
+        }
+        // GROUP BY 全列列表（不依赖 MySQL 函数依赖检测，SQLite/MySQL/MariaDB 全兼容）
+        sql.append(" GROUP BY f.id, f.player_uuid, f.event_type, f.events_count, f.sum_correct,"
+                + " f.sum_total, f.last_mode, f.last_streak, f.achievement_id, f.cheer_count, f.updated_at"
+                + " ORDER BY f.updated_at DESC LIMIT ?");
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql.toString())) {
+                int idx = 1;
+                if (retentionDays > 0) {
+                    stmt.setString(idx++, feedRetentionCutoff(retentionDays));
+                }
+                stmt.setInt(idx, limit);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        UUID authorId;
+                        try {
+                            authorId = UUID.fromString(rs.getString("player_uuid"));
+                        } catch (IllegalArgumentException e) {
+                            continue; // 脏行跳过，不拖垮整次缓存刷新
+                        }
+                        String name = rs.getString("player_name");
+                        if (name == null || name.isEmpty()) {
+                            name = authorId.toString();
+                        }
+                        rows.add(new FeedRow(
+                                rs.getLong("id"),
+                                authorId,
+                                name,
+                                rs.getString("event_type"),
+                                rs.getInt("events_count"),
+                                rs.getInt("sum_correct"),
+                                rs.getInt("sum_total"),
+                                rs.getString("last_mode"),
+                                rs.getInt("last_streak"),
+                                rs.getString("achievement_id"),
+                                rs.getInt("cheer_count"),
+                                rs.getLong("updated_at")
+                        ));
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to load feed cache rows", e);
+            }
+        }
+        return rows;
+    }
+
+    /**
+     * 保留窗口下端（含今天共 retentionDays 个自然日）：{@code today - (retentionDays - 1)}。
+     * 读缓存（{@code >= cutoff}）与清理（{@code < cutoff}）共用同一口径。
+     */
+    private static String feedRetentionCutoff(int retentionDays) {
+        return LocalDate.now().minusDays(Math.max(0, retentionDays - 1)).toString();
+    }
+
+    /**
+     * 鼓励一条动态。
+     *
+     * <p>同一锁内三步（仿 {@link #deletePlayerData} 事务化）：① 锁内复核 feed 行存在
+     * （单连接串行，无 TOCTOU；缺行 → GONE）；② {@code INSERT OR IGNORE / INSERT IGNORE}
+     * 进 {@code social_cheers}（受影响行数 0 → ALREADY，唯一约束在 DB 层兜底一人一次）；
+     * ③ 插入成功才 {@code cheer_count = cheer_count + 1}（去规范化计数）。
+     * ②③ 包在 {@code setAutoCommit(false)} 事务里（仿 savePlayerData），连接状态不外泄。
+     */
+    public CheerResult cheerFeed(long feedId, UUID cheererUuid) {
+        String insertSql = isSQLite()
+                ? "INSERT OR IGNORE INTO " + tablePrefix + "social_cheers (feed_id, cheerer_uuid, created_at, read_by_owner) VALUES (?, ?, ?, 0)"
+                : "INSERT IGNORE INTO " + tablePrefix + "social_cheers (feed_id, cheerer_uuid, created_at, read_by_owner) VALUES (?, ?, ?, 0)";
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try {
+                // ① feed 行存在性（锁内复核）
+                try (PreparedStatement check = conn.prepareStatement(
+                        "SELECT 1 FROM " + tablePrefix + "social_feed WHERE id = ?")) {
+                    check.setLong(1, feedId);
+                    try (ResultSet rs = check.executeQuery()) {
+                        if (!rs.next()) {
+                            return CheerResult.GONE;
+                        }
+                    }
+                }
+                conn.setAutoCommit(false);
+                try {
+                    // ② 唯一约束兜底"一人一条一次"
+                    int inserted;
+                    try (PreparedStatement stmt = conn.prepareStatement(insertSql)) {
+                        stmt.setLong(1, feedId);
+                        stmt.setString(2, cheererUuid.toString());
+                        stmt.setLong(3, System.currentTimeMillis());
+                        inserted = stmt.executeUpdate();
+                    }
+                    if (inserted == 0) {
+                        conn.rollback();
+                        return CheerResult.ALREADY;
+                    }
+                    // ③ 去规范化计数 +1
+                    try (PreparedStatement stmt = conn.prepareStatement(
+                            "UPDATE " + tablePrefix + "social_feed SET cheer_count = cheer_count + 1 WHERE id = ?")) {
+                        stmt.setLong(1, feedId);
+                        stmt.executeUpdate();
+                    }
+                    conn.commit();
+                    return CheerResult.OK;
+                } catch (SQLException e) {
+                    conn.rollback();
+                    throw e;
+                } finally {
+                    conn.setAutoCommit(true);
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to cheer feed " + feedId + " by " + cheererUuid, e);
+                return CheerResult.GONE;
+            }
+        }
+    }
+
+    /**
+     * 鼓励者名单（"谁鼓励了我"），按鼓励时间升序。名字 {@code LEFT JOIN player_data}
+     * 取，空回落 uuid；本方法异步可达，结果消费阶段不得调 Bukkit API。
+     */
+    public List<String> getCheerers(long feedId, int limit) {
+        List<String> names = new ArrayList<>();
+        String sql = "SELECT c.cheerer_uuid, MAX(p.player_name) AS player_name"
+                + " FROM " + tablePrefix + "social_cheers c"
+                + " LEFT JOIN " + tablePrefix + "player_data p ON p.uuid = c.cheerer_uuid"
+                + " WHERE c.feed_id = ?"
+                + " GROUP BY c.cheerer_uuid, c.created_at"
+                + " ORDER BY c.created_at ASC LIMIT ?";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setLong(1, feedId);
+                stmt.setInt(2, limit);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        String name = rs.getString("player_name");
+                        if (name == null || name.isEmpty()) {
+                            name = rs.getString("cheerer_uuid");
+                        }
+                        names.add(name);
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to load cheerers for feed " + feedId, e);
+            }
+        }
+        return names;
+    }
+
+    /**
+     * 把该玩家所有动态行上的鼓励标记为已读（进服摘要发出后调用）。
+     * 子查询只涉及 {@code social_feed}（非被更新表），无 MySQL 更新-子查询自引用限制。
+     */
+    public void markFeedCheersRead(UUID ownerUuid) {
+        // 隐蔽语义（plan-social §1.6 边界决策）：摘要只发给作者本人，不向第三方泄露；
+        // 隐身期间收到的鼓励照常提醒。
+        String sql = "UPDATE " + tablePrefix + "social_cheers SET read_by_owner = 1"
+                + " WHERE feed_id IN (SELECT id FROM " + tablePrefix + "social_feed WHERE player_uuid = ?)";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, ownerUuid.toString());
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to mark feed cheers read for " + ownerUuid, e);
+            }
+        }
+    }
+
+    /**
+     * 标记单条鼓励已读（作者在线即时提醒发出后调用）。
+     * 作者恰在"提醒后立即退服"间隙的极小竞态允许下次进服重复提醒一次（宽容语义）。
+     */
+    public void markSingleCheerRead(long feedId, UUID cheererUuid) {
+        String sql = "UPDATE " + tablePrefix + "social_cheers SET read_by_owner = 1"
+                + " WHERE feed_id = ? AND cheerer_uuid = ?";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setLong(1, feedId);
+                stmt.setString(2, cheererUuid.toString());
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to mark single cheer read (feed " + feedId + ")", e);
+            }
+        }
+    }
+
+    /** 该玩家所有动态上未读（{@code read_by_owner=0}）的鼓励总数（进服摘要；走 idx_cheers_feed）。 */
+    public int countUnreadCheers(UUID ownerUuid) {
+        String sql = "SELECT COUNT(*) FROM " + tablePrefix + "social_cheers c"
+                + " JOIN " + tablePrefix + "social_feed f ON f.id = c.feed_id"
+                + " WHERE f.player_uuid = ? AND c.read_by_owner = 0";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, ownerUuid.toString());
+                try (ResultSet rs = stmt.executeQuery()) {
+                    return rs.next() ? rs.getInt(1) : 0;
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to count unread cheers for " + ownerUuid, e);
+                return 0;
+            }
+        }
+    }
+
+    /**
+     * "你已鼓励"集合（广场打开路径上**唯一**允许的同步查询，plan-social §3.2）：
+     * {@code WHERE cheerer_uuid = ? AND feed_id IN (≤28 ids)} 走 UNIQUE(feed_id,
+     * cheerer_uuid) 索引，量级与既有 getPlayerStats 兜底同级。有界输入（调用方传
+     * 本页 id 列表），空输入直接返回空集不查库。
+     */
+    public Set<Long> getCheeredFeedIds(UUID viewerId, List<Long> feedIds) {
+        Set<Long> result = new java.util.HashSet<>();
+        if (feedIds == null || feedIds.isEmpty()) {
+            return result;
+        }
+        StringBuilder sql = new StringBuilder("SELECT feed_id FROM " + tablePrefix
+                + "social_cheers WHERE cheerer_uuid = ? AND feed_id IN (");
+        for (int i = 0; i < feedIds.size(); i++) {
+            sql.append(i == 0 ? "?" : ", ?");
+        }
+        sql.append(")");
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql.toString())) {
+                stmt.setString(1, viewerId.toString());
+                for (int i = 0; i < feedIds.size(); i++) {
+                    stmt.setLong(i + 2, feedIds.get(i));
+                }
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        result.add(rs.getLong(1));
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to load cheered feed ids for " + viewerId, e);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 鼓励统计三路聚合行（Wave 2 冻结接口 {@code SocialManager.getCheerStats} 的数据源）：
+     * {@code given}=累计发出鼓励数（cheerer_uuid 索引）；{@code distinctTargets}=发出对象
+     * 去重数（JOIN social_feed 按作者去重，P3-3 互助成就判据）；{@code received}=收到
+     * 鼓励总数。一条 SQL 三子查询，锁内单次执行。
+     */
+    public record CheerStatsRow(int given, int distinctTargets, int received) { }
+
+    public CheerStatsRow getCheerStatsRow(UUID playerId) {
+        String id = playerId.toString();
+        String sql = "SELECT"
+                + " (SELECT COUNT(*) FROM " + tablePrefix + "social_cheers WHERE cheerer_uuid = ?) AS given,"
+                + " (SELECT COUNT(DISTINCT f.player_uuid) FROM " + tablePrefix + "social_cheers c"
+                + "    JOIN " + tablePrefix + "social_feed f ON f.id = c.feed_id"
+                + "    WHERE c.cheerer_uuid = ?) AS distinct_targets,"
+                + " (SELECT COUNT(*) FROM " + tablePrefix + "social_cheers c"
+                + "    JOIN " + tablePrefix + "social_feed f ON f.id = c.feed_id"
+                + "    WHERE f.player_uuid = ?) AS received";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, id);
+                stmt.setString(2, id);
+                stmt.setString(3, id);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return new CheerStatsRow(rs.getInt("given"),
+                                rs.getInt("distinct_targets"), rs.getInt("received"));
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to load cheer stats for " + playerId, e);
+            }
+        }
+        return new CheerStatsRow(0, 0, 0);
+    }
+
+    /**
+     * 清理过期动态：先删过期 feed 行上的 cheers（子查询先于 feed 行删除——顺序敏感），
+     * 再删 feed 行；两删同一事务。{@code retentionDays <= 0} = 永久保留（no-op）。
+     * cutoff 口径与 {@link #getFeedCacheRows} 一致。
+     */
+    public void cleanupOldFeedEvents(int retentionDays) {
+        if (retentionDays <= 0) {
+            return; // 永久保留（不推荐，注释见 config.yml social.feed.retention-days）
+        }
+        String cutoff = feedRetentionCutoff(retentionDays);
+        String deleteCheers = "DELETE FROM " + tablePrefix + "social_cheers"
+                + " WHERE feed_id IN (SELECT id FROM " + tablePrefix + "social_feed WHERE feed_date < ?)";
+        String deleteFeed = "DELETE FROM " + tablePrefix + "social_feed WHERE feed_date < ?";
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try {
+                conn.setAutoCommit(false);
+                try {
+                    int cheersDeleted;
+                    try (PreparedStatement stmt = conn.prepareStatement(deleteCheers)) {
+                        stmt.setString(1, cutoff);
+                        cheersDeleted = stmt.executeUpdate();
+                    }
+                    int feedDeleted;
+                    try (PreparedStatement stmt = conn.prepareStatement(deleteFeed)) {
+                        stmt.setString(1, cutoff);
+                        feedDeleted = stmt.executeUpdate();
+                    }
+                    conn.commit();
+                    if (feedDeleted > 0) {
+                        plugin.getLogger().info("Cleaned up " + feedDeleted
+                                + " old feed events (+" + cheersDeleted + " cheers) older than "
+                                + cutoff + ".");
+                    }
+                } catch (SQLException e) {
+                    conn.rollback();
+                    throw e;
+                } finally {
+                    conn.setAutoCommit(true);
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to clean up old feed events", e);
+            }
+        }
+    }
+
     /**
      * Delete every row that belongs to one player across all player-scoped tables.
      *
@@ -1414,6 +1889,37 @@ public class DatabaseManager {
                             "Failed to delete rows from " + tablePrefix + table
                                     + " for " + playerId, e);
                 }
+            }
+            // Wave 2 域 4（广场社交）：social_feed / social_cheers 加入 R-03 清收。
+            // 顺序敏感三步（先删系他人的行，再删系自己的行）：
+            //   ① social_cheers 里该玩家**发出**的鼓励（列名 cheerer_uuid——第三套玩家列名）；
+            //   ② 该玩家 feed 行上**他人给出**的鼓励（必须先于 ③，否则子查询无行可命中，
+            //      留下指向已删 feed 的孤儿 cheers 行）；
+            //   ③ 该玩家的 feed 行。
+            try (PreparedStatement stmt = conn.prepareStatement(
+                    "DELETE FROM " + tablePrefix + "social_cheers WHERE cheerer_uuid = ?")) {
+                stmt.setString(1, id);
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to delete social_cheers given by " + playerId, e);
+            }
+            try (PreparedStatement stmt = conn.prepareStatement(
+                    "DELETE FROM " + tablePrefix + "social_cheers WHERE feed_id IN"
+                            + " (SELECT id FROM " + tablePrefix + "social_feed WHERE player_uuid = ?)")) {
+                stmt.setString(1, id);
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to delete social_cheers on feed rows of " + playerId, e);
+            }
+            try (PreparedStatement stmt = conn.prepareStatement(
+                    "DELETE FROM " + tablePrefix + "social_feed WHERE player_uuid = ?")) {
+                stmt.setString(1, id);
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to delete social_feed rows of " + playerId, e);
             }
         }
     }

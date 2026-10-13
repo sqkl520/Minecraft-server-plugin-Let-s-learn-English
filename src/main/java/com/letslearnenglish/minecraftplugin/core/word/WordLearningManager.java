@@ -62,8 +62,8 @@ public class WordLearningManager implements Listener {
         cancelAnswerTimer(player);
         quizStates.remove(player.getUniqueId());
         LearningSession session = wordManager.startSession(player, difficulty, mode);
-        int timeout = plugin.getConfigManager().getMainConfig().getInt("word-system.answer-timeout", 30);
-        quizStates.put(player.getUniqueId(), new QuizState(session, difficulty, mode, timeout));
+        // MC-3：开局快照（判分大小写 / 有效倒计时 / choice 选项数）——同一会话内规则恒定。
+        quizStates.put(player.getUniqueId(), snapshotState(session, difficulty, mode));
         return session;
     }
 
@@ -84,8 +84,7 @@ public class WordLearningManager implements Listener {
         quizStates.remove(player.getUniqueId());
         LearningSession session = wordManager.startReviewSession(player);
         if (session == null) return null;
-        int timeout = plugin.getConfigManager().getMainConfig().getInt("word-system.answer-timeout", 30);
-        QuizState state = new QuizState(session, "review", "review", timeout);
+        QuizState state = snapshotState(session, "review", "review");
         state.isReviewMode = true;
         quizStates.put(player.getUniqueId(), state);
         return session;
@@ -99,6 +98,7 @@ public class WordLearningManager implements Listener {
      *
      * <p>与 startQuiz 一样在入口做 MC-2 word-system 模块门（教程拦截的启用判定
      * 由 OnboardingManager 侧自理，本方法只管"所有开局入口同门"的一致性）。
+     * MC-3 快照同样适用（教程恒 choice，选项数/倒计时/大小写按快照值）。
      *
      * @param player     the player
      * @param difficulty difficulty level
@@ -114,11 +114,39 @@ public class WordLearningManager implements Listener {
         cancelAnswerTimer(player);
         quizStates.remove(player.getUniqueId());
         LearningSession session = wordManager.startSession(player, difficulty, "choice", wordCount);
-        int timeout = plugin.getConfigManager().getMainConfig().getInt("word-system.answer-timeout", 30);
-        QuizState state = new QuizState(session, difficulty, "choice", timeout);
+        QuizState state = snapshotState(session, difficulty, "choice");
         state.isTutorial = true;
         quizStates.put(player.getUniqueId(), state);
         return session;
+    }
+
+    /**
+     * MC-3 开局快照：把本会话的判分/计时规则从当前配置固化进 QuizState
+     * （plan-menu-config §1.(c) 快照语义）——同一会话内规则恒定，{@code /lea reload}
+     * 不翻进行中会话的规则，改动在下一局生效。快照项：
+     *
+     * <ul>
+     *   <li>{@code caseSensitive}：全文比较大小写敏感（{@code modes.spelling.case-sensitive}，
+     *       默认 false＝接线前行为）；</li>
+     *   <li>{@code effectiveTimeout}：单题倒计时秒数 —— 仅 choice 读
+     *       {@code modes.choice.time-limit}（值 &gt;0 时覆盖全局 {@code answer-timeout}；
+     *       0/负 = 跟随全局）；spelling / fill_blank / review 恒用全局值；</li>
+     *   <li>{@code choiceOptionCount}：choice 选项数（{@code modes.choice.option-count}
+     *       钳位值；非 choice 模式不消费）。</li>
+     * </ul>
+     */
+    private QuizState snapshotState(LearningSession session, String difficulty, String mode) {
+        var cm = plugin.getConfigManager();
+        int globalTimeout = cm.getMainConfig().getInt("word-system.answer-timeout", 30);
+        int effectiveTimeout = globalTimeout;
+        if (AnswerChecker.isChoice(mode)) {
+            int override = WordModes.timeLimitSeconds(cm);
+            if (override > 0) {
+                effectiveTimeout = override;
+            }
+        }
+        return new QuizState(session, difficulty, mode, effectiveTimeout,
+                WordModes.isCaseSensitive(cm, mode), WordModes.optionCount(cm));
     }
 
     public boolean hasActiveQuiz(UUID playerId) {
@@ -154,9 +182,11 @@ public class WordLearningManager implements Listener {
             // FEAT-MODE-01：三模式判分收敛到 AnswerChecker（spelling 全词拼写 /
             // choice 选项字母 / fill_blank 填缺失词）。输出仍是 correct + correctAnswer，
             // 下游连击/发币/计数/成就零感知。choice 下 correctAnswer 带正确项字母。
+            // MC-3：caseSensitive 走会话快照（同会话内恒定，不随 reload 中途翻规则）。
             List<Word> choiceOptions = AnswerChecker.isChoice(state.mode)
                     ? getChoiceOptions(id) : null;
-            boolean correct = AnswerChecker.check(state.mode, currentWord, answer, choiceOptions);
+            boolean correct = AnswerChecker.check(state.mode, currentWord, answer,
+                    choiceOptions, state.caseSensitive);
             String correctAnswer = currentWord.getEnglish();
             if (choiceOptions != null) {
                 int answerIndex = AnswerChecker.indexOfAnswer(choiceOptions, currentWord);
@@ -364,7 +394,9 @@ public class WordLearningManager implements Listener {
 
         state.isAnswering = true;
         state.cancelled = false;
-        int[] remaining = {state.answerTimeout};
+        // MC-3：倒计时秒数走会话快照（effectiveTimeout），不再每局重读全局配置 ——
+        // 同会话内规则恒定；choice.time-limit 覆盖值在快照时已算入。
+        int[] remaining = {state.effectiveTimeout};
 
         BukkitTask task = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
             if (state.cancelled) {
@@ -500,6 +532,16 @@ public class WordLearningManager implements Listener {
         return plugin.getConfigManager().getMainConfig().getInt("word-system.answer-timeout", 30);
     }
 
+    /**
+     * MC-3：某玩家当前会话的单题倒计时秒数（开局快照的 effectiveTimeout —— choice 且
+     * {@code modes.choice.time-limit>0} 时是覆盖值，否则＝全局值）；无活跃会话回落
+     * {@link #getAnswerTimeout()}（全局配置值）。供答题提示的 {seconds} 展示与快照表一致。
+     */
+    public int getEffectiveTimeout(UUID playerId) {
+        QuizState state = quizStates.get(playerId);
+        return state != null ? state.effectiveTimeout : getAnswerTimeout();
+    }
+
     public void stopQuiz(Player player) {
         UUID id = player.getUniqueId();
         QuizState state = quizStates.get(id);
@@ -629,6 +671,17 @@ public class WordLearningManager implements Listener {
     }
 
     /**
+     * MC-3：会话判分大小写敏感度（开局快照值）；无活跃会话回落 false
+     * （与 {@code modes.spelling.case-sensitive} 的默认一致）。供 ChatAnswerListener 在
+     * submitAnswer 之前做 {@code isInvalidChoiceInput} 前置判定时使用——与判分同参数，
+     * 防"判分判对的输入却被判无效"。
+     */
+    public boolean isCaseSensitive(UUID playerId) {
+        QuizState state = quizStates.get(playerId);
+        return state != null && state.caseSensitive;
+    }
+
+    /**
      * FEAT-MODE-01：取本题 choice 选项快照（正确项 + 同词库随机干扰项）。
      * 懒生成 + 按题缓存：同一题多次调用返回同一份，保证 GUI、聊天提示、
      * 判分三方看到的选项一致；换题后自动重抽。非 choice 模式不调用。
@@ -647,7 +700,8 @@ public class WordLearningManager implements Listener {
             return state.choiceOptions;
         }
         WordBank bank = wordManager.getWordBank(state.difficulty);
-        List<Word> options = AnswerChecker.buildChoiceOptions(bank, currentWord);
+        // MC-3：选项数量走会话快照（choiceOptionCount 开局时已按 modes.choice.option-count 钳位）。
+        List<Word> options = AnswerChecker.buildChoiceOptions(bank, currentWord, state.choiceOptionCount);
         state.choiceOptions = options;
         state.choiceOptionsKey = key;
         return options;
@@ -696,6 +750,14 @@ public class WordLearningManager implements Listener {
         // 叙事顺序正确。OnboardingManager 由 S-G 流落盘（签名已冻结）。
         if (result.tutorial && plugin.getOnboardingManager() != null) {
             plugin.getOnboardingManager().onTutorialSessionComplete(player);
+        }
+
+        // Wave 2 域 4（广场社交）：自然走完会话（含 review；stop/quit/超时中断都到不了
+        // 这里的 completed 段）→ 产生/合并一条 SESSION_DONE 动态。落最末尾：不改变既有
+        // 结算叙事顺序；SocialManager 内部自判 social.enabled 与产生侧隐身门，异步写库。
+        if (plugin.getSocialManager() != null) {
+            plugin.getSocialManager().recordSessionDone(
+                    player.getUniqueId(), result.mode, result.correctCount, result.totalWords);
         }
     }
 
@@ -785,8 +847,15 @@ public class WordLearningManager implements Listener {
         public final LearningSession session;
         public final String difficulty;
         public final String mode;
+        // MC-3 会话快照（构造时固化，同会话内规则恒定；/lea reload 不翻进行中会话的规则）：
+        //   effectiveTimeout  = 单题倒计时秒数（choice 且 modes.choice.time-limit>0 时覆盖全局
+        //                       word-system.answer-timeout，否则＝全局值；其余模式恒全局值）
+        //   caseSensitive     = 全词文本比较是否区分大小写（modes.spelling.case-sensitive）
+        //   choiceOptionCount = choice 选项数（modes.choice.option-count 钳位值，非 choice 不消费）
+        public final int effectiveTimeout;
+        public final boolean caseSensitive;
+        public final int choiceOptionCount;
         public final AtomicInteger answerTaskId = new AtomicInteger(-1);
-        public int answerTimeout;
         public volatile boolean isAnswering;
         public volatile boolean cancelled;
         public final AtomicBoolean submitting = new AtomicBoolean(false);
@@ -801,11 +870,14 @@ public class WordLearningManager implements Listener {
         public volatile List<Word> choiceOptions;
         public volatile String choiceOptionsKey;
 
-        public QuizState(LearningSession session, String difficulty, String mode, int answerTimeout) {
+        public QuizState(LearningSession session, String difficulty, String mode,
+                         int effectiveTimeout, boolean caseSensitive, int choiceOptionCount) {
             this.session = session;
             this.difficulty = difficulty;
             this.mode = mode;
-            this.answerTimeout = answerTimeout;
+            this.effectiveTimeout = effectiveTimeout;
+            this.caseSensitive = caseSensitive;
+            this.choiceOptionCount = choiceOptionCount;
             this.isAnswering = false;
             this.cancelled = false;
             this.consecutiveCorrect = 0;
