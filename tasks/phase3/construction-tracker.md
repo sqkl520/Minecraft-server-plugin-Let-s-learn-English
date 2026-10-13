@@ -64,3 +64,7 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 | W2-D | MC-5 | challenges-per-day/rewards.* 接线 + F1-12 槽位泛化 | DailyChallengeManager、DailyChallengeGUI、MiscGUIListener、ConfigManager |
 | W2-E | 域 6 | /lea report + 权限节点 + ReportGenerator（新）+ 全异步 | command/AdminCommand、core/manager/（新类）、AdminCommandHandler、plugin.yml、DataExporter(ExportResult 协议化-可选) |
 | W2-F | 复核 | 三路 tester（build/code/arch）+ 修正 + verify + commit | — |
+
+### Wave 2 回流状态
+- [x] W2-D 挑战经济参数：done（challenges-per-day 钳 [1,4] + 可用集合 shuffled 取 N（R-74 重抽链整体删除）+ rewards.* 四键接线（getChallengeReward 公开 API，缺键/非法/≤0 回落枚举默认；注意 YAML Integer 装箱不能用 isDouble 判定——改用 instanceof Number）+ F1-12 CHALLENGE_SLOTS={11,13,15,17} + binarySearch 查位映射；默认 3 逐位等价冒烟过）
+- [ ] W2-A 广场社交 / W2-B 主菜单 / W2-C modes / W2-E 家长报告
