@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS {prefix}player_data (
     total_coins_earned BIGINT DEFAULT 0,
     total_coins_spent BIGINT DEFAULT 0,
     conversation_count INT DEFAULT 0,
+    onboarding_step INT DEFAULT 0,
+    wrong_book_cleared INT DEFAULT 0,
     current_streak INT DEFAULT 0,
     longest_streak INT DEFAULT 0,
     last_login BIGINT,
@@ -66,6 +68,7 @@ CREATE TABLE IF NOT EXISTS {prefix}player_sessions (
     correct_count INT DEFAULT 0,
     score BIGINT DEFAULT 0,
     mode VARCHAR(32),
+    review_words INT DEFAULT 0,
     UNIQUE(uuid, session_date)
 );
 
@@ -75,7 +78,8 @@ CREATE TABLE IF NOT EXISTS {prefix}player_profiles (
     age INT DEFAULT 0,
     show_answers BOOLEAN DEFAULT 0,
     show_results BOOLEAN DEFAULT 1,
-    show_in_square BOOLEAN DEFAULT 1
+    show_in_square BOOLEAN DEFAULT 1,
+    sounds_enabled BOOLEAN DEFAULT 1
 );
 
 -- Player achievements (separate from old achievements table)

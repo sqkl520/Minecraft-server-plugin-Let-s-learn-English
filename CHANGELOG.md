@@ -4,7 +4,21 @@
 
 > 本版本包含两批改动：v1.0.7 迭代开发（13 个 Story）+ 全项目只读扫描后的缺陷修复批次（中文服止血 / 并发收口 / 仓库卫生）。
 
+### Added
+- **[P3 Wave 1 / 域 1 新手引导]** 新手引导线全链：`OnboardingManager`（新类，状态机 0/1/2/3 + 老号 fail-open 回填 3 + 首进发《新手引导手册》WRITTEN_BOOK+PDC + 每日去重提醒 + PDC 扫描去重发放 + Adventure BookMeta 三页现渲染）；迷你会话（`startTutorialQuiz` + 错答**原地重试**——不清连击不扣分不进错题本不推进题号，choice 4 选 1 必中使"3 题全对→首成就确定性触发"成结构保证）；完成登记（step2 由会话完成钩子、step3 由本人主页打开钩子，顺序刚性不可跳步）；`/le guide` 命令；D2 首进当天抑制 join 每日提醒
+- **[P3 Wave 1 / 域 3 成就重构]** 6 个质量型新成就：`review_streak_7`（连续 7 天复习且每天答对≥1）/`wrong_book_cleared`（练习移出 5 词且清空错题本，手动删除不计数）/`accuracy_90`（≥100 题样本 + 整数比较防浮点边界）/`duel_first_win`（只认打满 5 分的 endDuel，退赛掉线不算）/`helpful`（鼓励 ≥10 个不同玩家，暂无 SocialManager 时锁定）/`study_days_30`（累计 30 个不同学习日）；刷量成就难度前置（sessions_50←streak_10、words_500←100 题+70%、coins_500←50 题、coins_5000←words_100，收口 tryUnlock 内且已解锁者永不受回改影响）；成就墙 22 格按 5 类稳定排序分组渲染 + 类别/解锁日期/进度/前置四新 lore 行（复活 `achievement.progress` 死键）+ 标题计数；`%lle_achievement_<id>%` PAPI 动态位；解锁瞬间新增 Adventure Title 展示；`achievement-system.unlock-sound` 真接线（playSoundByName）；`getProgressSnapshot` 进度快照；删死方法 `checkCoinAchievements`
+- **[P3 Wave 1 / 域 7 音频反馈 3A]** 学习倒计时改 ActionBar（不再刷聊天栏——原 30s 题刷 30 行、10 题会话约 300 行）；最后 3 秒每秒 tick 音随剩余秒升调；urgent 阈值可配；连击音高公式 `clamp(1.0+0.1×(n-1), 0.5, 1.6)` + 里程碑（3/5/7/10）ActionBar 闪光 + 铃音替代升调（不叠音）；对决每题倒计时从 30 秒**全静默**重构为 BossBar 排空条（最后 5s 变红 + tick 音，清理挂钩 cleanup/shutdown/reconnect 三处 + 三条自清理路径 + 双参 remove 防误摘新任务）；per-player 音效开关（`player_profiles.sounds_enabled` + 设置 GUI 挂 PrivacySettings）；`gui.sounds` 三新键（combo-milestone/countdown-tick/timeout）+ "none/空串=故意静音"语义；P2-24 音效盲点三处收口
+- **[P3 Wave 1 / MC-2 模块开关]** 9 个模块级 enabled 开关**真接线**（word-system/ai-chat/duel[新]/checkin[新]/daily-challenges/progress-system 伞/leaderboard/achievements/rewards）：统一"入口隐藏 + 事件静默 + 数据永不删"三层语义；ConfigManager 11 个点读门方法（伞语义 AND 组合，reload 即时生效）；config.yml 三层语义注释 + duel/checkin 新段；`module.disabled` 统一回显；ai-chat 关闭时进行中对话下一条消息自动退出（不吞消息）；`/le duel quit/gui` 在关开关后进行中对局仍可用；`RewardEngine.isMoneyEnabled` 收口为公开并集判定（rewards 伞 && money 键）
+- **[P3 Wave 1 / 数据层]** 四新列（`player_data.onboarding_step` / `player_sessions.review_words`（recordSession 内派生累加）/ `player_data.wrong_book_cleared`（R-28 pattern 绝对值 UPSERT）/ `player_profiles.sounds_enabled`），全部 `addColumnIfMissing` 老库零迁移，schema.sql 同步
+- **[P3 Wave 1 / 跨服广播]** 成就解锁广播双语 payload + 逐收件人按语言渲染（R-86m 口径），兼容旧 3 段格式；顺带修复旧实现把字面 `{prefix}` 广播出去的缺陷
+
+### Changed
+- **[P3 Wave 1 / F1-19 终案]** `ai-chat.daily-round-limit` 0/负数 = **不限**（原语义为拒绝全部）；想禁用 AI 对话改走 `ai-chat.enabled: false`（config 注释 + CHANGELOG 明示）
+- **[P3 Wave 1]** `MESSAGE_CONFIG_VERSION` 11→12：zh/en 双语落盘约 45 新键（onboarding 26 / module.disabled / ai-chat.module-disabled / duel.round-bossbar×2 / combo-milestone / achievement-wall 7 / achievement.prereq-hint / help.guide 等），键级对称校验 548=548 零差异
+- **[P3 Wave 1 / 架构]** tryUnlock 通知段主线程化（`Bukkit.isPrimaryThread()` 判定 + runTask）——根治 PF-ACH-02 bye 分支异步线程直调 Bukkit API 隐患；`achievementConfig` 懒加载改 volatile（F1-03）；`CountdownTier` 纯函数（学习/对决共用 tier 判定）；`VersionAdapter.sendActionBar`（Adventure Component，规避已废弃的 String 重载）
+
 ### Fixed
+- **[P3 Wave 1 fan-in]** S-F/S-H 上报缺口收口：`MiscGUIListener` 词库选择补 word 门兜底 + startQuiz null 防御；`LearnCommand.startWordQuiz` 补 startQuiz null 防御；`OnboardingManager.interceptQuizStart` 补 startTutorialQuiz null 接管（S-G 自落）；money 三处直读收口（LearnCommand.isEconomyAvailable / MiscGUIListener 领取判定 / CheckInManager.isMoneyDisabledByConfig 全部改走 `getRewardEngine().isMoneyEnabled()`）
 - **[P3 规划期即修 / PF-ACH-02]** AI 对话 bye 退出路径异步线程直调 Bukkit API 修复（编排者即修）：`ChatScenarioListener` 运行在 AsyncPlayerChatEvent 异步线程，bye 分支链上可达 `AchievementManager.tryUnlock` 通知段（sendMessage/playSound）与每日挑战记分——Bukkit API 不得异步直调；bye 分支改为切主线程执行 `handleEndConversation`，并给其加"仍在场景模式才结算"守卫（防 1 tick 窗口内 quit/命令退出后的重复结算）；此缺陷比 F1-03 记录的更严重，属线程安全实伤
 - **[P3 规划期即修 / PF-MC-01]** 行为挑战领取补 `money.enabled` 门（编排者即修）：此前 `claimBehavioralChallenge` 直接走 `depositCappedReward`，服主关币（默认 false）且装了 Vault 时仍会实发金币，与签到/单词挑战的 economy-disabled 语义不一致（F1-11/R-44 残留缺口）；关闭时终态处理（标记已领防按钮永远可点 + 一次 daily-challenge.economy-disabled 提示），与单词挑战侧同口径
 - **[P3 规划期即修 / PF-ONB-01]** FIRST_WORD 成就语义与描述对齐（编排者即修）：原判定 `sessionCorrect>=1 && sessionIncorrect==0` 要求"首场零失误"，与成就描述"答对第 1 个单词"不符、且与 PERFECT_SESSION（整场全对）语义重复——新玩家第一场答错一题就与"初出茅庐"擦肩，伤首会话留存；改为"会话内至少答对 1 题"即解锁（该成就仅解锁不涉经济，无发放面影响）

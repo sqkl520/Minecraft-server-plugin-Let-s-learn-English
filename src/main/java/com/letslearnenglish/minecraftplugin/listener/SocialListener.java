@@ -254,6 +254,15 @@ public class SocialListener implements Listener {
             toggledMode = RankingMode.ALL_PLAYERS;
         }
         if (toggledMode != null) {
+            // MC-2（S-H）：榜单门（progress-system.enabled && leaderboard.enabled）关闭时，
+            // 拒绝周/月/总三榜切换（上面的三个排名模式分支 + 渲染侧灰玻璃占位槽的点击都汇到
+            // 这里）；回 module.disabled。"广场"全量模式不是榜单，照常放行。
+            if (toggledMode != RankingMode.ALL_PLAYERS && !cm.isLeaderboardEnabled()) {
+                SoundManager.playSound(player, "menu-click");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "module.disabled"));
+                return;
+            }
             SoundManager.playSound(player, "menu-click");
             EnglishSquareGUI newGui = new EnglishSquareGUI(plugin);
             newGui.open(player, 1, toggledMode);
@@ -378,6 +387,14 @@ public class SocialListener implements Listener {
             tab = 2;
         }
         if (tab >= 0) {
+            // MC-2（S-H）：榜单门关闭时拒绝 tab 切换（tab-coins/tab-words/tab-combo
+            // 三个分支汇于此；覆盖"关开关前已打开榜单界面"的存量点击），回 module.disabled。
+            if (!cm.isLeaderboardEnabled()) {
+                SoundManager.playSound(player, "menu-click");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "module.disabled"));
+                return;
+            }
             SoundManager.playSound(player, "menu-click");
             LeaderboardGUI tabGui = new LeaderboardGUI(plugin);
             tabGui.open(player, tab);

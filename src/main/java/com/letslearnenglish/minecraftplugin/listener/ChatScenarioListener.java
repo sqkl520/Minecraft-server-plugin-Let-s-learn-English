@@ -75,6 +75,25 @@ public class ChatScenarioListener implements Listener {
             return;
         }
 
+        // MC-2（S-H）：ai-chat.enabled=false 时进行中的对话自动退出 —— 下一条消息
+        // 收到 ai-chat.module-disabled 提示并结束对话模式。消息不转公屏
+        // （event.setCancelled(true)，与 bye 同口径，避免"输入被吞"）。
+        // 提示+结束切主线程（与 bye 分支同理：endConversation 链上可达 sendMessage /
+        // 成就通知 / 每日挑战记分，Bukkit API 不得在异步线程直调）。
+        // 位置在 R-66 之后：答题/决斗中的消息仍优先让给对应路径处理。
+        if (!plugin.getConfigManager().isAIChatEnabled()) {
+            event.setCancelled(true);
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (!activePlayers.contains(player.getUniqueId())) {
+                    return; // 切主线程的 1 tick 窗口内已被 quit/命令退出处理，不重复提示与结算
+                }
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "ai-chat.module-disabled"));
+                handleEndConversation(player);
+            });
+            return;
+        }
+
         String input = event.getMessage().trim();
 
         // 退出指令

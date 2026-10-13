@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.expansion;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import org.bukkit.OfflinePlayer;
@@ -23,7 +24,10 @@ import java.util.concurrent.ConcurrentHashMap;
  *   %lle_sessions%       — total learning sessions
  *   %lle_streak%         — current daily streak
  *   %lle_longest_streak% — longest daily streak
- *   %lle_achievements%   — "unlocked/total" (e.g. "3/16")
+ *   %lle_achievements%   — "unlocked/total" (e.g. "3/22")
+ *   %lle_achievement_<id>% — "✓"/"✗" for one achievement (e.g.
+ *                            %lle_achievement_duel_first_win%); unknown ids
+ *                            fall back to the legacy null contract
  *   %lle_correct%        — total correct answers
  *   %lle_incorrect%      — total incorrect answers
  *
@@ -106,9 +110,19 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
         }
         UUID playerId = offlinePlayer.getUniqueId();
 
+        // plan-achievements §3.5：动态成就位 %lle_achievement_<id>%。
+        // 合法性预检短路在 isKnownParams 之前（isKnownParams 保持固定集合不动）：
+        // 未知 id（fromId 返回 null）保留 legacy 契约（null = 让其他 expansion 尝试，
+        // 同下方 R-43 注释）；合法 id 继续走下方缓存 + resolveRequest 路径——
+        // 30s TTL 缓存按 params（即 achievement_<id>）分键，动态 key 天然适配。
+        boolean dynamicAchievement = params.startsWith("achievement_");
+        if (dynamicAchievement && Achievement.fromId(params.substring("achievement_".length())) == null) {
+            return null;
+        }
+
         // R-43: unknown params keep the legacy contract (null = let other
         // expansions try). They are never cached.
-        if (!isKnownParams(params)) {
+        if (!dynamicAchievement && !isKnownParams(params)) {
             return null;
         }
 
@@ -177,6 +191,20 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
         // R-43 门禁 3：金币只给本人（与 ProfileGUI R-38 金币规则对齐）。
         if (!isSelfView && params.equals("coins_earned")) {
             return getPrivateText(viewer);
+        }
+
+        // plan-achievements §3.5：动态成就位 %lle_achievement_<id>% 的取值。
+        // 解析放在三门之后 = 与现状 %lle_achievements% 计数占位符同口径：门禁 1
+        // （隐身者非本人查看 → 隐私占位串）生效；showResults/coins 门禁不外扩到
+        // 成就状态（成就位不在 RESULTS_GATED，也非 coins_earned）。输出字符 ✓/✗
+        // 语言中立、不进新 i18n（计分板空间极小），与规划一致。
+        if (params.startsWith("achievement_")) {
+            Achievement achievement = Achievement.fromId(params.substring("achievement_".length()));
+            if (achievement == null) {
+                return null; // onRequest 已预检；防御性兜底 —— null 永不缓存
+            }
+            boolean unlocked = plugin.getAchievementManager().hasAchievement(playerId, achievement);
+            return unlocked ? "✓" : "✗";
         }
 
         // Ensure data is loaded (may trigger DB load for offline players)

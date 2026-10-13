@@ -103,6 +103,8 @@ public class DatabaseManager {
                         "  total_coins_earned BIGINT DEFAULT 0," +
                         "  total_coins_spent BIGINT DEFAULT 0," +
                         "  conversation_count INT DEFAULT 0," +
+                        "  onboarding_step INT DEFAULT 0," +
+                        "  wrong_book_cleared INT DEFAULT 0," +
                         "  current_streak INT DEFAULT 0," +
                         "  longest_streak INT DEFAULT 0," +
                         "  last_login BIGINT," +
@@ -115,6 +117,10 @@ public class DatabaseManager {
         addColumnIfMissing(tablePrefix + "player_data", "total_coins_spent", "BIGINT DEFAULT 0");
         // R-28：AI 对话累计次数落盘列（供 AI_CHAT_10/50 成就重启后仍可判定）
         addColumnIfMissing(tablePrefix + "player_data", "conversation_count", "INT DEFAULT 0");
+        // Phase 3 S-A：引导进度列（0=未开始，单调递增到 3=完结）
+        addColumnIfMissing(tablePrefix + "player_data", "onboarding_step", "INT DEFAULT 0");
+        // Phase 3 S-A：错题本累计攻克词数（WRONG_BOOK_CLEARED 成就，绝对值 UPSERT 写）
+        addColumnIfMissing(tablePrefix + "player_data", "wrong_book_cleared", "INT DEFAULT 0");
 
         executeUpdate(
                 "CREATE TABLE IF NOT EXISTS " + tablePrefix + "word_progress (" +
@@ -163,9 +169,12 @@ public class DatabaseManager {
                         "  correct_count INT DEFAULT 0," +
                         "  score BIGINT DEFAULT 0," +
                         "  mode VARCHAR(32)," +
+                        "  review_words INT DEFAULT 0," +
                         "  UNIQUE(uuid, session_date)" +
                         ")"
         );
+        // Phase 3 S-A：复习答对词数列（REVIEW_STREAK_7 判定；老库补列）
+        addColumnIfMissing(tablePrefix + "player_sessions", "review_words", "INT DEFAULT 0");
 
         executeUpdate(
                 "CREATE TABLE IF NOT EXISTS " + tablePrefix + "player_profiles (" +
@@ -173,9 +182,12 @@ public class DatabaseManager {
                         "  age INT DEFAULT 0," +
                         "  show_answers BOOLEAN DEFAULT 0," +
                         "  show_results BOOLEAN DEFAULT 1," +
-                        "  show_in_square BOOLEAN DEFAULT 1" +
+                        "  show_in_square BOOLEAN DEFAULT 1," +
+                        "  sounds_enabled BOOLEAN DEFAULT 1" +
                         ")"
         );
+        // Phase 3 S-A：per-player 音效开关（默认开；plan-audio-feedback §3.1）
+        addColumnIfMissing(tablePrefix + "player_profiles", "sounds_enabled", "BOOLEAN DEFAULT 1");
 
         executeUpdate(
                 "CREATE TABLE IF NOT EXISTS " + tablePrefix + "player_achievements (" +
@@ -1110,6 +1122,86 @@ public class DatabaseManager {
                 stmt.executeUpdate();
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING, "Failed to persist conversation_count for " + playerId, e);
+            }
+        }
+    }
+
+    /**
+     * Phase 3 S-A：读取玩家引导进度（{@code player_data.onboarding_step}）。
+     *
+     * <p>无行（从未落库的新玩家）→ 0，与 OnboardingManager.STEP_UNINITIALIZED 对齐。
+     * 读侧只此一条小 SELECT（OnboardingManager 于 join 时同步调用，模式同
+     * loadProfileSettings）。
+     *
+     * @param playerId the player
+     * @return the persisted onboarding step, 0 if no row exists
+     */
+    public int getOnboardingStep(UUID playerId) {
+        String sql = "SELECT onboarding_step FROM " + tablePrefix + "player_data WHERE uuid = ?";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                try (ResultSet rs = stmt.executeQuery()) {
+                    return rs.next() ? rs.getInt(1) : 0;
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to query onboarding_step for " + playerId, e);
+                return 0;
+            }
+        }
+    }
+
+    /**
+     * Phase 3 S-A：持久化玩家引导进度（绝对值 UPSERT，同 {@link #setConversationCount} pattern）。
+     *
+     * <p>由 {@code OnboardingManager.advanceStep} 在 step 单调推进时调用；写绝对值而非
+     * 增量，重复落库幂等。仅写 onboarding_step 列，与 savePlayerData 的 UPSERT
+     * 互不覆盖（各自显式列名）。
+     *
+     * @param playerId the player
+     * @param step     the new absolute onboarding step
+     */
+    public void setOnboardingStep(UUID playerId, int step) {
+        String sql = "INSERT INTO " + tablePrefix + "player_data (uuid, onboarding_step, updated_at) VALUES (?, ?, ?) "
+                + (isSQLite()
+                ? "ON CONFLICT(uuid) DO UPDATE SET onboarding_step = excluded.onboarding_step, updated_at = excluded.updated_at"
+                : "ON DUPLICATE KEY UPDATE onboarding_step = VALUES(onboarding_step), updated_at = VALUES(updated_at)");
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setInt(2, step);
+                stmt.setLong(3, System.currentTimeMillis());
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to persist onboarding_step for " + playerId, e);
+            }
+        }
+    }
+
+    /**
+     * Phase 3 S-A：持久化玩家错题本累计攻克词数（绝对值 UPSERT，同 {@link #setConversationCount} pattern）。
+     *
+     * <p>由 {@code PlayerDataStore.incrementWrongBookCleared} 在练习答对导致词语移出
+     * 错题本时调用，使 WRONG_BOOK_CLEARED 成就计数跨重启不丢。写绝对值而非增量，
+     * 调用方以缓存为权威先 +1 再落库，重复落库幂等；列名避开 word_progress 的
+     * INSERT OR REPLACE 全列覆盖陷阱（P3-09），与 word 级数据互不干扰。
+     *
+     * @param playerId the player
+     * @param count    the new absolute cleared-word count
+     */
+    public void setWrongBookCleared(UUID playerId, int count) {
+        String sql = "INSERT INTO " + tablePrefix + "player_data (uuid, wrong_book_cleared, updated_at) VALUES (?, ?, ?) "
+                + (isSQLite()
+                ? "ON CONFLICT(uuid) DO UPDATE SET wrong_book_cleared = excluded.wrong_book_cleared, updated_at = excluded.updated_at"
+                : "ON DUPLICATE KEY UPDATE wrong_book_cleared = VALUES(wrong_book_cleared), updated_at = VALUES(updated_at)");
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setInt(2, count);
+                stmt.setLong(3, System.currentTimeMillis());
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to persist wrong_book_cleared for " + playerId, e);
             }
         }
     }

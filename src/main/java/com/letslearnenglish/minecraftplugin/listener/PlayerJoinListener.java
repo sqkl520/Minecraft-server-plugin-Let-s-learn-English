@@ -57,10 +57,18 @@ public class PlayerJoinListener implements Listener {
             }, 40L);
         }
 
+        // 域 1 新手引导：欢迎语块之后接线（handleJoin 内部自判 enabled / 首进 / 老号回填 /
+        // 1-2 态提醒与补书；对已完成引导的老玩家零输出）。
+        plugin.getOnboardingManager().handleJoin(joining);
+
         // S5：join 每日提醒接线（R-86p 冻结接口，实现在 LetsLearnEnglish）。
         // 编译期即存在（方法已随 S8 落地）；内部自行判断 daily-reminder.enabled /
         // on-join / 当日去重，关闭或未命中时零输出。
-        plugin.sendJoinDailyReminderIfEnabled(joining);
+        // D2 决策（plan-onboarding §1.6）：首进当天抑制 join 每日提醒 ——
+        // 首屏已有 welcome×3 + join-intro，避免 5 行文案堆叠。
+        if (joining.hasPlayedBefore()) {
+            plugin.sendJoinDailyReminderIfEnabled(joining);
+        }
 
         // P2 fan-in（S3 冻结接口的消费端）：GM 解散对局时离线的一方在下次进服
         // 收到 duel.cancelled-by-gm 通知（consumeOfflineDuelNotice 读后即清）。
@@ -99,5 +107,7 @@ public class PlayerJoinListener implements Listener {
         plugin.getGuiNavigationManager().clearPlayer(playerId);
         plugin.getCheckInManager().unloadPlayer(playerId);
         plugin.getProgressManager().getRewardEngine().unloadPlayer(playerId);
+        // 域 1 新手引导 quit 编排点：清 step 缓存 + 提醒去重 map（防泄漏）。
+        plugin.getOnboardingManager().unloadPlayer(playerId);
     }
 }

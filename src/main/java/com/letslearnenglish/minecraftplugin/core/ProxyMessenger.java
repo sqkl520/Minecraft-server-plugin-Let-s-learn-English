@@ -73,10 +73,15 @@ public class ProxyMessenger implements PluginMessageListener {
     }
 
     /**
-     * 向全服发送成就解锁公告。
+     * 向全服发送成就解锁公告（PF-ACH-03：双语 payload）。
+     *
+     * <p>payload 格式 {@code playerName|uuid|zhName|enName}——接收端逐收件人按各自
+     * 语言取用对应名称渲染（原实现只带解锁者语言的单名，混服里语言混拼）。
+     * 旧 3 段格式（{@code playerName|uuid|name}）由接收端兼容。
      */
-    public void sendAchievementBroadcast(String playerName, UUID playerId, String achievementName) {
-        String payload = playerName + "|" + playerId + "|" + achievementName;
+    public void sendAchievementBroadcast(String playerName, UUID playerId,
+                                         String zhName, String enName) {
+        String payload = playerName + "|" + playerId + "|" + zhName + "|" + enName;
         sendForward("ALL", "AchievementUnlock", payload);
     }
 
@@ -171,26 +176,59 @@ public class ProxyMessenger implements PluginMessageListener {
         plugin.getLogger().info("[Proxy] Global message received: " + message);
     }
 
+    /**
+     * PF-ACH-03（plan-achievements §2.4/H13）：成就广播逐收件人渲染。
+     *
+     * <p>payload 四段 {@code playerName|uuid|zhName|enName}；旧 3 段格式兼容
+     * （zh=en=parts[2]）。与旧实现（全服同一句、模板固定服务器默认语言）不同，
+     * 现按每位收件人自己的语言取名称与模板渲染发送（R-86m 答对广播的
+     * per-recipient 先例）。{prefix} 按收件人语言解析——接收端重写后模板渲染
+     * 完整（旧实现会把字面 "{prefix}" 广播出去）。
+     */
     private void handleAchievementBroadcast(String payload) {
-        String[] parts = payload.split("\\|", 3);
+        String[] parts = payload.split("\\|", 4);
         if (parts.length < 3) return;
         String playerName = parts[0];
         // UUID ignored for broadcast display — just show the achievement
-        String achievementName = parts[2];
+        // 兼容：旧格式 3 段（单名）→ zh = en = parts[2]
+        String zhName = parts[2];
+        String enName = parts.length >= 4 ? parts[3] : zhName;
 
-        String defaultLang = plugin.getConfigManager().getMainConfig().getString("general.language", "zh");
-        org.bukkit.configuration.file.FileConfiguration messages = plugin.getConfigManager().getMessageConfig(defaultLang);
-        // R-78（P2 批次·编排者 fan-in）：模板缺失时不再 NPE 半残——两语言都缺才放弃广播。
-        String template = messages.getString("dialogue.proxy-achievement");
-        if (template == null) {
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            String lang = plugin.getPlayerLanguage(online);
+            String achievementName = "zh".equalsIgnoreCase(lang) ? zhName : enName;
+            String template = resolveAchievementTemplate(lang);
+            if (template == null) continue;
+            String msg = template
+                    .replace("{achievement}", achievementName)
+                    .replace("{player}", playerName)
+                    .replace("{prefix}", resolvePrefix(lang));
+            msg = org.bukkit.ChatColor.translateAlternateColorCodes('&', msg);
+            online.sendMessage(msg);
+        }
+    }
+
+    /**
+     * R-78（P2 批次·编排者 fan-in，per-recipient 化）：模板缺失时不再 NPE 半残——
+     * 该语言缺键回落 zh，两语言都缺返回 null（该收件人放弃本次广播）。
+     */
+    private String resolveAchievementTemplate(String lang) {
+        String template = plugin.getConfigManager().getMessageConfig(lang)
+                .getString("dialogue.proxy-achievement");
+        if (template == null && !"zh".equalsIgnoreCase(lang)) {
             template = plugin.getConfigManager().getMessageConfig("zh")
                     .getString("dialogue.proxy-achievement");
-            if (template == null) {
-                return;
-            }
         }
-        String msg = template.replace("{achievement}", achievementName).replace("{player}", playerName);
-        msg = org.bukkit.ChatColor.translateAlternateColorCodes('&', msg);
-        Bukkit.broadcastMessage(msg);
+        return template;
+    }
+
+    /** {prefix} 解析：config.yml 的 {@code prefix.<lang>}，缺省用消息文件自身 prefix 键。 */
+    private String resolvePrefix(String lang) {
+        String prefix = plugin.getConfigManager().getMainConfig().getString("prefix." + lang);
+        if (prefix != null && !prefix.isEmpty()) {
+            return prefix;
+        }
+        String fallback = plugin.getConfigManager().getMessageConfig(lang).getString("prefix");
+        return fallback != null ? fallback : "";
     }
 }

@@ -37,6 +37,12 @@ public class ProfileGUI {
 
     public void open(Player viewer, UUID targetId) {
         boolean isOwn = viewer.getUniqueId().equals(targetId);
+        // 域 1 新手引导第 3 步登记：打开本人主页（step==2 时）→ 引导完成 +
+        // complete 文案/音效 + 默认收书。他人主页不计数、step≠2 时 no-op，
+        // 顺序刚性无法跳步（plan-onboarding §1.2）。
+        if (isOwn) {
+            plugin.getOnboardingManager().onProfileOpened(viewer);
+        }
         FileConfiguration messages = plugin.getConfigManager()
                 .getMessageConfig(plugin.getPlayerLanguage(viewer));
 
@@ -186,17 +192,21 @@ public class ProfileGUI {
                         MessageUtil.getGuiMsg(messages, "profile.stats-coins-label")),
                 Collections.singletonList(coinsLine)));
 
-        // Achievement wall button — slot 18 (bottom-left) with count
-        String achWallLabel = ChatColor.translateAlternateColorCodes('&', "&e&l" +
-                MessageUtil.getGuiMsg(messages, "profile.stats-achievements-label"));
-        String achWallCount = plugin.getMessageUtil().getPlayerMessage(viewer,
-                "profile.stats-achievements-value",
-                "unlocked", String.valueOf(unlockedCount),
-                "total", String.valueOf(totalAchievements));
-        String achWallHint = ChatColor.translateAlternateColorCodes('&',
-                MessageUtil.getGuiMsg(messages, "profile.achievements-hint"));
-        inv.setItem(18, createItem(Material.PAINTING, achWallLabel,
-                Arrays.asList(achWallCount, achWallHint)));
+        // Achievement wall button — slot 18 (bottom-left) with count.
+        // MC-2 模块门：progress-system/achievements 关闭时按钮不渲染（槽位留空）；
+        // 点击侧（SocialListener）另有分支拒绝，渲染与点击同源 gating。
+        if (plugin.getConfigManager().isAchievementsEnabled()) {
+            String achWallLabel = ChatColor.translateAlternateColorCodes('&', "&e&l" +
+                    MessageUtil.getGuiMsg(messages, "profile.stats-achievements-label"));
+            String achWallCount = plugin.getMessageUtil().getPlayerMessage(viewer,
+                    "profile.stats-achievements-value",
+                    "unlocked", String.valueOf(unlockedCount),
+                    "total", String.valueOf(totalAchievements));
+            String achWallHint = ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(messages, "profile.achievements-hint"));
+            inv.setItem(18, createItem(Material.PAINTING, achWallLabel,
+                    Arrays.asList(achWallCount, achWallHint)));
+        }
 
         // Back button — slot 8
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE,

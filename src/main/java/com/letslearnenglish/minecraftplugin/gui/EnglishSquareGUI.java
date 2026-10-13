@@ -70,6 +70,14 @@ public class EnglishSquareGUI {
         String lang = plugin.getPlayerLanguage(viewer);
         FileConfiguration messages = cm.getMessageConfig(lang);
         PlayerDataStore store = plugin.getPlayerDataStore();
+        // MC-2（S-H）：榜单门（progress-system.enabled && leaderboard.enabled）关闭时，
+        // 防御性回落"广场"全量模式 —— 挡掉旧界面翻页/返回栈残留的排名模式重开路径
+        //（点击侧 SocialListener 已拒绝切换，但翻页分支仍会携带 currentMode）。
+        // "广场"全量模式不是榜单，不受此门影响。
+        boolean leaderboardEnabled = cm.isLeaderboardEnabled();
+        if (!leaderboardEnabled && mode != RankingMode.ALL_PLAYERS) {
+            mode = RankingMode.ALL_PLAYERS;
+        }
         this.currentMode = mode;
 
         int displayCount = cm.getMainConfig().getInt("progress-system.leaderboard.display-count", 10);
@@ -115,12 +123,21 @@ public class EnglishSquareGUI {
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
         // ---- Mode toggle buttons (slots 2-5) ----
-        addModeButton(inv, cm, messages, 2, RankingMode.WEEKLY, "mode-weekly", Material.CLOCK,
-                "leaderboard.mode-weekly");
-        addModeButton(inv, cm, messages, 3, RankingMode.MONTHLY, "mode-monthly", Material.BOOK,
-                "leaderboard.mode-monthly");
-        addModeButton(inv, cm, messages, 4, RankingMode.ALL_TIME_COINS, "mode-alltime", Material.GOLD_INGOT,
-                "leaderboard.mode-alltime");
+        // MC-2（S-H）：leaderboard.enabled=false 时周/月/总三榜按钮回落灰色玻璃占位
+        //（沿用主菜单"模块关闭=玻璃占位"的既有视觉语言），"广场"全量模式保留（它不是榜单）。
+        // 点击侧 SocialListener 对三榜槽位的分支拒绝并发 module.disabled。
+        if (leaderboardEnabled) {
+            addModeButton(inv, cm, messages, 2, RankingMode.WEEKLY, "mode-weekly", Material.CLOCK,
+                    "leaderboard.mode-weekly");
+            addModeButton(inv, cm, messages, 3, RankingMode.MONTHLY, "mode-monthly", Material.BOOK,
+                    "leaderboard.mode-monthly");
+            addModeButton(inv, cm, messages, 4, RankingMode.ALL_TIME_COINS, "mode-alltime", Material.GOLD_INGOT,
+                    "leaderboard.mode-alltime");
+        } else {
+            addDisabledModePlaceholder(inv, cm, "mode-weekly", 2);
+            addDisabledModePlaceholder(inv, cm, "mode-monthly", 3);
+            addDisabledModePlaceholder(inv, cm, "mode-alltime", 4);
+        }
         addModeButton(inv, cm, messages, 5, RankingMode.ALL_PLAYERS, "mode-all", Material.PLAYER_HEAD,
                 "leaderboard.mode-all");
 
@@ -256,6 +273,18 @@ public class EnglishSquareGUI {
         String hint = MessageUtil.getGuiMsg(messages, selected ? "leaderboard.selected" : "leaderboard.switch-hint");
         inv.setItem(slot, createItem(displayMat, label,
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', hint))));
+    }
+
+    /**
+     * MC-2（S-H）：榜单门关闭时的模式按钮灰玻璃占位（槽位读与按钮同一份
+     * gui-layout 配置，管理员改槽后占位与点击判定（SocialListener 读同键）
+     * 仍然对齐；点击侧对残留占位槽的点击回 module.disabled）。
+     */
+    private void addDisabledModePlaceholder(Inventory inv, ConfigManager cm,
+                                             String configKey, int defaultSlot) {
+        int slot = cm.getGuiSlot("english-square", configKey, defaultSlot);
+        inv.setItem(slot, createItem(Material.GRAY_STAINED_GLASS_PANE, " ",
+                Collections.emptyList()));
     }
 
     private LeaderboardEntry findEntry(List<LeaderboardEntry> entries, UUID playerId) {

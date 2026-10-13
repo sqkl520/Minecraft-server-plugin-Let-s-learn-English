@@ -65,6 +65,11 @@ public class PlayerDataStore {
     // 让 AI_CHAT_10/50 成就计数跨重启不丢。
     private final Map<UUID, Integer> conversationCountCache;
 
+    // Phase 3 S-A（H11）：错题本累计攻克词数缓存（镜像 player_data.wrong_book_cleared）。
+    // join 时随 loadPlayerData 载入；incrementWrongBookCleared 先改缓存再即时落库
+    // （绝对值 UPSERT，同 R-28 pattern），让 WRONG_BOOK_CLEARED 成就计数跨重启不丢。
+    private final Map<UUID, Integer> wrongBookClearedCache;
+
     public PlayerDataStore(LetsLearnEnglish plugin, DatabaseManager databaseManager) {
         this.plugin = plugin;
         this.databaseManager = databaseManager;
@@ -83,6 +88,7 @@ public class PlayerDataStore {
         this.todayAnswerCountCache = new ConcurrentHashMap<>();
         this.todayAiRoundCache = new ConcurrentHashMap<>();
         this.conversationCountCache = new ConcurrentHashMap<>();
+        this.wrongBookClearedCache = new ConcurrentHashMap<>();
     }
 
     /**
@@ -181,17 +187,52 @@ public class PlayerDataStore {
     }
 
     /**
+     * Phase 3 S-A（H11)：错题本累计攻克词数 +1，返回递增后的值。
+     *
+     * <p>缓存为权威：先确保已从 DB 载入基数，+1 后即时经
+     * {@code DatabaseManager.setWrongBookCleared} 落库（绝对值 UPSERT）。
+     * 即时落库理由同 R-28（quit 监听器顺序不保证，绝对值写使计数与顺序无关）。
+     * 仅由练习答对移出分支调用（手动删除不计数）。
+     */
+    public int incrementWrongBookCleared(UUID playerId) {
+        if (!wrongBookClearedCache.containsKey(playerId)) {
+            loadPlayerData(playerId);
+        }
+        int newVal = wrongBookClearedCache.merge(playerId, 1, Integer::sum);
+        databaseManager.setWrongBookCleared(playerId, newVal);
+        return newVal;
+    }
+
+    /**
+     * Phase 3 S-A（H11)：读取玩家错题本累计攻克词数（供 WRONG_BOOK_CLEARED 成就判定）。
+     * 缓存未命中时懒加载（loadPlayerData 会填入 wrong_book_cleared）。
+     */
+    public int getWrongBookCleared(UUID playerId) {
+        Integer v = wrongBookClearedCache.get(playerId);
+        if (v == null) {
+            loadPlayerData(playerId);
+            v = wrongBookClearedCache.get(playerId);
+        }
+        return v != null ? v : 0;
+    }
+
+    /**
      * 记录一次学习会话到 player_sessions 表。
      * 同一天多次会话会合并（UPSERT，累加 words/correct/score）。
+     *
+     * <p>Phase 3 S-A（H8）：review_words 为复习会话专用列——mode=review 时累加
+     * correctCount（复习答对词数），否则 0。零签名变更（mode 已是入参），供
+     * REVIEW_STREAK_7 成就按"当天复习答对 ≥1 词"判定。
      */
     public void recordSession(UUID playerId, int wordsCount, int correctCount, long score, String mode) {
         String tablePrefix = databaseManager.getTablePrefix();
         java.time.LocalDate today = java.time.LocalDate.now();
         String dateStr = today.toString();
+        int reviewWords = "review".equalsIgnoreCase(mode) ? correctCount : 0;
 
         String sql = databaseManager.isSQLite()
-                ? "INSERT INTO " + tablePrefix + "player_sessions (uuid, session_date, words_count, correct_count, score, mode) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(uuid, session_date) DO UPDATE SET words_count = words_count + excluded.words_count, correct_count = correct_count + excluded.correct_count, score = score + excluded.score"
-                : "INSERT INTO " + tablePrefix + "player_sessions (uuid, session_date, words_count, correct_count, score, mode) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE words_count = words_count + VALUES(words_count), correct_count = correct_count + VALUES(correct_count), score = score + VALUES(score)";
+                ? "INSERT INTO " + tablePrefix + "player_sessions (uuid, session_date, words_count, correct_count, score, mode, review_words) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(uuid, session_date) DO UPDATE SET words_count = words_count + excluded.words_count, correct_count = correct_count + excluded.correct_count, score = score + excluded.score, review_words = review_words + excluded.review_words"
+                : "INSERT INTO " + tablePrefix + "player_sessions (uuid, session_date, words_count, correct_count, score, mode, review_words) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE words_count = words_count + VALUES(words_count), correct_count = correct_count + VALUES(correct_count), score = score + VALUES(score), review_words = review_words + VALUES(review_words)";
 
         Connection conn = databaseManager.getConnection();
         synchronized (databaseManager.getConnectionLock()) {
@@ -202,6 +243,7 @@ public class PlayerDataStore {
             stmt.setInt(4, correctCount);
             stmt.setLong(5, score);
             stmt.setString(6, mode);
+            stmt.setInt(7, reviewWords);
             stmt.executeUpdate();
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to record session: " + playerId, e);
@@ -295,8 +337,9 @@ public class PlayerDataStore {
         }
 
         // 从 player_data 表加载 sessions 和 score
-        String statsSql = "SELECT total_sessions, total_score, conversation_count FROM " + tablePrefix + "player_data WHERE uuid = ?";
+        String statsSql = "SELECT total_sessions, total_score, conversation_count, wrong_book_cleared FROM " + tablePrefix + "player_data WHERE uuid = ?";
         int conversationCount = 0;
+        int wrongBookCleared = 0;
         synchronized (databaseManager.getConnectionLock()) {
         try (PreparedStatement stmt = conn.prepareStatement(statsSql)) {
             stmt.setString(1, playerId.toString());
@@ -307,6 +350,7 @@ public class PlayerDataStore {
                     stats.setSessions(sessions);
                     stats.setScore(score);
                     conversationCount = rs.getInt("conversation_count"); // R-28
+                    wrongBookCleared = rs.getInt("wrong_book_cleared"); // Phase 3 S-A（H11）
                 }
             }
         } catch (SQLException e) {
@@ -315,6 +359,7 @@ public class PlayerDataStore {
         }
         playerStatsCache.put(playerId, stats);
         conversationCountCache.put(playerId, conversationCount); // R-28
+        wrongBookClearedCache.put(playerId, wrongBookCleared); // Phase 3 S-A（H11）
 
         // Load difficult words / wrong book data
         loadDifficultWordsFromDB(playerId);
@@ -769,6 +814,7 @@ public class PlayerDataStore {
         todayAnswerCountCache.remove(playerId);
         todayAiRoundCache.remove(playerId);
         conversationCountCache.remove(playerId); // R-28
+        wrongBookClearedCache.remove(playerId); // Phase 3 S-A（H11）
     }
 
     /**
@@ -788,6 +834,7 @@ public class PlayerDataStore {
         wrongCountCache.clear();
         playerNameCache.clear();
         conversationCountCache.clear(); // R-28
+        wrongBookClearedCache.clear(); // Phase 3 S-A（H11）
     }
 
     /**
@@ -839,6 +886,8 @@ public class PlayerDataStore {
         private boolean showAnswers = false;
         private boolean showResults = true;
         private boolean showInSquare = true;
+        // Phase 3 S-A：per-player 音效开关，默认开（fail-open，见 SoundManager 门）
+        private boolean soundsEnabled = true;
 
         /**
          * R-39 读侧校验：年龄 0 = 未设置（正常态，GUI 显示"未设置"）；
@@ -857,6 +906,9 @@ public class PlayerDataStore {
         public void setShowResults(boolean showResults) { this.showResults = showResults; }
         public boolean isShowInSquare() { return showInSquare; }
         public void setShowInSquare(boolean showInSquare) { this.showInSquare = showInSquare; }
+        // Phase 3 S-A：音效开关（SoundManager per-player 门读侧走 getProfileSettingsReadOnly）
+        public boolean isSoundsEnabled() { return soundsEnabled; }
+        public void setSoundsEnabled(boolean soundsEnabled) { this.soundsEnabled = soundsEnabled; }
     }
 
     public ProfileSettings getProfileSettings(UUID playerId) {
@@ -882,8 +934,8 @@ public class PlayerDataStore {
 
         String tablePrefix = databaseManager.getTablePrefix();
         String sql = databaseManager.isSQLite()
-                ? "INSERT OR REPLACE INTO " + tablePrefix + "player_profiles (uuid, age, show_answers, show_results, show_in_square) VALUES (?, ?, ?, ?, ?)"
-                : "INSERT INTO " + tablePrefix + "player_profiles (uuid, age, show_answers, show_results, show_in_square) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE age=VALUES(age), show_answers=VALUES(show_answers), show_results=VALUES(show_results), show_in_square=VALUES(show_in_square)";
+                ? "INSERT OR REPLACE INTO " + tablePrefix + "player_profiles (uuid, age, show_answers, show_results, show_in_square, sounds_enabled) VALUES (?, ?, ?, ?, ?, ?)"
+                : "INSERT INTO " + tablePrefix + "player_profiles (uuid, age, show_answers, show_results, show_in_square, sounds_enabled) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE age=VALUES(age), show_answers=VALUES(show_answers), show_results=VALUES(show_results), show_in_square=VALUES(show_in_square), sounds_enabled=VALUES(sounds_enabled)";
 
         Connection conn = databaseManager.getConnection();
         synchronized (databaseManager.getConnectionLock()) {
@@ -893,6 +945,7 @@ public class PlayerDataStore {
             stmt.setBoolean(3, settings.isShowAnswers());
             stmt.setBoolean(4, settings.isShowResults());
             stmt.setBoolean(5, settings.isShowInSquare());
+            stmt.setBoolean(6, settings.isSoundsEnabled());
             stmt.executeUpdate();
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to save profile settings: " + playerId, e);
@@ -902,7 +955,7 @@ public class PlayerDataStore {
 
     public void loadProfileSettings(UUID playerId) {
         String tablePrefix = databaseManager.getTablePrefix();
-        String sql = "SELECT age, show_answers, show_results, show_in_square FROM " + tablePrefix + "player_profiles WHERE uuid = ?";
+        String sql = "SELECT age, show_answers, show_results, show_in_square, sounds_enabled FROM " + tablePrefix + "player_profiles WHERE uuid = ?";
 
         Connection conn = databaseManager.getConnection();
         synchronized (databaseManager.getConnectionLock()) {
@@ -915,6 +968,7 @@ public class PlayerDataStore {
                     settings.setShowAnswers(rs.getBoolean("show_answers"));
                     settings.setShowResults(rs.getBoolean("show_results"));
                     settings.setShowInSquare(rs.getBoolean("show_in_square"));
+                    settings.setSoundsEnabled(rs.getBoolean("sounds_enabled")); // Phase 3 S-A
                     profileSettingsCache.put(playerId, settings);
                 } else {
                     profileSettingsCache.putIfAbsent(playerId, new ProfileSettings());

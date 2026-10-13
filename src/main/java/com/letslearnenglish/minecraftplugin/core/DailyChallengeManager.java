@@ -115,6 +115,11 @@ public class DailyChallengeManager {
      * Check if the player has challenges for today. If not, assign 3 random ones.
      */
     public void checkAndAssign(UUID playerId) {
+        // MC-2（S-H）：daily-challenges.enabled=false 时入口 no-op —— 不产生新挑战行
+        //（既有行保留；重开立即恢复分配/进度）。
+        if (!plugin.getConfigManager().isDailyChallengesEnabled()) {
+            return;
+        }
         String today = LocalDate.now().toString();
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
         String checkSql = "SELECT COUNT(*) FROM " + tablePrefix
@@ -219,10 +224,15 @@ public class DailyChallengeManager {
     /**
      * FIX-DAY-01：判断某类挑战在当前服务器是否可完成。
      * 目前只有 AI_CHAT_5 受限（需要 AI Key）；其余行为挑战永远可用。
+     *
+     * <p>MC-2（S-H）：AI_CHAT_5 追加 {@code ai-chat.enabled} 门 —— 模块关闭时
+     * 本方法即"AI 任务可完成性"的唯一真相，防分配出打不了的死任务
+     * （同时使 R-21 存量降级链在模块关闭后也自然生效）。</p>
      */
     private boolean isChallengeAvailable(ChallengeType type) {
         if (type == ChallengeType.AI_CHAT_5) {
-            return plugin.getAIChatManager() != null && plugin.getAIChatManager().isAvailable();
+            return plugin.getConfigManager().isAIChatEnabled()
+                    && plugin.getAIChatManager() != null && plugin.getAIChatManager().isAvailable();
         }
         return true;
     }
@@ -326,6 +336,10 @@ public class DailyChallengeManager {
      * Update progress for a challenge type. Called from hooks.
      */
     public void updateProgress(UUID playerId, ChallengeType type, int increment) {
+        // MC-2（S-H）：daily-challenges.enabled=false 时入口 no-op —— 不推进进度、不补分配。
+        if (!plugin.getConfigManager().isDailyChallengesEnabled()) {
+            return;
+        }
         String today = LocalDate.now().toString();
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
 
@@ -408,6 +422,10 @@ public class DailyChallengeManager {
      * Set a challenge as completed (for binary challenges like combo).
      */
     public void completeChallenge(UUID playerId, ChallengeType type) {
+        // MC-2（S-H）：daily-challenges.enabled=false 时入口 no-op。
+        if (!plugin.getConfigManager().isDailyChallengesEnabled()) {
+            return;
+        }
         String today = LocalDate.now().toString();
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
         String updateSql = "UPDATE " + tablePrefix
@@ -508,8 +526,17 @@ public class DailyChallengeManager {
     /**
      * Ensure the player has word challenges assigned for today.
      * Called on player join and when checking behavioral challenges.
+     *
+     * <p>MC-2（S-H）：双重门 —— {@code daily-challenges.enabled=false} 时挑战体系
+     * 整体入口 no-op（本方法亦为公开入口之一，见 plan-menu-config 1.(b) 表 row 4）；
+     * {@code word-system.enabled=false} 时词库不再出题，不再分配新单词挑战
+     * （分配出来即死任务）。既有分配行保留，重开继续。</p>
      */
     private void ensureWordChallengesAssigned(UUID playerId) {
+        if (!plugin.getConfigManager().isDailyChallengesEnabled()
+                || !plugin.getConfigManager().isWordSystemEnabled()) {
+            return;
+        }
         String today = LocalDate.now().toString();
         List<String> existing = plugin.getDatabaseManager().getDailyChallengeWords(playerId, today);
         if (!existing.isEmpty()) return;
@@ -548,6 +575,12 @@ public class DailyChallengeManager {
      * answer — even non-challenge words or already-completed words.
      */
     public void onWordCorrect(Player player, Word word) {
+        // MC-2（S-H）：daily-challenges.enabled=false 时入口 no-op —— 不完成挑战词、
+        // 不触发（也不重试）奖励补发链。word-system 门在 ensureWordChallengesAssigned
+        // 与 WordLearningManager 调用侧，本方法不重复门。
+        if (!plugin.getConfigManager().isDailyChallengesEnabled()) {
+            return;
+        }
         UUID playerId = player.getUniqueId();
         String today = LocalDate.now().toString();
         String wordId = word.getEnglish().toLowerCase();
@@ -624,8 +657,11 @@ public class DailyChallengeManager {
 
         if (!depositWordChallengeReward(player, playerId, reward)) {
             // R-44 对齐（与 LearnCommand /le challenge 同语义）：区分两种发币失败。
-            boolean moneyEnabled = plugin.getConfigManager().getMainConfig()
-                    .getBoolean("progress-system.rewards.types.money.enabled", false);
+            // MC-2（S-H）：改走 RewardEngine.isMoneyEnabled()（单一真相收口）——
+            // "关奖励伞"（rewards.enabled=false）与"关 money 键"任一 false 均判为
+            // 终态无奖可发，走 economy-disabled 分支（否则伞关闭会误判成瞬时失败、
+            // 每答对一题重入 reward-pending 刷屏）。
+            boolean moneyEnabled = plugin.getProgressManager().getRewardEngine().isMoneyEnabled();
             if (!moneyEnabled) {
                 // 经济开关永久关闭 = 无奖可发（终态）。标记已处理避免 hasPendingWordReward
                 // 恒 true 导致每答对一题重入刷屏；发一次 economy-disabled 说明，不承诺"稍后补发"。
@@ -680,9 +716,9 @@ public class DailyChallengeManager {
         // R-44 fan-in：money.enabled=false 时不发币、返回 false（走既有 reward-pending /
         // economy-disabled 语义，不标记已领、不静默吞）。depositCappedReward 本身不查此开关，
         // 故在此门把关，与 LearnCommand 的 /le challenge economy-disabled 分支衔接。
-        boolean moneyEnabled = plugin.getConfigManager().getMainConfig()
-                .getBoolean("progress-system.rewards.types.money.enabled", false);
-        if (!moneyEnabled) {
+        // MC-2（S-H）：改走 RewardEngine.isMoneyEnabled()（单一真相收口）—— 奖励伞
+        // （progress-system.rewards.enabled）关闭时同样不发币。
+        if (!plugin.getProgressManager().getRewardEngine().isMoneyEnabled()) {
             return false;
         }
         double paid = plugin.getProgressManager().getRewardEngine().depositCappedReward(player, reward);

@@ -213,7 +213,21 @@ public class ChatAnswerListener implements Listener {
             }
 
             if (result.correct) {
-                SoundManager.playSound(player, "correct");
+                // Phase 3 3A-2（plan-audio-feedback B3）：连击反馈升级。
+                // 里程碑 tick（combo 命中 3/5/7/10 且 milestone-enabled）：铃音
+                // 替代升调 correct 音（不叠加，避免双音浑浊）+ ActionBar 闪里程碑文案；
+                // 其余答对：correct 音 pitch 随连击递增（getComboPitch，断连击自然回落）。
+                if (wlManager.isComboMilestone(result.consecutiveCorrect)) {
+                    SoundManager.playSound(player, "combo-milestone");
+                    plugin.getVersionAdapter().sendActionBar(player,
+                            ChatColor.translateAlternateColorCodes('&',
+                                    MessageUtil.getGuiMsg(msgs, "word-learning-gui.combo-milestone")
+                                            .replace("{count}", String.valueOf(result.consecutiveCorrect))
+                                            .replace("{multiplier}", String.valueOf(result.comboMultiplier))));
+                } else {
+                    SoundManager.playSound(player, "correct",
+                            wlManager.getComboPitch(result.consecutiveCorrect));
+                }
                 String comboMsg = "";
                 if (result.consecutiveCorrect > 1) {
                     // P2 收尾：裸 getString 收敛为 getGuiMsg（缺键返回 [?key] 不 NPE）
@@ -234,9 +248,19 @@ public class ChatAnswerListener implements Listener {
                         player.getUniqueId(), result.consecutiveCorrect);
             } else {
                 SoundManager.playSound(player, "incorrect");
-                player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                        MessageUtil.getGuiMsg(msgs, "word-learning-gui.incorrect")
-                                .replace("{answer}", result.correctAnswer)));
+                // Phase 3 onboarding（plan-onboarding §3.5）：教程迷你会话答错 = 原地重试
+                // 提示（不显示答案）；音效保持 incorrect 不变；随后既有
+                // else { openWithMessage } 循环原样复用 —— 会话未推进，重开的仍是同题。
+                // 教程文案走 getPlayerMessage（per-player 语言 + {prefix} 替换；
+                // onboarding.* 聊天键按规划带 {prefix}，getGuiMsg 不做该替换）。
+                if (result.tutorial) {
+                    player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                            "onboarding.retry-wrong"));
+                } else {
+                    player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                            MessageUtil.getGuiMsg(msgs, "word-learning-gui.incorrect")
+                                    .replace("{answer}", result.correctAnswer)));
+                }
             }
 
             if (result.sessionComplete) {

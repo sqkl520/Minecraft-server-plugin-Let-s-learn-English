@@ -44,6 +44,15 @@ public class ReviewScheduler {
     }
 
     public void checkAndNotifyReviews() {
+        // MC-2（S-H）/ PF-MC-05：任务体内门（点读 config，reload 即时生效）——
+        // 单词模块总门关闭、或复习子开关关闭时整个任务静默 no-op。
+        // LetsLearnEnglish 侧的排程只在 enable 时判一次（reload 不重建任务），
+        // 故这里的体内门是 reload 后"关得干净"的唯一保障，也是 word 总开关的兜底。
+        if (!plugin.getConfigManager().isWordSystemEnabled()
+                || !plugin.getConfigManager().getMainConfig()
+                        .getBoolean("word-system.review.enabled", true)) {
+            return;
+        }
         java.time.LocalDate today = java.time.LocalDate.now();
         for (Player player : Bukkit.getOnlinePlayers()) {
             // 同一玩家同一天只提醒一次（30 秒 TTL 缓存 + 5 分钟定时任务原本会反复刷屏）

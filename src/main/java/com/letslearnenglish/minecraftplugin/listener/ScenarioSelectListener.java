@@ -114,6 +114,9 @@ public class ScenarioSelectListener implements Listener {
         if (index < 0 || index >= shownCount) return;
 
         if (!plugin.getAIChatManager().isAvailable()) {
+            // P2-24 音效盲点收口（3A-5）：失败分支给一声失败音，与有效点击的
+            // menu-click 区分开，玩家能"听见"这次点击没有生效。
+            SoundManager.playSound(player, "incorrect");
             player.closeInventory();
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "dialogue.ai-not-configured"));
@@ -189,7 +192,12 @@ public class ScenarioSelectListener implements Listener {
 
     private void handleReloadAPI(Player player) {
         // R-55m：权限与 /le load_scenario 对齐（原 letslearnenglish.admin）
-        if (!player.hasPermission("letslearnenglish.scenario.import")) return;
+        if (!player.hasPermission("letslearnenglish.scenario.import")) {
+            // P2-24 音效盲点收口（3A-5）：无权限分支与 AI 未配置分支同用失败音，
+            // 与有效点击（menu-click）听觉可区分。
+            SoundManager.playSound(player, "incorrect");
+            return;
+        }
         SoundManager.playSound(player, "menu-click");
         plugin.getAIChatManager().reload();
         player.closeInventory();

@@ -72,6 +72,20 @@ public class VersionAdapter {
     }
 
     /**
+     * Send an action bar message (cross-version compatible).
+     *
+     * Paper 1.21.4 deprecated {@code Player.sendActionBar(String)} — this routes
+     * through the Adventure Component API instead (javap-verified available via
+     * paper-api's adventure-text-serializer-legacy compile dependency).
+     * Caller is responsible for translating '&amp;' color codes first
+     * ({@code ChatColor.translateAlternateColorCodes('&', text)}).
+     */
+    public void sendActionBar(Player player, String legacyText) {
+        player.sendActionBar(net.kyori.adventure.text.serializer.legacy
+                .LegacyComponentSerializer.legacySection().deserialize(legacyText));
+    }
+
+    /**
      * Get the server major version number.
      */
     public int getMajorVersion() {

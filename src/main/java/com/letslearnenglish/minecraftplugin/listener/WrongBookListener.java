@@ -149,6 +149,9 @@ public class WrongBookListener implements Listener {
 
         // Start practice mode
         plugin.getWordLearningManager().startPracticeWord(player.getUniqueId(), word);
+        // P2-24 音效盲点收口（3A-5）：有效动作补点击音，与同页左键删除
+        // （handleRemove 的 menu-click）对齐 —— 此前 Shift+点练习全程静默。
+        SoundManager.playSound(player, "menu-click");
 
         // Look up the word for Chinese meaning
         com.letslearnenglish.minecraftplugin.core.word.Word wordInfo = plugin.getWordManager().getWord(word);
