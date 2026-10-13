@@ -140,3 +140,37 @@ CREATE TABLE IF NOT EXISTS {prefix}checkin_data (
     last_checkin_date DATE NOT NULL,
     streak_count INTEGER DEFAULT 1
 );
+
+-- Square social: learning feed (one merged row per player x day x event type)
+CREATE TABLE IF NOT EXISTS {prefix}social_feed (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_uuid VARCHAR(36) NOT NULL,     -- 动态作者
+    feed_date DATE NOT NULL,              -- 服务器时区自然日（合并键）
+    event_type VARCHAR(16) NOT NULL,      -- SESSION_DONE / ACHIEVEMENT / CHECKIN
+    events_count INT DEFAULT 1,           -- 当日同类型累计次数
+    sum_correct INT DEFAULT 0,            -- SESSION_DONE 累计答对
+    sum_total INT DEFAULT 0,              -- SESSION_DONE 累计题数
+    last_mode VARCHAR(16),                -- SESSION_DONE 最近会话模式
+    last_streak INT DEFAULT 0,            -- CHECKIN 最近连续天数
+    achievement_id VARCHAR(64),           -- ACHIEVEMENT 最近解锁 id
+    cheer_count INT DEFAULT 0,            -- 鼓励计数（去规范化，写侧维护）
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,           -- 排序键（新事件/合并时刷新；鼓励不改它）
+    UNIQUE(player_uuid, feed_date, event_type)
+);
+
+CREATE INDEX IF NOT EXISTS {prefix}idx_feed_order ON {prefix}social_feed(feed_date, updated_at);
+CREATE INDEX IF NOT EXISTS {prefix}idx_feed_player ON {prefix}social_feed(player_uuid, feed_date);
+
+-- Square social: cheers (one per feed row per cheerer)
+CREATE TABLE IF NOT EXISTS {prefix}social_cheers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    feed_id INTEGER NOT NULL,             -- 逻辑关联 social_feed.id（沿用"无外键直删"惯例）
+    cheerer_uuid VARCHAR(36) NOT NULL,    -- 鼓励者（注意列名是 cheerer_uuid，不是 uuid/player_uuid）
+    created_at BIGINT NOT NULL,
+    read_by_owner BOOLEAN DEFAULT 0,      -- 作者离线摘要已读标记
+    UNIQUE(feed_id, cheerer_uuid)
+);
+
+CREATE INDEX IF NOT EXISTS {prefix}idx_cheers_feed ON {prefix}social_cheers(feed_id);
+CREATE INDEX IF NOT EXISTS {prefix}idx_cheers_cheerer ON {prefix}social_cheers(cheerer_uuid);

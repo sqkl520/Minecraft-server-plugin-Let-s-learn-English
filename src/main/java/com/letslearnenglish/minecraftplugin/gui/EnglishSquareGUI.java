@@ -3,6 +3,7 @@ package com.letslearnenglish.minecraftplugin.gui;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import org.bukkit.Bukkit;
@@ -19,17 +20,20 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.LeaderboardEntry;
 import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.RankingMode;
+import com.letslearnenglish.minecraftplugin.core.social.FeedTextFormatter;
+import com.letslearnenglish.minecraftplugin.core.social.SocialManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 
 /**
  * English Square GUI with ranking modes — paginated list of players.
  *
- * Supports 4 modes:
+ * Supports 5 modes:
  * - WEEKLY: this week's top players by coin
  * - MONTHLY: this month's top players by coin
  * - ALL_TIME_COINS: all-time top players by total score
  * - ALL_PLAYERS: all active players (original English Square behavior)
+ * - FEED: 学习动态流（第 5 模式，Wave 2 域 4）——SocialManager FeedCache 快照渲染
  *
  * Players who set "show_in_square = false" get the invisibility joke screen.
  */
@@ -48,6 +52,11 @@ public class EnglishSquareGUI {
     private final LetsLearnEnglish plugin;
     private List<UUID> currentPlayerIds = new ArrayList<>();
     private RankingMode currentMode = RankingMode.ALL_PLAYERS;
+    /**
+     * Wave 2 域 4：本次渲染的 FEED 快照（仅 FEED 模式非空；immutable）。
+     * 监听器点击侧按 {@code (page-1)*28 + slotIdx} 反查同一条目（与 currentPlayerIds 同款契约）。
+     */
+    private List<SocialManager.FeedItem> currentFeedItems = Collections.emptyList();
 
     public EnglishSquareGUI(LetsLearnEnglish plugin) {
         this.plugin = plugin;
@@ -61,8 +70,24 @@ public class EnglishSquareGUI {
         return currentMode;
     }
 
+    /** Wave 2 域 4：FEED 模式的渲染快照（非 FEED 模式为空列表）。 */
+    public List<SocialManager.FeedItem> getCurrentFeedItems() {
+        return currentFeedItems;
+    }
+
     public void open(Player viewer, int page) {
-        open(viewer, page, RankingMode.ALL_PLAYERS);
+        open(viewer, page, null);
+    }
+
+    /**
+     * 广场默认落点（Wave 2 域 4）：配置 {@code english-square.default-mode}
+     * （{@code feed|all}，默认 {@code feed}——动态流放首页最大化循环入口；
+     * 非法值同样回落 feed）。social 门关闭时的回落由 {@link #open} 内的独立门处理。
+     */
+    private RankingMode resolveDefaultMode() {
+        String raw = plugin.getConfigManager().getMainConfig()
+                .getString("english-square.default-mode", "feed");
+        return "all".equalsIgnoreCase(raw) ? RankingMode.ALL_PLAYERS : RankingMode.FEED;
     }
 
     public void open(Player viewer, int page, RankingMode mode) {
@@ -70,12 +95,24 @@ public class EnglishSquareGUI {
         String lang = plugin.getPlayerLanguage(viewer);
         FileConfiguration messages = cm.getMessageConfig(lang);
         PlayerDataStore store = plugin.getPlayerDataStore();
+        // Wave 2：mode == null → 按配置默认落点（/le square 无参路径与主菜单广场按钮）。
+        if (mode == null) {
+            mode = resolveDefaultMode();
+        }
+        SocialManager socialManager = plugin.getSocialManager();
+        boolean socialEnabled = socialManager != null && socialManager.isEnabled();
         // MC-2（S-H）：榜单门（progress-system.enabled && leaderboard.enabled）关闭时，
         // 防御性回落"广场"全量模式 —— 挡掉旧界面翻页/返回栈残留的排名模式重开路径
         //（点击侧 SocialListener 已拒绝切换，但翻页分支仍会携带 currentMode）。
-        // "广场"全量模式不是榜单，不受此门影响。
+        // "广场"全量模式不是榜单，不受此门影响；Wave 2 的 FEED 同样不是榜单
+        //（数据走 SocialManager FeedCache），也不吃本门。
         boolean leaderboardEnabled = cm.isLeaderboardEnabled();
-        if (!leaderboardEnabled && mode != RankingMode.ALL_PLAYERS) {
+        if (!leaderboardEnabled && mode != RankingMode.ALL_PLAYERS && mode != RankingMode.FEED) {
+            mode = RankingMode.ALL_PLAYERS;
+        }
+        // Wave 2 域 4（plan-social §2.5 四处接线之一）：social 门关闭时动态页不可达，
+        // 防御性回落"广场"全量模式（挡旧界面翻页/返回栈残留的 FEED 重开路径）。
+        if (mode == RankingMode.FEED && !socialEnabled) {
             mode = RankingMode.ALL_PLAYERS;
         }
         this.currentMode = mode;
@@ -83,7 +120,13 @@ public class EnglishSquareGUI {
         int displayCount = cm.getMainConfig().getInt("progress-system.leaderboard.display-count", 10);
 
         List<LeaderboardEntry> rankedEntries;
-        if (mode == RankingMode.ALL_PLAYERS) {
+        if (mode == RankingMode.FEED) {
+            // 零查库（F2-11 对照）：读 SocialManager volatile 快照（≤200 条内存切片）
+            currentPlayerIds = new ArrayList<>();
+            currentFeedItems = socialManager.getFeedSnapshot();
+            rankedEntries = Collections.emptyList();
+        } else if (mode == RankingMode.ALL_PLAYERS) {
+            currentFeedItems = Collections.emptyList();
             // Original mode: show active players (include self if answered at least once).
             // R-05 补漏：隐身玩家（show_in_square=false）不列出。
             List<UUID> allPlayers = store.getActivePlayerIds();
@@ -97,6 +140,7 @@ public class EnglishSquareGUI {
             }
             rankedEntries = Collections.emptyList();
         } else {
+            currentFeedItems = Collections.emptyList();
             // Ranking mode: query leaderboard (include self if has activity)
             rankedEntries = plugin.getProgressManager().getLeaderboard().getTopPlayers(mode, displayCount);
             currentPlayerIds = new ArrayList<>();
@@ -105,7 +149,9 @@ public class EnglishSquareGUI {
             }
         }
 
-        int totalPages = Math.max(1, (int) Math.ceil((double) currentPlayerIds.size() / PLAYERS_PER_PAGE));
+        int totalPages = Math.max(1, (int) Math.ceil((double)
+                (mode == RankingMode.FEED ? currentFeedItems.size() : currentPlayerIds.size())
+                / PLAYERS_PER_PAGE));
         if (page < 1) page = 1;
         if (page > totalPages) page = totalPages;
 
@@ -115,11 +161,13 @@ public class EnglishSquareGUI {
             case WEEKLY -> MessageUtil.getGuiMsg(messages, "leaderboard.mode-weekly");
             case MONTHLY -> MessageUtil.getGuiMsg(messages, "leaderboard.mode-monthly");
             case ALL_TIME_COINS -> MessageUtil.getGuiMsg(messages, "leaderboard.mode-alltime");
+            case FEED -> MessageUtil.getGuiMsg(messages, "square.feed.mode-label");
             default -> "";
         };
         String title = ChatColor.translateAlternateColorCodes('&',
                 (modeLabel.isEmpty() ? baseTitle : baseTitle + " | " + modeLabel)
-                        .replace("{page}", currentPlayerIds.isEmpty() ? "1/1" : page + "/" + totalPages));
+                        .replace("{page}", currentPlayerIds.isEmpty() && currentFeedItems.isEmpty()
+                                ? "1/1" : page + "/" + totalPages));
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
         // ---- Mode toggle buttons (slots 2-5) ----
@@ -140,11 +188,118 @@ public class EnglishSquareGUI {
         }
         addModeButton(inv, cm, messages, 5, RankingMode.ALL_PLAYERS, "mode-all", Material.PLAYER_HEAD,
                 "leaderboard.mode-all");
+        // Wave 2 域 4：动态按钮（slot 6，BELL）——social 门关闭时不渲染
+        //（点击侧 SocialListener 对残留占位/陈旧界面的 feed 槽回 module.disabled）。
+        if (socialEnabled) {
+            addModeButton(inv, cm, messages, 6, RankingMode.FEED, "mode-feed", Material.BELL,
+                    "square.feed.mode-label");
+        }
 
-        // ---- Player heads ----
+        // ---- Player heads / Feed entries ----
         int startIdx = (page - 1) * PLAYERS_PER_PAGE;
-        int endIdx = Math.min(startIdx + PLAYERS_PER_PAGE, currentPlayerIds.size());
+        if (mode == RankingMode.FEED) {
+            renderFeedEntries(inv, viewer, messages, lang, page, startIdx, socialManager);
+        } else {
+            renderPlayerHeads(inv, store, messages, mode, page, startIdx, rankedEntries);
+        }
 
+        // ---- Pagination ----
+        // R-36: 上一页/下一页各自独立门禁（上一页只看 page>1，下一页只看 page<totalPages）。
+        // 旧 pageFull 联合门禁会让不满的尾页两按钮都不放，玩家卡死翻不回去。
+        if (page > 1) {
+            String prevLabel = ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(messages, "square.prev-page"));
+            String prevLore = ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(messages, "square.prev-page-lore")
+                            .replace("{page}", String.valueOf(page - 1)));
+            int prevSlot = cm.getGuiSlot("english-square", "prev-page", 47);
+            Material prevMaterial = cm.getGuiMaterial("english-square", "prev-page", Material.ARROW);
+            inv.setItem(prevSlot, createItem(prevMaterial, prevLabel,
+                    Collections.singletonList(prevLore)));
+        }
+        if (page < totalPages) {
+            String nextLabel = ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(messages, "square.next-page"));
+            String nextLore = ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(messages, "square.next-page-lore")
+                            .replace("{page}", String.valueOf(page + 1)));
+            int nextSlot = cm.getGuiSlot("english-square", "next-page", 51);
+            Material nextMaterial = cm.getGuiMaterial("english-square", "next-page", Material.ARROW);
+            inv.setItem(nextSlot, createItem(nextMaterial, nextLabel,
+                    Collections.singletonList(nextLore)));
+        }
+
+        // ---- Back button ----
+        String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
+                MessageUtil.getGuiMsg(messages, "gui.back-button"));
+        int backSlot = cm.getGuiSlot("english-square", "back-button", 8);
+        Material backMaterial = cm.getGuiMaterial("english-square", "back-button", Material.RED_STAINED_GLASS_PANE);
+        inv.setItem(backSlot, createItem(backMaterial, backLabel,
+                Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
+                        MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
+
+        if (mode == RankingMode.FEED && currentFeedItems.isEmpty()) {
+            // 动态流空态（plan-social §1.3）：引导去学习
+            String emptyLabel = ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(messages, "square.feed.empty"));
+            int emptySlot = cm.getGuiSlot("english-square", "empty-icon", 22);
+            Material emptyMaterial = cm.getGuiMaterial("english-square", "empty-icon", Material.BOOK);
+            inv.setItem(emptySlot, createItem(emptyMaterial, emptyLabel, Collections.emptyList()));
+        } else if (mode != RankingMode.FEED && currentPlayerIds.isEmpty()) {
+            String emptyLabel = ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(messages, "square.empty"));
+            int emptySlot = cm.getGuiSlot("english-square", "empty-icon", 22);
+            Material emptyMaterial = cm.getGuiMaterial("english-square", "empty-icon", Material.BOOK);
+            inv.setItem(emptySlot, createItem(emptyMaterial, emptyLabel, Collections.emptyList()));
+        }
+
+        // Viewer's own head — slot 0
+        PlayerDataStore.PlayerStats ownStats = store.getPlayerStats(viewer.getUniqueId());
+        String ownInfo;
+        if (mode == RankingMode.ALL_PLAYERS) {
+            ownInfo = ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(messages, "square.player-info")
+                            .replace("{correct}", String.valueOf(ownStats.getTotalCorrect()))
+                            .replace("{incorrect}", String.valueOf(ownStats.getTotalIncorrect())));
+        } else if (mode == RankingMode.FEED) {
+            // 动态页上的自己头像只做入口提示（鼓励名单走自己条目左键，见 SocialListener）
+            ownInfo = ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(messages, "square.click-hint"));
+        } else {
+            ownInfo = ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(messages, "leaderboard.rank-entry")
+                            .replace("{rank}", "-")
+                            .replace("{score}", String.valueOf(plugin.getDatabaseManager().getCoinsEarned(viewer.getUniqueId()))));
+        }
+        String ownClickHint = ChatColor.translateAlternateColorCodes('&',
+                MessageUtil.getGuiMsg(messages, "square.click-hint"));
+        ItemStack ownHead = new ItemStack(Material.PLAYER_HEAD);
+        if (ownHead.getItemMeta() instanceof SkullMeta ownMeta) {
+            ownMeta.setOwningPlayer(Bukkit.getOfflinePlayer(viewer.getUniqueId()));
+            ownMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&', "&b" + viewer.getName()));
+            List<String> ownLore = new ArrayList<>();
+            ownLore.add(ownInfo);
+            if (mode != RankingMode.FEED) {
+                ownLore.add("");
+                ownLore.add(ownClickHint);
+            }
+            ownMeta.setLore(ownLore);
+            ownHead.setItemMeta(ownMeta);
+        }
+        inv.setItem(0, ownHead);
+
+        viewer.openInventory(inv);
+    }
+
+    /**
+     * 玩家头像区渲染（榜单/全量模式）：原内联循环抽方法，行为零变化。
+     * <b>渲染顺序契约</b>：第 (page-1)*28 + slotIdx 个列表元素 → {@link #PLAYER_SLOTS}[slotIdx]，
+     * 与 SocialListener 的 {@code globalIndex} 反算公式严格一致。
+     */
+    private void renderPlayerHeads(Inventory inv, PlayerDataStore store, FileConfiguration messages,
+                                   RankingMode mode, int page, int startIdx,
+                                   List<LeaderboardEntry> rankedEntries) {
+        int endIdx = Math.min(startIdx + PLAYERS_PER_PAGE, currentPlayerIds.size());
         for (int i = startIdx; i < endIdx; i++) {
             int slot = PLAYER_SLOTS[i - startIdx];
             UUID targetId = currentPlayerIds.get(i);
@@ -185,80 +340,78 @@ public class EnglishSquareGUI {
             }
             inv.setItem(slot, head);
         }
+    }
 
-        // ---- Pagination ----
-        // R-36: 上一页/下一页各自独立门禁（上一页只看 page>1，下一页只看 page<totalPages）。
-        // 旧 pageFull 联合门禁会让不满的尾页两按钮都不放，玩家卡死翻不回去。
-        if (page > 1) {
-            String prevLabel = ChatColor.translateAlternateColorCodes('&',
-                    MessageUtil.getGuiMsg(messages, "square.prev-page"));
-            String prevLore = ChatColor.translateAlternateColorCodes('&',
-                    MessageUtil.getGuiMsg(messages, "square.prev-page-lore")
-                            .replace("{page}", String.valueOf(page - 1)));
-            int prevSlot = cm.getGuiSlot("english-square", "prev-page", 47);
-            Material prevMaterial = cm.getGuiMaterial("english-square", "prev-page", Material.ARROW);
-            inv.setItem(prevSlot, createItem(prevMaterial, prevLabel,
-                    Collections.singletonList(prevLore)));
+    /**
+     * 动态流条目渲染（Wave 2 域 4，plan-social §3.3）：
+     * 头像 + 事件行（{@link FeedTextFormatter} 按 viewer 语言组装）+ 数字行
+     * （SESSION_DONE 专属；作者 {@code showResults=false} 时降级 hidden-detail）+
+     * cheer 计数行 + 提示行（自己=查看鼓励 / 他人=左键鼓励+右键主页 / 已鼓励=cheered 行）。
+     *
+     * <p>唯一新增同步查询：每页 ≤28-id 有界"你已鼓励"集合（{@link SocialManager#getCheeredFeedIds}），
+     * 量级与既有 getPlayerStats 兜底同级（plan §3.2 权衡标注）。
+     * 数字行读作者 {@code getProfileSettingsReadOnly}（只读版，不建缓存条目——L-05）。
+     */
+    private void renderFeedEntries(Inventory inv, Player viewer, FileConfiguration messages,
+                                   String lang, int page, int startIdx,
+                                   SocialManager socialManager) {
+        int endIdx = Math.min(startIdx + PLAYERS_PER_PAGE, currentFeedItems.size());
+        if (endIdx <= startIdx) {
+            return;
         }
-        if (page < totalPages) {
-            String nextLabel = ChatColor.translateAlternateColorCodes('&',
-                    MessageUtil.getGuiMsg(messages, "square.next-page"));
-            String nextLore = ChatColor.translateAlternateColorCodes('&',
-                    MessageUtil.getGuiMsg(messages, "square.next-page-lore")
-                            .replace("{page}", String.valueOf(page + 1)));
-            int nextSlot = cm.getGuiSlot("english-square", "next-page", 51);
-            Material nextMaterial = cm.getGuiMaterial("english-square", "next-page", Material.ARROW);
-            inv.setItem(nextSlot, createItem(nextMaterial, nextLabel,
-                    Collections.singletonList(nextLore)));
+        List<SocialManager.FeedItem> pageItems = currentFeedItems.subList(startIdx, endIdx);
+        List<Long> pageIds = new ArrayList<>(pageItems.size());
+        for (SocialManager.FeedItem item : pageItems) {
+            pageIds.add(item.id());
         }
+        Set<Long> cheered = socialManager.getCheeredFeedIds(viewer.getUniqueId(), pageIds);
+        FeedTextFormatter.KeyLookup lookup = key -> MessageUtil.getGuiMsg(messages, key);
 
-        // ---- Back button ----
-        String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
-                MessageUtil.getGuiMsg(messages, "gui.back-button"));
-        int backSlot = cm.getGuiSlot("english-square", "back-button", 8);
-        Material backMaterial = cm.getGuiMaterial("english-square", "back-button", Material.RED_STAINED_GLASS_PANE);
-        inv.setItem(backSlot, createItem(backMaterial, backLabel,
-                Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
-                        MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
+        for (int i = 0; i < pageItems.size(); i++) {
+            SocialManager.FeedItem item = pageItems.get(i);
+            int slot = PLAYER_SLOTS[i];
+            ItemStack head = new ItemStack(Material.PLAYER_HEAD);
+            if (head.getItemMeta() instanceof SkullMeta meta) {
+                meta.setOwningPlayer(Bukkit.getOfflinePlayer(item.authorId()));
+                meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', "&b" + item.authorName()));
+                List<String> lore = new ArrayList<>();
 
-        if (currentPlayerIds.isEmpty()) {
-            String emptyLabel = ChatColor.translateAlternateColorCodes('&',
-                    MessageUtil.getGuiMsg(messages, "square.empty"));
-            int emptySlot = cm.getGuiSlot("english-square", "empty-icon", 22);
-            Material emptyMaterial = cm.getGuiMaterial("english-square", "empty-icon", Material.BOOK);
-            inv.setItem(emptySlot, createItem(emptyMaterial, emptyLabel, Collections.emptyList()));
-        }
+                String eventLine = FeedTextFormatter.buildEventLine(item.type(), item.eventsCount(),
+                        item.authorName(), item.lastMode(), item.lastStreak(),
+                        item.achievementId(), lang, lookup);
+                if (eventLine == null) {
+                    continue; // 未知事件类型（脏行）—— 跳过该条，不渲染空条目
+                }
+                lore.add(ChatColor.translateAlternateColorCodes('&', eventLine));
 
-        // Viewer's own head — slot 0
-        PlayerDataStore.PlayerStats ownStats = store.getPlayerStats(viewer.getUniqueId());
-        String ownInfo;
-        if (mode == RankingMode.ALL_PLAYERS) {
-            ownInfo = ChatColor.translateAlternateColorCodes('&',
-                    MessageUtil.getGuiMsg(messages, "square.player-info")
-                            .replace("{correct}", String.valueOf(ownStats.getTotalCorrect()))
-                            .replace("{incorrect}", String.valueOf(ownStats.getTotalIncorrect())));
-        } else {
-            ownInfo = ChatColor.translateAlternateColorCodes('&',
-                    MessageUtil.getGuiMsg(messages, "leaderboard.rank-entry")
-                            .replace("{rank}", "-")
-                            .replace("{score}", String.valueOf(plugin.getDatabaseManager().getCoinsEarned(viewer.getUniqueId()))));
-        }
-        String ownClickHint = ChatColor.translateAlternateColorCodes('&',
-                MessageUtil.getGuiMsg(messages, "square.click-hint"));
-        ItemStack ownHead = new ItemStack(Material.PLAYER_HEAD);
-        if (ownHead.getItemMeta() instanceof SkullMeta ownMeta) {
-            ownMeta.setOwningPlayer(Bukkit.getOfflinePlayer(viewer.getUniqueId()));
-            ownMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&', "&b" + viewer.getName()));
-            List<String> ownLore = new ArrayList<>();
-            ownLore.add(ownInfo);
-            ownLore.add("");
-            ownLore.add(ownClickHint);
-            ownMeta.setLore(ownLore);
-            ownHead.setItemMeta(ownMeta);
-        }
-        inv.setItem(0, ownHead);
+                boolean showResults = plugin.getPlayerDataStore()
+                        .getProfileSettingsReadOnly(item.authorId()).isShowResults();
+                String detailLine = FeedTextFormatter.buildDetailLine(item.type(), showResults,
+                        item.sumCorrect(), item.sumTotal(), lookup);
+                if (detailLine != null) {
+                    lore.add(ChatColor.translateAlternateColorCodes('&', detailLine));
+                }
 
-        viewer.openInventory(inv);
+                lore.add(ChatColor.translateAlternateColorCodes('&',
+                        MessageUtil.getGuiMsg(messages, "square.feed.cheer-count")
+                                .replace("{count}", String.valueOf(item.cheerCount()))));
+                lore.add("");
+                if (item.authorId().equals(viewer.getUniqueId())) {
+                    lore.add(ChatColor.translateAlternateColorCodes('&',
+                            MessageUtil.getGuiMsg(messages, "square.feed.own-hint")));
+                } else {
+                    lore.add(ChatColor.translateAlternateColorCodes('&',
+                            MessageUtil.getGuiMsg(messages, "square.feed.cheer-hint")));
+                    if (cheered.contains(item.id())) {
+                        lore.add(ChatColor.translateAlternateColorCodes('&',
+                                MessageUtil.getGuiMsg(messages, "square.feed.cheered")));
+                    }
+                }
+                meta.setLore(lore);
+                head.setItemMeta(meta);
+            }
+            inv.setItem(slot, head);
+        }
     }
 
     private void addModeButton(Inventory inv, ConfigManager cm, FileConfiguration messages,

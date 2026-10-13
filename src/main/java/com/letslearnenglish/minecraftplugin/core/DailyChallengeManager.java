@@ -27,6 +27,14 @@ import java.util.logging.Level;
  */
 public class DailyChallengeManager {
 
+    /**
+     * Behavioral challenge types.
+     *
+     * <p>PF-MC-09（Phase 3 · MC-5）：{@link #reward} 接线后降级为<strong>默认值容器</strong> ——
+     * 实际发奖与展示一律走 {@link DailyChallengeManager#getChallengeReward}（读
+     * {@code daily-challenges.rewards.<id>}，缺键/非法/≤0 回落本字段值）。
+     * 调用点不要再直读 {@code type.reward}。</p>
+     */
     public enum ChallengeType {
         ANSWER_10("answer_10", "daily.p1", 10, 30.0),
         SESSION_3("session_3", "daily.p2", 3, 50.0),
@@ -38,6 +46,11 @@ public class DailyChallengeManager {
         public final String id;
         public final String descKey;
         public final int target;
+
+        /**
+         * 默认奖励金币（默认值容器，非权威值 —— 见枚举 javadoc 与
+         * {@link DailyChallengeManager#getChallengeReward}）。
+         */
         public final double reward;
 
         ChallengeType(String id, String descKey, int target, double reward) {
@@ -97,6 +110,18 @@ public class DailyChallengeManager {
      */
     private final Object[] claimStripeLocks = new Object[32];
 
+    /**
+     * MC-5：challenges-per-day 越界钳位 WARNING 只报一次（进程内单次防刷屏；
+     * 每次分配都点读该键，reload 即时生效，仅告警不重复）。
+     */
+    private static volatile boolean challengeCountClampWarningLogged = false;
+
+    /**
+     * MC-5：配置 N 超过当前可用挑战类型数（典型：无 AI Key 时可用=3 而配置=4）的
+     * WARNING 只报一次（进程内单次防刷屏；实际按可用数分配）。
+     */
+    private static volatile boolean reducedChallengeCountWarningLogged = false;
+
     public DailyChallengeManager(LetsLearnEnglish plugin, WordManagerImpl wordManager) {
         this.plugin = plugin;
         this.wordManager = wordManager;
@@ -112,7 +137,9 @@ public class DailyChallengeManager {
     // ============================================================
 
     /**
-     * Check if the player has challenges for today. If not, assign 3 random ones.
+     * Check if the player has challenges for today. If not, assign N random ones
+     * (N = {@code daily-challenges.challenges-per-day}, clamped to [1, type count]
+     * and further bounded by the currently available types; MC-5).
      */
     public void checkAndAssign(UUID playerId) {
         // MC-2（S-H）：daily-challenges.enabled=false 时入口 no-op —— 不产生新挑战行
@@ -143,48 +170,37 @@ public class DailyChallengeManager {
         }
         }
 
-        // Assign 3 random challenges (pick 3 from 4 types).
-        // FIX-DAY-01：过滤不可用挑战 — 无 AI Key 的服务器抽不到 AI_CHAT_5。
-        // 抽中不可用项则整体重抽，最多重试 5 轮。
-        // R-74 概率校正：4 选 3 且恰有 1 项不可用时（典型场景 = 无 AI Key），
-        // 单轮抽到全可用组合的概率为 1/4（4 个三元子集中只有 1 个不含坏项），
-        // 故 5 轮全失败概率 ≈ (3/4)^5 ≈ 24% —— 下面的兜底分支是高频路径（约每 4 个
-        // 新玩家就有 1 个走到），不是原注释所称"理论上不可能"。
-        List<ChallengeType> picked = null;
-        for (int attempt = 0; attempt < 5 && picked == null; attempt++) {
-            List<ChallengeType> allTypes = new ArrayList<>(Arrays.asList(ChallengeType.values()));
-            Collections.shuffle(allTypes, ThreadLocalRandom.current());
-            List<ChallengeType> candidate = allTypes.subList(0, 3);
-            boolean allAvailable = true;
-            for (ChallengeType ct : candidate) {
-                if (!isChallengeAvailable(ct)) {
-                    allAvailable = false;
-                    break;
-                }
-            }
-            if (allAvailable) {
-                picked = new ArrayList<>(candidate);
+        // MC-5：challenges-per-day 真接线 + R-74 重抽/兜底消灭。
+        // 旧逻辑"随机抽 3、含不可用项则重抽、5 轮失败走兜底"（R-74 论证无 AI Key 时
+        // 兜底命中率 ≈24%）与"直接从可用集合取 N"在分布上等价（生效结果恒为可用集合
+        // 的均匀随机 N 子集），后者确定性且无重试/兜底分支。读取钳位 [1, 枚举总数]，
+        // 越界 WARNING 一次并钳位；默认 3 = 接线前行为零变化。
+        int configured = plugin.getConfigManager().getMainConfig()
+                .getInt("daily-challenges.challenges-per-day", 3);
+        int wanted = configured;
+        if (wanted < 1 || wanted > ChallengeType.values().length) {
+            wanted = Math.min(Math.max(wanted, 1), ChallengeType.values().length);
+            warnChallengeCountClamped(configured, wanted);
+        }
+        // FIX-DAY-01 保留：只从可用类型中抽（无 AI Key 的服务器抽不到 AI_CHAT_5）。
+        List<ChallengeType> available = new ArrayList<>();
+        for (ChallengeType ct : ChallengeType.values()) {
+            if (isChallengeAvailable(ct)) {
+                available.add(ct);
             }
         }
-        if (picked == null) {
-            // R-74：兜底分支（约 24% 概率命中，见上）—— 过滤后确定性取前 3：
-            // 直接按枚举序收集全部可用项，打乱后截断，不再靠随机重抽撞运气。
-            picked = new ArrayList<>();
-            for (ChallengeType ct : ChallengeType.values()) {
-                if (isChallengeAvailable(ct)) {
-                    picked.add(ct);
-                }
-            }
-            if (picked.size() > 3) {
-                Collections.shuffle(picked, ThreadLocalRandom.current());
-                picked = picked.subList(0, 3);
-            }
-            if (picked.isEmpty()) {
-                plugin.getLogger().warning("No available daily challenges for " + playerId
-                        + " — all challenge types filtered, skipping assignment.");
-                ensureWordChallengesAssigned(playerId);
-                return;
-            }
+        Collections.shuffle(available, ThreadLocalRandom.current());
+        int assigned = Math.min(wanted, available.size());
+        List<ChallengeType> picked = new ArrayList<>(available.subList(0, assigned));
+        if (picked.isEmpty()) {
+            plugin.getLogger().warning("No available daily challenges for " + playerId
+                    + " — all challenge types filtered, skipping assignment.");
+            ensureWordChallengesAssigned(playerId);
+            return;
+        }
+        if (assigned < wanted) {
+            // N > 可用数（典型：无 AI Key 可用=3 而配置=4）——按可用数分配，WARNING 一次。
+            warnChallengeCountReduced(wanted, assigned);
         }
 
         String insertSql = "INSERT OR REPLACE INTO " + tablePrefix
@@ -237,6 +253,48 @@ public class DailyChallengeManager {
         return true;
     }
 
+    /** MC-5：challenges-per-day 越界钳位 WARNING（进程内一次，防刷屏）。 */
+    private void warnChallengeCountClamped(int configured, int clamped) {
+        if (challengeCountClampWarningLogged) return;
+        challengeCountClampWarningLogged = true;
+        plugin.getLogger().warning("Invalid daily-challenges.challenges-per-day: " + configured
+                + " (must be within [1, " + ChallengeType.values().length + "]). Clamped to "
+                + clamped + ".");
+    }
+
+    /** MC-5：配置数超过可用类型数（如无 AI Key 时配 4 只得 3）的 WARNING（进程内一次）。 */
+    private void warnChallengeCountReduced(int wanted, int assigned) {
+        if (reducedChallengeCountWarningLogged) return;
+        reducedChallengeCountWarningLogged = true;
+        plugin.getLogger().warning("daily-challenges.challenges-per-day=" + wanted
+                + " exceeds the number of currently available challenge types (" + assigned
+                + ") — assigning " + assigned + " instead (typically: AI chat unavailable).");
+    }
+
+    /**
+     * MC-5：行为挑战奖励金额的<strong>唯一读取口</strong>。
+     * 读 {@code daily-challenges.rewards.<id>}；缺键 / 非法（非数字）/ ≤0 一律回落
+     * 枚举默认值（{@link ChallengeType#reward}，默认值容器，PF-MC-09）。
+     * ≤0 钳回默认而非"0 奖励"：避免产生 "deposit 0 → 判定失败 → 永远领不到" 的畸形分支
+     * （记录于 plan-menu-config 1.(e)-2）。
+     *
+     * @param type the challenge type
+     * @return the configured reward, or the enum default when missing/invalid/non-positive
+     */
+    public double getChallengeReward(ChallengeType type) {
+        String path = "daily-challenges.rewards." + type.id;
+        // 注意不能用 config.isDouble(path)：它只认 Double 装箱（YAML 的 30 会被读成
+        // Integer，isDouble=false 会把合法整数误判为非法）。instanceof Number 覆盖
+        // Integer/Double/Long 等全部数值装箱；字符串 "abc"、布尔等非 Number 一律回落。
+        // NaN/Infinity（YAML 的 .nan/.inf）同判非法回落。
+        Object raw = plugin.getConfigManager().getMainConfig().get(path);
+        if (!(raw instanceof Number number)) {
+            return type.reward;
+        }
+        double value = number.doubleValue();
+        return value > 0 && Double.isFinite(value) ? value : type.reward;
+    }
+
     /**
      * Get today's challenges for a player.
      */
@@ -248,9 +306,9 @@ public class DailyChallengeManager {
         List<ChallengeProgress> list = new ArrayList<>();
         String today = LocalDate.now().toString();
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
-        // R-33：追加 ORDER BY challenge_id——展示（DailyChallengeGUI 槽位 11/13/15）与领取
-        // （MiscGUIListener 按本方法返回列表的下标映射）两侧都走此查询，排序固定后下标与展示
-        // 恒一致，不再因 SQLite 返回顺序不定而领到错项（与 F2R-03 同根）。
+        // R-33：追加 ORDER BY challenge_id——展示（DailyChallengeGUI 的 CHALLENGE_SLOTS 槽位
+        // 11/13/15/17）与领取（MiscGUIListener 按本方法返回列表的下标查位映射）两侧都走此查询，
+        // 排序固定后下标与展示恒一致，不再因 SQLite 返回顺序不定而领到错项（与 F2R-03 同根）。
         String sql = "SELECT challenge_id, progress, completed, claimed FROM " + tablePrefix
                 + "daily_challenges WHERE uuid = ? AND challenge_date = ? ORDER BY challenge_id";
 
@@ -346,8 +404,8 @@ public class DailyChallengeManager {
         int[] state = loadChallengeState(playerId, type, today);
         if (state == null) {
             // R-32：查无行不再静默丢弃。先 ensure 今日挑战已分配（checkAndAssign 幂等：
-            // 已有则只补单词挑战、无则抽 3 条），再重查一次。仍无行说明该类型今日确实
-            // 没被抽中（4 选 3，属正常），此时才返回；否则推进刚补上的进度，不再丢失。
+            // 已有则只补单词挑战、无则抽 N 条），再重查一次。仍无行说明该类型今日确实
+            // 没被抽中（N < 4 时属正常），此时才返回；否则推进刚补上的进度，不再丢失。
             checkAndAssign(playerId);
             state = loadChallengeState(playerId, type, today);
             if (state == null) {
@@ -364,7 +422,7 @@ public class DailyChallengeManager {
         boolean nowCompleted = newProgress >= type.target;
         if (alreadyCompleted) nowCompleted = true;
         // R-79：写入侧 clamp —— completed 后继续答题/对话时 progress 原样累加，
-        // 展示出来就是 "47/10" 这类超靶读数（GUI 槽位 11/13/15 与 /le challenge
+        // 展示出来就是 "47/10" 这类超靶读数（GUI 的 CHALLENGE_SLOTS 槽位 11/13/15/17 与 /le challenge
         // 都直读本值）。封顶在 target：完成判定已在上两行算完，clamp 不影响任何
         // 状态迁移，只让展示与实际语义一致。
         newProgress = Math.min(newProgress, type.target);
@@ -486,7 +544,8 @@ public class DailyChallengeManager {
             stmt.setString(2, today);
             stmt.setString(3, type.id);
             int rows = stmt.executeUpdate();
-            return rows > 0 ? type.reward : 0;
+            // MC-5：返回值走配置化读取口（展示/到账同一数值来源）；不可达分支不读配置。
+            return rows > 0 ? getChallengeReward(type) : 0;
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to claim daily challenge reward", e);
             return 0;

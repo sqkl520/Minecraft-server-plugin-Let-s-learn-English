@@ -22,7 +22,15 @@ public class Leaderboard {
         WEEKLY,
         MONTHLY,
         ALL_TIME_COINS,
-        ALL_PLAYERS
+        ALL_PLAYERS,
+        /**
+         * 学习动态流（广场第 5 模式，非榜单语义——与 ALL_PLAYERS 同为"承载非排名
+         * 内容的模式"先例）。数据走 {@code SocialManager} 的 FeedCache，不走本类。
+         *
+         * <p><b>调用方契约（PF-SOC-04）：FEED 永不传进 {@link #getTopPlayers}</b> ——
+         * 该方法 default 分支会静默返回空列表（防误用兜底，不是功能路径）。
+         */
+        FEED
     }
 
     public static class LeaderboardEntry {
@@ -115,6 +123,8 @@ public class Leaderboard {
                 }
                 entries = reranked;
             }
+            // FEED 走 SocialManager FeedCache，永不进入本方法（契约见 RankingMode.FEED
+            // javadoc，PF-SOC-04）——default -> emptyList 是防误用的静默兜底。
             default -> entries = Collections.emptyList();
         }
 

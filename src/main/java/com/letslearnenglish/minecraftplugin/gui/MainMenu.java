@@ -102,6 +102,31 @@ public class MainMenu {
                 MessageUtil.getGuiMsg(messages, "language.button-lore"));
         menu.setItem(cm.getGuiSlot("main-menu", "language-toggle", 18), createMenuItem(cm.getGuiMaterial("main-menu", "language-toggle", Material.RED_BED), btnName, btnLore));
 
+        // Phase 3 · MC-1（R-82 收口）：新增【单词对决】slot 12 +【每日签到】slot 16，
+        // 零移动零扩容（既有 7 按钮零改动）。槽位/材质走同一份 gui-layout.main-menu
+        // 配置（与点击侧 MainMenuListener 双侧同源，fallback 值一致：12/16）。
+        // 模块门（渲染侧）：duel.enabled / checkin.enabled=false 时按钮不渲染，
+        // 该槽回落开头的灰玻璃占位；点击侧（MainMenuListener）同款门对僵尸界面兜底拒绝。
+        if (cm.isDuelEnabled()) {
+            String duelName = ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(messages, "main-menu.duel"));
+            String duelLore = ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(messages, "main-menu.duel-lore"));
+            menu.setItem(cm.getGuiSlot("main-menu", "duel", 12),
+                    createMenuItem(cm.getGuiMaterial("main-menu", "duel", Material.DIAMOND_SWORD),
+                            duelName, duelLore));
+        }
+
+        if (cm.isCheckinEnabled()) {
+            String checkinName = ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(messages, "main-menu.checkin"));
+            String checkinLore = ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(messages, "main-menu.checkin-lore"));
+            menu.setItem(cm.getGuiSlot("main-menu", "checkin", 16),
+                    createMenuItem(cm.getGuiMaterial("main-menu", "checkin", Material.SUNFLOWER),
+                            checkinName, checkinLore));
+        }
+
         // R-86：menu-open 不再在此显式播放 —— SoundManager.onInventoryOpen 会对所有
         // 插件 GUI 全局播一次，此处保留会双声（去重方向与理由见 SoundManager 类注释）。
         player.openInventory(menu);

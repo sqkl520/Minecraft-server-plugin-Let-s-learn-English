@@ -81,6 +81,10 @@ public class PlayerJoinListener implements Listener {
             }
         }
 
+        // Wave 2 域 4（广场社交）：进服摘要——离线期间收到的鼓励（异步查计数 →
+        // 主线程发 → 异步标已读，调度细节见 SocialManager.notifyPendingCheers）。
+        plugin.getSocialManager().notifyPendingCheers(joining);
+
         plugin.getDailyChallengeManager().checkAndAssign(event.getPlayer().getUniqueId());
     }
 
@@ -109,5 +113,8 @@ public class PlayerJoinListener implements Listener {
         plugin.getProgressManager().getRewardEngine().unloadPlayer(playerId);
         // 域 1 新手引导 quit 编排点：清 step 缓存 + 提醒去重 map（防泄漏）。
         plugin.getOnboardingManager().unloadPlayer(playerId);
+        // Wave 2 域 4（广场社交）quit 编排点：清鼓励点击防抖 map（F2-10/F1-24
+        // "只增不删"教训——SocialListener 的快照清理走自己的 quit 事件）。
+        plugin.getSocialManager().unloadPlayer(playerId);
     }
 }

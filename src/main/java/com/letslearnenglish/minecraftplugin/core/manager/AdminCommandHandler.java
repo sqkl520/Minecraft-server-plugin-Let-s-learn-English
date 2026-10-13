@@ -73,12 +73,13 @@ public class AdminCommandHandler {
      * （{@link org.bukkit.OfflinePlayer#hasPlayedBefore()}，覆盖"曾玩过但
      * player_data 残留/半删"的情况，允许补删干净）。
      *
-     * <p>调用上下文：仅被 {@link #resetPlayerData}（/lea reset）调用，执行在命令
-     * 主线程上，故 {@code Bukkit.getOfflinePlayer(name)} 的阻塞式名册查询安全。
+     * <p>调用上下文：{@link #resetPlayerData}（/lea reset）与
+     * {@link #generateReport}（/lea report，US-RPT-3 提权复用）调用，两者均执行在
+     * 命令主线程上，故 {@code Bukkit.getOfflinePlayer(name)} 的阻塞式名册查询安全。
      *
      * @return 查到的 UUID；三级都查不到返回 null
      */
-    private UUID resolvePlayerUUID(String playerName) {
+    public UUID resolvePlayerUUID(String playerName) {
         Player target = Bukkit.getPlayer(playerName);
         if (target != null) {
             return target.getUniqueId();
@@ -109,6 +110,130 @@ public class AdminCommandHandler {
             return offline.getUniqueId();
         }
         return null;
+    }
+
+    /**
+     * US-RPT-3：/lea report 派发入口（主线程，plan §3.4 线程模型）。
+     *
+     * <p>本方法只做三件事：① 门与参数/周期校验；② 经
+     * {@link #resolvePlayerUUID} 解析目标 UUID（离线名册查询是 Bukkit 阻塞 API，
+     * 仅主线程安全）；③ 目标在线时抓取与 /le stats 同源的累计快照
+     * （{@link com.letslearnenglish.minecraftplugin.core.manager.ReportGenerator.CumulativeSnapshot}），
+     * 随后把全部 DB 查询/渲染/写文件交给
+     * {@link ReportGenerator#generateSingle} 内部异步执行——主线程零 DB IO、零文件 IO。
+     *
+     * @param sender      命令执行者（玩家/控制台）
+     * @param playerName  目标玩家名（"all" 由调用方拦下走批量路径）
+     * @param period      已解析的统计周期
+     * @param periodSpec  原始周期参数（null/空 = 使用 config 默认周期）
+     * @param defaultSpec config.yaml 的 report.period 默认值
+     */
+    public void generateReport(org.bukkit.command.CommandSender sender, String playerName,
+                               String periodSpec, String defaultSpec) {
+        if (!plugin.getConfigManager().getMainConfig().getBoolean("report.enabled", true)) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "report.disabled"));
+            return;
+        }
+
+        ReportGenerator.ReportPeriod period = ReportGenerator.ReportPeriod.compute(
+                (periodSpec == null || periodSpec.isBlank()) ? defaultSpec : periodSpec,
+                java.time.LocalDate.now());
+        if (period == null) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                    "report.period-invalid", "input",
+                    periodSpec == null ? String.valueOf(defaultSpec) : periodSpec));
+            return;
+        }
+
+        UUID playerId = resolvePlayerUUID(playerName);
+        if (playerId == null) {
+            // 冻结键 admin.player-no-data 无占位符（既有约定），三级查找失败复用
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                    "admin.player-no-data"));
+            return;
+        }
+
+        // 在线快照（主线程读 PlayerDataStore 缓存，与 ProfileGUI /le stats 同源）；
+        // 离线传 null，累计数在异步线程读 player_data 直查（plan §1.5）。
+        ReportGenerator.CumulativeSnapshot snapshot = null;
+        Player online = Bukkit.getPlayer(playerId);
+        if (online != null) {
+            PlayerDataStore.PlayerStats stats =
+                    plugin.getPlayerDataStore().getPlayerStats(playerId);
+            snapshot = new ReportGenerator.CumulativeSnapshot(
+                    stats.getTotalCorrect(),
+                    stats.getTotalSessions(),
+                    stats.getTotalScore(),
+                    plugin.getPlayerDataStore().getConversationCount(playerId),
+                    plugin.getAchievementManager().getUnlockedCount(playerId));
+            // 权威名字：在线用 Bukkit 实时名（大小写规范化，报告展示与查找一致）
+            playerName = online.getName();
+        }
+
+        plugin.getReportGenerator().generateSingle(sender, playerId, playerName, period, snapshot);
+    }
+
+    /**
+     * US-RPT-3：/lea report all 批量派发（主线程；异步查询/渲染/写文件在
+     * {@link ReportGenerator#generateBatch} 内）。
+     *
+     * @param sender      命令执行者
+     * @param periodSpec  原始周期参数（null/空 = config 默认）
+     * @param defaultSpec config.yaml 的 report.period 默认值
+     */
+    public void generateBatchReport(org.bukkit.command.CommandSender sender,
+                                    String periodSpec, String defaultSpec) {
+        if (!plugin.getConfigManager().getMainConfig().getBoolean("report.enabled", true)) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "report.disabled"));
+            return;
+        }
+        ReportGenerator.ReportPeriod period = ReportGenerator.ReportPeriod.compute(
+                (periodSpec == null || periodSpec.isBlank()) ? defaultSpec : periodSpec,
+                java.time.LocalDate.now());
+        if (period == null) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                    "report.period-invalid", "input",
+                    periodSpec == null ? String.valueOf(defaultSpec) : periodSpec));
+            return;
+        }
+        plugin.getReportGenerator().generateBatch(sender, period);
+    }
+
+    /**
+     * US-RPT-3：/lea report 第二参数的 tab 补全名源 —— player_data.player_name
+     * 前缀查（最多 limit 条）。plan §3.3 将该查询画在 DatabaseManager；本批
+     * DatabaseManager 为并行兄弟流文件白名单，方法宿于本 Handler 以免文件重叠，
+     * SQL 与 plan 草案逐字一致。单表小查询，主线程调用量级可接受（既有 reset
+     * 补全同样在主线程做在线玩家遍历）。
+     *
+     * @param prefix 已输入前缀（空串全量前缀）
+     * @param limit  最大返回条数
+     * @return 名字列表（无命中返回空列表）
+     */
+    public List<String> getKnownPlayerNames(String prefix, int limit) {
+        List<String> names = new ArrayList<>();
+        String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
+        String sql = "SELECT DISTINCT player_name FROM " + tablePrefix
+                + "player_data WHERE player_name IS NOT NULL AND player_name LIKE ? LIMIT ?";
+        Connection conn = plugin.getDatabaseManager().getConnection();
+        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, prefix + "%");
+                stmt.setInt(2, limit);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        String name = rs.getString("player_name");
+                        if (name != null && !name.isBlank()) {
+                            names.add(name);
+                        }
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to query known player names for tab completion", e);
+            }
+        }
+        return names;
     }
 
     public void addWord(String difficulty, String english, String chinese) {

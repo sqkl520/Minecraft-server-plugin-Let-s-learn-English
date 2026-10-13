@@ -5,6 +5,7 @@ import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import com.letslearnenglish.minecraftplugin.core.GuiNavigationManager;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.RankingMode;
+import com.letslearnenglish.minecraftplugin.core.social.SocialManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.gui.AchievementWallGUI;
 import com.letslearnenglish.minecraftplugin.gui.EnglishSquareGUI;
@@ -13,13 +14,19 @@ import com.letslearnenglish.minecraftplugin.gui.LeaderboardGUI;
 import com.letslearnenglish.minecraftplugin.gui.LearningCalendarGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.ProfileGUI;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
+import org.bukkit.ChatColor;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +53,20 @@ public class SocialListener implements Listener {
      */
     private final Map<UUID, EnglishSquareGUI> squareGuis = new ConcurrentHashMap<>();
     private final Map<UUID, LeaderboardGUI> leaderboardGuis = new ConcurrentHashMap<>();
+
+    /**
+     * Wave 2 域 4：每次"动态页"被打开时捕获的 FeedCache 现态（key = viewer）。
+     *
+     * 动态条目的点击目标必须与"屏幕上显示的那一页"严格一致（三类列表共用同一
+     * 28 槽布局，错位 = 点 A 作用到 B；鼓励还没有撤销手段）。但广场有两条打开
+     * 路径（/le square 与主菜单广场按钮直达 EnglishSquareGUI.open()）不登记
+     * {@link #squareGuis} 快照，且该快照会跨 ESC→重开陈旧；若点击时现读缓存
+     * 重建，缓存刷新（写入后 5s 去抖）恰好落在"打开→点击"窗口内就会漂移。
+     * 打开事件在主线程与渲染同刻触发，此处取到的 volatile 快照即渲染所用列表
+     * ——按 viewer 冻结，点击侧优先消费。只登记动态页（其余模式维持既有快照/
+     * 重建口径，不在本域扩面）；quit 时清理，重开即覆盖。
+     */
+    private final Map<UUID, List<SocialManager.FeedItem>> renderedFeedPages = new ConcurrentHashMap<>();
 
     /** Player head slots: rows 2-5, skipping first and last columns */
     private static final int[] SQUARE_PLAYER_SLOTS = {
@@ -94,6 +115,25 @@ public class SocialListener implements Listener {
         UUID id = event.getPlayer().getUniqueId();
         squareGuis.remove(id);
         leaderboardGuis.remove(id);
+        renderedFeedPages.remove(id);
+    }
+
+    /**
+     * Wave 2 域 4：动态页打开瞬间冻结其渲染列表（见 {@link #renderedFeedPages}
+     * 说明）。只登记 FEED 页；笑话页（27 格）与其它模式不受影响。
+     */
+    @EventHandler
+    public void onInventoryOpen(InventoryOpenEvent event) {
+        if (!(event.getPlayer() instanceof Player player)) return;
+        String title = event.getView().getTitle();
+        if (title == null) return;
+        if (!title.contains("English Square") && !title.contains("英语广场")) return;
+        if (event.getInventory().getSize() <= HIDDEN_JOKE_GUI_SIZE) return;
+        if (detectModeFromTitle(player, title) != RankingMode.FEED) return;
+        SocialManager sm = plugin.getSocialManager();
+        renderedFeedPages.put(player.getUniqueId(),
+                (sm != null && sm.isEnabled())
+                        ? sm.getFeedSnapshot() : Collections.emptyList());
     }
 
     @EventHandler
@@ -127,7 +167,7 @@ public class SocialListener implements Listener {
         if (title.contains("Leaderboard") || title.contains("排行榜")) {
             handleLeaderboardGUI(player, slot);
         } else if (title.contains("English Square") || title.contains("英语广场")) {
-            handleEnglishSquareGUI(player, slot, title);
+            handleEnglishSquareGUI(player, slot, title, event.getClick());
         } else if (title.contains("'s Profile") || title.contains("的主页") || title.contains("个人主页")) {
             handleProfileGUI(player, slot, title);
         } else if (title.contains("Achievement Wall") || title.contains("成就墙")) {
@@ -169,7 +209,7 @@ public class SocialListener implements Listener {
         }
     }
 
-    private void handleEnglishSquareGUI(Player player, int slot, String title) {
+    private void handleEnglishSquareGUI(Player player, int slot, String title, ClickType clickType) {
         ConfigManager cm = plugin.getConfigManager();
 
         // R-09d: 笑话页与广场主页同标题，按库存尺寸分流。
@@ -199,25 +239,68 @@ public class SocialListener implements Listener {
         int modeMonthlySlot = cm.getGuiSlot("english-square", "mode-monthly", 3);
         int modeAllTimeSlot = cm.getGuiSlot("english-square", "mode-alltime", 4);
         int modeAllSlot = cm.getGuiSlot("english-square", "mode-all", 5);
+        // Wave 2 域 4：动态模式按钮（EnglishSquareGUI 渲染同键同默认 6）
+        int modeFeedSlot = cm.getGuiSlot("english-square", "mode-feed", 6);
 
         // Determine mode and player list early (needed for slot 0 and head clicks)
-        // R-09b: 只读自己的快照 —— 别人的列表与自己看到的页/模式完全无关
-        RankingMode currentMode;
+        // R-09b: 每人只读自己的快照 —— 别人的列表与自己看到的页/模式完全无关。
+        //
+        // Wave 2 域 4 修正：plan §3.3 的 "FEED 界面打开即登记快照" 对 /le square
+        // （默认落点已是 FEED）与主菜单广场按钮不成立——两者直达 open() 不登记
+        // 快照；且快照会陈旧（ESC 关界面不清、/le square 重开不换）。三类列表
+        // （全量玩家/榜单/动态条目）共用同一套 28 槽布局，用错列表路由 = 点击
+        // "看到的是 A、作用到 B"。因此：
+        //   ① FEED 页一律以打开瞬间冻结的渲染列表为准（renderedFeedPages，
+        //      见其字段说明——与屏幕严格一致，杜绝"打开→点击"窗口内缓存刷新
+        //      导致的条目漂移；鼓励无撤销手段，错位不可接受）；
+        //   ② 其余模式按标题后缀识别（detectModeFromTitle）：与快照一致时信任
+        //      快照（零重建），不一致/无快照时按显示的模式重建。
+        RankingMode currentMode = detectModeFromTitle(player, title);
         List<UUID> playerIds;
+        List<SocialManager.FeedItem> feedItems;
         EnglishSquareGUI myGui = squareGuis.get(player.getUniqueId());
-        if (myGui != null) {
-            currentMode = myGui.getCurrentMode();
-            playerIds = myGui.getCurrentPlayerIds();
-        } else {
-            currentMode = RankingMode.ALL_PLAYERS;
-            List<UUID> raw = store.getActivePlayerIds();
+        if (currentMode == RankingMode.FEED) {
             playerIds = new ArrayList<>();
-            for (UUID id : raw) {
-                // R-37 fan-in：无快照兜底重建分支补隐身过滤（只读，不写副作用），与主装配口径一致
-                if (!store.getProfileSettingsReadOnly(id).isShowInSquare()) continue;
-                PlayerDataStore.PlayerStats s = store.getPlayerStats(id);
-                if (s.getTotalCorrect() + s.getTotalIncorrect() > 0) {
-                    playerIds.add(id);
+            List<SocialManager.FeedItem> frozen = renderedFeedPages.get(player.getUniqueId());
+            if (frozen != null) {
+                feedItems = frozen;
+            } else if (myGui != null && myGui.getCurrentMode() == RankingMode.FEED) {
+                // 冻结缺失容错：快照携带的渲染列表是次优真相
+                feedItems = myGui.getCurrentFeedItems();
+            } else {
+                // 末位容错：现读缓存（social 门关闭时为空列表，条目点击由越界保护吞掉）
+                SocialManager sm = plugin.getSocialManager();
+                feedItems = (sm != null && sm.isEnabled())
+                        ? sm.getFeedSnapshot() : Collections.emptyList();
+            }
+        } else if (myGui != null && myGui.getCurrentMode() == currentMode) {
+            playerIds = myGui.getCurrentPlayerIds();
+            feedItems = myGui.getCurrentFeedItems();
+        } else {
+            feedItems = Collections.emptyList();
+            if (currentMode == RankingMode.ALL_PLAYERS) {
+                // 经典"广场"全量页（无模式后缀）→ 维持既有重建口径
+                List<UUID> raw = store.getActivePlayerIds();
+                playerIds = new ArrayList<>();
+                for (UUID id : raw) {
+                    // R-37 fan-in：无快照兜底重建分支补隐身过滤（只读，不写副作用），与主装配口径一致
+                    if (!store.getProfileSettingsReadOnly(id).isShowInSquare()) continue;
+                    PlayerDataStore.PlayerStats s = store.getPlayerStats(id);
+                    if (s.getTotalCorrect() + s.getTotalIncorrect() > 0) {
+                        playerIds.add(id);
+                    }
+                }
+            } else {
+                // 排名模式（/le square weekly|monthly|alltime 直达的无快照窗口）：
+                // 与 open() 同源重建（有界，display-count 行；本窗口只在无/陈旧
+                // 快照的首次点击前存在，任一点击登记后即关闭）
+                int displayCount = cm.getMainConfig()
+                        .getInt("progress-system.leaderboard.display-count", 10);
+                var entries = plugin.getProgressManager().getLeaderboard()
+                        .getTopPlayers(currentMode, displayCount);
+                playerIds = new ArrayList<>();
+                for (var e : entries) {
+                    playerIds.add(e.playerId);
                 }
             }
         }
@@ -252,12 +335,23 @@ public class SocialListener implements Listener {
             toggledMode = RankingMode.ALL_TIME_COINS;
         } else if (slot == modeAllSlot) {
             toggledMode = RankingMode.ALL_PLAYERS;
+        } else if (slot == modeFeedSlot) {
+            toggledMode = RankingMode.FEED;
         }
         if (toggledMode != null) {
             // MC-2（S-H）：榜单门（progress-system.enabled && leaderboard.enabled）关闭时，
             // 拒绝周/月/总三榜切换（上面的三个排名模式分支 + 渲染侧灰玻璃占位槽的点击都汇到
-            // 这里）；回 module.disabled。"广场"全量模式不是榜单，照常放行。
-            if (toggledMode != RankingMode.ALL_PLAYERS && !cm.isLeaderboardEnabled()) {
+            // 这里）；回 module.disabled。"广场"全量模式与 Wave 2 的 FEED 都不是榜单，不吃本门。
+            if (toggledMode != RankingMode.ALL_PLAYERS && toggledMode != RankingMode.FEED
+                    && !cm.isLeaderboardEnabled()) {
+                SoundManager.playSound(player, "menu-click");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "module.disabled"));
+                return;
+            }
+            // Wave 2 域 4：social 门关闭时拒绝动态切换（覆盖"关开关前已打开界面"的
+            // 存量点击 / 旧界面残留的 feed 槽位；渲染侧对应不渲染动态按钮）。
+            if (toggledMode == RankingMode.FEED && !cm.isSocialEnabled()) {
                 SoundManager.playSound(player, "menu-click");
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "module.disabled"));
@@ -280,6 +374,10 @@ public class SocialListener implements Listener {
             EnglishSquareGUI nextGui = new EnglishSquareGUI(plugin);
             nextGui.open(player, page + 1, currentMode);
             squareGuis.put(player.getUniqueId(), nextGui);
+        } else if (currentMode == RankingMode.FEED) {
+            // Wave 2 域 4：动态条目区的点击独立分流（plan-social §3.3）。禁止把 FEED
+            // 的 slot 映射进 playerIds —— 条目 index 按 getCurrentFeedItems() 反查。
+            handleFeedSlot(player, slot, page, clickType, feedItems);
         } else {
             int slotIdx = getPlayerSlotIndexOnSquare(slot);
             if (slotIdx < 0) return;
@@ -445,6 +543,157 @@ public class SocialListener implements Listener {
             if (SQUARE_PLAYER_SLOTS[i] == slot) return i;
         }
         return -1;
+    }
+
+    /**
+     * 从广场标题的 " | 模式后缀" 识别当前显示的模式。EnglishSquareGUI 渲染的
+     * 五种模式中四种带后缀（周榜/月榜/总榜/动态，见其 open() 的标题 switch）；
+     * "广场"全量模式无后缀——识别不出时返回 {@link RankingMode#ALL_PLAYERS}。
+     *
+     * <p>为什么需要它：/le square [mode]（含默认落点 FEED）与主菜单广场按钮
+     * 直达 {@code EnglishSquareGUI.open()}，不经本监听器登记快照；快照还会陈旧
+     * （ESC 关界面不清、下次直达重开不换）。三类列表（全量玩家/榜单/动态条目）
+     * 共用同一套 28 槽布局，用错列表路由 = 点击"看到的是 A、作用到 B"。标题
+     * 后缀是显示的真相，据此选择信任快照还是重建。
+     *
+     * <p>匹配口径：标签经与渲染侧相同的颜色码转换后子串匹配；messages 缺键时
+     * 两侧取到同一个 "[?key]" 占位（getGuiMsg），判定仍自洽（W2-B 同款窗口）。
+     * 注意不可检测 "广场" 标签——它是基础标题"英语广场"的子串，永远命中。
+     */
+    private RankingMode detectModeFromTitle(Player viewer, String title) {
+        String lang = plugin.getPlayerLanguage(viewer);
+        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
+        if (titleMatchesLabel(title, messages, "square.feed.mode-label")) {
+            return RankingMode.FEED;
+        }
+        if (titleMatchesLabel(title, messages, "leaderboard.mode-weekly")) {
+            return RankingMode.WEEKLY;
+        }
+        if (titleMatchesLabel(title, messages, "leaderboard.mode-monthly")) {
+            return RankingMode.MONTHLY;
+        }
+        if (titleMatchesLabel(title, messages, "leaderboard.mode-alltime")) {
+            return RankingMode.ALL_TIME_COINS;
+        }
+        return RankingMode.ALL_PLAYERS;
+    }
+
+    private boolean titleMatchesLabel(String title, FileConfiguration messages, String key) {
+        String label = MessageUtil.getGuiMsg(messages, key);
+        return title.contains(ChatColor.translateAlternateColorCodes('&', label));
+    }
+
+    /**
+     * 动态条目区（FEED 模式 28 槽）的点击分流（plan-social §3.3）。
+     *
+     * <p>左键：别人的条目 = 鼓励（成功回调里重开当前页实现"lore 即时更新"
+     * ——plan §2.2 GUI 即时性，同时接 helpful 成就判定）；自己的条目 = 聊天
+     * 列出鼓励者名单。右键：打开作者主页（隐身者的陈旧条目 → 既有 openHidden
+     * 笑话页守卫，pushBack 闭包捕获当前页与 FEED 模式原样返回）。
+     *
+     * <p>条目 index 按渲染快照 {@code getCurrentFeedItems()} 反查——绝不映射进
+     * playerIds（三类列表的槽位布局相同但元素完全不同）。
+     */
+    private void handleFeedSlot(Player player, int slot, int page, ClickType clickType,
+                                List<SocialManager.FeedItem> feedItems) {
+        int slotIdx = getPlayerSlotIndexOnSquare(slot);
+        if (slotIdx < 0) return;
+        int globalIndex = (page - 1) * getPlayersPerPageOnSquare() + slotIdx;
+        // 越界保护照旧（快照为空/条目已清时静默吞掉：陈旧界面的点击无副作用）
+        if (globalIndex < 0 || globalIndex >= feedItems.size()) return;
+
+        SocialManager socialManager = plugin.getSocialManager();
+        if (socialManager == null || !socialManager.isEnabled()) {
+            // social 门关闭（覆盖"关开关前已打开的存量界面"/陈旧快照的点击）；
+            // 与模式切换分支同款反馈（音效 + module.disabled）
+            SoundManager.playSound(player, "menu-click");
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "module.disabled"));
+            return;
+        }
+        SocialManager.FeedItem item = feedItems.get(globalIndex);
+
+        // 右键 = 看作者主页（与既有玩家头点击同款：隐身 → openHidden 笑话页）
+        if (clickType == ClickType.RIGHT || clickType == ClickType.SHIFT_RIGHT) {
+            SoundManager.playSound(player, "menu-click");
+            GuiNavigationManager nav = plugin.getGuiNavigationManager();
+            int cp = page;
+            nav.pushBack(player.getUniqueId(), () -> {
+                EnglishSquareGUI backGui = new EnglishSquareGUI(plugin);
+                backGui.open(player, cp, RankingMode.FEED);
+                squareGuis.put(player.getUniqueId(), backGui);
+            });
+            PlayerDataStore store = plugin.getPlayerDataStore();
+            if (item.authorId().equals(player.getUniqueId())) {
+                new ProfileGUI(plugin).open(player, item.authorId());
+            } else if (store.getProfileSettingsReadOnly(item.authorId()).isShowInSquare()) {
+                new ProfileGUI(plugin).open(player, item.authorId());
+            } else {
+                // 点击守卫（plan §1.6 第③层，只读版不建缓存条目）：作者已隐身 → 笑话页
+                new EnglishSquareGUI(plugin).openHidden(player, item.authorId());
+            }
+            return;
+        }
+        // 其余点击类型（数字键/丢弃键/中键等）不映射动作：鼓励要写库且无撤销手段，
+        // 不接受"意外点击类型意外点赞"（plan §2.1B 只定义左键/右键两种语义）
+        if (clickType != ClickType.LEFT && clickType != ClickType.SHIFT_LEFT) {
+            return;
+        }
+
+        // 左键：自己的条目 = 看鼓励名单（聊天输出，不入返回栈）；别人的 = 鼓励
+        if (item.authorId().equals(player.getUniqueId())) {
+            SoundManager.playSound(player, "menu-click");
+            socialManager.getCheerersAsync(player.getUniqueId(), item.id(), names -> {
+                if (!player.isOnline()) {
+                    return; // 异步回调窗口内玩家已退服
+                }
+                if (names == null || names.isEmpty()) {
+                    player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                            "square.feed.cheerers-none"));
+                    return;
+                }
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "square.feed.cheerers",
+                        "names", String.join(", ", names),
+                        "count", String.valueOf(names.size())));
+            });
+            return;
+        }
+        // 鼓励成功音效由 SocialManager 统一播放（correct 键），此处不叠 click 音
+        socialManager.cheer(player, item.id(), () -> {
+            // Wave 2 域 4 × P3-3 互助成就（plan-social §4.3 冻结接口）：鼓励成功后
+            // 由 listener 层编排成就判定，SocialManager 不反向依赖成就域。
+            // 与视图无关（判据是 DB 里的鼓励行），离开动态页/离线也照常判
+            //（tryUnlock 的通知段自带在线复检）。
+            plugin.getAchievementManager().checkHelpAchievement(player.getUniqueId());
+            if (!player.isOnline() || !isViewingFeedPage(player)) {
+                return; // 异步写窗口内玩家已退服/已导航离开——不把界面拽回动态页
+            }
+            // 成功回调（主线程）：当前 FEED 页重开——缓存 cheer_count 已乐观 +1，
+            // 重渲染即见"lore 即时更新"（plan §2.2 GUI 即时性）。页号取当前标题
+            // （窗口内玩家可能已翻页，拽回旧页反而是倒退）；重开同时登记快照。
+            int currentPage = GUIUtils.extractPageFromTitle(
+                    player.getOpenInventory().getTitle());
+            EnglishSquareGUI refreshed = new EnglishSquareGUI(plugin);
+            refreshed.open(player, currentPage, RankingMode.FEED);
+            squareGuis.put(player.getUniqueId(), refreshed);
+        });
+    }
+
+    /** 玩家当前打开的界面是否仍停在动态页（cheer 异步回调的"未被拽走"守卫）。 */
+    private boolean isViewingFeedPage(Player player) {
+        var view = player.getOpenInventory();
+        if (view.getTopInventory().getSize() <= HIDDEN_JOKE_GUI_SIZE) {
+            return false; // 笑话页或非广场界面（背包视图也小于此值）
+        }
+        String title = view.getTitle();
+        if (title == null) {
+            return false;
+        }
+        if (!title.contains("English Square") && !title.contains("英语广场")) {
+            return false;
+        }
+        return detectModeFromTitle(player, title) == RankingMode.FEED;
     }
 
     private int getPlayersPerPageOnSquare() {

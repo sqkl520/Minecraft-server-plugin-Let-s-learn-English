@@ -2,6 +2,7 @@ package com.letslearnenglish.minecraftplugin.core.achievement;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.core.social.SocialManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
@@ -218,6 +219,14 @@ public class AchievementManager {
         }
         }
 
+        // Wave 2 域 4（广场社交，plan-social §3.6）：新解锁 → 产生/合并一条
+        // ACHIEVEMENT 动态。已解锁重复调用与不合格解锁均在上方短路，到不了这里；
+        // SocialManager 内部自判 social.enabled 与产生侧隐身门并异步写库
+        // （本方法可从异步线程到达——F1-03 路径——recordEvent 入口统一派发异步）。
+        if (plugin.getSocialManager() != null) {
+            plugin.getSocialManager().recordAchievement(playerId, achievement.getId());
+        }
+
         // PF-ACH-02：通知段（聊天/Title/音效/广播）统一调度回主线程——本方法可从
         // 异步线程到达（AI 对话 bye 分支直调链），其内全是主线程 API。
         if (Bukkit.isPrimaryThread()) {
@@ -423,17 +432,32 @@ public class AchievementManager {
     /**
      * Phase 3 N5（helpful）：鼓励过 ≥10 个不同玩家 → 解锁。
      *
-     * <p>依赖域 4（广场社交）的 {@code SocialManager.getCheerStats(uuid).distinctTargets()}。
-     * Wave 1 时 SocialManager 与 {@code LetsLearnEnglish.getSocialManager()} 均未落盘
-     * （Wave 2 交付），本方法暂为空转 no-op——签名冻结，域 4 落地后由 SocialListener
-     * 在 cheer 成功分支接线调用，届时在本方法内补读 CheerStats 并在此处解锁：
-     * {@code getSocialManager() == null} 守卫保持锁定、不报错。
+     * <p>数据依赖域 4（广场社交）的 {@code SocialManager.getCheerStats(uuid).distinctTargets()}；
+     * 触发点由 {@code SocialListener} 在鼓励成功后按 listener 层编排调用
+     * （plan-social §4.3 冻结接口：SocialManager 不反向依赖成就域）。
+     *
+     * <p><b>线程契约</b>：{@code getCheerStats} 是同步 DB 读（其 javadoc 明示禁止
+     * 主线程调用），而本方法的主调用点（cheer 成功回调）在主线程——因此本方法
+     * 统一派发到异步线程执行判定；命中后 {@link #tryUnlock} 自身会把通知段调回
+     * 主线程（PF-ACH-02 已支持异步入口）。插件停用窗口静默放弃（下次鼓励重判）。
      */
     public void checkHelpAchievement(UUID playerId) {
-        // TODO Wave 2（域 4）：SocialManager 落地后：
-        //   SocialManager sm = plugin.getSocialManager(); if (sm == null) return;
-        //   if (sm.getCheerStats(playerId).distinctTargets() >= 10) tryUnlock(playerId, Achievement.HELPFUL);
-        // 现无 SocialManager 类型可引用，保持空转（调用方按签名接线，编译合流后自然可用）。
+        if (plugin.getSocialManager() == null) {
+            return;
+        }
+        try {
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                SocialManager sm = plugin.getSocialManager();
+                if (sm == null) {
+                    return;
+                }
+                if (sm.getCheerStats(playerId).distinctTargets() >= 10) {
+                    tryUnlock(playerId, Achievement.HELPFUL);
+                }
+            });
+        } catch (IllegalStateException ignored) {
+            // 插件停用窗口（调度器已关闭）：放弃本次判定（解锁记录不损，下次鼓励重判）
+        }
     }
 
     private void checkDailyStreak(UUID playerId) {

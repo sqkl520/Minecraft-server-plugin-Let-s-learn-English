@@ -5,6 +5,7 @@ import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.word.AnswerChecker;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
+import com.letslearnenglish.minecraftplugin.core.word.WordModes;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -122,7 +123,9 @@ public class WordLearningListener implements Listener {
 
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
-        int timeout = wlManager.getAnswerTimeout();
+        // MC-3：{seconds} 展示走会话快照的有效倒计时（choice 被 time-limit 覆盖时
+        // 与真实计时器一致，不再展示全局值）。
+        int timeout = wlManager.getEffectiveTimeout(player.getUniqueId());
         String mode = wlManager.getMode(player.getUniqueId());
 
         // FEAT-MODE-01：答题提示按 mode 渲染（判定收敛于 AnswerChecker，这里只做展示）。
@@ -148,9 +151,13 @@ public class WordLearningListener implements Listener {
             player.sendMessage(ChatColor.translateAlternateColorCodes('&',
                     messages.getString("word-learning-gui.fill-blank-sentence")
                             .replace("{sentence}", AnswerChecker.blankSentence(currentWord))));
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("word-learning-gui.fill-blank-hint")
-                            .replace("{letter}", AnswerChecker.firstLetterHint(currentWord))));
+            // MC-3：首字母提示行按 modes.fill_blank.show-first-letter 短路（实时读配置，
+            // reload 即时生效）；false 时只隐藏提示行，题目与判定不变。
+            if (WordModes.showFirstLetter(plugin.getConfigManager())) {
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                        messages.getString("word-learning-gui.fill-blank-hint")
+                                .replace("{letter}", AnswerChecker.firstLetterHint(currentWord))));
+            }
         } else {
             player.sendMessage(ChatColor.translateAlternateColorCodes('&',
                     messages.getString("word-learning-gui.answer-prompt")

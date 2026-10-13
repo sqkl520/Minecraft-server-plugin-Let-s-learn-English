@@ -40,7 +40,25 @@ public class ConfigManager {
             // Phase 3 · MC-2：新增模块门键（缺 key 仅启动审计告警；代码回落各自默认 true）
             "onboarding.enabled",
             "duel.enabled",
-            "checkin.enabled"
+            "checkin.enabled",
+            // Phase 3 · MC-5：挑战奖励键存在性（缺 key / 非法由 getChallengeReward 回落
+            // 枚举默认 30/50/25/40 并告警；本名单只做存在性诊断，不影响行为）
+            "daily-challenges.rewards.answer_10",
+            "daily-challenges.rewards.session_3",
+            "daily-challenges.rewards.combo_5",
+            "daily-challenges.rewards.ai_chat_5"
+    };
+
+    /**
+     * Phase 3 · MC-5：行为挑战奖励键（数值正值审计用；存在性已含于
+     * {@link #REQUIRED_CONFIG_KEYS}，此处只补"非法值"诊断——运行时不依赖本检查，
+     * {@code DailyChallengeManager.getChallengeReward} 自会回落枚举默认值）。
+     */
+    private static final String[] CHALLENGE_REWARD_KEYS = {
+            "daily-challenges.rewards.answer_10",
+            "daily-challenges.rewards.session_3",
+            "daily-challenges.rewards.combo_5",
+            "daily-challenges.rewards.ai_chat_5"
     };
 
     /**
@@ -127,6 +145,19 @@ public class ConfigManager {
                 if (!mainConfig.isSet(key)) {
                     plugin.getLogger().warning("[Config Audit] Missing expected config key: " + key
                             + " (feature will fall back to its built-in default)");
+                    warnings++;
+                }
+            }
+            // Phase 3 · MC-5：挑战奖励数值正值检查（只告警不改行为——运行时
+            // DailyChallengeManager.getChallengeReward 自行回落枚举默认值）。
+            // 注意不能用 isDouble：YAML 的 30 装箱为 Integer，isDouble 会误判。
+            for (String key : CHALLENGE_REWARD_KEYS) {
+                Object raw = mainConfig.get(key);
+                if (raw == null) continue; // 缺失已由上面存在性检查覆盖
+                if (!(raw instanceof Number number) || number.doubleValue() <= 0
+                        || !Double.isFinite(number.doubleValue())) {
+                    plugin.getLogger().warning("[Config Audit] Invalid config value for " + key
+                            + ": " + raw + " (must be a positive number; falls back to the built-in default)");
                     warnings++;
                 }
             }
