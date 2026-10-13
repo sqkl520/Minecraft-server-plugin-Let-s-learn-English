@@ -15,6 +15,7 @@ import com.letslearnenglish.minecraftplugin.core.manager.CheckInManager;
 import com.letslearnenglish.minecraftplugin.core.manager.DataExporter;
 import com.letslearnenglish.minecraftplugin.core.manager.HotReloadManager;
 import com.letslearnenglish.minecraftplugin.core.manager.StatisticsHttpServer;
+import com.letslearnenglish.minecraftplugin.core.onboarding.OnboardingManager;
 import com.letslearnenglish.minecraftplugin.core.progress.ProgressManagerImpl;
 import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
@@ -101,6 +102,8 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     private CheckInManager checkInManager;
 
+    private OnboardingManager onboardingManager;
+
     private StatisticsHttpServer statisticsHttpServer;
 
     private Economy economy = null;
@@ -157,6 +160,10 @@ public final class LetsLearnEnglish extends JavaPlugin {
         this.duelManager = new DuelManager(this);
 
         this.checkInManager = new CheckInManager(this);
+
+        // 域 1 新手引导：自注册 PlayerInteractEvent（照 WordLearningManager 先例），
+        // 无需改 registerListeners；位置在 registerListeners 之前（构造即完成注册）。
+        this.onboardingManager = new OnboardingManager(this);
 
         this.adminCommandHandler = new AdminCommandHandler(this);
         this.dataExporter = new DataExporter(this, playerDataStore);
@@ -678,6 +685,10 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     public CheckInManager getCheckInManager() {
         return checkInManager;
+    }
+
+    public OnboardingManager getOnboardingManager() {
+        return onboardingManager;
     }
 
     public ProxyMessenger getProxyMessenger() {

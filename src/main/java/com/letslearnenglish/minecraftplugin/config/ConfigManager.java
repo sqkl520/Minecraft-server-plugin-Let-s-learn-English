@@ -22,7 +22,7 @@ import java.util.logging.Level;
  */
 public class ConfigManager {
 
-    private static final int MESSAGE_CONFIG_VERSION = 11;
+    private static final int MESSAGE_CONFIG_VERSION = 12;
 
     /**
      * Config keys the code actually relies on at runtime. Absence is logged as a WARNING on
@@ -36,7 +36,11 @@ public class ConfigManager {
             "database.type",
             "word-system.answer-timeout",
             "word-system.words-per-session",
-            "gui.menu-size"
+            "gui.menu-size",
+            // Phase 3 · MC-2：新增模块门键（缺 key 仅启动审计告警；代码回落各自默认 true）
+            "onboarding.enabled",
+            "duel.enabled",
+            "checkin.enabled"
     };
 
     /**
@@ -230,6 +234,119 @@ public class ConfigManager {
 
     public FileConfiguration getMessageConfig(String lang) {
         return "zh".equals(lang) ? messageConfigZh : messageConfigEn;
+    }
+
+    // ------------------------------------------------------------------
+    //  模块门（Phase 3 · MC-2）：集中式开关读取，全部点读 mainConfig（不缓存），
+    //  /lea reload 即时生效。"关"的统一三层语义 = 入口隐藏 / 事件静默 / 数据保留：
+    //  关闭只停"入口与新增写入"，绝不删除既有数据；重新开启立即恢复。
+    // ------------------------------------------------------------------
+
+    /**
+     * 单词学习模块总门：{@code word-system.enabled}（默认 true）。点读式，reload 即时生效。
+     * 三层语义：入口隐藏（主菜单按钮/相关 GUI 不可达） / 事件静默（入口 no-op、不写新数据） /
+     * 数据保留（关闭不删数据，重开立即恢复）。
+     */
+    public boolean isWordSystemEnabled() {
+        return mainConfig.getBoolean("word-system.enabled", true);
+    }
+
+    /**
+     * AI 情景对话模块门：{@code ai-chat.enabled}（默认 true）。点读式，reload 即时生效。
+     * 三层语义：入口隐藏（主菜单按钮/场景选择不可达） / 事件静默（不接新对话、进行中对话自动退出） /
+     * 数据保留（历史对话与场景数据保留，/le history 与场景管理照常）。
+     */
+    public boolean isAIChatEnabled() {
+        return mainConfig.getBoolean("ai-chat.enabled", true);
+    }
+
+    /**
+     * 单词对决模块门：{@code duel.enabled}（Phase 3 新增键，默认 true）。点读式，reload 即时生效。
+     * 三层语义：入口隐藏（主菜单按钮隐藏、发起/接受拒绝） / 事件静默（新邀请不受理） /
+     * 数据保留（决斗零持久化）。进行中的对局自然收尾——quit/gui 与 /lea duel cancel 的放行属调用点约定。
+     */
+    public boolean isDuelEnabled() {
+        return mainConfig.getBoolean("duel.enabled", true);
+    }
+
+    /**
+     * 每日签到模块门：{@code checkin.enabled}（Phase 3 新增键，默认 true）。点读式，reload 即时生效。
+     * 三层语义：入口隐藏（主菜单按钮隐藏、/le checkin 拒绝） / 事件静默（不记新签到） /
+     * 数据保留（streak 记录保留；停用期间连续签到自然断签属预期语义）。
+     */
+    public boolean isCheckinEnabled() {
+        return mainConfig.getBoolean("checkin.enabled", true);
+    }
+
+    /**
+     * 每日挑战模块门：{@code daily-challenges.enabled}（默认 true）。点读式，reload 即时生效。
+     * 三层语义：入口隐藏（主菜单按钮/挑战 GUI 不可达、/le challenge 拒绝） /
+     * 事件静默（不分配、不更新进度、不结算、不可领取） / 数据保留（既有挑战行保留，重开后继续）。
+     */
+    public boolean isDailyChallengesEnabled() {
+        return mainConfig.getBoolean("daily-challenges.enabled", true);
+    }
+
+    /**
+     * 进度系统伞开关：{@code progress-system.enabled}（默认 true）。点读式，reload 即时生效。
+     * false 时 {@link #isLeaderboardEnabled()} / {@link #isAchievementsEnabled()} /
+     * {@link #isRewardsEnabled()} 同时为 false（内部 AND）。
+     * 三层语义：入口隐藏 / 事件静默 / 数据保留——学习分数与统计继续累计（数据保全），
+     * 个人主页展示保留（停"伞"不停展示）。
+     */
+    public boolean isProgressSystemEnabled() {
+        return mainConfig.getBoolean("progress-system.enabled", true);
+    }
+
+    /**
+     * 排行榜门：{@code progress-system.enabled && progress-system.leaderboard.enabled}
+     * （默认 true）。点读式，reload 即时生效。
+     * 三层语义：入口隐藏（/le leaderboard、榜单 GUI、广场三榜模式按钮隐藏） /
+     * 事件静默（不查库） / 数据保留（内存榜继续更新作"热备"，重开即时恢复排名）。
+     */
+    public boolean isLeaderboardEnabled() {
+        return isProgressSystemEnabled()
+                && mainConfig.getBoolean("progress-system.leaderboard.enabled", true);
+    }
+
+    /**
+     * 成就系统门：{@code progress-system.enabled && progress-system.achievements.enabled}
+     * （默认 true）。点读式，reload 即时生效。
+     * 三层语义：入口隐藏（个人主页成就墙按钮隐藏） /
+     * 事件静默（tryUnlock 顶部 no-op，无解锁提示/音效/跨服广播） / 数据保留（已解锁记录保留）。
+     */
+    public boolean isAchievementsEnabled() {
+        return isProgressSystemEnabled()
+                && mainConfig.getBoolean("progress-system.achievements.enabled", true);
+    }
+
+    /**
+     * 奖励系统门：{@code progress-system.enabled && progress-system.rewards.enabled}
+     * （默认 true）。点读式，reload 即时生效。等效金币总闸
+     * （{@code RewardEngine.isMoneyEnabled = 本门 && types.money.enabled}）。
+     * 三层语义：入口（发币点）静默 / 数据保留（答题、签到 streak 照常推进，记录不删）。
+     */
+    public boolean isRewardsEnabled() {
+        return isProgressSystemEnabled()
+                && mainConfig.getBoolean("progress-system.rewards.enabled", true);
+    }
+
+    /**
+     * 广场社交模块门：{@code social.enabled}（默认 true；该键随广场社交（Wave 2 域 4）落地）。
+     * 点读式，reload 即时生效。
+     * 三层语义：入口隐藏 / 事件静默（动态不产生、鼓励无效、进服摘要不发） / 数据保留。
+     */
+    public boolean isSocialEnabled() {
+        return mainConfig.getBoolean("social.enabled", true);
+    }
+
+    /**
+     * 新手引导门：{@code onboarding.enabled}（默认 true；键随新手引导（Wave 2 域 1）落地）。
+     * 点读式，reload 即时生效，四处门槛同源。
+     * 三层语义：入口隐藏（不给引导书、拦截不生效） / 事件静默（无任何提醒） / 数据保留。
+     */
+    public boolean isOnboardingEnabled() {
+        return mainConfig.getBoolean("onboarding.enabled", true);
     }
 
     public int getGuiSlot(String guiName, String itemKey, int defaultSlot) {

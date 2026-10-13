@@ -44,7 +44,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     private final LetsLearnEnglish plugin;
 
     private static final List<String> SUBCOMMANDS = Arrays.asList(
-            "menu", "word", "dialogue", "progress", "review", "stats", "help", "square", "profile", "leaderboard", "challenge", "history", "duel", "wrong", "checkin", "save_scenario", "load_scenario"
+            "menu", "word", "dialogue", "progress", "review", "stats", "help", "guide", "square", "profile", "leaderboard", "challenge", "history", "duel", "wrong", "checkin", "save_scenario", "load_scenario"
     );
 
     /**
@@ -65,6 +65,20 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
 
     public LearnCommand(LetsLearnEnglish plugin) {
         this.plugin = plugin;
+    }
+
+    /**
+     * MC-2 模块门统一回显（plan-menu-config §3.2）：enabled=false 时发
+     * {@code module.disabled} 并返回 true（调用方直接 return）；enabled=true 返回 false。
+     * 门全部点读 ConfigManager（reload 即时生效），命令入口是"最省的一层"。
+     */
+    private boolean requireEnabled(Player player, boolean enabled) {
+        if (enabled) {
+            return false;
+        }
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                "module.disabled"));
+        return true;
     }
 
     @Override
@@ -133,6 +147,10 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             case "help":
                 sendHelpMessage(player);
                 break;
+            case "guide":
+                // 域 1 新手引导：进度总览 + 手册补发（enabled/完结分支在管理器内自判）。
+                plugin.getOnboardingManager().handleGuideCommand(player);
+                break;
             default:
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "general.unknown-command"));
@@ -147,6 +165,10 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleWordCommand(Player player, String[] args) {
+        // MC-2 模块门：word-system.enabled=false → /le word 整体拒绝（含无参打开词库选择 GUI）。
+        if (requireEnabled(player, plugin.getConfigManager().isWordSystemEnabled())) {
+            return;
+        }
         if (args.length <= 1) {
             new WordBankSelectGUI(plugin).open(player);
         } else {
@@ -196,8 +218,18 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                     "dialogue.chat-active"));
             return;
         }
+        // 域 1 新手引导拦截：step==1 的"首次答题"改开 3 词迷你会话（接管开局则直接返回）。
+        if (plugin.getOnboardingManager().interceptQuizStart(player, difficulty)) {
+            return;
+        }
         try {
-            plugin.getWordLearningManager().startQuiz(player, difficulty, mode);
+            var session = plugin.getWordLearningManager().startQuiz(player, difficulty, mode);
+            // Wave 1 fan-in（S-F 上报纵深）：word 门关闭时 startQuiz 返回 null 已发
+            // module.disabled——此处不再开 GUI / 发 session-start（子命令入口已有门，
+            // 这是"僵尸 GUI/边缘路径"的兜底）。
+            if (session == null) {
+                return;
+            }
             new WordLearningGUI(plugin).openWithMessage(player, difficulty, mode);
             // F2-13：{difficulty}/{mode} 的值走 i18n label 键，不再把英文标识符
             // （beginner/choice）直接透传给玩家；未知标识符回落原值保证信息不丢。
@@ -242,6 +274,11 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleDialogueCommand(Player player, String[] args) {
+        // MC-2 模块门：ai-chat.enabled=false → /le dialogue 整体拒绝
+        //（含"退出对话"分支——对话根本开不了；历史/场景维护面不属本门）。
+        if (requireEnabled(player, plugin.getConfigManager().isAIChatEnabled())) {
+            return;
+        }
         if (plugin.getChatScenarioListener() == null) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "general.error", "message",
@@ -321,6 +358,10 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleReviewCommand(Player player) {
+        // MC-2 模块门：review 属 word-system 域（关闭后复习提醒任务亦静默，本处拦手动入口）。
+        if (requireEnabled(player, plugin.getConfigManager().isWordSystemEnabled())) {
+            return;
+        }
         java.util.List<String> dueWords = plugin.getWordManager()
                 .getReviewScheduler().getDueReviewWords(player.getUniqueId());
         int count = dueWords.size();
@@ -358,6 +399,10 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleLeaderboardCommand(Player player) {
+        // MC-2 模块门：progress-system.enabled && leaderboard.enabled。
+        if (requireEnabled(player, plugin.getConfigManager().isLeaderboardEnabled())) {
+            return;
+        }
         new LeaderboardGUI(plugin).open(player);
     }
 
@@ -385,6 +430,10 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleChallengeCommand(Player player) {
+        // MC-2 模块门：daily-challenges.enabled=false → /le challenge 拒绝。
+        if (requireEnabled(player, plugin.getConfigManager().isDailyChallengesEnabled())) {
+            return;
+        }
         var dcm = plugin.getDailyChallengeManager();
         int[] progress = dcm.getTodayWordProgress(player);
         int completed = progress[0];
@@ -539,8 +588,10 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         if (plugin.getEconomy() == null) {
             return false;
         }
-        return plugin.getConfigManager().getMainConfig()
-                .getBoolean("progress-system.rewards.types.money.enabled", false);
+        // Wave 1 fan-in（S-H 上报收口）：改走 RewardEngine 的公开并集判定
+        // （isRewardsEnabled() && money.enabled）——原先只读 money 键，
+        // "关奖励伞 + money 键还开着"组合下这里判"可用"而实际拒发，提示语义会走错。
+        return plugin.getProgressManager().getRewardEngine().isMoneyEnabled();
     }
 
     private void handleHistoryCommand(Player player) {
@@ -564,11 +615,28 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
 
         String sub = args[1].toLowerCase();
 
+        // MC-2 模块门（plan-menu-config §4.2 特殊语义）：duel.enabled=false 时
+        // "发起 / 接受"恒被拦（module.disabled）；"quit / gui"在"已在局中"时放行 ——
+        // 关开关后进行中的对局仍可退出 / 重开界面，随后自然收尾；
+        // /le duel cancel 是 GM 解散通道（进行中对局的收尾手段），不随功能关闭失效。
+        boolean duelInProgress = duelManager.isInDuel(player.getUniqueId());
+
         if ("quit".equals(sub)) {
+            if (requireEnabled(player,
+                    plugin.getConfigManager().isDuelEnabled() || duelInProgress)) {
+                return;
+            }
             duelManager.quitDuel(player);
         } else if ("accept".equals(sub)) {
+            if (requireEnabled(player, plugin.getConfigManager().isDuelEnabled())) {
+                return;
+            }
             duelManager.acceptDuel(player);
         } else if ("gui".equals(sub)) {
+            if (requireEnabled(player,
+                    plugin.getConfigManager().isDuelEnabled() || duelInProgress)) {
+                return;
+            }
             // R-23: ESC 后重开当前对局界面（决斗中可用，非对决中回 not-in-duel）。
             duelManager.reopenDuelGUI(player);
         } else if ("cancel".equals(sub)) {
@@ -576,6 +644,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             // Real execution lives in /lea duel cancel (AdminCommand);
             // here we only forward GMs and refuse non-GMs cleanly so a plain
             // player named "cancel" can never be misrouted into admin logic.
+            // MC-2：本分支刻意不加 duel.enabled 门（见上方注释）。
             if (!player.hasPermission("letslearnenglish.admin")) {
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "general.no-permission"));
@@ -588,7 +657,10 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             }
             duelManager.cancelDuelByAdmin(player, args[2]);
         } else {
-            // Treat as a player name — send duel request
+            // Treat as a player name — send duel request（发起路径：恒过 duel.enabled 门）
+            if (requireEnabled(player, plugin.getConfigManager().isDuelEnabled())) {
+                return;
+            }
             Player target = plugin.getServer().getPlayer(sub);
             if (target == null) {
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
@@ -600,10 +672,18 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleWrongCommand(Player player) {
+        // MC-2 模块门：错题本属 word-system 域（关闭后 GUI 与独立练习不可达）。
+        if (requireEnabled(player, plugin.getConfigManager().isWordSystemEnabled())) {
+            return;
+        }
         new com.letslearnenglish.minecraftplugin.gui.WrongBookGUI(plugin).open(player, 1);
     }
 
     private void handleCheckinCommand(Player player) {
+        // MC-2 模块门：checkin.enabled=false → /le checkin 拒绝（streak 数据保留）。
+        if (requireEnabled(player, plugin.getConfigManager().isCheckinEnabled())) {
+            return;
+        }
         com.letslearnenglish.minecraftplugin.core.manager.CheckInManager checkInManager =
                 plugin.getCheckInManager();
         if (checkInManager == null) {
@@ -782,6 +862,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.duel"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.wrong"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.checkin"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.guide"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.save_scenario"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.load_scenario"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.footer"));

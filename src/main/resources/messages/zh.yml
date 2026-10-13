@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 11
+config-version: 12
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -14,6 +14,14 @@ general:
   data-saved: "{prefix}&a玩家数据已保存！"
   unknown-command: "{prefix}&c未知命令。输入 /le help 查看帮助。"
   error: "{prefix}&c错误: {message}"
+
+# MC-2 模块开关统一回显（Wave 1）：9 个模块门关闭时命令/GUI 入口的通用提示
+module:
+  disabled: "{prefix}&c该功能已被服务器管理员关闭喵~"
+
+ai-chat:
+  # 进行中 AI 对话在模块被关闭后，下一条消息收到此提示并自动退出对话模式
+  module-disabled: "{prefix}&cAI 对话已被服务器管理员关闭，本次对话已结束"
 
 error:
   scenario-unavailable: "&cAI 情景对话功能当前不可用。"
@@ -104,12 +112,21 @@ achievement:
   unlock-format: "&b&l✧ {title} &f- {name}"
   unlocked: "{prefix}&6成就解锁: &e{name} &6- {description}"
   progress: "{prefix}&7成就进度: &e{name} &7({current}/{target})"
+  prereq-hint: "&7前置: &c{name}"
 
 achievement-wall:
   title: "&6&l成就墙"
   time-opens: "&7⏳ 距开放: {time}"
   time-expired: "&7⏰ 已过期"
   time-remaining: "&7⏳ 剩余: {time}"
+  # Wave 1（域 3）：成就按 5 类分组渲染（类别名进条目 lore 第一行，不占 header 格）
+  category-learning: "学习"
+  category-review: "复习"
+  category-consistency: "坚持"
+  category-social: "社交"
+  category-economy: "财富"
+  category-line: "&7类别: &f{category}"
+  unlocked-at: "&7解锁于 &f{date}"
 
 leaderboard:
   header: "&6&l===== 英语学习排行榜 ====="
@@ -229,6 +246,7 @@ help:
   checkin: "&e/le checkin &7- 每日签到获取金币"
   save_scenario: "&e/le save_scenario <名称> &7- 导出当前 AI 场景为分享码"
   load_scenario: "&e/le load_scenario <编码> &7- 导入分享的场景码"
+  guide: "&e/le guide &7- 查看新手引导进度 / 重新领取引导手册"
   footer: "&6======================================"
 
 checkin:
@@ -274,6 +292,8 @@ duel:
   cancelled: "{prefix}&c对决已取消喵~"
   cancelled-by-gm: "{prefix}&c本次对决已被管理员解散，不判胜负喵~"
   word-timeout: "{prefix}&e⏱ 时间到！正确答案是 &f{word}&e，双方都不加分，下一题！"
+  round-bossbar: "&e⚔ 本题剩余 {seconds}s"
+  round-bossbar-urgent: "&c&l⚔ {seconds}s！"
   cancel-usage: "{prefix}&e用法: /le duel cancel <玩家名> &7（或 /lea duel cancel <玩家名>）"
   correct-answer: "{prefix}&a✔ 你答对了！&e+1分"
   wrong-answer: "{prefix}&c✖ 答错了！正确答案是 &e{word}&c，对手得分！"
@@ -429,6 +449,7 @@ word-learning-gui:
   countdown-normal: "&e⏳ 还剩 {seconds} 秒..."
   correct: "&a✔ 正确！ &7(+&e{score}&7){combo}"
   combo-message: "&6✨ {count}x 连击！ ({multiplier}x)"
+  combo-milestone: "&6&l⚡ {count} COMBO! &e({multiplier}x)"
   incorrect: "&c✖ 错误！ 答案是: &e{answer}"
   session-stopped: "&a会话已停止！ &7正确: &e{correct}&7/&e{total} &7分数: &e{score}"
   stopped-no-reward: "&c答题太少（已答 &e{answered}&c/&e{total}&c 题），本次停止不发放会话奖励，认真走完会有奖励哦~"
@@ -585,3 +606,33 @@ wrong-book:
   next-page: "&e下一页 →"
   next-page-lore: "&7第 {page} 页"
   page-indicator: "&7第 {current}/{total} 页"
+
+# ============================================================
+#  新手引导 (Onboarding) — Wave 1（域 1）
+# ============================================================
+onboarding:
+  join-intro: "{prefix}&a新同学你好呀！我在你的背包里放了一本 &e《新手引导手册》&a，右键翻开看看，跟着做 3 件小事就能上手啦喵~"
+  reminder: "{prefix}&e你的新手引导还没完成哦~ 右键背包里的引导书看看下一步，或输入 &e/le word &e继续喵！"
+  session-start: "{prefix}&6🎓 迷你试炼开始！难度 &e{difficulty}&6，共 &e{count} &6个单词（选择题）。答错不要紧，再试一次就好喵~"
+  retry-wrong: "{prefix}&e没关系，再试一次就好喵~"
+  retry-timeout: "{prefix}&e时间到啦，本题再来一次喵~"
+  step2-done: "{prefix}&a引导第 2 步完成！最后一步：输入 &e/le progress &a打开个人主页，看看你刚拿到的成就喵~"
+  complete: "{prefix}&6★ &a引导全部完成喵！手册已收回，之后的英语之旅就交给你啦~"
+  guide-given: "{prefix}&a已把引导手册放回你的背包喵~"
+  guide-done: "{prefix}&7引导已经全部完成啦，不需要手册了喵~"
+  guide-disabled: "{prefix}&7新手引导功能未启用喵~"
+  guide-header: "{prefix}&6===== 新手引导进度 ====="
+  book:
+    title: "新手引导手册"
+    author: "一起学英语"
+    page-cover: "&1&l新手引导手册\n\n你好呀，我是引导小书喵~\n跟着我做 3 件小事，\n5 分钟就能上手：\n\n① 选一个词库\n② 完成 3 词的小会话\n③ 打开个人主页看成就\n\n&7翻到下一页看进度喵~"
+    page-steps-header: "&1&l当前进度\n"
+    step1-done: "&a✔ 第 1 步 选词库"
+    step1-pending: "&7○ 第 1 步 选词库（/le → 单词学习）"
+    step2-done: "&a✔ 第 2 步 3 词迷你会话"
+    step2-pending: "&7○ 第 2 步 完成 3 词迷你会话（/le word）"
+    step3-done: "&a✔ 第 3 步 打开个人主页"
+    step3-pending: "&7○ 第 3 步 打开个人主页（/le progress）"
+    hint-session: "&e下一步：随便打开一个词库，完成 3 个单词的小会话吧喵~"
+    hint-profile: "&e下一步：输入 /le progress，看看你的成就喵~"
+    page-tips: "&1&l答题小贴士\n\n&0· 选好词库后会弹出答题界面\n· &l关闭界面&r&0 后在聊天栏输入选项字母\n· 答错可以重来，不要怕喵~\n· 任何时候输入 /le 都能呼出主菜单\n· 输入 /le guide 可重新领取这本小册子"

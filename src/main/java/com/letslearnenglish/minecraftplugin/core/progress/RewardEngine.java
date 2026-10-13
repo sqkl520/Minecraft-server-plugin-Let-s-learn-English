@@ -62,9 +62,19 @@ public class RewardEngine {
         return plugin.getEconomy();
     }
 
-    private boolean isMoneyEnabled() {
-        return plugin.getConfigManager().getMainConfig()
-                .getBoolean("progress-system.rewards.types.money.enabled", false);
+    /**
+     * 金币总闸（单一真相收口，MC-2 / S-H）：{@code progress-system.enabled &amp;&amp;
+     * progress-system.rewards.enabled &amp;&amp; progress-system.rewards.types.money.enabled}。
+     * 原实现只读 {@code money.enabled} 一个键 —— 服主关"奖励伞"
+     * （{@code progress-system.rewards.enabled=false}）时本类仍会发币，伞门形同虚设。
+     * 现改为 AND 并集：任一门关都不发币（"都开才发"）。
+     * 此前散布在 LearnCommand / DailyChallengeManager / CheckInManager / MiscGUIListener
+     * 的 {@code money.enabled} 直读点，统一改走本方法（public 供各调用点收口）。
+     */
+    public boolean isMoneyEnabled() {
+        return plugin.getConfigManager().isRewardsEnabled()
+                && plugin.getConfigManager().getMainConfig()
+                        .getBoolean("progress-system.rewards.types.money.enabled", false);
     }
 
     /**

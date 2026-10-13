@@ -22,6 +22,7 @@ import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager.Challenge
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.progress.RewardEngine;
 import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 
 public class WordLearningManager implements Listener {
 
@@ -52,6 +53,12 @@ public class WordLearningManager implements Listener {
     }
 
     public LearningSession startQuiz(Player player, String difficulty, String mode) {
+        // MC-2：word-system 模块门 —— 关闭时拒绝开局（进行中的会话不打断，只在入口拦）。
+        if (!plugin.getConfigManager().isWordSystemEnabled()) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "module.disabled"));
+            return null;
+        }
         cancelAnswerTimer(player);
         quizStates.remove(player.getUniqueId());
         LearningSession session = wordManager.startSession(player, difficulty, mode);
@@ -67,6 +74,12 @@ public class WordLearningManager implements Listener {
      * @return the review session, or null if no words are due for review
      */
     public LearningSession startReviewQuiz(Player player) {
+        // MC-2：word-system 模块门（同上）。
+        if (!plugin.getConfigManager().isWordSystemEnabled()) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "module.disabled"));
+            return null;
+        }
         cancelAnswerTimer(player);
         quizStates.remove(player.getUniqueId());
         LearningSession session = wordManager.startReviewSession(player);
@@ -74,6 +87,36 @@ public class WordLearningManager implements Listener {
         int timeout = plugin.getConfigManager().getMainConfig().getInt("word-system.answer-timeout", 30);
         QuizState state = new QuizState(session, "review", "review", timeout);
         state.isReviewMode = true;
+        quizStates.put(player.getUniqueId(), state);
+        return session;
+    }
+
+    /**
+     * Phase 3 onboarding（plan-onboarding §3.3）：教程迷你会话 —— 照 {@link #startQuiz}
+     * 镜像，仅两处差异：题数由 wordCount 指定（onboarding.session-words，默认 3）、
+     * QuizState.isTutorial=true。mode 强制 "choice"（4 选项保证"答错原地重试"下
+     * 有限次数必中）。答错/超时语义见 submitAnswer / handleTimeout 的教程守卫。
+     *
+     * <p>与 startQuiz 一样在入口做 MC-2 word-system 模块门（教程拦截的启用判定
+     * 由 OnboardingManager 侧自理，本方法只管"所有开局入口同门"的一致性）。
+     *
+     * @param player     the player
+     * @param difficulty difficulty level
+     * @param wordCount 迷你会话单词数
+     * @return the tutorial session
+     */
+    public LearningSession startTutorialQuiz(Player player, String difficulty, int wordCount) {
+        if (!plugin.getConfigManager().isWordSystemEnabled()) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "module.disabled"));
+            return null;
+        }
+        cancelAnswerTimer(player);
+        quizStates.remove(player.getUniqueId());
+        LearningSession session = wordManager.startSession(player, difficulty, "choice", wordCount);
+        int timeout = plugin.getConfigManager().getMainConfig().getInt("word-system.answer-timeout", 30);
+        QuizState state = new QuizState(session, difficulty, "choice", timeout);
+        state.isTutorial = true;
         quizStates.put(player.getUniqueId(), state);
         return session;
     }
@@ -154,6 +197,21 @@ public class WordLearningManager implements Listener {
                     rewards.giveMoneyForCorrectAnswer(player, multiplier, currentWord);
                 }
             } else {
+                // Phase 3 onboarding（plan-onboarding D1）：教程迷你会话答错 = 原地重试。
+                // 不清连击 / 不扣 -2 分 / 不 recordIncorrect / 不累计今日答题数 /
+                // 不入错题本 / 不发复习惩罚 —— session 零推进，下一轮 submitAnswer
+                // 拿到的仍是同一题（session.getCurrentWord() 判定键未变）。
+                // 返回 tutorial=true 的"不推进"结果，ChatAnswerListener 据此改发
+                // onboarding.retry-wrong 并重开同题 GUI（音效保持 incorrect）。
+                if (state.isTutorial) {
+                    return new AnswerResult(false, correctAnswer,
+                            session.getCurrentIndex(), session.getTotalWords(),
+                            session.getTotalCorrect(), session.getTotalIncorrect(),
+                            false, session.getAccuracy(), session.getScore(),
+                            0, state.consecutiveCorrect,
+                            getComboMultiplier(state.consecutiveCorrect),
+                            state.maxComboReached, state.mode, true);
+                }
                 state.consecutiveCorrect = 0;
                 comboScore = -INCORRECT_PENALTY;
                 session.addScore(-INCORRECT_PENALTY);
@@ -198,6 +256,20 @@ public class WordLearningManager implements Listener {
             // handleTimeout 的唯一调用方（startAnswerTimer 的倒计时到点分支）持有
             // Player 对象，可直接播；死亡暂停走 cancelAnswerTimer，不会误播。
             SoundManager.playSound(player, "incorrect");
+
+            // Phase 3 onboarding（plan-onboarding D1）：教程迷你会话超时 = 原地重试，
+            // 补播的 incorrect 照旧（R-84），但不清连击 / 不扣分 / 不 recordIncorrect /
+            // 不累计今日答题数 / 不入错题本 / 不发复习惩罚 —— session 零推进，
+            // 下一轮仍对同一题计时（超时文案改走 onboarding.retry-timeout，不显示答案）。
+            if (state.isTutorial) {
+                return new AnswerResult(false, currentWord.getEnglish(),
+                        session.getCurrentIndex(), session.getTotalWords(),
+                        session.getTotalCorrect(), session.getTotalIncorrect(),
+                        false, session.getAccuracy(), session.getScore(),
+                        0, state.consecutiveCorrect,
+                        getComboMultiplier(state.consecutiveCorrect),
+                        state.maxComboReached, state.mode, true);
+            }
 
             state.consecutiveCorrect = 0;
             session.addScore(-INCORRECT_PENALTY);
@@ -277,7 +349,10 @@ public class WordLearningManager implements Listener {
                 session.getTotalCorrect(), session.getTotalIncorrect(),
                 completed, session.getAccuracy(), session.getScore(),
                 comboScore, consecutiveCorrect, comboMultiplier,
-                maxComboReached, mode);
+                maxComboReached, mode,
+                // Phase 3 onboarding：教程会话的每份结果（含走完会话的最后一答）都带
+                // tutorial=true —— showSessionComplete 末尾的引导登记 hook 凭此触发。
+                state.isTutorial);
     }
 
     public void startAnswerTimer(Player player) {
@@ -308,23 +383,44 @@ public class WordLearningManager implements Listener {
             if (remaining[0] <= 0) {
                 AnswerResult timeoutResult = handleTimeout(player);
                 if (timeoutResult != null) {
-                    player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("word-learning-gui.timeout")
-                                    .replace("{answer}", timeoutResult.correctAnswer)));
+                    // Phase 3 onboarding：教程超时走 retry-timeout（"本题再来一次"，
+                    // 带 {prefix}，走 per-player 语言渲染），不显示答案；普通路径文案不变。
+                    // choice 普通路径顺带收敛 MessageUtil.getGuiMsg（P2-13）。
+                    if (timeoutResult.tutorial) {
+                        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                                "onboarding.retry-timeout"));
+                    } else {
+                        player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                                MessageUtil.getGuiMsg(messages, "word-learning-gui.timeout")
+                                        .replace("{answer}", timeoutResult.correctAnswer)));
+                    }
                     if (timeoutResult.sessionComplete) {
                         showSessionComplete(player, timeoutResult);
                     } else {
                         new WordLearningGUI(plugin).openWithMessage(player, state.difficulty, state.mode);
                     }
                 }
-            } else if (remaining[0] <= 5) {
-                player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("word-learning-gui.countdown-urgent")
-                                .replace("{seconds}", String.valueOf(remaining[0]))));
             } else {
-                player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("word-learning-gui.countdown-normal")
-                                .replace("{seconds}", String.valueOf(remaining[0]))));
+                // Phase 3 3A-1：倒计时载体从聊天栏改 ActionBar（聊天栏不再每秒刷屏）；
+                // urgent 阈值读 feedback.countdown.urgent-seconds（默认 5，保持现状）。
+                // 文案先 translateAlternateColorCodes 再交 VersionAdapter（Adventure legacy '§'）。
+                int urgentSeconds = plugin.getConfigManager().getMainConfig()
+                        .getInt("feedback.countdown.urgent-seconds", 5);
+                String countdownKey = remaining[0] <= urgentSeconds
+                        ? "word-learning-gui.countdown-urgent" : "word-learning-gui.countdown-normal";
+                String countdownText = ChatColor.translateAlternateColorCodes('&',
+                        MessageUtil.getGuiMsg(messages, countdownKey)
+                                .replace("{seconds}", String.valueOf(remaining[0])));
+                plugin.getVersionAdapter().sendActionBar(player, countdownText);
+
+                // 3A-1：最后 tick-sound-seconds 秒每秒一声 countdown-tick，pitch 随剩余秒递增
+                // （1.0 → 1.0+step*(N-1)，N=3 时 1.0/1.15/1.30）。
+                int tickFrom = plugin.getConfigManager().getMainConfig()
+                        .getInt("feedback.countdown.tick-sound-seconds", 3);
+                if (tickFrom > 0 && remaining[0] <= tickFrom) {
+                    float tickPitch = 1.0f + (tickFrom - remaining[0]) * 0.15f;
+                    SoundManager.playSound(player, "countdown-tick", tickPitch);
+                }
             }
         }, 20L, 20L);
 
@@ -469,6 +565,51 @@ public class WordLearningManager implements Listener {
         return 1.0;
     }
 
+    /**
+     * Phase 3 3A-2（plan-audio-feedback B3）：连击音高纯函数 —— 答对音随连击递增，
+     * 断连击后自然回落形成"重新爬梯"。公式与默认值照规划：
+     * {@code clamp(1.0 + 0.10 × (combo - 1), 0.5, 1.6)}（pitch-base 固定 1.0，
+     * step/max 读 feedback.combo.pitch-step / pitch-max；pitch-enabled=false 恒 1.0）。
+     * 客户端对 pitch 有 [0.5, 2.0] 硬钳制，默认 max 1.6 留余量。
+     *
+     * @param combo 当前连续答对数（≤0 视为 1.0）
+     * @return 供 SoundManager.playSound 使用的音高
+     */
+    public float getComboPitch(int combo) {
+        FileConfiguration config = plugin.getConfigManager().getMainConfig();
+        if (!config.getBoolean("feedback.combo.pitch-enabled", true)) {
+            return 1.0f;
+        }
+        double step = config.getDouble("feedback.combo.pitch-step", 0.10);
+        double max = config.getDouble("feedback.combo.pitch-max", 1.6);
+        double pitch = 1.0 + step * (Math.max(combo, 1) - 1);
+        if (pitch < 0.5) pitch = 0.5;
+        if (pitch > max) pitch = max;
+        return (float) pitch;
+    }
+
+    /**
+     * Phase 3 3A-2：连击里程碑判定 —— combo 命中 {@link #COMBO_THRESHOLDS} 的非零值
+     * （3/5/7/10，与倍率表同源，不引入第二份阈值配置）且 feedback.combo.milestone-enabled
+     * 开启。供 ChatAnswerListener 在该 tick 用 combo-milestone 音替代升调 correct 音
+     * （不叠加）并闪 ActionBar 里程碑文案。
+     *
+     * @param combo 当前连续答对数
+     * @return true = 里程碑 tick
+     */
+    public boolean isComboMilestone(int combo) {
+        if (!plugin.getConfigManager().getMainConfig()
+                .getBoolean("feedback.combo.milestone-enabled", true)) {
+            return false;
+        }
+        for (int threshold : COMBO_THRESHOLDS) {
+            if (threshold > 0 && combo == threshold) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public int getConsecutiveCorrect(UUID playerId) {
         QuizState state = quizStates.get(playerId);
         if (state == null) return 0;
@@ -548,6 +689,14 @@ public class WordLearningManager implements Listener {
         );
         // Daily challenge: session completed
         plugin.getDailyChallengeManager().updateProgress(player.getUniqueId(), ChallengeType.SESSION_3, 1);
+
+        // Phase 3 onboarding（plan-onboarding §3.3）：教程迷你会话走完（自然完结，
+        // stop/quit/超时都不会到这里的 completed 段）→ 引导第 2 步完成登记。
+        // 放在最末尾：会话成就广播（checkSessionAchievements）先出、引导 toast 后出，
+        // 叙事顺序正确。OnboardingManager 由 S-G 流落盘（签名已冻结）。
+        if (result.tutorial && plugin.getOnboardingManager() != null) {
+            plugin.getOnboardingManager().onTutorialSessionComplete(player);
+        }
     }
 
     private FileConfiguration getMessages(Player player) {
@@ -601,8 +750,14 @@ public class WordLearningManager implements Listener {
                 String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
                         messages.getString("wrong-book.practice-removed"));
                 player.sendMessage(msg);
+                // Phase 3 achievements H7（plan-achievements N2）：通过练习攻克并移出
+                // 错题本的词计数 +1（手动点击删除不计数，见 PlayerDataStore 注释），
+                // 随后按"累计移出 ≥5 且当前错题本为空"判定错题清零成就。
+                int newTotal = store.incrementWrongBookCleared(playerId);
+                plugin.getAchievementManager().checkWrongBookCleared(
+                        playerId, newTotal, store.getDifficultWordsData(playerId).isEmpty());
             } else {
-                String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                String msg = ChatColor.translateAlternateColorCodes('&',
                         messages.getString("wrong-book.practice-correct")
                                 .replace("{count}", String.valueOf(newCount)));
                 player.sendMessage(msg);
@@ -638,6 +793,9 @@ public class WordLearningManager implements Listener {
         public volatile int consecutiveCorrect;
         public volatile int maxComboReached;
         public boolean isReviewMode;
+        // Phase 3 onboarding：教程迷你会话标志（照 isReviewMode 的构造后赋值模式，
+        // 不动构造器签名）。true 时答错/超时不判错不推进（原地重试，见 submitAnswer）。
+        public volatile boolean isTutorial;
         // FEAT-MODE-01：choice 本题选项快照（GUI/聊天提示/判分三方共用同一份，
         // key = 题号:小写答案，换题自动失效重抽）。
         public volatile List<Word> choiceOptions;
@@ -671,12 +829,16 @@ public class WordLearningManager implements Listener {
         // 凭此二字段完成奖励/成就/日历/挑战结算，不再 map 重查。
         public final int maxComboReached;
         public final String mode;
+        // Phase 3 onboarding：教程会话标志（普通会话 false）。错答/超时的"不推进"结果
+        // 与走完会话的最后一答均为 true；ChatAnswerListener / startAnswerTimer 凭此
+        // 分流 retry 文案，showSessionComplete 末尾凭此触发引导完成登记。
+        public final boolean tutorial;
 
         public AnswerResult(boolean correct, String correctAnswer, int currentIndex,
                             int totalWords, int correctCount, int incorrectCount,
                             boolean sessionComplete, double accuracy,
                             int score, int comboScore, int consecutiveCorrect, double comboMultiplier,
-                            int maxComboReached, String mode) {
+                            int maxComboReached, String mode, boolean tutorial) {
             this.correct = correct;
             this.correctAnswer = correctAnswer;
             this.currentIndex = currentIndex;
@@ -691,6 +853,7 @@ public class WordLearningManager implements Listener {
             this.comboMultiplier = comboMultiplier;
             this.maxComboReached = maxComboReached;
             this.mode = mode;
+            this.tutorial = tutorial;
         }
     }
 }

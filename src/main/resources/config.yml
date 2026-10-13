@@ -84,6 +84,10 @@ database:
 # ============================================================
 word-system:
   # 是否启用单词学习模块
+  # 三层语义（Phase 3 · MC-2 真接线，/lea reload 即时生效）：
+  #   入口隐藏：主菜单【单词学习】【错题本】隐藏；/le word、/le review、/le wrong 拒绝
+  #   事件静默：错题本练习禁开、复习提醒停、不再分配新单词挑战
+  #   数据保留：学习数据全保留；进行中的答题会话不打断（自然结束）
   enabled: true
 
   # 每日学习上限（个单词），0 表示不限制
@@ -114,8 +118,8 @@ word-system:
     mastered-review-interval-days: 30
 
   # --- 学习模式配置 ---
-  # 预留配置：当前判定逻辑写死（max-attempts / option-count / show-first-letter / time-limit
-  # 等键尚未被代码读取），接线计划见 Phase 3。修改本段当前暂不生效。
+  # 预留配置：当前各键尚未被代码读取（判定逻辑写死），修改本段暂不生效；
+  # 接线计划见 Phase 3（Wave 2 的 MC-3）。
   modes:
     # 拼写模式：看中文含义，输入英文单词
     spelling:
@@ -136,12 +140,29 @@ word-system:
       max-attempts: 3
 
 # ============================================================
+#  单词对决 (Word Duel)
+# ============================================================
+duel:
+  # 是否启用单词对决模块
+  # 三层语义（Phase 3 · MC-2 真接线，/lea reload 即时生效）：
+  #   入口隐藏：主菜单按钮隐藏、/le duel 发起/接受拒绝、挑战选择 GUI 不可达
+  #   事件静默：新邀请不再受理；进行中的对局不打断（自然收尾）；
+  #             已在局中时 quit/gui 放行（关开关后仍可退出/重开界面）
+  #   数据保留：决斗零持久化，无数据面；/lea duel cancel（管理员解散）保留可用
+  enabled: true
+
+# ============================================================
 #  AI 情景对话系统 (AI Scenario Chat System)
 # ============================================================
 #  使用 DeepSeek API 提供智能英语情景对话
 #  API 密钥存储在 ai_config.yml（插件数据文件夹中），不在此配置文件
 ai-chat:
   # 是否启用 AI 对话模块
+  # 三层语义（Phase 3 · MC-2 真接线，/lea reload 即时生效）：
+  #   入口隐藏：主菜单【AI 对话】隐藏；/le dialogue 拒绝；场景选择不可达
+  #   事件静默：不接新对话；进行中的对话在下一条消息收到提示后自动退出（不吞消息）
+  #   数据保留：历史对话（/le history）、场景导入/管理照常可用
+  # 想彻底禁用 AI 对话用本键；想限制每日轮次用下面的 daily-round-limit
   enabled: true
   # DeepSeek API 接口地址（默认使用官方 API）
   api-url: "https://api.deepseek.com/v1/chat/completions"
@@ -164,7 +185,8 @@ ai-chat:
   debug: false
   # 每个玩家每天的 AI 有效对话轮次上限，超限后当天拒绝新的 AI 对话
   # 次日（服务器时区自然日）自动清零；默认 30
-  # 注意：设为 0 会拒绝所有 AI 对话（判断条件为 今日轮次 >= 上限），如需不限请设一个很大的数
+  # 0 或负数 = 不限（与 word-system.daily-limit、money.daily-cap 同口径，F1-19 终案）
+  # 想禁用 AI 对话请用 ai-chat.enabled: false（语义清晰），不要用 0（那是不限）
   daily-round-limit: 30
   # 单次 AI 回复的最大 token 数（传给 API 的 max_tokens 参数）
   # 值越小回复越短、API 费用越低；默认 128
@@ -195,11 +217,20 @@ money:
 #  进度与奖励系统 (Progress & Reward System)
 # ============================================================
 progress-system:
-  # 是否启用进度追踪模块
+  # 是否启用进度追踪模块（伞开关）
+  # 三层语义（Phase 3 · MC-2 真接线，/lea reload 即时生效）：
+  #   false 时下方排行榜 / 成就 / 奖励三个子开关全部随之关闭（内部 AND）
+  #   入口隐藏：/le leaderboard、广场三榜按钮、成就墙按钮等全部隐藏/拒绝
+  #   事件静默：不解锁新成就、不发奖励、不查榜
+  #   数据保留：学习分数与统计继续累计；个人主页展示保留（停"伞"不停展示）
   enabled: true
 
   # --- 排行榜 ---
   leaderboard:
+    # 三层语义（Phase 3 · MC-2）：
+    #   入口隐藏：/le leaderboard、榜单 GUI、英语广场的周/月/总榜按钮隐藏
+    #   事件静默：不查库；内存榜继续更新（廉价的"热备"，重开无需重启即恢复排名）
+    #   数据保留：全部榜单数据保留
     enabled: true
     # 排行榜显示人数（英语广场榜单模式一次拉取的条数）
     # R-55k：此 key 缺失时启动审计会告警；代码缺 key 回落以各调用点注释为准
@@ -209,11 +240,17 @@ progress-system:
 
   # --- 成就系统 ---
   achievements:
+    # 入口隐藏：个人主页【成就墙】按钮隐藏
+    # 事件静默：不再解锁新成就（无播报/无音效/无跨服广播）
+    # 数据保留：已解锁记录保留，重开后立即回归
     enabled: true
     config-file: "achievements-config.yml"
 
   # --- 奖励类型 ---
   rewards:
+    # 奖励总门（等效金币总闸）：与 progress-system.enabled 叠加，都 true 才发
+    # 入口：发币点静默（答题/挑战/签到照常推进，只是不发币）
+    # 数据保留：签到仍记 streak、进度照常累计
     enabled: true
     types:
       # 物品奖励
@@ -226,6 +263,7 @@ progress-system:
       exp:
         enabled: true
       # 经济奖励（需要 Vault 插件）
+      # 语义叠加：本键 && progress-system.enabled && rewards.enabled，三者都 true 才发金币
       money:
         enabled: false
         vault-required: true
@@ -270,6 +308,30 @@ gui:
     complete: "UI_TOAST_CHALLENGE_COMPLETE"    # 学习完成音效
     menu-open: "BLOCK_NOTE_BLOCK_PLING"        # 菜单打开音效
     menu-click: "BLOCK_NOTE_BLOCK_HAT"         # 菜单点击音效
+    # --- Phase 3 新增（旧配置文件缺键自动用默认值注册，无需迁移）---
+    combo-milestone: "BLOCK_NOTE_BLOCK_BELL"   # 连击里程碑铃声
+    countdown-tick: "BLOCK_NOTE_BLOCK_HAT"     # 倒计时 tick（学习+对决共用）
+    timeout: "ENTITY_VILLAGER_NO"              # 超时专用（学习+对决）；与 incorrect 缺省同音
+    # 以上任一配 "none" 或空串 "" 表示该事件静音，不记 WARNING
+
+# ============================================================
+#  反馈层设置 (Feedback Settings)
+# ============================================================
+feedback:
+  countdown:
+    # 剩余秒数 ≤ 该值切"紧急"样式（红色 + tick 音）；学习与对决共用
+    urgent-seconds: 5
+    # 最后 N 秒每秒播 countdown-tick；0 = 不播
+    tick-sound-seconds: 3
+    # 对决每题是否显示 BossBar 倒计时条
+    duel-bossbar: true
+  combo:
+    # 答对音随连击升高 pitch
+    pitch-enabled: true
+    pitch-step: 0.10
+    pitch-max: 1.6
+    # 连击里程碑（3/5/7/10，与倍率表同源）ActionBar + 音效提示
+    milestone-enabled: true
 
 # ============================================================
 #  GUI 界面布局设置 (GUI Layout Settings)
@@ -446,6 +508,10 @@ daily-reminder:
 # ============================================================
 daily-challenges:
   # 是否启用每日挑战
+  # 三层语义（Phase 3 · MC-2 真接线，/lea reload 即时生效）：
+  #   入口隐藏：主菜单【每日挑战】按钮隐藏；/le challenge 拒绝；领取分支拒绝
+  #   事件静默：不再分配新挑战、不更新进度、午夜 rollover 跳过挑战段落
+  #   数据保留：既有挑战行保留，重开后继续
   enabled: true
   # 每天分配给每个玩家的任务挑战数量
   # 注意：当前实现为硬编码（固定从 4 种挑战类型中抽 3 个），修改本键暂不生效，
@@ -463,6 +529,35 @@ daily-challenges:
     session_3: 50
     combo_5: 25
     ai_chat_5: 40
+
+# ============================================================
+#  每日签到 (Daily Check-in)
+# ============================================================
+checkin:
+  # 是否启用每日签到模块
+  # 三层语义（Phase 3 · MC-2 真接线，/lea reload 即时生效）：
+  #   入口隐藏：主菜单按钮隐藏、/le checkin 拒绝
+  #   事件静默：不记新签到
+  #   数据保留：签到记录保留；停用期间连续签到会自然断签（预期语义）
+  enabled: true
+
+# ============================================================
+#  新手引导 (Onboarding)
+# ============================================================
+onboarding:
+  # 是否启用新手引导线（首次 3 步：选词库 → 3 词迷你会话 → 查看成就）
+  # 真接线：false 时不给引导书、拦截不生效、无任何提醒（四处门槛同源）
+  enabled: true
+  # 迷你会话单词数（复用选择题模式；答错原地重试，不判错不推进）
+  session-words: 3
+  # 是否在首次进服发放《新手引导手册》（WRITTEN_BOOK）
+  give-guide-book: true
+  # 第 3 步（打开个人主页）是否必需；false = 迷你会话完成即整段完成并发 complete 文案
+  require-profile-step: true
+  # 引导完成时是否收回手册；false = 留作纪念（翻页显示毕业页）
+  remove-book-on-complete: true
+  # 未完成引导的玩家进服时是否提醒（同一玩家同一自然日至多一条）
+  reminder-on-join: true
 
 # ============================================================
 #  TTS 语音设置 (Text-to-Speech Settings)

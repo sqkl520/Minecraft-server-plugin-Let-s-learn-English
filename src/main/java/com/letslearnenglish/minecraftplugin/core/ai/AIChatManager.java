@@ -192,6 +192,8 @@ public class AIChatManager {
         this.maxInputLength = config.getInt("ai-chat.max-input-length", 200);
         this.maxPromptLength = config.getInt("scenario.max-prompt-length", 2000);
         this.maxTokens = config.getInt("ai-chat.max-tokens", DEFAULT_MAX_TOKENS);
+        // F1-19 终案：daily-round-limit ≤ 0 = 不限（0/负数不再"拒绝全部"；
+        // 想彻底禁用 AI 对话请用 ai-chat.enabled=false）。判断点见 canSendChat/dispatchChat。
         this.dailyRoundLimit = config.getInt("ai-chat.daily-round-limit", DEFAULT_DAILY_ROUND_LIMIT);
         this.countMinRounds = config.getInt("ai-chat.count-min-rounds", DEFAULT_COUNT_MIN_ROUNDS);
         this.debug = config.getBoolean("ai-chat.debug", false);
@@ -357,7 +359,8 @@ public class AIChatManager {
 
     /**
      * F1-08：只读预检 —— 玩家此刻是否还能成功发起一次玩家消息（不消费冷却、不写任何状态）。
-     * 检查 每日轮次上限 + 冷却；读取异常时不预拦（正式检查 dispatchChat 会给出准确提示）。
+     * 检查 每日轮次上限（F1-19 终案：上限 ≤0 = 不限）+ 冷却；读取异常时不预拦
+     * （正式检查 dispatchChat 会给出准确提示）。
      * 预检与正式检查存在时间差竞态，属提示语义级，可接受。
      */
     public boolean canSendChat(Player player) {
@@ -365,7 +368,13 @@ public class AIChatManager {
             return false;
         }
         try {
-            return plugin.getPlayerDataStore().getTodayAiRound(player.getUniqueId()) < dailyRoundLimit;
+            // F1-19 终案：dailyRoundLimit ≤ 0 = 不限（与 word-system.daily-limit /
+            // money.daily-cap 同口径；config.yml 注释同语义），仅正数才比较轮次。
+            int todayRounds = plugin.getPlayerDataStore().getTodayAiRound(player.getUniqueId());
+            if (dailyRoundLimit > 0 && todayRounds >= dailyRoundLimit) {
+                return false;
+            }
+            return true;
         } catch (Exception e) {
             debugLog("[" + player.getName() + "] canSendChat 预检读取今日 AI 轮次失败: " + e.getMessage());
             return true;
@@ -396,6 +405,11 @@ public class AIChatManager {
     // ============================================================
 
     public void startConversation(Player player, String scenario) {
+        // MC-2（S-H）：ai-chat.enabled=false 纵深防御 —— 主门在命令/GUI 层，
+        // 此处保证即使被旁路调用也不会创建新的对话上下文（状态面 no-op）。
+        if (!plugin.getConfigManager().isAIChatEnabled()) {
+            return;
+        }
         String difficulty = getPlayerDifficulty(player);
         Deque<MessagePair> context = new ArrayDeque<>();
         String systemPrompt = buildSystemPrompt(scenario, difficulty, plugin.getPlayerLanguage(player),
@@ -439,6 +453,10 @@ public class AIChatManager {
      * 先添加用户触发语到上下文，再异步请求 AI，回调返回 AI 的开场回复。
      */
     public void triggerAiOpening(Player player, AIChatCallback callback) {
+        // MC-2（S-H）：同 startConversation，纵深防御 —— 模块关闭时不发起开场白请求。
+        if (!plugin.getConfigManager().isAIChatEnabled()) {
+            return;
+        }
         if (!isAvailable()) {
             callback.onResponse(null, null);
             return;
@@ -690,6 +708,8 @@ public class AIChatManager {
         }
 
         // C4/R-16：仅正常玩家消息查今日轮次上限；开场白(countsTowardUsage=false)不受限。
+        // F1-19 终案：dailyRoundLimit ≤ 0 = 不限（与 word-system.daily-limit /
+        // money.daily-cap 同口径）—— "想彻底禁用 AI 对话"请用 ai-chat.enabled=false。
         if (countsTowardUsage) {
             int todayRounds;
             try {
@@ -700,7 +720,7 @@ public class AIChatManager {
                         player, "dialogue.request-failed"));
                 return;
             }
-            if (todayRounds >= dailyRoundLimit) {
+            if (dailyRoundLimit > 0 && todayRounds >= dailyRoundLimit) {
                 debugLog("[" + player.getName() + "] 每日 AI 轮次超限 — 今日=" + todayRounds
                         + " 上限=" + dailyRoundLimit);
                 callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(

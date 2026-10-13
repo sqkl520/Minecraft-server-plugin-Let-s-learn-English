@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 11
+config-version: 12
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -14,6 +14,14 @@ general:
   data-saved: "{prefix}&aPlayer data saved!"
   unknown-command: "{prefix}&cUnknown command. Use /le help for help."
   error: "{prefix}&cError: {message}"
+
+# MC-2 module gate unified message (Wave 1)
+module:
+  disabled: "{prefix}&cThis feature has been disabled by the server admin~"
+
+ai-chat:
+  # Shown to an in-progress AI conversation after the module is disabled (auto-exit)
+  module-disabled: "{prefix}&cAI chat has been disabled by the server admin; your conversation has ended"
 
 error:
   scenario-unavailable: "&cThe AI scenario chat feature is currently unavailable."
@@ -104,12 +112,21 @@ achievement:
   unlock-format: "&b&l✧ {title} &f- {name}"
   unlocked: "{prefix}&6Achievement Unlocked: &e{name} &6- {description}"
   progress: "{prefix}&7Achievement progress: &e{name} &7({current}/{target})"
+  prereq-hint: "&7Prerequisite: &c{name}"
 
 achievement-wall:
   title: "&6&lAchievement Wall"
   time-opens: "&7⏳ Opens in: {time}"
   time-expired: "&7⏰ Expired"
   time-remaining: "&7⏳ Remaining: {time}"
+  # Wave 1 (Domain 3): grouped rendering by 5 categories
+  category-learning: "Learning"
+  category-review: "Review"
+  category-consistency: "Consistency"
+  category-social: "Social"
+  category-economy: "Wealth"
+  category-line: "&7Category: &f{category}"
+  unlocked-at: "&7Unlocked on &f{date}"
 
 leaderboard:
   header: "&6&l===== English Learning Leaderboard ====="
@@ -229,6 +246,7 @@ help:
   checkin: "&e/le checkin &7- Daily check-in for coins"
   save_scenario: "&e/le save_scenario <name> &7- Export current AI scenario as share code"
   load_scenario: "&e/le load_scenario <code> &7- Import a shared scenario code"
+  guide: "&e/le guide &7- View starter guide progress / get the guide book"
   footer: "&6======================================"
 
 checkin:
@@ -274,6 +292,8 @@ duel:
   cancelled: "{prefix}&cThe duel has been cancelled!"
   cancelled-by-gm: "{prefix}&cThis duel was dismissed by an admin. No winner declared."
   word-timeout: "{prefix}&e⏱ Time's up! The answer is &f{word}&e. No points — next word!"
+  round-bossbar: "&e⚔ {seconds}s left"
+  round-bossbar-urgent: "&c&l⚔ {seconds}s!"
   cancel-usage: "{prefix}&eUsage: /le duel cancel <player> &7(or /lea duel cancel <player>)"
   correct-answer: "{prefix}&a✔ Correct! &e+1 point"
   wrong-answer: "{prefix}&c✖ Wrong! The answer is &e{word}&c, opponent scores!"
@@ -429,6 +449,7 @@ word-learning-gui:
   countdown-normal: "&e⏳ {seconds}s remaining..."
   correct: "&a✔ Correct! &7(+&e{score}&7){combo}"
   combo-message: "&6✨ {count}x combo! ({multiplier}x)"
+  combo-milestone: "&6&l⚡ {count} COMBO! &e({multiplier}x)"
   incorrect: "&c✖ Wrong! Answer: &e{answer}"
   session-stopped: "&aSession stopped! &7Correct: &e{correct}&7/&e{total} &7Score: &e{score}"
   stopped-no-reward: "&cToo few answers (&e{answered}&c/&e{total}&c) — no session reward for stopping early. Finish a full session to earn it!"
@@ -585,3 +606,33 @@ wrong-book:
   next-page: "&eNext Page →"
   next-page-lore: "&7Page {page}"
   page-indicator: "&7Page {current}/{total}"
+
+# ============================================================
+#  Starter Guide (Onboarding) — Wave 1 (Domain 1)
+# ============================================================
+onboarding:
+  join-intro: "{prefix}&aWelcome! I put a &eStarter Guide &ain your inventory — right-click it and follow the 3 little steps to get started~"
+  reminder: "{prefix}&eYour starter guide isn't finished yet~ Right-click the guide book, or type &e/le word &eto continue!"
+  session-start: "{prefix}&6🎓 Mini trial starts! Difficulty &e{difficulty}&6, &e{count} &6words (multiple choice). Mistakes are fine — just try again!"
+  retry-wrong: "{prefix}&eNo worries — give it another try~"
+  retry-timeout: "{prefix}&eTime's up — same question, one more try~"
+  step2-done: "{prefix}&aStep 2 done! Last one: type &e/le progress &ato open your profile and see your achievements~"
+  complete: "{prefix}&6★ &aStarter guide complete! The handbook is collected — enjoy the rest of your journey~"
+  guide-given: "{prefix}&aThe starter guide is back in your inventory~"
+  guide-done: "{prefix}&7You've already completed the starter guide — no handbook needed~"
+  guide-disabled: "{prefix}&7The starter guide feature is disabled~"
+  guide-header: "{prefix}&6===== Starter Guide Progress ====="
+  book:
+    title: "Starter Guide"
+    author: "Let's Learn English"
+    page-cover: "&1&lStarter Guide\n\nHi! I'm your little guide book~\nDo 3 small things to get started\nin 5 minutes:\n\n1. Pick a word bank\n2. Finish a 3-word mini session\n3. Open your profile\n\n&7Turn the page for progress~"
+    page-steps-header: "&1&lProgress\n"
+    step1-done: "&a✔ Step 1  Pick a word bank"
+    step1-pending: "&7○ Step 1  Pick a word bank (/le -> Word Learning)"
+    step2-done: "&a✔ Step 2  3-word mini session"
+    step2-pending: "&7○ Step 2  Finish a 3-word mini session (/le word)"
+    step3-done: "&a✔ Step 3  Open your profile"
+    step3-pending: "&7○ Step 3  Open your profile (/le progress)"
+    hint-session: "&eNext: open any word bank and finish a 3-word mini session~"
+    hint-profile: "&eNext: type /le progress to see your achievements~"
+    page-tips: "&1&lAnswering Tips\n\n&0- A quiz UI pops up after you pick a bank\n- &lClose it&r&0, then type the option letter in chat\n- Mistakes are retryable — don't worry~\n- Type /le anytime for the main menu\n- Type /le guide to get this book again"

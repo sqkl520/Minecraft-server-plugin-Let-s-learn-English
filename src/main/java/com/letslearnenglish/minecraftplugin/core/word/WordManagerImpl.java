@@ -109,6 +109,18 @@ public class WordManagerImpl {
      * @return the learning session
      */
     public LearningSession startSession(Player player, String difficulty, String mode) {
+        return startSession(player, difficulty, mode,
+                configManager.getMainConfig().getInt("word-system.words-per-session", 10));
+    }
+
+    /**
+     * Phase 3 onboarding（plan-onboarding §3.3）：题数参数化重载 —— 教程迷你会话
+     * 传 onboarding.session-words（3）。既有 3 参版委托本方法取 words-per-session，
+     * 行为零变化（仅提取参数）。
+     *
+     * @param wordCount 本次会话题数（调用方保证 ≥1）
+     */
+    public LearningSession startSession(Player player, String difficulty, String mode, int wordCount) {
         WordBank bank = wordBanks.get(difficulty);
         if (bank == null) {
             throw new IllegalArgumentException("Unknown difficulty level: " + difficulty);
@@ -120,10 +132,7 @@ public class WordManagerImpl {
         }
 
         Set<String> masteredWords = playerDataStore.getMasteredWords(player.getUniqueId());
-        List<Word> sessionWords = bank.selectWordsForSession(
-                configManager.getMainConfig().getInt("word-system.words-per-session", 10),
-                masteredWords
-        );
+        List<Word> sessionWords = bank.selectWordsForSession(wordCount, masteredWords);
 
         if (sessionWords.isEmpty()) {
             throw new IllegalStateException("No words available for session in difficulty: " + difficulty);

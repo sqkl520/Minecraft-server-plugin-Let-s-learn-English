@@ -138,8 +138,9 @@ public class CheckInManager {
      * silent behavior (R-44 只管开关语义，不管 Vault 缺失）。
      */
     private boolean isMoneyDisabledByConfig() {
-        return !plugin.getConfigManager().getMainConfig()
-                .getBoolean("progress-system.rewards.types.money.enabled", false);
+        // Wave 1 fan-in（S-H 上报收口）：改走 RewardEngine 公开并集
+        // （isRewardsEnabled() && money.enabled）——原先只读 money 键，关奖励伞时漏判。
+        return !plugin.getProgressManager().getRewardEngine().isMoneyEnabled();
     }
 
     /**

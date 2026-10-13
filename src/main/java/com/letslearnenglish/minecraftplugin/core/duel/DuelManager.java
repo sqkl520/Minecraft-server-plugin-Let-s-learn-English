@@ -2,11 +2,17 @@ package com.letslearnenglish.minecraftplugin.core.duel;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
+import com.letslearnenglish.minecraftplugin.core.feedback.CountdownTier;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.gui.DuelGUI;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.boss.BarColor;
+import org.bukkit.boss.BarStyle;
+import org.bukkit.boss.BossBar;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
@@ -46,6 +52,9 @@ public class DuelManager {
     private final Map<UUID, BukkitTask> graceTasks;
     // Single-question timeout tasks: player1 UUID → task (one entry per room)
     private final Map<UUID, BukkitTask> wordTimeoutTasks;
+    // S-I / 3A-3 countdown BossBars: player1 UUID → bar (same key style as
+    // wordTimeoutTasks — ONE shared bar per room, both duelists as viewers)
+    private final Map<UUID, BossBar> duelBars;
     // Request-expiry tasks: target UUID → task (one entry per pending request)
     private final Map<UUID, BukkitTask> requestExpiryTasks;
     // R-69: offline duel notices awaiting delivery on next join (one entry per player)
@@ -91,6 +100,7 @@ public class DuelManager {
         this.disconnectTimers = new ConcurrentHashMap<>();
         this.graceTasks = new ConcurrentHashMap<>();
         this.wordTimeoutTasks = new ConcurrentHashMap<>();
+        this.duelBars = new ConcurrentHashMap<>();
         this.requestExpiryTasks = new ConcurrentHashMap<>();
         this.offlineNotices = new ConcurrentHashMap<>();
         this.requestTokenSeq = new AtomicLong();
@@ -102,6 +112,14 @@ public class DuelManager {
      * Send a duel request from sender to target.
      */
     public void sendDuelRequest(Player sender, Player target) {
+        // MC-2 模块门（duel.enabled）：关闭时邀请入口直接拒绝。quit/gui 的放行
+        // 语义在 LearnCommand 的 duel 分支（duel.enabled || isInDuel），不在本方法；
+        // /lea duel cancel（GM 通道）与进行中对局的收尾不经过这里。
+        if (!plugin.getConfigManager().isDuelEnabled()) {
+            sender.sendMessage(getMsg(sender, "module.disabled"));
+            return;
+        }
+
         if (sender.getUniqueId().equals(target.getUniqueId())) {
             sender.sendMessage(getMsg(sender, "duel.cannot-challenge-self"));
             return;
@@ -220,6 +238,13 @@ public class DuelManager {
      * invitation has expired instead of the generic no-pending-request.
      */
     public void acceptDuel(Player player) {
+        // MC-2 模块门（duel.enabled）：关闭后新邀请不再受理（与 sendDuelRequest 对称）。
+        // 门在"取 pending"之前：关开关后连 no-pending-request 提示都不该走正常路径。
+        if (!plugin.getConfigManager().isDuelEnabled()) {
+            player.sendMessage(getMsg(player, "module.disabled"));
+            return;
+        }
+
         UUID targetId = player.getUniqueId();
         // F1-15: peek first, remove only once all validations pass.
         PendingDuel pending = pendingRequests.get(targetId);
@@ -296,6 +321,14 @@ public class DuelManager {
         DuelRoom room = new DuelRoom(senderId, sender.getName(), targetId, player.getName());
         activeDuels.put(senderId, room);
         activeDuels.put(targetId, room);
+
+        // S-I / 3A-3：本对局的共享倒计时 BossBar（一房一条、双方共看；
+        // 创建必须是主线程 —— acceptDuel 由命令/点击路径调用，恒在主线程）。
+        // feedback.countdown.duel-bossbar=false 时不创建（tick 音/超时逻辑照常）。
+        // 若首词抽不到 → cancelDuelInternal → cleanup 会释放本条。
+        if (isDuelBossBarEnabled()) {
+            createDuelBossBar(room);
+        }
 
         // Announce
         sender.sendMessage(getMsg(sender, "duel.started", "player", player.getName()));
@@ -408,23 +441,139 @@ public class DuelManager {
     }
 
     /**
-     * Schedule the timeout for the room's current word. Any previous timeout
-     * for this room is cancelled first (belt-and-suspenders — normally the
-     * old task was already cancelled when the previous word was answered).
+     * S-I / 3A-3: 对决每题倒计时 BossBar 总开关（{@code feedback.countdown.duel-bossbar}，默认 true）。
+     * false 时不创建/不更新 BossBar，但倒计时 task、tick 音与超时逻辑照常。
+     */
+    private boolean isDuelBossBarEnabled() {
+        return plugin.getConfigManager().getMainConfig()
+                .getBoolean("feedback.countdown.duel-bossbar", true);
+    }
+
+    /**
+     * S-I / 3A-3: 紧急档阈值（{@code feedback.countdown.urgent-seconds}，默认 5，与学习侧共用键）。
+     * 0 = 全程常规档（不到点不渲染 0，URGENT 分支实际不会命中）。
+     */
+    private int getUrgentSeconds() {
+        int seconds = plugin.getConfigManager().getMainConfig()
+                .getInt("feedback.countdown.urgent-seconds", 5);
+        return Math.max(0, seconds);
+    }
+
+    /**
+     * S-I / 3A-3: 最后 N 秒每秒播 countdown-tick（{@code feedback.countdown.tick-sound-seconds}，
+     * 默认 3；0 = 不播）。与 learning 侧共用键。
+     */
+    private int getTickSoundSeconds() {
+        int seconds = plugin.getConfigManager().getMainConfig()
+                .getInt("feedback.countdown.tick-sound-seconds", 3);
+        return Math.max(0, seconds);
+    }
+
+    /**
+     * Schedule the per-second countdown for the room's current word
+     * (S-I / 3A-3: was a single silent {@code runTaskLater} for 30s; now a
+     * {@code runTaskTimer} @1s that drives the shared BossBar, the urgent
+     * tier colour/文案 and the last-N-seconds tick sound — the timeout
+     * semantics themselves are unchanged).
+     *
+     * <p>Any previous countdown for this room is cancelled first
+     * (belt-and-suspenders — normally the old task was already cancelled when
+     * the previous word was answered). When a bar exists it is reset to a
+     * full, yellow, normal-tier state at the top of every round (换题不重建
+     * 对象，只重置 title/progress — 清理矩阵 §3.4).
      */
     private void scheduleWordTimeout(DuelRoom room) {
         if (!room.isActive()) return;
         cancelWordTimeout(room);
-        long round = room.getWordRoundId();
-        int seconds = getWordTimeoutSeconds();
-        BukkitTask task = Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            handleWordTimeout(room, round);
-        }, seconds * 20L);
-        wordTimeoutTasks.put(room.getPlayer1(), task);
+        final long round = room.getWordRoundId();
+        final int total = getWordTimeoutSeconds();
+        final int urgentSeconds = getUrgentSeconds();
+        final int tickSoundSeconds = getTickSoundSeconds();
+        // S-I：读实时开关（reload 即时生效）—— 关闭时释放既有条（若已建）、
+        // 开启而条缺失时惰性补建（如 accept 后又被 reload 打开），
+        // 进行中的对局无需重开即可跟随开关。
+        BossBar resolvedBar = duelBars.get(room.getPlayer1());
+        if (isDuelBossBarEnabled()) {
+            if (resolvedBar == null) {
+                createDuelBossBar(room);
+                resolvedBar = duelBars.get(room.getPlayer1());
+            }
+        } else if (resolvedBar != null) {
+            duelBars.remove(room.getPlayer1());
+            resolvedBar.removeAll();
+            resolvedBar = null;
+        }
+        final BossBar bar = resolvedBar;
+        final int[] remaining = {total};
+
+        // 开局满格渲染（第 total 秒文案 + progress 1.0），即便首 tick 在 1s 后。
+        if (bar != null) {
+            renderDuelBossBar(room, bar, remaining[0], total, urgentSeconds);
+        }
+
+        // 自引用 holder：lambda 里的 `this` 是 DuelManager（非 task），需要 hold 住
+        // 自身引用供自清理使用；首 tick 在 20L 之后，届时 holder[0] 必然已赋值。
+        final BukkitTask[] selfRef = new BukkitTask[1];
+        selfRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            // 自清理路径 1：房间已拆解（endDuel/quit/GM 解散/内部取消）——
+            // 自身 remove + self cancel（抄 R-26 grace 模式），不再空转。
+            if (!room.isActive()) {
+                selfCancelWordTimeout(room, selfRef[0]);
+                return;
+            }
+            // 自清理路径 2：round 快照不匹配（已答对/答错推进/超时推进）——
+            // 本任务属于旧题，直接退场；新题的任务已由 scheduleWordTimeout 另起。
+            if (room.getWordRoundId() != round) {
+                selfCancelWordTimeout(room, selfRef[0]);
+                return;
+            }
+
+            remaining[0]--;
+            if (remaining[0] <= 0) {
+                // 自清理路径 3：正常到点 —— 先摘任务登记再结算超时。
+                selfCancelWordTimeout(room, selfRef[0]);
+                handleWordTimeout(room, round);
+                return;
+            }
+
+            if (bar != null) {
+                renderDuelBossBar(room, bar, remaining[0], total, urgentSeconds);
+            }
+            // tick 音与 BossBar 开关无关：duel-bossbar=false 时音效弧线照常。
+            if (tickSoundSeconds > 0 && remaining[0] <= tickSoundSeconds) {
+                // pitch 随剩余递减递增：tick-sound-seconds=3 时 3/2/1s → 1.0/1.15/1.30
+                float pitch = 1.0f + (tickSoundSeconds - remaining[0]) * 0.15f;
+                Player p1 = Bukkit.getPlayer(room.getPlayer1());
+                Player p2 = Bukkit.getPlayer(room.getPlayer2());
+                if (p1 != null && p1.isOnline()) {
+                    SoundManager.playSound(p1, "countdown-tick", pitch);
+                }
+                if (p2 != null && p2.isOnline()) {
+                    SoundManager.playSound(p2, "countdown-tick", pitch);
+                }
+            }
+        }, 20L, 20L); // every second, first tick after 1s
+        wordTimeoutTasks.put(room.getPlayer1(), selfRef[0]);
     }
 
     /**
-     * Cancel the pending single-question timeout for a room, if any.
+     * S-I / 3A-3 自清理：从任务容器摘掉"仍是自己"的条目，并无条件停掉自己。
+     *
+     * <p>{@code remove(key, value)} 双参形式保证不会误摘同房间新题已经登记
+     * 的新任务（旧任务自清理与新 {@code scheduleWordTimeout} 的 put 之间若发生
+     * 交错，简单 remove 会把新任务从登记表里踢掉 → 泄漏到 cleanup 之外）；
+     * 但"条目未被登记"不是不退场的理由 —— 条目已被 cleanup/替换时仍须
+     * {@code task.cancel()} 自己，否则 stale 任务会每秒空转到天荒地老。
+     * cancel 对已取消任务幂等，且只作用于本任务实例。
+     */
+    private void selfCancelWordTimeout(DuelRoom room, BukkitTask task) {
+        if (task == null) return;
+        wordTimeoutTasks.remove(room.getPlayer1(), task);
+        task.cancel();
+    }
+
+    /**
+     * Cancel the pending single-question countdown for a room, if any.
      */
     private void cancelWordTimeout(DuelRoom room) {
         BukkitTask task = wordTimeoutTasks.remove(room.getPlayer1());
@@ -437,9 +586,14 @@ public class DuelManager {
      * Fire when nobody answered the current word in time: reveal the answer
      * to both sides (score unchanged — symmetric, see
      * {@link DuelRoom#timeoutCurrentWord}) and deal the next word.
+     *
+     * <p>任务登记说明（S-I / 3A-3）：改 BossBar 定时器后，唯一调用方是 timer 内
+     * 的到点分支，且调用前已由 {@link #selfCancelWordTimeout} 摘掉任务登记 ——
+     * 原开头的 {@code wordTimeoutTasks.remove} 因此删除（重复 remove 无害，但
+     * 保留会让人误以为本方法可被任意外部路径调用；若未来新增直接调用方，
+     * 必须先自行收口任务登记）。
      */
     private void handleWordTimeout(DuelRoom room, long round) {
-        wordTimeoutTasks.remove(room.getPlayer1());
         if (!room.isActive()) return;
         if (!room.timeoutCurrentWord(round)) {
             return; // stale firing: answered / advanced / ended meanwhile
@@ -452,11 +606,13 @@ public class DuelManager {
         Player p2 = Bukkit.getPlayer(room.getPlayer2());
         if (p1 != null && p1.isOnline()) {
             p1.sendMessage(getMsg(p1, "duel.word-timeout", "word", answer));
-            SoundManager.playSound(p1, "incorrect");
+            // Plan §3.1/§1.B2：超时改走专用 "timeout" 键（S-B 已注册；其默认值
+            // 跟随 incorrect 的解析结果 —— 缺省听觉与旧行为零变化，服主可单独覆盖）。
+            SoundManager.playSound(p1, "timeout");
         }
         if (p2 != null && p2.isOnline()) {
             p2.sendMessage(getMsg(p2, "duel.word-timeout", "word", answer));
-            SoundManager.playSound(p2, "incorrect");
+            SoundManager.playSound(p2, "timeout");
         }
 
         // Timeout never scores, so the duel cannot finish here — advance.
@@ -471,6 +627,81 @@ public class DuelManager {
         refreshBothGUIs(room);
     }
 
+    // ==================== Countdown BossBar (S-I / 3A-3) ====================
+
+    /**
+     * Create the room's shared countdown boss bar (one bar per room, both
+     * duelists as viewers — stored under player1, same key style as
+     * {@code wordTimeoutTasks}). Main thread only — called from
+     * {@link #acceptDuel}.
+     *
+     * <p>Per plan §3.4 the bar is never shown/hidden via the deprecated
+     * {@code show()/hide()} — visibility is controlled by {@code addPlayer} /
+     * {@code removeAll} only. The first real frame is rendered by
+     * {@link #scheduleWordTimeout} (which runs right after the first word is
+     * dealt); this method only guarantees a sane pre-state.
+     */
+    private void createDuelBossBar(DuelRoom room) {
+        String title = resolveRoundBossBarTitle(room,
+                "duel.round-bossbar", getWordTimeoutSeconds());
+        BossBar bar = Bukkit.createBossBar(title, BarColor.YELLOW, BarStyle.SOLID);
+        bar.setProgress(1.0);
+        Player p1 = Bukkit.getPlayer(room.getPlayer1());
+        Player p2 = Bukkit.getPlayer(room.getPlayer2());
+        if (p1 != null && p1.isOnline()) {
+            bar.addPlayer(p1);
+        }
+        if (p2 != null && p2.isOnline()) {
+            bar.addPlayer(p2);
+        }
+        duelBars.put(room.getPlayer1(), bar);
+    }
+
+    /**
+     * Render one countdown frame on the shared bar: title with {@code {seconds}},
+     * colour by {@link CountdownTier} (URGENT → red + urgent key, NORMAL →
+     * yellow), progress = remaining/total (clamped to [0,1]).
+     */
+    private void renderDuelBossBar(DuelRoom room, BossBar bar, int remaining,
+                                   int total, int urgentSeconds) {
+        CountdownTier tier = CountdownTier.tierOf(remaining, urgentSeconds);
+        String key = (tier == CountdownTier.URGENT)
+                ? "duel.round-bossbar-urgent"
+                : "duel.round-bossbar";
+        bar.setTitle(resolveRoundBossBarTitle(room, key, remaining));
+        bar.setColor(tier == CountdownTier.URGENT ? BarColor.RED : BarColor.YELLOW);
+        double progress = (total <= 0) ? 0.0 : remaining / (double) total;
+        bar.setProgress(Math.max(0.0, Math.min(1.0, progress)));
+    }
+
+    /**
+     * Resolve the shared bar's title for a given key + {seconds}.
+     *
+     * <p>One shared bar has exactly ONE visible title — resolved in the
+     * challenger's (player1) language, falling back to player2 while player1 is
+     * offline (grace period), then to the server default (a player's own
+     * scoreboard stays per-language via {@code setupScoreboard}).
+     * {@link MessageUtil#getGuiMsg} keeps a missing key from NPE-ing (returns a
+     * visible {@code [?key]}).
+     */
+    private String resolveRoundBossBarTitle(DuelRoom room, String key, int seconds) {
+        Player p1 = Bukkit.getPlayer(room.getPlayer1());
+        Player p2 = Bukkit.getPlayer(room.getPlayer2());
+        String lang;
+        if (p1 != null && p1.isOnline()) {
+            lang = plugin.getPlayerLanguage(p1);
+        } else if (p2 != null && p2.isOnline()) {
+            // 挑战者离线（宽限期内剩余方仍在看条）——用剩余方语言，别无谓回落默认语言
+            lang = plugin.getPlayerLanguage(p2);
+        } else {
+            lang = plugin.getConfigManager().getMainConfig().getString("general.language", "zh");
+        }
+        FileConfiguration msgs = plugin.getConfigManager().getMessageConfig(lang);
+        String template = MessageUtil.getGuiMsg(msgs, key);
+        return ChatColor.translateAlternateColorCodes('&',
+                template.replace("{seconds}", String.valueOf(seconds)));
+    }
+
     // ==================== Duel End ====================
 
     /**
@@ -482,6 +713,11 @@ public class DuelManager {
 
         UUID winnerId = room.getWinner();
         UUID loserId = room.getLoser();
+
+        // H9：对决首胜成就 —— 放在 winner 在线判断之外，赢家此刻掉线的极端
+        // 窗口也允许落库（tryUnlock 对离线玩家静默跳过通知段）。只有正常打满
+        // WIN_SCORE 触发 endDuel 才挂钩；quit/掉线宽限判负不走本方法（语义裁剪）。
+        plugin.getAchievementManager().tryUnlock(winnerId, Achievement.DUEL_FIRST_WIN);
 
         Player winner = Bukkit.getPlayer(winnerId);
         Player loser = Bukkit.getPlayer(loserId);
@@ -665,6 +901,19 @@ public class DuelManager {
         new DuelGUI(plugin).open(player, room);
         setupScoreboard(player, room);
 
+        // S-I / 3A-3: re-attach the reconnecting player to the room's shared
+        // countdown boss bar (handleDisconnect deliberately left the bar alone,
+        // so the opponent could keep watching it during the grace period).
+        // removePlayer first: if the disconnect left a stale viewer entry
+        // (Bukkit-side set vs vanilla event set can diverge), addPlayer alone
+        // would no-op and the bar would silently stay invisible for this player.
+        // Both calls are no-ops for a viewer that was already fully detached.
+        BossBar bar = duelBars.get(room.getPlayer1());
+        if (bar != null) {
+            bar.removePlayer(player);
+            bar.addPlayer(player);
+        }
+
         // Re-setup opponent's scoreboard (remove grace timer)
         if (opponent != null && opponent.isOnline()) {
             setupScoreboard(opponent, room);
@@ -802,9 +1051,17 @@ public class DuelManager {
         BukkitTask t2 = graceTasks.remove(p2);
         if (t2 != null) t2.cancel();
 
-        // Cancel the single-question timeout (FIX-DUEL-01)
+        // Cancel the single-question countdown (FIX-DUEL-01; S-I / 3A-3:
+        // 现在同时会被 timer 的自清理路径摘除 —— 双参 remove 语义不矛盾)
         BukkitTask wt = wordTimeoutTasks.remove(p1);
         if (wt != null) wt.cancel();
+
+        // S-I / 3A-3: release the shared countdown boss bar. removeAll() both
+        // clears remaining viewers and unregisters the bar server-side (the
+        // non-deprecated counterpart of hide() — plan §3.4). Every teardown
+        // path funnels through cleanup, so this is the single release point.
+        BossBar bar = duelBars.remove(p1);
+        if (bar != null) bar.removeAll();
     }
 
     // ==================== Shutdown ====================
@@ -847,6 +1104,16 @@ public class DuelManager {
                 p2.closeInventory();
             }
         }
+
+        // S-I / 3A-3: release every shared countdown boss bar (idempotent —
+        // most paths already went through cleanup(); this sweeps whatever is
+        // left if shutdown interrupts a live duel).
+        for (BossBar bar : duelBars.values()) {
+            if (bar != null) {
+                bar.removeAll();
+            }
+        }
+        duelBars.clear();
 
         // Clear every state map/set.
         activeDuels.clear();

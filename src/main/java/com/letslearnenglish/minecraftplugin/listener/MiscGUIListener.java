@@ -116,6 +116,15 @@ public class MiscGUIListener implements Listener {
                 || slot >= WordBankSelectGUI.BANK_SLOT_START + WordBankSelectGUI.BANK_SLOT_COUNT) {
             return;
         }
+        // MC-2 word-system 门（plan-menu-config 1.(b)："WordBankSelectGUI 不可达"）：
+        // 关闭时词库点击整体拒绝——正常路径由主菜单按钮隐藏 + /le word 命令门覆盖，
+        // 本处是僵尸 GUI（关开关前已打开）与边缘入口的兜底防线（S-F 流已记录
+        // "入口层门由 S-G 落盘"）。空白/填充格点击仍零行为（上方范围检查先行）。
+        if (!plugin.getConfigManager().isWordSystemEnabled()) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "module.disabled"));
+            return;
+        }
         // R-53 fan-in：与 GUI 同序（getAvailableDifficulties 的 TreeSet 快照）、同截断。
         List<String> banks = new ArrayList<>(plugin.getWordManager().getAvailableDifficulties());
         boolean hasMore = banks.size() > WordBankSelectGUI.BANK_SLOT_COUNT;
@@ -136,8 +145,17 @@ public class MiscGUIListener implements Listener {
                     "dialogue.chat-active"));
             return;
         }
+        // 域 1 新手引导拦截：step==1 的"首次答题"改开 3 词迷你会话（接管开局则直接返回）。
+        if (plugin.getOnboardingManager().interceptQuizStart(player, difficulty)) {
+            return;
+        }
         // F2-05：默认模式走常量，与 LearnCommand.DEFAULT_WORD_MODE 对齐（见字段注释）
-        plugin.getWordLearningManager().startQuiz(player, difficulty, DEFAULT_WORD_MODE);
+        var session = plugin.getWordLearningManager().startQuiz(player, difficulty, DEFAULT_WORD_MODE);
+        // Wave 1 fan-in（S-F 上报纵深）：word 门关闭时 startQuiz 返回 null 已发
+        // module.disabled——此处不再开 GUI / 发 session-start（上方兜底门之外的第二道防线）。
+        if (session == null) {
+            return;
+        }
         new WordLearningGUI(plugin).openWithMessage(player, difficulty, DEFAULT_WORD_MODE);
         // PF-ONB-03（Phase 3 规划期发现，编排者即修）：F2-13 只修了命令路径，词库选择
         // 这条新手主路径此前仍把英文标识符（beginner/choice）透传给中文玩家；
@@ -179,6 +197,13 @@ public class MiscGUIListener implements Listener {
     }
 
     private void handleDailyChallenge(Player player, int slot) {
+        // MC-2 模块门：daily-challenges.enabled=false 时领取分支整体拒绝
+        // （僵尸 GUI 的迟到点击不进任何写路径；点读式门，/lea reload 即时生效）。
+        if (!plugin.getConfigManager().isDailyChallengesEnabled()) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "module.disabled"));
+            return;
+        }
         if (slot == 8) {
             SoundManager.playSound(player, "menu-click");
             GuiNavigationManager nav = plugin.getGuiNavigationManager();
@@ -223,8 +248,9 @@ public class MiscGUIListener implements Listener {
         // 装了 Vault 时仍会实发金币，与签到/单词挑战的 economy-disabled 语义不一致
         // （F1-11/R-44 的残留缺口）。关闭时终态处理：标记已领（防按钮永远可点、
         // 重复提示）+ 一次 economy-disabled 提示，与单词挑战侧同口径。
-        boolean moneyEnabled = plugin.getConfigManager().getMainConfig()
-                .getBoolean("progress-system.rewards.types.money.enabled", false);
+        // Wave 1 fan-in（S-H 上报收口）：判定改走 RewardEngine 公开并集
+        // （isRewardsEnabled() && money.enabled）——原先只读 money 键，关奖励伞时漏判。
+        boolean moneyEnabled = plugin.getProgressManager().getRewardEngine().isMoneyEnabled();
         if (!moneyEnabled) {
             plugin.getDailyChallengeManager().claimReward(player.getUniqueId(), cp.type);
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
