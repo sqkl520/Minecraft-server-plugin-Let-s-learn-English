@@ -42,26 +42,25 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - 验收 + 锐评 agent（数路并行）
 - 全部相关文档更新（README / CHANGELOG / tasks/ / dev-findings / 规划文档状态回写）
 
-## 状态
-- Wave 1（9 流）进行中：S-A ✅ / S-B ✅ / S-C ✅ / S-D ✅ / S-E ✅ / S-F ✅ / S-G 运行 / S-H ✅ / S-I ✅
-  - S-A：四新列 + 存取方法全部落盘（SQLite 真库冒烟过）；冻结签名：get/setOnboardingStep、setWrongBookCleared、increment/getWrongBookCleared、isSoundsEnabled
-  - S-B：SoundManager 五扩展 + Adventure ActionBar + CountdownTier；兄弟流已消费其冻结接口（playSoundByName/tierOf/sendActionBar）
-  - S-C：11 门方法 + config.yml 四新段（272 旧键真解析零改动、24 新键全在白名单）；全仓 javac EXIT=0（77 文件）
-  - S-D：22 成就 + 墙五段式渲染 + PAPI 动态位 + AchievementDefinitionTest 7/7；FIRST_WORD 描述裁决=保持原句（判定已修，描述重吻合）
-  - S-E：tryUnlock 六段重构（模块门/短路/前置守卫/写库/主线程化通知）+ 四新判定 + 三冻结签名落盘 + 广播双语 per-recipient（顺带修复 {prefix} 字面外泄）；**title 走 Adventure Title（String 版已废弃——tester 按此验收）**；**checkHelpAchievement 为 TODO stub，Wave 2 域 4 落 getSocialManager 后须接线（记入 Wave 2 待办）**
-  - S-F：tutorial 全链（错答守卫落 else 首行、同题重试闭环、超时不推进）+ 倒计时 ActionBar 化 + 连击 pitch + 里程碑 + 练习成就挂钩 + word 门；**遗留两待核实项（等 S-G 报告核对）**：(1) LearnCommand.startWordQuiz/MiscGUIListener 调 startQuiz 后未查 null（门关闭时可能开空 GUI）；(2) interceptQuizStart 在 word 门关闭时 startTutorialQuiz 返回 null 但 S-G 侧未判返回值
-  - S-I：BossBar 倒计时（runTaskTimer + 三条自清理路径 + 双参 remove 防误摘新任务）+ 清理矩阵八路推演（含 stale 交错窗口）+ 决斗门 + 首胜成就挂钩 + 音效盲点三处；timeout 音切新键（默认跟随 incorrect 听感零变化）
-  - S-H：20 个门落点全清单（AI×4 / 挑战×8 / 奖励收口 / ReviewScheduler / 榜单×4 渲染+点击双汇点）；`RewardEngine.isMoneyEnabled` 改为 public 且并集语义（isRewardsEnabled && money.enabled）；**上报三条 money.enabled 直读缺口（fan-in 收口）**：(a) LearnCommand:534-543 isEconomyAvailable 直读；(b) MiscGUIListener 领取分支只读 money.enabled 不查伞；(c) CheckInManager:140-142 直读
-  - S-G 运行（核心已落盘，等报告）
 
-## fan-in 待办清单（编排者，全部流回流后执行）
-- [ ] **word 门缺口 A**（S-F 上报已核实）：`MiscGUIListener.handleWordBankSelect` 主菜单→词库选择→点击路径无 word 门（main menu 按钮 Wave 2 才隐藏）——门关闭时 startQuiz 返回 null 后仍开空 GUI + 发 session-start。修法：方法顶加 `isWordSystemEnabled` 门（存档 module.disabled）。**注意该文件属 S-G 白名单，须等 S-G 回流后改**
-- [ ] **word 门缺口 B**（S-F 上报已核实）：`OnboardingManager.interceptQuizStart` 对 `startTutorialQuiz` 返回 null 未判（只 catch 异常）——word 门关闭时教程 UI 会先开。修法：调用后判 null → return false（调用点不复核时兜底）
-- [ ] `LearnCommand.startWordQuiz` 调 startQuiz 后补 null 防御检查（子命令入口已有门，纯纵深）
-- [ ] **Wave 2 待办**：`AchievementManager.checkHelpAchievement` 接线（域 4 落 `getSocialManager` 后替换 TODO stub）
-- [ ] **money 收口三处**（S-H 上报）：LearnCommand.isEconomyAvailable 改调 `getRewardEngine().isMoneyEnabled()`；MiscGUIListener 领取分支同改；CheckInManager.isMoneyDisabledByConfig 同改（等 S-G 回流后统一改，涉及 S-G 白名单文件）
-- [ ] Wave 1 → fan-in（i18n ~60 键 + config-version 12 + CHANGELOG）→ tester×3 → verify → commit
-- [ ] Wave 2 → 同上
-- [ ] Wave 3 → 同上
-- [ ] Wave 4 → 同上
-- [ ] 验收+锐评 → 文档更新
+## Wave 1 冻结接口一览（Wave 2+ 消费）
+
+- `OnboardingManager`：interceptQuizStart / onTutorialSessionComplete / onProfileOpened / handleJoin / unloadPlayer / giveGuideBook / handleGuideCommand / getStep / bookKey
+- `AchievementManager`：getUnlockedAt / meetsPrerequisites / getProgressSnapshot / checkWrongBookCleared(UUID,int,boolean) / checkHelpAchievement（**Wave 2 须接线**）
+- `ConfigManager`：11 门方法（isWordSystemEnabled / isAIChatEnabled / isDuelEnabled / isCheckinEnabled / isDailyChallengesEnabled / isProgressSystemEnabled / isLeaderboardEnabled / isAchievementsEnabled / isRewardsEnabled / isSocialEnabled / isOnboardingEnabled）
+- `RewardEngine.isMoneyEnabled()`（public，并集语义）
+- `SoundManager.playSound(Player,String,float[,float])` 重载 / playSoundByName / none 静音语义
+- `VersionAdapter.sendActionBar(Player,String)`；`core.feedback.CountdownTier`
+- `PlayerDataStore`：increment/getWrongBookCleared / ProfileSettings.isSoundsEnabled；`DatabaseManager`：get/setOnboardingStep / setWrongBookCleared
+- `WordLearningManager.startTutorialQuiz(Player,String,int)` / getComboPitch(int) / isComboMilestone(int)；`QuizState.isTutorial`；`AnswerResult.tutorial`
+
+## Wave 2 施工清单（下一批）
+
+| 流 | 域 | 内容 | 主要文件 |
+|----|----|------|---------|
+| W2-A | 域 4 | SocialManager（新）+ 2 新表 + 广场动态页 + cheer + 摘要 + **helpful 成就接线** | core/social/、DatabaseManager、EnglishSquareGUI、SocialListener、PlayerJoinListener、LearnCommand、SoundManager、Leaderboard(RankingMode.FEED) |
+| W2-B | MC-1 | 主菜单 9 按钮 + DuelChallengeGUI（新）+ Listener（新）+ GUIUtils 白名单 + 模块门渲染 | MainMenu、MainMenuListener、DuelChallengeGUI/Listener(新)、GUIUtils、config.yml gui-layout |
+| W2-C | MC-3 | WordModes（新）+ AnswerChecker 参数化 + QuizState 快照 + 三入口接线（含 modes 死配置复活 + PF-MC-11 标识符本地化收口） | core/word/WordModes(新)、AnswerChecker、WordLearningManager、LearnCommand、MiscGUIListener、ChatAnswerListener、WordLearningGUI、WordLearningListener |
+| W2-D | MC-5 | challenges-per-day/rewards.* 接线 + F1-12 槽位泛化 | DailyChallengeManager、DailyChallengeGUI、MiscGUIListener、ConfigManager |
+| W2-E | 域 6 | /lea report + 权限节点 + ReportGenerator（新）+ 全异步 | command/AdminCommand、core/manager/（新类）、AdminCommandHandler、plugin.yml、DataExporter(ExportResult 协议化-可选) |
+| W2-F | 复核 | 三路 tester（build/code/arch）+ 修正 + verify + commit | — |
