@@ -2025,18 +2025,36 @@ public class DatabaseManager {
      * CheckInManager "先标记后付款"先例，R-02 双击重发教训）。
      */
     public boolean markSeasonRewardClaimed(int seasonId, UUID playerId) {
+        return setSeasonRewardClaimed(seasonId, playerId, true);
+    }
+
+    /**
+     * W3A tester M1 收口：付款失败回滚——把 {@code claimed} 从 1 改回 0（仅当
+     * 当前确为 1），使该行回到 pending、下次 join/结算路径可重试。与
+     * {@link #markSeasonRewardClaimed} 同为条件 UPDATE（竞态安全）。
+     */
+    public boolean unmarkSeasonRewardClaimed(int seasonId, UUID playerId) {
+        return setSeasonRewardClaimed(seasonId, playerId, false);
+    }
+
+    private boolean setSeasonRewardClaimed(int seasonId, UUID playerId, boolean claimed) {
         String sql = "UPDATE " + tablePrefix + "season_rewards"
-                + " SET claimed = 1, claimed_at = ?"
-                + " WHERE season_id = ? AND uuid = ? AND claimed = 0";
+                + " SET claimed = ?, claimed_at = ?"
+                + " WHERE season_id = ? AND uuid = ? AND claimed = ?";
         synchronized (connectionLock) {
             try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-                stmt.setLong(1, System.currentTimeMillis());
-                stmt.setInt(2, seasonId);
-                stmt.setString(3, playerId.toString());
+                int target = claimed ? 1 : 0;
+                int expected = claimed ? 0 : 1;
+                stmt.setInt(1, target);
+                stmt.setLong(2, claimed ? System.currentTimeMillis() : 0L);
+                stmt.setInt(3, seasonId);
+                stmt.setString(4, playerId.toString());
+                stmt.setInt(5, expected);
                 return stmt.executeUpdate() == 1;
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING,
-                        "Failed to mark season reward claimed (" + seasonId + "/" + playerId + ")", e);
+                        "Failed to update season reward claimed=" + claimed
+                                + " (" + seasonId + "/" + playerId + ")", e);
                 return false;
             }
         }

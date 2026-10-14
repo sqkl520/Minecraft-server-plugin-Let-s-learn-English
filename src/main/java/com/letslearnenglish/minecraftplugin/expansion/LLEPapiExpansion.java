@@ -10,7 +10,6 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -289,28 +288,20 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
     }
 
     /**
-     * plan-season §2.5 真 gating 判定：SeasonManager 为 null（DI 未就位）或
-     * {@code isEnabled()=false} → 三占位符返回空串。落盘的 isEnabled() 已折叠
-     * {@code season.enabled=false} 与"锚点在未来（赛季未开启）"两种休眠条件；
-     * 与 LeaderboardGUI.isSeasonAvailable 同判据（两处同源；跨层不互相引用，
-     * 改动须两侧同步核对）。
+     * plan-season §2.5 真 gating 判定（tester L4 收口：走 {@link SeasonManager#isAvailable}
+     * 单一真相源，原跨层复制实现已废——expansion 层直接委托 core 层静态方法，
+     * 不再有"改动须两侧同步"的漂移面）。
      */
     private boolean isSeasonAvailable(SeasonManager season) {
-        return season != null && season.isEnabled();
+        return SeasonManager.isAvailable(season);
     }
 
     /**
-     * plan-season §2.5：剩余天数（与 LeaderboardGUI.seasonDaysLeft 同源公式，
-     * "windowOf(currentSeasonId(today)).end - today + 1"含今天，闭区间语义。
-     * 这里复制实现而非引用 gui 类 —— expansion 层不依赖 gui 层，改动须两侧同步）。
+     * plan-season §2.5：剩余天数（tester L4 收口：委托 {@link SeasonManager#daysLeft()}
+     * 单一真相源，闭区间含今天语义由 core 层保证）。
      */
     private long seasonDaysLeft(SeasonManager season) {
-        LocalDate today = LocalDate.now();
-        int id = season.currentSeasonId(today);
-        if (id <= 0) {
-            return 0;
-        }
-        return ChronoUnit.DAYS.between(today, season.windowOf(id).end()) + 1;
+        return season == null ? 0 : season.daysLeft();
     }
 
     /**

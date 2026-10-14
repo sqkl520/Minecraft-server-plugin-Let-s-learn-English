@@ -256,6 +256,29 @@ public class SeasonManager {
         return -1;
     }
 
+    /**
+     * 当前季剩余天数（<b>冻结接口</b>，单一真相源——W3A tester L4 收口：原
+     * LeaderboardGUI/LLEPapiExpansion 各有一份复制实现，现两处改走本方法）：
+     * 闭区间 [start,end] 语义下含今天的 +1（首日=整季天数、末日=1）；未开启返回 0。
+     */
+    public long daysLeft() {
+        LocalDate today = LocalDate.now();
+        int id = currentSeasonId(today);
+        if (id <= 0) {
+            return 0;
+        }
+        return java.time.temporal.ChronoUnit.DAYS.between(today, windowOf(id).end()) + 1;
+    }
+
+    /**
+     * 可用性单判据（<b>冻结接口</b>）：null 安全 + 已启用（isEnabled 已折叠
+     * "enabled=false" 与"锚点在未来 id=0"两种休眠）。原 LeaderboardGUI 与
+     * LLEPapiExpansion 各有一份等价实现，tester L4 收口后统一走此方法。
+     */
+    public static boolean isAvailable(SeasonManager season) {
+        return season != null && season.isEnabled();
+    }
+
     /** 异步刷新赛季榜快照（5 分钟班车挂载点 + 结算收尾共用；未启用时清空即返）。 */
     public void refreshCacheAsync() {
         runAsync(this::refreshCacheSync);
@@ -529,7 +552,7 @@ public class SeasonManager {
                 }
                 for (SeasonRewardRow row : rows) {
                     // 条件 UPDATE 先于发钱（CheckInManager 先例）：崩溃/双击/双服
-                    // 竞态都不可能二次发放；极小概率"标记后崩溃少发一次"为接受的代价
+                    // 竞态都不可能二次发放
                     if (!plugin.getDatabaseManager()
                             .markSeasonRewardClaimed(row.seasonId(), playerId)) {
                         continue; // 已被他路径/他服标记
@@ -537,6 +560,12 @@ public class SeasonManager {
                     double paid = payReward(online, row.rewardCents());
                     if (paid > 0) {
                         sendRewardMessage(online, row, paid, settleTime);
+                    } else if (plugin.getEconomy() != null) {
+                        // W3A tester M1 收口：Vault 在但转账失败（economy 为 null 的
+                        // 分支上面已 return）——回滚 claimed，该行回到 pending 供
+                        // 下次 join/结算重试；不再"永久丢失且无重试面"。
+                        plugin.getDatabaseManager()
+                                .unmarkSeasonRewardClaimed(row.seasonId(), playerId);
                     }
                 }
             });

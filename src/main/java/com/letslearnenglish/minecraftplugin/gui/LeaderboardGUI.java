@@ -16,7 +16,6 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -34,7 +33,7 @@ import java.util.UUID;
  * gray-glass placeholder (same visual language as the S-H module gates). Click-side
  * routing for the season tab lives in SocialListener.handleLeaderboardGUI — it needs a
  * follow-up branch reading {@link #TAB_SEASON_SLOT}/{@link #SEASON_TAB_INDEX} plus the
- * {@link #isSeasonAvailable(LetsLearnEnglish)} gate.
+ * {@link #isSeasonAvailable(SeasonManager)} gate.
  */
 public class LeaderboardGUI {
 
@@ -96,9 +95,11 @@ public class LeaderboardGUI {
         FileConfiguration messages = cm.getMessageConfig(lang);
 
         SeasonManager season = plugin.getSeasonManager();
-        boolean seasonAvailable = isSeasonAvailable(season);
+        boolean seasonAvailable = SeasonManager.isAvailable(season);
         // R-55i 真 gating：赛季关闭/未开启时 season tab 不可达 —— 旧界面残留的 3 号
-        // tab 重开在此静默回落 coins（点击侧 SocialListener 赛季分支由编排者 fan-in 补提示）。
+        // tab 重开在此静默回落 coins（干净容器化旧态）；点击新开路径由
+        // SocialListener 赛季分支给 season.disabled 提示（tester L8 语义：残留
+        // 回落 vs 主动点击提示，两路各自合理且均已收口）。
         if (tab == SEASON_TAB_INDEX && !seasonAvailable) {
             tab = 0;
         }
@@ -249,8 +250,13 @@ public class LeaderboardGUI {
      * currentSeasonId=0（赛季未开启）"两种情况。public static —— SocialListener
      * 的赛季分支 fan-in 时直接调用，避免两处判定漂移。
      */
+    /**
+     * 可用性薄委托（tester L4 收口：真相源 {@link SeasonManager#isAvailable}）。
+     * 落盘的 isEnabled() 已折叠 {@code season.enabled=false} 与"锚点在未来、
+     * currentSeasonId=0（赛季未开启）"两种情况。
+     */
     public static boolean isSeasonAvailable(SeasonManager season) {
-        return season != null && season.isEnabled();
+        return SeasonManager.isAvailable(season);
     }
 
     /**
@@ -262,13 +268,13 @@ public class LeaderboardGUI {
      * 类），改动须两侧同步。赛季未开启（id≤0，锚点在未来）返回 0（调用方已判
      * {@link #isSeasonAvailable}）。
      */
+    /**
+     * 剩余天数（tester L4 收口：上收 {@link SeasonManager#daysLeft()} 单一真相源，
+     * 原 LeaderboardGUI/LLEPapiExpansion 两份复制实现已废；本方法保留为薄委托
+     * 以兼容既有调用点）。赛季未开启返回 0。
+     */
     public static long seasonDaysLeft(SeasonManager season) {
-        LocalDate today = LocalDate.now();
-        int id = season.currentSeasonId(today);
-        if (id <= 0) {
-            return 0;
-        }
-        return ChronoUnit.DAYS.between(today, season.windowOf(id).end()) + 1;
+        return season == null ? 0 : season.daysLeft();
     }
 
     /**

@@ -483,6 +483,24 @@ public class SocialListener implements Listener {
             tab = 1;
         } else if (slot == tabComboSlot) {
             tab = 2;
+        } else if (slot == cm.getGuiSlot("leaderboard", "tab-season", LeaderboardGUI.TAB_SEASON_SLOT)) {
+            // Wave 3（3A-4 fan-in）：赛季 tab 点击分支。tester L7 收口：门序与其它
+            // tab 一致——榜单模块门优先（回 module.disabled），赛季可用性其次
+            // （回 season.disabled）；两门均与渲染侧同读同键同判据，无漂移面。
+            if (!cm.isLeaderboardEnabled()) {
+                SoundManager.playSound(player, "menu-click");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "module.disabled"));
+                return;
+            }
+            if (!com.letslearnenglish.minecraftplugin.core.season.SeasonManager
+                    .isAvailable(plugin.getSeasonManager())) {
+                SoundManager.playSound(player, "menu-click");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "season.disabled"));
+                return;
+            }
+            tab = LeaderboardGUI.SEASON_TAB_INDEX;
         }
         if (tab >= 0) {
             // MC-2（S-H）：榜单门关闭时拒绝 tab 切换（tab-coins/tab-words/tab-combo

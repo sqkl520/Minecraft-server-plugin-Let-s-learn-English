@@ -436,6 +436,12 @@ gui-layout:
       slot: 6
       material: "BELL"
   leaderboard:
+    tab-season:
+      slot: 3
+      material: "NETHER_STAR"
+    season-info:
+      slot: 4
+      material: "PAPER"
     back-button:
       slot: 8
       material: "RED_STAINED_GLASS_PANE"
