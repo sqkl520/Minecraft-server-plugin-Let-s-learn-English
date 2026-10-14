@@ -104,3 +104,10 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - `ChatFeedbackEntry` data class
 - `DatabaseManager.upsertChatFeedback(...)` / `getChatFeedback(UUID,String)`
 - `SeasonManager.SeasonWindow(int id, LocalDate start, LocalDate end)` / `SeasonRankRow(int rank, UUID uuid, String name, long score)` / `isEnabled()` / `getCurrentTopCached(int)` / `getRankOf(UUID)`
+
+### Batch 3A 回流状态
+- [x] 3A-3 语义清理：done（25 处全收敛 + PF-MC-11 收敛为单一实现 + DuelManager 崩溃路径消除；对抗性验证过；**plan 措辞需回写：1.21.4 抛 IAE 非 NPE**）。范围外：AIChatManager Material.valueOf 无保护（配置健壮性）；**MC-7 删 answer-broadcast-correct 死键时 ChatAnswerListener null→null 会静默失去广播（需知晓）**；WordManagerImpl VALID_MODES 残留
+- [ ] 3A-1 赛季核心 / 3A-2 个人场景管理（重跑）/ 3A-4 赛季展示
+- [x] 3A-1 赛季核心：done（SeasonManager 708 行 + 2 表 + 抢占式结算 + origin 协议跨服分发 + 首次启用/catch-up 语义 + 午夜零 IO 跨季检测；**两个自决：发钱不经 cap 直发（台账幂等）+ 修正 plan 缺陷（无 Vault 保留 pending 不销毁）**；SQLite 真库冒烟 24 断言 + 纯逻辑 23 断言全过）。DB 内嵌 Row 类（SeasonRow/SeasonRewardRow）；冻结接口全命中 + 3 个新增 public（refreshCacheAsync/parseTopSnapshot/applyRelayed*）
+- [x] 编排者 fan-in（3A-1/3A-4 键）：season 12 键 + leaderboard.tab-season/entry-season 双语落盘（655=655 对称，audit 只剩动态拼接误报）
+- [ ] 3A-2 个人场景管理（第3实例，前两实例 524 零落盘）/ 3A-4 赛季展示（半落地——LeaderboardGUI 4 私有方法待补）
