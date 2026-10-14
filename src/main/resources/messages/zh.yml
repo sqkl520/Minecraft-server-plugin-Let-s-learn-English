@@ -765,7 +765,6 @@ season:
   reward-earned: "{prefix}&a赛季奖励已发放：&e{amount} &a金币（第 {season} 赛季第 {rank} 名）"
   reward-pending-join: "{prefix}&a上个赛季你获得第 {rank} 名，奖励 &e{amount} &a金币已发放！"
   participated-reward: "{prefix}&a赛季参与奖已发放：&e{amount} &a金币"
-  tab: "&6赛季榜 / Season"
   title: "&6&l第 {season} 赛季"
   remaining: "&7剩余: &e{days} 天 {hours} 小时"
   your-rank: "&7你的名次: &e#{rank} &7(得分 {score})"

@@ -766,7 +766,6 @@ season:
   reward-earned: "{prefix}&aSeason reward paid: &e{amount} &acoins (Season {season}, rank {rank})"
   reward-pending-join: "{prefix}&aLast season you ranked #{rank} - &e{amount} &acoins paid!"
   participated-reward: "{prefix}&aSeason participation reward: &e{amount} &acoins"
-  tab: "&6Season / 赛季榜"
   title: "&6&lSeason {season}"
   remaining: "&7Remaining: &e{days}d {hours}h"
   your-rank: "&7Your rank: &e#{rank} &7(score {score})"

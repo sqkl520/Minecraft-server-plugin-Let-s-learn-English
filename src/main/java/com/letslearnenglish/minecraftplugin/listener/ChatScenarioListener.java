@@ -189,14 +189,13 @@ public class ChatScenarioListener implements Listener {
 
     /**
      * 从语言文件获取单行消息（已处理颜色代码），用于 AI 对话中的标签文本。
+     * W3A tester M2 收口：原裸 getString + 硬编码英文 "Missing: " 兜底改为统一
+     * {@code MessageUtil.getGuiMsg}（缺键显示 [?key] 可见占位，无玩家可见硬编码）。
      */
     private String getMessageLine(Player player, String key) {
         String lang = plugin.getPlayerLanguage(player);
         org.bukkit.configuration.file.FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
-        String msg = messages.getString(key);
-        if (msg == null) {
-            return ChatColor.RED + "Missing: " + key;
-        }
-        return ChatColor.translateAlternateColorCodes('&', msg);
+        return ChatColor.translateAlternateColorCodes('&',
+                com.letslearnenglish.minecraftplugin.util.MessageUtil.getGuiMsg(messages, key));
     }
 }

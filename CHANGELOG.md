@@ -5,19 +5,15 @@
 > 本版本包含两批改动：v1.0.7 迭代开发（13 个 Story）+ 全项目只读扫描后的缺陷修复批次（中文服止血 / 并发收口 / 仓库卫生）。
 
 ### Added
+- **[P3 Wave 3 Batch 3A / 域 5 赛季]** 赛季系统全链（默认关，运营属性）：`SeasonManager`（新类 730 行：anchor-date 纯函数窗口推导 + 抢占式结算（条件 UPDATE 唯一赢家）+ 首次启用不追既往 + catch-up 游标 + 5 分钟热备缓存 + 跨服 origin 协议分发与回环去重）；2 新表 `seasons`（结算台账头 + top_snapshot 回顾）+ `season_rewards`（发放台账，rank_position 避保留字；**付款失败回滚 claimed 供重试**，W3A tester M1 收口）；分层奖励 top1/top3/top10/参与奖（config 可配，直发不经 daily-cap、台账幂等）；结算广播 + 在线即时发放 + 离线 join 补发（`claimPendingRewards`）；**无 Vault 时台账保留 pending 不销毁**（修正 plan 字面缺陷）；午夜跨季零 IO 检测（日期纯比较）+ 启动 catch-up 挂载
+- **[P3 Wave 3 Batch 3A / 赛季展示]** 榜单第 4 tab【赛季】（TAB_SEASON_SLOT=3 + 信息牌 slot 4，既有三 tab 零挪位；可用性门渲染/点击双侧同源）+ `%lle_season%` / `%lle_season_days_left%` / `%lle_season_rank%` 三 PAPI 占位符（真 gating 空串 + R-43 缓存 + 隐私同口径）+ `/le season` 命令（赛季号/剩余/本人名次/top10 快览，零查库）
+- **[P3 Wave 3 Batch 3A / MC-4 个人场景管理]** `PersonalScenarioStore` 抽取（~330 行：个人场景文件 IO 全迁，AIChatManager 保留零改动门面——P2-28 兑现）+ `PersonalScenarioGUI` 管理页（54 格：计数/条目列表/prompt 摘要 lore/**行内二确删除（条目 PDC 标记——"屏幕即真相"无状态残留）**/空态）+ 场景选择页 slot 24 入口（import 权限可见门）+ `DeleteResult` 三态反馈
 - **[P3 Wave 1 / 域 1 新手引导]** 新手引导线全链：`OnboardingManager`（新类，状态机 0/1/2/3 + 老号 fail-open 回填 3 + 首进发《新手引导手册》WRITTEN_BOOK+PDC + 每日去重提醒 + PDC 扫描去重发放 + Adventure BookMeta 三页现渲染）；迷你会话（`startTutorialQuiz` + 错答**原地重试**——不清连击不扣分不进错题本不推进题号，choice 4 选 1 必中使"3 题全对→首成就确定性触发"成结构保证）；完成登记（step2 由会话完成钩子、step3 由本人主页打开钩子，顺序刚性不可跳步）；`/le guide` 命令；D2 首进当天抑制 join 每日提醒
 - **[P3 Wave 2 / 域 4 广场社交]** 学习动态流全链：`SocialManager`（新类 487 行）+ `FeedTextFormatter`（纯函数文案组装）；2 新表 `social_feed`（UNIQUE(player_uuid,feed_date,event_type) UPSERT 合并防刷屏，3 行/人/日封顶）+ `social_cheers`（UNIQUE(feed_id,cheerer_uuid) 一人一条一次）；广场新增"动态"模式（第 5 模式，BELL 图标 slot 6，默认落点 `english-square.default-mode`）+ 左键鼓励/右键主页/自条目看鼓励名单；被鼓励者在线即时提醒 + 离线进服摘要（异步查+主线程发+异步标已读）；写全异步/广场打开零查库（volatile 快照 200 条内存分页）/唯一同步=28-id 有界已鼓励集合；隐私四层同口径（产生门/ SQL JOIN 过滤/点击守卫/getProfileSettingsReadOnly 防缓存污染）；混服按 viewer 语言渲染；鼓励零经济收益（杜绝刷币旁路）+ 750ms 防抖；helpful 成就接线（distinctTargets≥10，异步派发守线程契约）；`deletePlayerData` 顺序敏感三循环防 reset 残行
 - **[P3 Wave 2 / MC-1 主菜单与对决选择器]** 主菜单 7→9 按钮（空槽 12 增【单词对决】DIAMOND_SWORD + 16 增【每日签到】SUNFLOWER，menu-size 维持 27、19 槽预留域 1、语言切换不动）；`DuelChallengeGUI`（新，在线玩家头像选择器——纯 GUI 玩家全流程闭环 R-82：点头像即发邀请，忙态/AI 对话/答题互斥全部由 sendDuelRequest 既有守卫反馈；**标题避碰实测 16 项断言**——不含"单词对决"子串防 DuelGUI 前缀比对误判 + 等值判定防反向误判，含对抗性证明）；对决按钮在局中重开当前界面（`duel.enabled || isInDuel` 放行语义与命令侧一致）；签到按钮直走 /le checkin；两新按钮同走 gui-layout 配置 + 模块门双侧
 - **[P3 Wave 2 / MC-3 modes 接线]** `WordModes`（新类配置唯一真相源）：三模式 enabled 门（/le word 三分支拒绝语义：未知→invalid-mode / 已知关闭→mode-disabled / 默认→firstEnabledMode，全关→no-modes-enabled）+ case-sensitive（仅全词文本比较，choice 字母选择恒不敏感）+ option-count（钳 [2,4]）+ choice.time-limit（0=跟随全局——语义修正，默认值 30→0）+ fill_blank.show-first-letter（展示层短路）；**命名定案 fill_blank 下划线 + 读取侧双兼容旧连字符名**；`AnswerChecker` 参数化重载（四旧签名全保留委托、行为逐位兼容）；`QuizState` 三 final 快照字段（同会话规则恒定）；删 max-attempts 死键 ×2；PF-MC-11 标识符本地化三处收敛；默认模式解析**优先 choice**（fan-in 裁决修复 plan 内部矛盾，恢复 FEAT-MODE-01 新手默认语义）
 - **[P3 Wave 2 / MC-5 挑战经济参数]** `challenges-per-day` 真接线（钳 [1,4] + 从可用集合直接取 N——整链删除 R-74 的 5 轮重抽与 24% 兜底路径）；`rewards.*` 四键真接线（`getChallengeReward` 公开 API，缺键/非法/≤0/NaN 回落枚举默认——整数装箱经 `instanceof Number` 判定防 `isDouble` 误判）；F1-12 槽位泛化 `CHALLENGE_SLOTS={11,13,15,17}` + binarySearch 查位映射（N=3 渲染/领取逐位同现状）；默认配置零行为变化 + ConfigManager 审计 4 键数值正值
 - **[P3 Wave 2 / 域 6 家长报告]** `/lea report <玩家|all> [week|lastweek|<N>d]` + 新权限节点 `letslearnenglish.report`（默认 op；AdminCommand 权限最小化改造为逐子命令判定——老师只发 report 权限不泄漏 reset/reload，配套删 plugin.yml 命令级权限门防 Bukkit 前置拦截）；`ReportGenerator`（新类 1130 行）：周一锚点周期纯函数 + 8 路异步查询（每查询自持 connectionLock）+ 规则引擎"给家长的话"（零 AI 调用）+ UTF-8+BOM+CRLF TXT 落 exports/reports/ + 惰性清理 + `ReportSettings` 主线程快照（异步渲染零 ConfigManager 访问）；批量 all=全服对比表（上限 50 截断标注 + respect-privacy 过滤开关）；`DataExporter.ExportResult` record 协议化（消 "Export failed" 字符串硬耦合，P2-09 闭环）
-
-### Changed
-- **[P3 Wave 2]** `MESSAGE_CONFIG_VERSION` 12（维持）：Wave 2 新增 report 62 键 / square.feed 23 键 / main-menu 4 键 / word.mode-disabled 等，经键级对称校验 638=638 零差异；占位符逐键对照代码调用点校正 16 处；重复顶级键清理
-- **[P3 Wave 2 / MC-3 升级注意]** `modes.choice.time-limit` 出厂默认 30→0（0=跟随全局）；存量 config.yml 若曾改过该键，接线后立即生效（CHANGELOG 明示改 0 以跟随全局）
-
-### Fixed
-- **[P3 Wave 2 / 集成修正]** `SocialListener` 模式识别按标题后缀（`detectModeFromTitle`）+ `renderedFeedPages` 冻结动态页渲染列表：plan "FEED 界面打开即登记快照"对命令/主菜单直达路径不成立且 ESC 重开快照陈旧——修正防"点 A 开 B"缺口；同类面在 `leaderboardGuis` 未修（PF-SOC-06 记 Wave 3）
 - **[P3 Wave 1 / 域 3 成就重构]** 6 个质量型新成就：`review_streak_7`（连续 7 天复习且每天答对≥1）/`wrong_book_cleared`（练习移出 5 词且清空错题本，手动删除不计数）/`accuracy_90`（≥100 题样本 + 整数比较防浮点边界）/`duel_first_win`（只认打满 5 分的 endDuel，退赛掉线不算）/`helpful`（鼓励 ≥10 个不同玩家，暂无 SocialManager 时锁定）/`study_days_30`（累计 30 个不同学习日）；刷量成就难度前置（sessions_50←streak_10、words_500←100 题+70%、coins_500←50 题、coins_5000←words_100，收口 tryUnlock 内且已解锁者永不受回改影响）；成就墙 22 格按 5 类稳定排序分组渲染 + 类别/解锁日期/进度/前置四新 lore 行（复活 `achievement.progress` 死键）+ 标题计数；`%lle_achievement_<id>%` PAPI 动态位；解锁瞬间新增 Adventure Title 展示；`achievement-system.unlock-sound` 真接线（playSoundByName）；`getProgressSnapshot` 进度快照；删死方法 `checkCoinAchievements`
 - **[P3 Wave 1 / 域 7 音频反馈 3A]** 学习倒计时改 ActionBar（不再刷聊天栏——原 30s 题刷 30 行、10 题会话约 300 行）；最后 3 秒每秒 tick 音随剩余秒升调；urgent 阈值可配；连击音高公式 `clamp(1.0+0.1×(n-1), 0.5, 1.6)` + 里程碑（3/5/7/10）ActionBar 闪光 + 铃音替代升调（不叠音）；对决每题倒计时从 30 秒**全静默**重构为 BossBar 排空条（最后 5s 变红 + tick 音，清理挂钩 cleanup/shutdown/reconnect 三处 + 三条自清理路径 + 双参 remove 防误摘新任务）；per-player 音效开关（`player_profiles.sounds_enabled` + 设置 GUI 挂 PrivacySettings）；`gui.sounds` 三新键（combo-milestone/countdown-tick/timeout）+ "none/空串=故意静音"语义；P2-24 音效盲点三处收口
 - **[P3 Wave 1 / MC-2 模块开关]** 9 个模块级 enabled 开关**真接线**（word-system/ai-chat/duel[新]/checkin[新]/daily-challenges/progress-system 伞/leaderboard/achievements/rewards）：统一"入口隐藏 + 事件静默 + 数据永不删"三层语义；ConfigManager 11 个点读门方法（伞语义 AND 组合，reload 即时生效）；config.yml 三层语义注释 + duel/checkin 新段；`module.disabled` 统一回显；ai-chat 关闭时进行中对话下一条消息自动退出（不吞消息）；`/le duel quit/gui` 在关开关后进行中对局仍可用；`RewardEngine.isMoneyEnabled` 收口为公开并集判定（rewards 伞 && money 键）
@@ -25,11 +21,16 @@
 - **[P3 Wave 1 / 跨服广播]** 成就解锁广播双语 payload + 逐收件人按语言渲染（R-86m 口径），兼容旧 3 段格式；顺带修复旧实现把字面 `{prefix}` 广播出去的缺陷
 
 ### Changed
+- **[P3 Wave 3 Batch 3A]** P2-13 二期裸 getString 收尾：25 处全收敛 `getGuiMsg`（含 DuelManager 的 `duel.accept-hint` 真实崩溃路径——1.21.4 实测抛 IllegalArgumentException 非 NPE）；PF-MC-11 标识符本地化收敛为 `WordModes` 单一实现（第四份副本清除）
+- **[P3 Wave 3 Batch 3A]** tester 收口：`seasonDaysLeft`/`isSeasonAvailable` 上收 SeasonManager 单一真相源（原 GUI/PAPI 双份复制 → `daysLeft()`/`isAvailable()`，L4）；赛季 tab 点击门序对齐（榜单模块门优先，L7）；`getRawMessage` 死方法删除（L2）；`ChatScenarioListener.getMessageLine` 硬编码英文兜底收敛 getGuiMsg（M2）
+- **[P3 Wave 2 / MC-3 升级注意]** `modes.choice.time-limit` 出厂默认 30→0（0=跟随全局）；存量 config.yml 若曾改过该键，接线后立即生效（CHANGELOG 明示改 0 以跟随全局）
+- **[P3 Wave 2]** `MESSAGE_CONFIG_VERSION` 12（维持）：Wave 2 新增 report 62 键 / square.feed 23 键 / main-menu 4 键 / word.mode-disabled 等，经键级对称校验 638=638 零差异；占位符逐键对照代码调用点校正 16 处；重复顶级键清理
 - **[P3 Wave 1 / F1-19 终案]** `ai-chat.daily-round-limit` 0/负数 = **不限**（原语义为拒绝全部）；想禁用 AI 对话改走 `ai-chat.enabled: false`（config 注释 + CHANGELOG 明示）
 - **[P3 Wave 1]** `MESSAGE_CONFIG_VERSION` 11→12：zh/en 双语落盘约 45 新键（onboarding 26 / module.disabled / ai-chat.module-disabled / duel.round-bossbar×2 / combo-milestone / achievement-wall 7 / achievement.prereq-hint / help.guide 等），键级对称校验 548=548 零差异
-- **[P3 Wave 1 / 架构]** tryUnlock 通知段主线程化（`Bukkit.isPrimaryThread()` 判定 + runTask）——根治 PF-ACH-02 bye 分支异步线程直调 Bukkit API 隐患；`achievementConfig` 懒加载改 volatile（F1-03）；`CountdownTier` 纯函数（学习/对决共用 tier 判定）；`VersionAdapter.sendActionBar`（Adventure Component，规避已废弃的 String 重载）
 
 ### Fixed
+- **[P3 Wave 2 / 集成修正]** `SocialListener` 模式识别按标题后缀（`detectModeFromTitle`）+ `renderedFeedPages` 冻结动态页渲染列表：plan "FEED 界面打开即登记快照"对命令/主菜单直达路径不成立且 ESC 重开快照陈旧——修正防"点 A 开 B"缺口；同类面在 `leaderboardGuis` 未修（PF-SOC-06 记 Wave 3）
+- **[P3 Wave 1 / 架构]** tryUnlock 通知段主线程化（`Bukkit.isPrimaryThread()` 判定 + runTask）——根治 PF-ACH-02 bye 分支异步线程直调 Bukkit API 隐患；`achievementConfig` 懒加载改 volatile（F1-03）；`CountdownTier` 纯函数（学习/对决共用 tier 判定）；`VersionAdapter.sendActionBar`（Adventure Component，规避已废弃的 String 重载）
 - **[P3 Wave 1 fan-in]** S-F/S-H 上报缺口收口：`MiscGUIListener` 词库选择补 word 门兜底 + startQuiz null 防御；`LearnCommand.startWordQuiz` 补 startQuiz null 防御；`OnboardingManager.interceptQuizStart` 补 startTutorialQuiz null 接管（S-G 自落）；money 三处直读收口（LearnCommand.isEconomyAvailable / MiscGUIListener 领取判定 / CheckInManager.isMoneyDisabledByConfig 全部改走 `getRewardEngine().isMoneyEnabled()`）
 - **[P3 规划期即修 / PF-ACH-02]** AI 对话 bye 退出路径异步线程直调 Bukkit API 修复（编排者即修）：`ChatScenarioListener` 运行在 AsyncPlayerChatEvent 异步线程，bye 分支链上可达 `AchievementManager.tryUnlock` 通知段（sendMessage/playSound）与每日挑战记分——Bukkit API 不得异步直调；bye 分支改为切主线程执行 `handleEndConversation`，并给其加"仍在场景模式才结算"守卫（防 1 tick 窗口内 quit/命令退出后的重复结算）；此缺陷比 F1-03 记录的更严重，属线程安全实伤
 - **[P3 规划期即修 / PF-MC-01]** 行为挑战领取补 `money.enabled` 门（编排者即修）：此前 `claimBehavioralChallenge` 直接走 `depositCappedReward`，服主关币（默认 false）且装了 Vault 时仍会实发金币，与签到/单词挑战的 economy-disabled 语义不一致（F1-11/R-44 残留缺口）；关闭时终态处理（标记已领防按钮永远可点 + 一次 daily-challenge.economy-disabled 提示），与单词挑战侧同口径
@@ -154,6 +155,44 @@
 - **[P0 修复流 3/6 / R-09d]** 隐身笑话页点药水串主页：`handleEnglishSquareGUI` 开头按 inventory 尺寸分流（27 格=笑话页 / 54 格=广场主页），笑话页 slot 13 药水只发 `square.hidden-lore` 聊天提示、绝不打开任何玩家主页，其余槽位忽略
 - **[P0 修复流 3/6 / R-09c]** 词库点 A 开 B：`WordManagerImpl.getAvailableDifficulties()` 改返回 `TreeSet` 稳定排序快照，GUI 构造快照与点击侧重取两侧迭代顺序恒一致（选型 a，一行排序根治；`WordBankSelectGUI`/`MiscGUIListener` 零改动）
 - **[P0 修复流 3/6 / R-36]** 广场尾页卡死：`EnglishSquareGUI` 分页按钮拆除 `pageFull` 联合门禁，上一页只看 `page>1`、下一页只看 `page<totalPages`，尾页不满也能正常回翻
+- **[P0 修复流 / R-01+R-22]** 四个 GUI 监听器点击分区：`MiscGUIListener` / `DuelGUIListener` / `MainMenuListener` / `SocialListener` 的点击入口统一只处理上半区（Top 容器），玩家背包（下半区）点击直接 return；`setCancelled(true)` 移到确认上半区之后，下半区不再 cancel，玩家开着 GUI 也能正常整理背包
+- **[P0 修复流 / R-01]** 堵住两条高危误触发：DailyChallenge 界面点背包 11/13/15 不再领奖发钱；对决中点背包 22 不再误触退出判负
+- **[P1 修复流 2/6 / R-23]** 新增 `/le duel gui` 重开命令：决斗中 ESC 关界面后可重开当前对局 GUI（含 tab 补全），未在对决中回既有 `duel.not-in-duel`；`refreshBothGUIs` 改为仅当玩家正看着决斗 GUI 时刷新（经 `DuelGUIListener.isViewingDuelGUI` 复用点击分区同源标题判定），ESC 后每题不再强制弹回界面
+- **[P1 修复流 2/6 / R-24]** 赛前警告：`duel.started` 文案追加"决斗中所有聊天都算作答案"警告句；对决 GUI 中央单词物品 lore 加同警告一行（新键 `duel.chat-counts-warning`，zh/en 双语）
+- **[P1 修复流 2/6 / R-25]** 超时/锁题后迟到答案不再静默吞：`submitAnswer` 的 `ALREADY_ANSWERED` 分支向答题者本人回新键 `duel.round-ended`（"本题已结束"）提示，不广播
+- **[P1 修复流 2/6 / R-26]** 宽限计时器"对局已无"分支补 `task.cancel()`：从 `graceTasks` 取出任务后取消，不再留下每秒空转的泄漏任务
+- **[P1 修复流 2/6 / R-27]** `sendDuelRequest` 加答题忙态对称检查：发送者 quiz/练习中回新键 `duel.sender-answering`，目标答题中复用既有 `duel.target-answering`，与 `acceptDuel` 的 M4 门禁对称，挑战发出去前即拦截
+- **[P1 修复流 6/6 / R-40]** `/le challenge` 庆祝页顶屏三守卫：决斗中（复用 `duel.finish-duel-first`）/答题中（quiz+错题练习，新键 `daily-challenge.celebrate-busy`）只刷聊天不弹页；同一玩家同一自然日只自动弹一次，重复执行聊天末尾追新键 `daily-challenge.celebrate-shown-today`
+- **[P1 修复流 6/6 / R-55d]** `MainMenuListener.handleMainMenu` 槽位写死改读 `gui-layout.main-menu` 配置（`getGuiSlot` + 与渲染侧同 fallback 值，switch 改 if-else 链），slot 14 错题本两边写死沿用魔法数字（config.yml 不新增 key）
+- **[P1 修复流 6/6 / E-04]** `DatabaseManager.getConnection()` 整体收进 `connectionLock` 内（原锁外快路径删除，锁自愈重连保留）；`getLast7DaysStats` 首锁块开头/次锁块开头各锁内重取引用；外部 23 处锁外 `getConnection()` 留编排者 fan-in
+- **[P1 修复流 6/6 / E-05]** `DatabaseManager.initialize()` 重连先关旧连接（判 null + `isClosed`，异常吞掉记 WARNING），`getConnection` 自愈路径重入不再泄漏旧句柄
+- **[P1 修复流 6/6 / R-42]** `%lle_rank%` 冻结根治（选型 a）：`WordManagerImpl.endSession` 结算时调 `Leaderboard.updateScore(playerId, +session分)` 增量同步内存榜，`getPlayerRank` 即时反映本次结算（`updateScore` 语义为 merge-累加，调用点传增量而非全量）；`loadFromDB` 仍为启动快照
+- **[P1 修复流 6/6 / R-42 附带 E-10]** `Leaderboard.loadFromDB` 的 `getRankedPlayers(Integer.MAX_VALUE)` 改为 `RANK_SNAPSHOT_LIMIT = 1000`（下游 `getPlayerStats` N+1 逐人补读也被截断在千行内；读时查库的大改留 Phase 3）
+- **[P1 修复流 6/6 / R-55o]** `DailyChallengeManager.ChallengeType.COMBO_5` target 1→5（"达到 5 连击"语义对；触发路径 `completeChallenge` 二进制完成不受影响，该值仅用于聊天/GUI 显示的分母）
+- **[P1 修复流 6/6 / R-55l]** 默认语言 fallback 打架统一为 zh：`ConfigManager` 启动语言与 `MessageUtil` 三处 `general.language` 缺 key 回落由 `en` 改 `zh`（与 yml 默认 + `getPlayerLanguage` 的 zh 回落对齐）；`getSenderMessage` 控制台路径 `en` 不动（T0-04 同根一并收）
+- **[P1 修复流 6/6 / R-55k]** 注释对齐：`config.yml` 的 `progress-system.leaderboard` 注释说明 `display-count` 生效口径（缺 key 回落见代码注释，缺 key 告警以启动审计为准）；代码 `EnglishSquareGUI` fallback 50→10 的一行改动点名编排者 fan-in（文件禁区）
+- **[P1 修复流 6/6]** i18n 新增 2 键（zh/en 双语同位）：`daily-challenge.celebrate-busy`、`daily-challenge.celebrate-shown-today`
+- **[P0 流 4 / R-05]** 排行榜点击直达加 `showInSquare` 检查：`SocialListener.handleLeaderboardGUI` 点开主页前先查目标开关，隐身者进 `openHidden` 笑话页（与广场点击分支同语义）；看自己不受影响
+- **[P0 流 4 / R-05]** `/le profile <玩家>` 加 `showInSquare` 检查：目标隐身时回 `profile.hidden` 聊天提示、不再开界面；看自己不受影响
+- **[P0 流 4 / R-05]** 三条榜单 SQL（`getTopCoins`/`getTopWordsLearned`/`getTopCombo`）`LEFT JOIN player_profiles` 过滤 `show_in_square=0`，无档案行视为默认可见；SQLite/MySQL 同一写法双后端生效
+- **[P0 流 4 / R-04]** `ScenarioSelectGUI` 场景列表改按玩家版 `getScenarioConfigs(Player)`，个人场景出现在列表（展示名与全局同规则取 `display_name`/`display_name_zh`）
+- **[P0 流 4 / R-04]** `ScenarioSelectListener` 场景点击索引改按玩家版 `getAvailableScenarios(Player)`（与 GUI 同序）；`formatScenarioName` 改按玩家解析（走 `getScenarioDisplayName(Player, key)`），个人 key 显示展示名
+- **[P0 流 4 / R-04]** `/le dialogue <场景>` 回显改按玩家版 `getScenarioDisplayName(Player, key)`，个人 key 显示展示名；tab 补全改按玩家版 `getAvailableScenarios(Player)`（控制台回落全局列表）
+- **[P0 流 4]** i18n 新增 `profile.hidden`（zh/en 双语同位新增）；需编排者同步 bump `ConfigManager.MESSAGE_CONFIG_VERSION` 已部署服才能收到新键
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Changed
+
+### Fixed
+
+### Changed
+
+### Fixed
 - **[Phase 2 fan-in]** 合流测试建议顺手收：`PlayerDataStore.clearCache()` 补 `playerNameCache.clear()`，reload 后不再把旧名写回 `player_data.player_name`（改名场景）
 - **[Phase 2 fan-in]** 合流测试建议顺手收：决斗邀请 60s 过期任务改 `remove(key, value)` 原子校验，旧过期任务不再误清 60s 内发给同一目标的新邀请（与 F1-15 同源）
 - **[Phase 2 fan-in]** `ConfigManager.MESSAGE_CONFIG_VERSION` 7→8：messages/zh.yml 与 en.yml 随 Phase 2 新增键（决斗超时/GM 解散/挑战可见性/真三模式/跨天/TTS 冷却）升至 v8，代码侧同步升版，已部署服务器重启/重载后才会覆盖下发新消息文件
@@ -196,23 +235,6 @@
 - **[Phase 2 复活流 B / FEAT-MODE-01]** choice/fill_blank 模式不再走"聊天栏拼写全词精确匹配"：`submitAnswer` 判分收敛到新 `AnswerChecker`（spelling 原样保留全词拼写；choice 判选项字母 A/B/C/D；fill_blank 判挖空填词），答错/超时反馈在 choice 下展示"字母. 单词"
 - **[Phase 2 复活流 B / FEAT-MODE-01]** `SPELLING_MASTER` 收紧：仅 spelling 模式且本会话至少拼对 1 题才解锁，挂机超时/全错不再能拿
 - **[Phase 2 复活流 B / FEAT-MODE-01]** `/le word <难度> <模式>` 增加 mode 参数校验，非法 mode 回 `word.invalid-mode` 提示（此前直接抛 IllegalArgumentException 原始英文信息）
-- **[P0 修复流 / R-01+R-22]** 四个 GUI 监听器点击分区：`MiscGUIListener` / `DuelGUIListener` / `MainMenuListener` / `SocialListener` 的点击入口统一只处理上半区（Top 容器），玩家背包（下半区）点击直接 return；`setCancelled(true)` 移到确认上半区之后，下半区不再 cancel，玩家开着 GUI 也能正常整理背包
-- **[P0 修复流 / R-01]** 堵住两条高危误触发：DailyChallenge 界面点背包 11/13/15 不再领奖发钱；对决中点背包 22 不再误触退出判负
-- **[P1 修复流 2/6 / R-23]** 新增 `/le duel gui` 重开命令：决斗中 ESC 关界面后可重开当前对局 GUI（含 tab 补全），未在对决中回既有 `duel.not-in-duel`；`refreshBothGUIs` 改为仅当玩家正看着决斗 GUI 时刷新（经 `DuelGUIListener.isViewingDuelGUI` 复用点击分区同源标题判定），ESC 后每题不再强制弹回界面
-- **[P1 修复流 2/6 / R-24]** 赛前警告：`duel.started` 文案追加"决斗中所有聊天都算作答案"警告句；对决 GUI 中央单词物品 lore 加同警告一行（新键 `duel.chat-counts-warning`，zh/en 双语）
-- **[P1 修复流 2/6 / R-25]** 超时/锁题后迟到答案不再静默吞：`submitAnswer` 的 `ALREADY_ANSWERED` 分支向答题者本人回新键 `duel.round-ended`（"本题已结束"）提示，不广播
-- **[P1 修复流 2/6 / R-26]** 宽限计时器"对局已无"分支补 `task.cancel()`：从 `graceTasks` 取出任务后取消，不再留下每秒空转的泄漏任务
-- **[P1 修复流 2/6 / R-27]** `sendDuelRequest` 加答题忙态对称检查：发送者 quiz/练习中回新键 `duel.sender-answering`，目标答题中复用既有 `duel.target-answering`，与 `acceptDuel` 的 M4 门禁对称，挑战发出去前即拦截
-- **[P1 修复流 6/6 / R-40]** `/le challenge` 庆祝页顶屏三守卫：决斗中（复用 `duel.finish-duel-first`）/答题中（quiz+错题练习，新键 `daily-challenge.celebrate-busy`）只刷聊天不弹页；同一玩家同一自然日只自动弹一次，重复执行聊天末尾追新键 `daily-challenge.celebrate-shown-today`
-- **[P1 修复流 6/6 / R-55d]** `MainMenuListener.handleMainMenu` 槽位写死改读 `gui-layout.main-menu` 配置（`getGuiSlot` + 与渲染侧同 fallback 值，switch 改 if-else 链），slot 14 错题本两边写死沿用魔法数字（config.yml 不新增 key）
-- **[P1 修复流 6/6 / E-04]** `DatabaseManager.getConnection()` 整体收进 `connectionLock` 内（原锁外快路径删除，锁自愈重连保留）；`getLast7DaysStats` 首锁块开头/次锁块开头各锁内重取引用；外部 23 处锁外 `getConnection()` 留编排者 fan-in
-- **[P1 修复流 6/6 / E-05]** `DatabaseManager.initialize()` 重连先关旧连接（判 null + `isClosed`，异常吞掉记 WARNING），`getConnection` 自愈路径重入不再泄漏旧句柄
-- **[P1 修复流 6/6 / R-42]** `%lle_rank%` 冻结根治（选型 a）：`WordManagerImpl.endSession` 结算时调 `Leaderboard.updateScore(playerId, +session分)` 增量同步内存榜，`getPlayerRank` 即时反映本次结算（`updateScore` 语义为 merge-累加，调用点传增量而非全量）；`loadFromDB` 仍为启动快照
-- **[P1 修复流 6/6 / R-42 附带 E-10]** `Leaderboard.loadFromDB` 的 `getRankedPlayers(Integer.MAX_VALUE)` 改为 `RANK_SNAPSHOT_LIMIT = 1000`（下游 `getPlayerStats` N+1 逐人补读也被截断在千行内；读时查库的大改留 Phase 3）
-- **[P1 修复流 6/6 / R-55o]** `DailyChallengeManager.ChallengeType.COMBO_5` target 1→5（"达到 5 连击"语义对；触发路径 `completeChallenge` 二进制完成不受影响，该值仅用于聊天/GUI 显示的分母）
-- **[P1 修复流 6/6 / R-55l]** 默认语言 fallback 打架统一为 zh：`ConfigManager` 启动语言与 `MessageUtil` 三处 `general.language` 缺 key 回落由 `en` 改 `zh`（与 yml 默认 + `getPlayerLanguage` 的 zh 回落对齐）；`getSenderMessage` 控制台路径 `en` 不动（T0-04 同根一并收）
-- **[P1 修复流 6/6 / R-55k]** 注释对齐：`config.yml` 的 `progress-system.leaderboard` 注释说明 `display-count` 生效口径（缺 key 回落见代码注释，缺 key 告警以启动审计为准）；代码 `EnglishSquareGUI` fallback 50→10 的一行改动点名编排者 fan-in（文件禁区）
-- **[P1 修复流 6/6]** i18n 新增 2 键（zh/en 双语同位）：`daily-challenge.celebrate-busy`、`daily-challenge.celebrate-shown-today`
 
 ### Added
 - **[Phase 2 复活流 B / FEAT-MODE-01]** 新增 `core.word.AnswerChecker`：三模式判分/选项生成/挖空渲染的唯一收敛点（`check`/`buildChoiceOptions`/`blankSentence`/`formatChoiceOptions`），review/决斗/错题练习行为不变
@@ -326,13 +348,6 @@
 - **[Phase 1 止血]** H3+C4 AI 消费上限：发 API 请求前查 `getTodayAiRound`，超 `ai-chat.daily-round-limit`（默认 30）走 `dialogue.daily-limit-reached` 拒绝；每次 API 回复成功 `incrementTodayAiRound`；`max_tokens` 由硬编码 256 改为读 `ai-chat.max-tokens`（默认 128）
 - **[Phase 1 止血]** H1+C2 发音泄题：发音按钮聊天反馈移除英文原词明文，只显示音标（`word.phonetic-feedback`）
 - **[Phase 1 止血]** H1+C2 答案广播泄题：答题广播改为答对后广播"答对+分"（不含答案文本，答案文本永不出现在广播里）；玩家名广播前 `stripColor` + 截断 50 字符防颜色码注入与超长刷屏
-- **[P0 流 4 / R-05]** 排行榜点击直达加 `showInSquare` 检查：`SocialListener.handleLeaderboardGUI` 点开主页前先查目标开关，隐身者进 `openHidden` 笑话页（与广场点击分支同语义）；看自己不受影响
-- **[P0 流 4 / R-05]** `/le profile <玩家>` 加 `showInSquare` 检查：目标隐身时回 `profile.hidden` 聊天提示、不再开界面；看自己不受影响
-- **[P0 流 4 / R-05]** 三条榜单 SQL（`getTopCoins`/`getTopWordsLearned`/`getTopCombo`）`LEFT JOIN player_profiles` 过滤 `show_in_square=0`，无档案行视为默认可见；SQLite/MySQL 同一写法双后端生效
-- **[P0 流 4 / R-04]** `ScenarioSelectGUI` 场景列表改按玩家版 `getScenarioConfigs(Player)`，个人场景出现在列表（展示名与全局同规则取 `display_name`/`display_name_zh`）
-- **[P0 流 4 / R-04]** `ScenarioSelectListener` 场景点击索引改按玩家版 `getAvailableScenarios(Player)`（与 GUI 同序）；`formatScenarioName` 改按玩家解析（走 `getScenarioDisplayName(Player, key)`），个人 key 显示展示名
-- **[P0 流 4 / R-04]** `/le dialogue <场景>` 回显改按玩家版 `getScenarioDisplayName(Player, key)`，个人 key 显示展示名；tab 补全改按玩家版 `getAvailableScenarios(Player)`（控制台回落全局列表）
-- **[P0 流 4]** i18n 新增 `profile.hidden`（zh/en 双语同位新增）；需编排者同步 bump `ConfigManager.MESSAGE_CONFIG_VERSION` 已部署服才能收到新键
 
 ### Added
 - `config.yml` review 段新增 `mastered-review-interval-days` 配置项（默认 30 天），控制已掌握单词低频复习周期

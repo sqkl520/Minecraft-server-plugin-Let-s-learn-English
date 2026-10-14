@@ -114,3 +114,4 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - [x] 3A-2 个人场景管理（第3实例）：done（PersonalScenarioStore ~330 行抽取 + GUI/Listener 新建 + 入口 slot 24；**自决：确认态改条目 PDC 标记（屏幕即真相，无状态残留）**；标题互不命中双向核实闭合；ImportResult 留 AIChatManager 保零改动；javac 全仓 EXIT=0）
 - [x] 编排者 fan-in（3A-2/3A-4 键）：scenario.manage 11 键 + help.season 双语落盘（669=669 对称）；全仓编译 EXIT=0（3A-4 半落地已自愈）
 - [ ] 3A-4 赛季展示（编译已绿，等正式报告）
+- [x] W3A 三维 tester：构建 **GO**（verify 全绿 137 classes / DDL 双处逐字一致 / 668=668 对称 / 窗口纯函数 7 边界断言过）；架构 **PASS**（无 FAIL；防环命中——SeasonManager 零引用成就/社交；ProxyMessenger 双向用 var 规避 import 成"类型无环"；Store↔AIChat 仅类型互引可接受）。**待收口 2 中 + 5 低**（① seasonDaysLeft 双份复制→上收 SeasonManager 单一真相源；② AIChatManager 行数未降 1155；低：Store 类型互引固化/FQN 风格/join null 守卫/同值双常量/纯函数缺单测——②⑤ 建议随 3B 处理）；代码质量 tester 运行中

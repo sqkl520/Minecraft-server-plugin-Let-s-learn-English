@@ -103,19 +103,6 @@ public class MessageUtil {
         return ChatColor.translateAlternateColorCodes('&', message);
     }
 
-    /**
-     * Get a raw message without prefix or color processing.
-     */
-    public String getRawMessage(String key) {
-        FileConfiguration messageConfig = configManager.getMessageConfig();
-        String value = messageConfig.getString(key);
-        if (value == null) {
-            plugin.getLogger().warning("Missing raw message key: " + key);
-            return key;
-        }
-        return value;
-    }
-
     public String getPlayerMessage(Player player, String key, String... placeholders) {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration messageConfig = configManager.getMessageConfig(lang);
