@@ -77,3 +77,30 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - [x] 编排者 fan-in（Wave 2 主体）：i18n 双侧落盘完成（638=638 键级对称：report 62 键 / square.feed 23 键 / main-menu 4 键 / word 2 键，占位符逐键对照代码调用点校正 16 处）+ config.yml social/english-square 段补齐（真解析过；report 段 W2-E 已落）+ 重复顶级键清理（square/main-menu/word 三次合并）
 - [ ] W2-A 第 3 实例运行中（第 1/2 实例先后被 API 502/524 中断；主体已落盘，续写 SocialListener 路由 / PlayerJoinListener / LearnCommand / checkHelpAchievement 接线）
 - [x] W2 三维 tester：架构 PASS（七项全过，仅 WARN 建议级）；构建 GO 修复后复验（F-1 duel.challenge-* 4 键遗漏已补 + **新增自动化键核对 scripts/audit-i18n-keys.js** 又抓出 admin-help.report 漏网已补；现 643=643 对称 + verify 33 测试全绿；F-2 ProgressGUI 死类残留归 MC-7 不阻断）；代码质量 tester 运行中
+
+## Wave 3 施工（分批）
+
+### Batch 3A（4 流并行）
+| 流 | 内容 | 白名单 |
+|----|------|--------|
+| 3A-1 赛季核心 | SeasonManager(新) + seasons/season_rewards 表 + 结算器(抢占/台账/广播/join补发) + 调度挂载(LLE×2) + ProxyMessenger + PlayerJoinListener + config season 段 | core/season/(新)、DatabaseManager、schema.sql、LetsLearnEnglish、PlayerJoinListener、ProxyMessenger、config.yml(season 段) |
+| 3A-2 个人场景管理 | PersonalScenarioStore 抽取 + PersonalScenarioGUI(新) + Listener(新) + 场景选择页 slot 24 + GUIUtils | core/ai/PersonalScenarioStore(新)、AIChatManager、gui/PersonalScenarioGUI(新)、listener/PersonalScenarioListener(新)、ScenarioSelectGUI、ScenarioSelectListener、GUIUtils、LetsLearnEnglish(注册一行) |
+| 3A-3 语义清理 | 裸 getString 二期(25处) + PF-MC-11 第四份 localize 收敛 | WordLearningListener、WordLearningManager、WrongBookListener、DailyChallengeManager、DuelManager、OnboardingManager、WordModes |
+| 3A-4 赛季展示 | LeaderboardGUI 赛季 tab + PAPI 3 占位符 + (可选)/lea season info | LeaderboardGUI、LLEPapiExpansion、LearnCommand |
+
+### Batch 3B（AI 反馈闭环，2 流并行——依赖 3A-2 的 Store 抽取先落地）
+| 流 | 内容 | 白名单 |
+|----|------|--------|
+| 3B-1a 会话核心 | ChatSessionState 收敛 + transcript 缓冲 + SessionSummary + requestConversationSummary + ConversationFeedback.parse + 单测 | AIChatManager、ConversationFeedback(新)、ConversationFeedbackTest(新) |
+| 3B-1b 持久化与集成 | ChatFeedbackEntry(新) + DatabaseManager(ai_chat_feedback) + ChatFeedbackManager(新) + ChatFeedbackManager 显示编排 + 三处集成(ChatScenarioListener/LearnCommand/ChatHistoryGUI) + config feedback 块 | data/ChatFeedbackEntry(新)、DatabaseManager、schema.sql、ChatFeedbackManager(新)、ChatScenarioListener、LearnCommand、ChatHistoryGUI、config.yml(feedback 块) |
+
+### Wave 3 冻结接口（3B 用）
+- `AIChatManager.SessionSummary` record(sessionId/scenarioKey/difficultyKey/validInputs/aiReplyCount/qualified/startTimeMs/durationSeconds/transcript)
+- `AIChatManager.TranscriptLine` record(role, content)
+- `endConversation(Player)`/`endConversationOnQuit(Player)` 返回 SessionSummary
+- `requestConversationSummary(Player, SessionSummary, BiConsumer<ConversationFeedback,String>)`（主线程回调，errorKey null=成功）
+- `ConversationFeedback` record(comment, corrections, words) + nested Correction(original,corrected,note) + static parse(String)→nullable
+- `ChatFeedbackManager`(deliverEnd/persistOnQuit/getFeedback/unloadPlayer)
+- `ChatFeedbackEntry` data class
+- `DatabaseManager.upsertChatFeedback(...)` / `getChatFeedback(UUID,String)`
+- `SeasonManager.SeasonWindow(int id, LocalDate start, LocalDate end)` / `SeasonRankRow(int rank, UUID uuid, String name, long score)` / `isEnabled()` / `getCurrentTopCached(int)` / `getRankOf(UUID)`
