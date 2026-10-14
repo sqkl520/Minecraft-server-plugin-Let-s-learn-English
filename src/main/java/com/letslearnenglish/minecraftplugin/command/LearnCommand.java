@@ -5,6 +5,7 @@ import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
 import com.letslearnenglish.minecraftplugin.core.ai.ScenarioCodec;
 import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.RankingMode;
+import com.letslearnenglish.minecraftplugin.core.season.SeasonManager;
 import com.letslearnenglish.minecraftplugin.core.word.WordModes;
 import com.letslearnenglish.minecraftplugin.gui.ChatHistoryGUI;
 import com.letslearnenglish.minecraftplugin.gui.EnglishSquareGUI;
@@ -46,7 +47,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     private final LetsLearnEnglish plugin;
 
     private static final List<String> SUBCOMMANDS = Arrays.asList(
-            "menu", "word", "dialogue", "progress", "review", "stats", "help", "guide", "square", "profile", "leaderboard", "challenge", "history", "duel", "wrong", "checkin", "save_scenario", "load_scenario"
+            "menu", "word", "dialogue", "progress", "review", "stats", "help", "guide", "square", "profile", "leaderboard", "challenge", "history", "duel", "wrong", "checkin", "season", "save_scenario", "load_scenario"
     );
 
     /**
@@ -129,6 +130,9 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 break;
             case "checkin":
                 handleCheckinCommand(player);
+                break;
+            case "season":
+                handleSeasonCommand(player);
                 break;
             case "save_scenario":
                 handleSaveScenarioCommand(player, args);
@@ -736,6 +740,74 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         }
     }
 
+    /**
+     * /le season（Phase 3 · 域 5 赛季，plan-season §2.1 可选项）：
+     * 聊天输出当前赛季号 / 剩余天数 / 本人名次 + 前 10 快览。
+     * 发现性入口 —— 榜单 GUI 的赛季 tab 是主入口，本命令是聊天侧轻量视图。
+     *
+     * <p>gating（R-55i 真 gating 同口径）：SeasonManager 为 null / enabled=false /
+     * 赛季未开启（锚点在未来）→ season.disabled 提示。数据全部读 SeasonManager
+     * 缓存（getCurrentTopCached / getRankOf），零查库。
+     */
+    private void handleSeasonCommand(Player player) {
+        SeasonManager season = plugin.getSeasonManager();
+        if (!LeaderboardGUI.isSeasonAvailable(season)) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "season.disabled"));
+            return;
+        }
+
+        java.time.LocalDate today = java.time.LocalDate.now();
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                "season.title", "season", String.valueOf(season.currentSeasonId(today))));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                "season.remaining",
+                "days", String.valueOf(LeaderboardGUI.seasonDaysLeft(season)),
+                "hours", String.valueOf(LeaderboardGUI.seasonHoursLeft(season))));
+
+        // 赛季榜缓存（最多 50 行；显示前 10，本人分数反查全量 50）
+        var topRows = season.getCurrentTopCached(50);
+
+        // 本人名次（getRankOf 走缓存；-1 = 未上榜 → season.unranked 与 GUI/PAPI 同语义）
+        int rank = season.getRankOf(player.getUniqueId());
+        if (rank > 0) {
+            // 分数反查缓存（榜外无分数可查，与信息牌同表现）
+            long score = 0;
+            for (SeasonManager.SeasonRankRow row : topRows) {
+                if (row.uuid().equals(player.getUniqueId())) {
+                    score = row.score();
+                    break;
+                }
+            }
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "season.your-rank",
+                    "rank", String.valueOf(rank),
+                    "score", String.valueOf(score)));
+        } else {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "season.unranked"));
+        }
+
+        // 前 10 快览（复用榜单行格式 leaderboard.entry/header/footer，与聊天榜样式统一）
+        if (topRows.isEmpty()) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "season.empty"));
+            return;
+        }
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                "leaderboard.header"));
+        for (int i = 0; i < Math.min(10, topRows.size()); i++) {
+            SeasonManager.SeasonRankRow row = topRows.get(i);
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "leaderboard.entry",
+                    "rank", String.valueOf(row.rank()),
+                    "player", row.name() != null ? row.name() : "",
+                    "score", String.valueOf(row.score())));
+        }
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                "leaderboard.footer"));
+    }
+
     private void handleSaveScenarioCommand(Player player, String[] args) {
         AIChatManager aiChatManager = plugin.getAIChatManager();
 
@@ -877,6 +949,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.duel"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.wrong"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.checkin"));
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.season"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.guide"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.save_scenario"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.load_scenario"));

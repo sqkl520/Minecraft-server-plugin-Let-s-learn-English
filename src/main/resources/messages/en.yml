@@ -153,6 +153,8 @@ leaderboard:
   entry-words: "&7Words Learned: &e{score}"
   entry-combo: "&7Longest Combo: &e{score}"
   click-hint: "&7Click to view player profile"
+  tab-season: "&6Season / 赛季榜"
+  entry-season: "&7Season score: &e{score}"
 
 progress:
   view: "{prefix}&aViewing your learning progress..."
@@ -250,6 +252,7 @@ help:
   load_scenario: "&e/le load_scenario <code> &7- Import a shared scenario code"
   guide: "&e/le guide &7- View starter guide progress / get the guide book"
   footer: "&6======================================"
+  season: "&e/le season &7- View the current season, time left and your rank"
 
 checkin:
   success: "{prefix}&aCheck-in successful! Streak: &e{streak} &adays, earned &e{coins} &acoins!"
@@ -270,6 +273,17 @@ scenario:
   load-invalid: "{prefix}&cInvalid scenario code. Please check if it was copied completely."
   load-name-invalid: "{prefix}&cInvalid scenario name in the code~"
   load-no-permission: "{prefix}&cYou don't have permission to import scenarios. Please contact an admin."
+  manage-button: "&e&lManage My Scenarios"
+  manage-button-lore: "&7View/delete your imported personal scenarios"
+  manage-title: "&6&lMy Personal Scenarios"
+  manage-count: "&ePersonal scenarios: &f{current}&7/&f{max}"
+  manage-click-hint: "&7Left-click to delete (click again to confirm)"
+  manage-confirm: "&cClick again to confirm deletion!"
+  manage-deleted: "{prefix}&aScenario '{name}' deleted!"
+  manage-not-found: "{prefix}&cScenario not found (maybe already deleted)."
+  manage-save-failed: "{prefix}&cFailed to save deletion; check logs."
+  manage-empty: "&7No personal scenarios yet~"
+  manage-empty-lore: "&7Export a share code with &e/le save_scenario &7then import via &e/le load_scenario"
 
 duel:
   cannot-challenge-self: "{prefix}&cYou cannot challenge yourself!"
@@ -742,3 +756,20 @@ report:
   batch-start: "{prefix}&7Generating report for {count} students, please wait..."
   batch-complete: "{prefix}&aServer-wide report generated: &e{file} ({count} students){truncated}"
   batch-truncated: "{prefix}&eToo many students; report includes the first {max} only"
+
+# ============================================================
+#  Season — Wave 3 (Domain 5 Batch A)
+# ============================================================
+season:
+  started-broadcast: "&6&lSeason {season} has begun! &7{days} days — climb the board!"
+  ended-broadcast: "&6&lSeason {season} ended! &7Champion: &e{top1} &7({score1} pts)"
+  reward-earned: "{prefix}&aSeason reward paid: &e{amount} &acoins (Season {season}, rank {rank})"
+  reward-pending-join: "{prefix}&aLast season you ranked #{rank} - &e{amount} &acoins paid!"
+  participated-reward: "{prefix}&aSeason participation reward: &e{amount} &acoins"
+  tab: "&6Season / 赛季榜"
+  title: "&6&lSeason {season}"
+  remaining: "&7Remaining: &e{days}d {hours}h"
+  your-rank: "&7Your rank: &e#{rank} &7(score {score})"
+  unranked: "Unranked"
+  empty: "&7No one on the board yet - be the first!"
+  disabled: "&7Season system is disabled"

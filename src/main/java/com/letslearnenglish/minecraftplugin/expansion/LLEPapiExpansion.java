@@ -2,12 +2,15 @@ package com.letslearnenglish.minecraftplugin.expansion;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
+import com.letslearnenglish.minecraftplugin.core.season.SeasonManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,12 +33,18 @@ import java.util.concurrent.ConcurrentHashMap;
  *                            fall back to the legacy null contract
  *   %lle_correct%        — total correct answers
  *   %lle_incorrect%      — total incorrect answers
+ *   %lle_season%         — current season number, e.g. "3" ("" when the season
+ *                          system is disabled or not started yet)
+ *   %lle_season_days_left% — days left in the current season ("" when disabled)
+ *   %lle_season_rank%    — season rank text ("#7" or "未上榜"/"Unranked"; ""
+ *                          when disabled)
  *
  * R-43 privacy: looking at somebody else's placeholders first checks their
  * switches — showInSquare=false (invisible) returns the private placeholder
- * (rank falls back to the unranked text so scoreboard standings keep working);
- * showResults=false hides the learning-score family. Coins follow the same
- * rule as ProfileGUI: only the owner sees their own number.
+ * (rank falls back to the unranked text so scoreboard standings keep working;
+ * season_rank follows the same rank rule); showResults=false hides the
+ * learning-score family. Coins follow the same rule as ProfileGUI: only the
+ * owner sees their own number.
  *
  * R-43 cache: every resolved value is cached per (player, params, viewer
  * language/relationship bucket) with a 30s TTL so scoreboard refreshes no
@@ -173,6 +182,32 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
         // L-05：展示路径走只读版，不建缓存条目。
         PlayerDataStore.ProfileSettings ps = store.getProfileSettingsReadOnly(playerId);
 
+        // plan-season §2.5：三个赛季占位符在隐私门禁之前解析 ——
+        // ① season.enabled=false 或赛季未开启（锚点在未来，id≤0）→ 空串真 gating，
+        //    优先于一切（含隐私占位语义）；
+        // ② %lle_season% / %lle_season_days_left% 是服务器级状态（纯计算，零个人信息，
+        //    隐私门禁不适用 —— 离线目标的非本人视角也返回真实赛季数据）；
+        // ③ %lle_season_rank% 含个人信息，遵循 rank 同款规则（非本人查看隐身者
+        //    → 未上榜文本，与下方门禁 1 的 rank 例外同语义）。
+        if (params.equals("season") || params.equals("season_days_left")
+                || params.equals("season_rank")) {
+            SeasonManager season = plugin.getSeasonManager();
+            if (!isSeasonAvailable(season)) {
+                return ""; // 真 gating：未启用/未开启一律空串，不进任何隐私回落
+            }
+            if (params.equals("season")) {
+                return String.valueOf(season.currentSeasonId(LocalDate.now()));
+            }
+            if (params.equals("season_days_left")) {
+                return String.valueOf(seasonDaysLeft(season));
+            }
+            if (!isSelfView && !ps.isShowInSquare()) {
+                return getUnrankedText(offlinePlayer);
+            }
+            int seasonRank = season.getRankOf(playerId);
+            return seasonRank > 0 ? "#" + seasonRank : getUnrankedText(offlinePlayer);
+        }
+
         // R-43 门禁 1：隐身者（showInSquare=false）—— 非本人查看时，
         // 所有占位符返回隐私占位串；rank 例外：返回未上榜文本（榜单占位符的
         // 既有语义，P0 R-05 SQL 已把隐身者排除出榜，此处与之对齐）。
@@ -246,9 +281,36 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
     private boolean isKnownParams(String params) {
         return switch (params) {
             case "score", "coins_earned", "rank", "words", "accuracy", "sessions",
-                    "streak", "longest_streak", "achievements", "correct", "incorrect" -> true;
+                    "streak", "longest_streak", "achievements", "correct", "incorrect",
+                    // plan-season §2.5：三个赛季占位符（固定集合扩展，非动态 key）
+                    "season", "season_days_left", "season_rank" -> true;
             default -> false;
         };
+    }
+
+    /**
+     * plan-season §2.5 真 gating 判定：SeasonManager 为 null（DI 未就位）或
+     * {@code isEnabled()=false} → 三占位符返回空串。落盘的 isEnabled() 已折叠
+     * {@code season.enabled=false} 与"锚点在未来（赛季未开启）"两种休眠条件；
+     * 与 LeaderboardGUI.isSeasonAvailable 同判据（两处同源；跨层不互相引用，
+     * 改动须两侧同步核对）。
+     */
+    private boolean isSeasonAvailable(SeasonManager season) {
+        return season != null && season.isEnabled();
+    }
+
+    /**
+     * plan-season §2.5：剩余天数（与 LeaderboardGUI.seasonDaysLeft 同源公式，
+     * "windowOf(currentSeasonId(today)).end - today + 1"含今天，闭区间语义。
+     * 这里复制实现而非引用 gui 类 —— expansion 层不依赖 gui 层，改动须两侧同步）。
+     */
+    private long seasonDaysLeft(SeasonManager season) {
+        LocalDate today = LocalDate.now();
+        int id = season.currentSeasonId(today);
+        if (id <= 0) {
+            return 0;
+        }
+        return ChronoUnit.DAYS.between(today, season.windowOf(id).end()) + 1;
     }
 
     /**

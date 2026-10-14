@@ -510,6 +510,10 @@ proxy:
   cross-server-announcements: true
   # 是否启用跨服全局消息接收（接收来自其他子服的公告）
   cross-server-messages: true
+  # 本子服在代理网络中的服务器名（与 BungeeCord/Velocity 配置一致）。
+  # 用于跨服广播回环去重（赛季结算/开始子通道）；留空 = 单服模式
+  # （回环语义退化为"可能重复播报一次"，奖励发放仍受台账幂等保护）。
+  server-name: ""
 
 # ============================================================
 #  每日学习提醒 (Daily Study Reminder)
@@ -684,3 +688,33 @@ social:
 english-square:
   # 广场打开时的默认模式: feed（动态流，推荐）/ all（玩家列表）
   default-mode: "feed"
+
+# ============================================================
+#  赛季系统 (Season System) — Wave 3（域 5 批次 A）
+# ============================================================
+#  窗口 = 锚点 + 固定时长纯函数推导（本地日粒度，停服/漂移不累计误差）。
+#  赛季榜 = player_sessions 的时间窗口视图（零数据重置，总榜不动）；
+#  结算台账 = seasons / season_rewards 两表（多服连同一库时条件 UPDATE 抢占单发）。
+#  主 config（config-version: 2）无迁移机制，新键靠读取点 getX(key, default) 兜底。
+season:
+  # 是否启用赛季（关闭时：无结算调度、无赛季 tab、无广播、PAPI 返回空）
+  # 默认关：运营属性功能，先让用户确认再开（对齐 money.enabled 先例）
+  enabled: false
+  # 单季时长（天）。所有边界由 anchor-date 纯函数推导，停服/漂移不累计误差；
+  # 锚点在未来（或首次误配）时全系统视为"赛季未开启"，所有赛季功能休眠
+  duration-days: 30
+  # 首季开始日（服务器本地时区，yyyy-MM-dd）。修改本键 = 重定义全局赛季轴，慎改；
+  # 多子服必须同 host 时区（不同时区边界会错位，最坏 = 一服多结算一空季，
+  # 抢占语义保证不重复发奖）
+  anchor-date: "2026-11-02"
+  # 结算奖励分层（金币；需 Vault，无 Vault 只公告不发钱——静默降级）。
+  # 赛季奖励不走 money.daily-cap（一次性、有排名门槛、台账幂等防重），
+  # 直发 Vault + lifetime 记账，不挤占当日答题额度
+  rewards:
+    enabled: true
+    top1: 5000.0
+    top3: 2000.0          # 第 2-3 名
+    top10: 500.0          # 第 4-10 名
+    participated: 0.0     # 参与奖（>0 时窗口内有过会话即发；含隐身者——发放不受展示开关约束）
+  # 开始/结束是否全服广播（跨服经 ProxyMessenger 子通道，见 proxy.server-name）
+  announce: true

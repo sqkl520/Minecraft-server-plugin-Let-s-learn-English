@@ -4,6 +4,7 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordBank;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.entity.Player;
 
 import java.sql.Connection;
@@ -742,7 +743,7 @@ public class DailyChallengeManager {
         String lang = plugin.getPlayerLanguage(player);
         var msgs = plugin.getConfigManager().getMessageConfig(lang);
         String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                msgs.getString("daily-challenge.all-complete")
+                MessageUtil.getGuiMsg(msgs, "daily-challenge.all-complete")
                         .replace("{reward}", String.valueOf((int) reward)));
         player.sendMessage(msg);
 

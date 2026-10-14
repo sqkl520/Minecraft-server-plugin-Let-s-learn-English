@@ -3,6 +3,7 @@ package com.letslearnenglish.minecraftplugin.core.onboarding;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.word.LearningSession;
+import com.letslearnenglish.minecraftplugin.core.word.WordModes;
 import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import net.kyori.adventure.text.Component;
@@ -187,9 +188,11 @@ public class OnboardingManager implements Listener {
             return true;
         }
         new WordLearningGUI(plugin).openWithMessage(player, difficulty, TUTORIAL_MODE);
+        // PF-MC-11（3A-3 收口）：{difficulty} 本地化走 WordModes 单一实现（第四份
+        // 私有拷贝已删除；LearnCommand / MiscGUIListener 同源）。
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                 "onboarding.session-start",
-                "difficulty", localizeDifficulty(player, difficulty),
+                "difficulty", WordModes.localizeDifficulty(plugin.getMessageUtil(), player, difficulty),
                 "count", String.valueOf(sessionWords)));
         return true;
     }
@@ -493,19 +496,6 @@ public class OnboardingManager implements Listener {
     private boolean removeBookOnComplete() {
         return plugin.getConfigManager().getMainConfig()
                 .getBoolean("onboarding.remove-book-on-complete", true);
-    }
-
-    /**
-     * {difficulty} 本地化：复用既有 {@code word.difficulty-*} 键（F2-13 同口径），
-     * 未知标识符回落原值保证信息不丢。
-     */
-    private String localizeDifficulty(Player player, String difficulty) {
-        return switch (difficulty.toLowerCase(java.util.Locale.ROOT)) {
-            case "beginner" -> plugin.getMessageUtil().getPlayerMessage(player, "word.difficulty-beginner");
-            case "intermediate" -> plugin.getMessageUtil().getPlayerMessage(player, "word.difficulty-intermediate");
-            case "advanced" -> plugin.getMessageUtil().getPlayerMessage(player, "word.difficulty-advanced");
-            default -> difficulty;
-        };
     }
 
     /** {@code &} 码文案 → Adventure Component（页/题头渲染统一入口）。 */

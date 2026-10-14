@@ -193,8 +193,12 @@ public class DuelManager {
         // Message to target with clickable accept
         String acceptMsg = getMsg(target, "duel.request-received", "player", sender.getName());
         // Make it clickable by suggesting /le duel accept
+        // P2-13 二期（3A-3）：getRawMsg → MessageUtil.getGuiMsg —— 原实现缺键返回 null，
+        // translateAlternateColorCodes('&', null) 直接 NPE（真实崩溃路径）。
+        String lang = plugin.getPlayerLanguage(target);
+        FileConfiguration acceptMsgs = plugin.getConfigManager().getMessageConfig(lang);
         String clickableAccept = ChatColor.translateAlternateColorCodes('&',
-                getRawMsg(target, "duel.accept-hint"));
+                MessageUtil.getGuiMsg(acceptMsgs, "duel.accept-hint"));
         target.sendMessage(acceptMsg);
         target.sendMessage(clickableAccept);
 
@@ -1139,7 +1143,7 @@ public class DuelManager {
         FileConfiguration msgs = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                msgs.getString("duel.scoreboard-title"));
+                MessageUtil.getGuiMsg(msgs, "duel.scoreboard-title"));
 
         org.bukkit.scoreboard.Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
         org.bukkit.scoreboard.Objective obj = board.registerNewObjective("duel", "dummy", title);
@@ -1169,7 +1173,7 @@ public class DuelManager {
         obj.getScore(" ").setScore(lineNum--);
 
         // Target score line
-        String targetLine = msgs.getString("duel.scoreboard-target");
+        String targetLine = MessageUtil.getGuiMsg(msgs, "duel.scoreboard-target");
         obj.getScore(ChatColor.translateAlternateColorCodes('&', targetLine)).setScore(lineNum);
 
         player.setScoreboard(board);
@@ -1212,7 +1216,7 @@ public class DuelManager {
         FileConfiguration msgs = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                msgs.getString("duel.scoreboard-title-grace")
+                MessageUtil.getGuiMsg(msgs, "duel.scoreboard-title-grace")
                         .replace("{seconds}", String.valueOf(remainingSeconds)));
         obj.setDisplayName(title);
     }
@@ -1330,11 +1334,5 @@ public class DuelManager {
 
     private String getMsg(Player player, String key, String... placeholders) {
         return plugin.getMessageUtil().getPlayerMessage(player, key, placeholders);
-    }
-
-    private String getRawMsg(Player player, String key) {
-        String lang = plugin.getPlayerLanguage(player);
-        FileConfiguration msgs = plugin.getConfigManager().getMessageConfig(lang);
-        return msgs.getString(key);
     }
 }

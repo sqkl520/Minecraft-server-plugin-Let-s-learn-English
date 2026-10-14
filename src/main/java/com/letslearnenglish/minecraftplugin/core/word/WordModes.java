@@ -165,7 +165,7 @@ public final class WordModes {
     /**
      * PF-MC-11 收口：难度标识符 → i18n label（{@code word.difficulty-*}），未知回落原值
      * （绝不把空值塞进占位符）。原 LearnCommand / MiscGUIListener 两份私有拷贝删除，
-     * 统一走此实现；OnboardingManager 的第四份暂留（不在本流白名单，另行上报）。
+     * 统一走此实现；OnboardingManager 的第四份已于 3A-3 收敛（全库单一实现）。
      */
     public static String localizeDifficulty(MessageUtil util, Player player, String difficulty) {
         return switch (difficulty.toLowerCase(Locale.ROOT)) {

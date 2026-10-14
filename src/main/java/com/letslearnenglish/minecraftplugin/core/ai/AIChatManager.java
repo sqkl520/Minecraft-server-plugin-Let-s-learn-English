@@ -18,15 +18,12 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
-import java.util.zip.CRC32;
 
 /**
  * AI 对话管理器 — 基于 DeepSeek API 的智能情景对话
@@ -56,15 +53,15 @@ public class AIChatManager {
     /** R-63：ai-chat.max-context-pairs 默认值（最多携带最近 N 轮 user/assistant 对）。 */
     private static final int DEFAULT_MAX_CONTEXT_PAIRS = 6;
     private static final int CHARS_PER_TOKEN_ESTIMATE = 4;
-    /** R-62：单玩家个人场景数量上限（超出只加载前 N 条 / 新导入被拒）。 */
-    private static final int MAX_PERSONAL_SCENARIOS = 30;
-    /** R-62：个人场景文件大小上限（512KB）——超限视为异常，不解析。 */
-    private static final long MAX_PERSONAL_SCENARIO_FILE_BYTES = 512 * 1024L;
-    /** 个人场景 key 前缀：personal:<uuid前8>:<slug>。 */
-    private static final String PERSONAL_KEY_PREFIX = "personal:";
 
     private final LetsLearnEnglish plugin;
     private final Gson gson = new Gson();
+
+    /**
+     * P2-28/PF-FB-05：个人场景持久化抽取为独立 Store（文件 IO + 内存副本 + 删除）。
+     * AIChatManager 保留全部既有公共读取签名，内部委托本 Store。
+     */
+    private final PersonalScenarioStore personalScenarioStore;
 
     // 以下配置字段在构造 / 热重载时由主线程写入，但会被异步线程读取
     // （chatAsync 可由 AsyncPlayerChatEvent 触发，HTTP 请求在 supplyAsync 中执行），
@@ -113,8 +110,6 @@ public class AIChatManager {
     private final LinkedHashMap<String, ScenarioConfig> scenarios = new LinkedHashMap<>();
     /** 难度配置 */
     private final LinkedHashMap<String, DifficultyConfig> difficulties = new LinkedHashMap<>();
-    /** 每玩家个人场景（key → ScenarioConfig，key 形如"personal:<uuid8>:<slug>"全局唯一） */
-    private final Map<UUID, LinkedHashMap<String, ScenarioConfig>> personalScenarios = new ConcurrentHashMap<>();
 
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
@@ -155,6 +150,7 @@ public class AIChatManager {
 
     public AIChatManager(LetsLearnEnglish plugin) {
         this.plugin = plugin;
+        this.personalScenarioStore = new PersonalScenarioStore(plugin);
         loadConfig();
         loadScenariosConfig();
     }
@@ -478,20 +474,14 @@ public class AIChatManager {
     private String buildSystemPrompt(String scenarioKey, String difficultyKey, String lang, UUID ownerId) {
         ScenarioConfig sc = scenarios.get(scenarioKey);
         if (sc == null && ownerId != null) {
-            LinkedHashMap<String, ScenarioConfig> mine = personalScenarios.get(ownerId);
-            if (mine != null) {
-                sc = mine.get(scenarioKey);
-            }
-            // F4-01：个人场景且该玩家的内存副本从未加载过（mine == null）时懒加载一次
+            sc = personalScenarioStore.getLoadedPersonalScenario(ownerId, scenarioKey);
+            // F4-01：个人场景且该玩家的内存副本从未加载过（未加载过）时懒加载一次
             // （落盘→内存，直接调用安全，不会递归）；仍 miss 才回落通用句。
-            // 用 mine == null 而非纯 key miss 守卫 —— 保持"懒加载最多 1 次/玩家/进程"防刷屏语义。
-            if (sc == null && mine == null
-                    && scenarioKey != null && scenarioKey.startsWith(PERSONAL_KEY_PREFIX)) {
-                reloadPersonalScenarios(ownerId);
-                mine = personalScenarios.get(ownerId);
-                if (mine != null) {
-                    sc = mine.get(scenarioKey);
-                }
+            // 用"未加载"而非纯 key miss 守卫 —— 保持"懒加载最多 1 次/玩家/进程"防刷屏语义。
+            if (sc == null && !personalScenarioStore.isLoaded(ownerId)
+                    && PersonalScenarioStore.isPersonalKey(scenarioKey)) {
+                personalScenarioStore.reloadPersonalScenarios(ownerId);
+                sc = personalScenarioStore.getLoadedPersonalScenario(ownerId, scenarioKey);
                 if (sc == null) {
                     debugLog("个人场景懒加载后仍未找到 key=" + scenarioKey + " owner=" + ownerId);
                 }
@@ -994,9 +984,11 @@ public class AIChatManager {
     }
 
     // ============================================================
-    //  个人场景导入（H7：不再写全局 ai_scenarios.yml / 不 reload 全局）
+    //  个人场景（H7：不再写全局 ai_scenarios.yml / 不 reload 全局）
     //  存储：plugins/LetsLearnEnglish/player_scenarios/<uuid>.yml
     //  格式：scenarios.<key>.{display_name, display_name_zh, material, prompt}
+    //  P2-28/PF-FB-05：持久化实现已迁 PersonalScenarioStore，
+    //  本节仅为读取门面/薄壳委托，公共签名保持不变。
     // ============================================================
 
     /**
@@ -1009,27 +1001,13 @@ public class AIChatManager {
      *   <li>{@code limitReached} — true 表示已达个人场景数量上限被拒（未写盘、未改内存；
      *       与 saveFailed 互斥，供调用点区分"上限拒绝"与"保存失败"两种提示）</li>
      * </ul>
+     * 定义保留在本类：LearnCommand 以 {@code AIChatManager.ImportResult} 限定引用（零改动约束）。
      */
     public static record ImportResult(String key, boolean updated, boolean saveFailed,
                                       boolean limitReached) {}
 
     /**
-     * R-61：slug 生成 —— 可读前缀 + 名称 CRC32 短码（8 位十六进制）。
-     * 纯中文名（如"开会"/"购物"）归一化后 slug 全为 "_"，靠短码区分产出不同 key，
-     * 不再互相静默覆盖；同名重复导入归属同一 key（幂等更新语义）。
-     */
-    private static String personalScenarioSlug(String name) {
-        String normalized = name.toLowerCase(java.util.Locale.ROOT);
-        String slug = normalized.replaceAll("[^a-z0-9_]", "_");
-        if (slug.isEmpty()) slug = "custom";
-        if (slug.length() > 24) slug = slug.substring(0, 24);
-        CRC32 crc = new CRC32();
-        crc.update(normalized.getBytes(StandardCharsets.UTF_8));
-        return slug + "_" + String.format("%08x", crc.getValue());
-    }
-
-    /**
-     * 导入一条玩家个人场景：落盘到该玩家的个人场景文件，并加载进内存。
+     * 导入一条玩家个人场景（薄壳，委托 {@link PersonalScenarioStore}）。
      * 不触碰全局 ai_scenarios.yml，不触发全局 reload，不影响其他玩家。
      *
      * @param player 导入者
@@ -1040,150 +1018,34 @@ public class AIChatManager {
      *         {@code limitReached=true}。saveFailed / limitReached 时调用点不得报成功。
      */
     public ImportResult importPersonalScenario(Player player, String name, String prompt) {
-        UUID ownerId = player.getUniqueId();
-        String slug = personalScenarioSlug(name);
-        // key 全局唯一：personal:<uuid前8>:<slug>，避免两玩家同名场景互相覆盖；
-        // slug 尾附名称短码 —— 同名幂等复用同一 key，异名（含纯中文名）互不覆盖。
-        String key = PERSONAL_KEY_PREFIX + ownerId.toString().substring(0, 8) + ":" + slug;
-
-        // R-62：先确保内存副本反映最新磁盘状态（懒加载 + 文件大小/条数上限一并生效）。
-        LinkedHashMap<String, ScenarioConfig> mine = personalScenarios.get(ownerId);
-        if (mine == null) {
-            reloadPersonalScenarios(ownerId);
-            mine = personalScenarios.get(ownerId);
-        }
-        if (mine == null) {
-            mine = personalScenarios.computeIfAbsent(ownerId, k -> new LinkedHashMap<>());
-        }
-
-        File dir = new File(plugin.getDataFolder(), "player_scenarios");
-        if (!dir.exists() && !dir.mkdirs()) {
-            plugin.getLogger().warning("Failed to create player_scenarios directory.");
-            return new ImportResult(null, false, true, false);
-        }
-        File file = new File(dir, ownerId + ".yml");
-        // R-62：超大文件与 reload 同策略 —— 不解析（视为损坏），走下方备份 + 干净重写。
-        YamlConfiguration config = new YamlConfiguration();
-        ConfigurationSection existing = null;
-        if (file.exists()) {
-            if (file.length() > MAX_PERSONAL_SCENARIO_FILE_BYTES) {
-                plugin.getLogger().warning("Personal scenario file for " + ownerId + " exceeds "
-                        + (MAX_PERSONAL_SCENARIO_FILE_BYTES / 1024)
-                        + "KB — not parsed; will be backed up and rewritten cleanly.");
-            } else {
-                config = YamlConfiguration.loadConfiguration(file);
-                existing = config.getConfigurationSection("scenarios");
-            }
-        }
-        boolean exists = mine.containsKey(key) || (existing != null && existing.contains(key));
-
-        // R-62：数量上限 —— 仅拒绝"新增"；同名覆盖更新不占新额度，幂等更新始终放行。
-        if (!exists && mine.size() >= MAX_PERSONAL_SCENARIOS) {
+        ImportResult result = personalScenarioStore.importPersonalScenario(player, name, prompt);
+        // R-62 debug 诊断行（原实现内联，迁移后由薄壳补回——ai-chat.debug 语义不变）
+        if (result.limitReached()) {
             debugLog("[" + player.getName() + "] 个人场景导入被拒 — 已达上限 "
-                    + MAX_PERSONAL_SCENARIOS);
-            return new ImportResult(null, false, false, true);
+                    + getMaxPersonalScenarios());
         }
-
-        // R-61(d)：文件有内容但解析不出 scenarios 段（损坏/空表）→ save 前备份为 .bak，
-        // 防止"仅含新场景"的覆盖把旧数据清光（只保留一份 bak，覆盖旧 bak）。
-        if (file.exists() && file.length() > 0 && existing == null) {
-            File backup = new File(dir, ownerId + ".yml.bak");
-            try {
-                Files.copy(file.toPath(), backup.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                plugin.getLogger().warning("Personal scenario file for " + ownerId
-                        + " appears corrupted (no 'scenarios' section) — backed up to "
-                        + backup.getName() + " before overwrite.");
-            } catch (IOException e) {
-                plugin.getLogger().warning("Failed to back up corrupted personal scenario file for "
-                        + ownerId + ": " + e.getMessage());
-            }
-        }
-
-        config.set("scenarios." + key + ".display_name", name);
-        config.set("scenarios." + key + ".display_name_zh", name);
-        config.set("scenarios." + key + ".material", "PAPER");
-        config.set("scenarios." + key + ".prompt", prompt);
-        try {
-            config.save(file);
-        } catch (IOException e) {
-            plugin.getLogger().warning("Failed to save personal scenario for "
-                    + player.getName() + ": " + e.getMessage());
-            return new ImportResult(null, false, true, false);
-        }
-
-        ScenarioConfig sc = new ScenarioConfig(key);
-        sc.displayName = name;
-        sc.displayNameZh = name;
-        sc.material = Material.PAPER;
-        sc.prompt = prompt;
-        mine.put(key, sc);
-        return new ImportResult(key, exists, false, false);
+        return result;
     }
 
     /**
-     * 重载指定玩家的个人场景（从磁盘读入内存）。仅影响该玩家，不碰全局。
-     * 个人文件损坏/缺失时清空其内存个人场景，保证"坏文件不炸全局"。
-     * R-62：文件大小上限（超限 warn + 视为空表）；单玩家场景条数上限（只加载前 N 条 + warn）。
+     * 删除一条玩家个人场景（薄壳，委托 {@link PersonalScenarioStore}）。
+     * 供个人场景管理页消费；语义见 {@link PersonalScenarioStore#deletePersonalScenario}。
+     */
+    public PersonalScenarioStore.DeleteResult deletePersonalScenario(Player player, String key) {
+        return personalScenarioStore.deletePersonalScenario(player.getUniqueId(), key);
+    }
+
+    /**
+     * 重载指定玩家的个人场景（薄壳，委托 {@link PersonalScenarioStore}）。
+     * 仅影响该玩家，不碰全局；坏文件容错语义见 Store。
      */
     public void reloadPersonalScenarios(UUID ownerId) {
-        LinkedHashMap<String, ScenarioConfig> mine =
-                personalScenarios.computeIfAbsent(ownerId, k -> new LinkedHashMap<>());
-        mine.clear();
-        File file = new File(plugin.getDataFolder(), "player_scenarios" + File.separator + ownerId + ".yml");
-        if (!file.exists()) {
-            return;
-        }
-        // R-62(a)：文件大小上限 —— 超限不解析（防止巨大/被污染的 YAML 拖垮主线程），视为空表。
-        if (file.length() > MAX_PERSONAL_SCENARIO_FILE_BYTES) {
-            plugin.getLogger().warning("Personal scenario file for " + ownerId + " exceeds "
-                    + (MAX_PERSONAL_SCENARIO_FILE_BYTES / 1024) + "KB — skipped without parsing.");
-            return;
-        }
-        try {
-            YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
-            ConfigurationSection section = config.getConfigurationSection("scenarios");
-            if (section == null) {
-                return;
-            }
-            // R-62(b)：条数上限 —— 超出时只加载前 N 条并 warn（按文件中的键顺序）。
-            int loaded = 0;
-            for (String key : section.getKeys(false)) {
-                if (loaded >= MAX_PERSONAL_SCENARIOS) {
-                    plugin.getLogger().warning("Personal scenario file for " + ownerId
-                            + " contains more than " + MAX_PERSONAL_SCENARIOS
-                            + " scenarios — only the first " + MAX_PERSONAL_SCENARIOS + " are loaded.");
-                    break;
-                }
-                ConfigurationSection sec = section.getConfigurationSection(key);
-                if (sec == null) continue;
-                ScenarioConfig sc = new ScenarioConfig(key);
-                sc.displayName = sec.getString("display_name", key);
-                sc.displayNameZh = sec.getString("display_name_zh", sc.displayName);
-                try {
-                    sc.material = Material.valueOf(sec.getString("material", "PAPER").toUpperCase());
-                } catch (IllegalArgumentException e) {
-                    sc.material = Material.PAPER;
-                }
-                sc.prompt = sec.getString("prompt", "");
-                mine.put(key, sc);
-                loaded++;
-            }
-        } catch (Exception e) {
-            // 个人文件损坏：清空内存副本（已 clear），只记 warning，不影响全局与他人
-            plugin.getLogger().warning("Failed to load personal scenarios for "
-                    + ownerId + ", cleared in-memory copy: " + e.getMessage());
-        }
+        personalScenarioStore.reloadPersonalScenarios(ownerId);
     }
 
     /** 获取指定玩家的个人场景（内存副本的防御性拷贝；懒加载，保证下次登录仍可用）。 */
     public LinkedHashMap<String, ScenarioConfig> getPersonalScenarios(UUID ownerId) {
-        LinkedHashMap<String, ScenarioConfig> mine = personalScenarios.get(ownerId);
-        if (mine == null) {
-            reloadPersonalScenarios(ownerId);
-            mine = personalScenarios.get(ownerId);
-        }
-        // F4-03：返回防御性拷贝 —— 调用方拿到的是快照，修改/迭代不会污染内部状态。
-        return (mine != null) ? new LinkedHashMap<>(mine) : new LinkedHashMap<>();
+        return personalScenarioStore.getPersonalScenarios(ownerId);
     }
 
     /** 获取指定玩家可见的全部场景 key（全局场景 + 其个人场景）。 */
@@ -1267,7 +1129,7 @@ public class AIChatManager {
      * R-62：单玩家个人场景数量上限（供调用点填充 {@code scenario.limit-reached} 的 {max} 占位）。
      */
     public int getMaxPersonalScenarios() {
-        return MAX_PERSONAL_SCENARIOS;
+        return personalScenarioStore.getMaxPersonalScenarios();
     }
 
     public void shutdown() {
@@ -1283,7 +1145,7 @@ public class AIChatManager {
         playerSystemPrompts.clear();
         sessionValidInputs.clear();
         sessionHasAiReply.clear();
-        personalScenarios.clear();
+        personalScenarioStore.clearAll();
     }
 
     @FunctionalInterface

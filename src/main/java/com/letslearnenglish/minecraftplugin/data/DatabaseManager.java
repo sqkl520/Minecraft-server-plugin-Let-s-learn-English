@@ -312,6 +312,36 @@ public class DatabaseManager {
                 "social_cheers(feed_id)");
         createIndexIfMissing("idx_cheers_cheerer",
                 "social_cheers(cheerer_uuid)");
+
+        // Wave 3 域 5 批次 A（赛季）：结算台账两表。
+        // seasons = 每季 1 行的结算头（settled_at NULL=未结算，条件 UPDATE 抢占结算权）；
+        // season_rewards = 每人一行的发放台账（防重复 + 跨服/离线补发队列）。
+        // 赛季榜本身零新表（复用 player_sessions 按日期窗聚合，plan-season §1.3）。
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "seasons (" +
+                        "  season_id INT PRIMARY KEY," +
+                        "  start_date DATE NOT NULL," +
+                        "  end_date DATE NOT NULL," +
+                        "  settled_at BIGINT," +
+                        "  top_snapshot TEXT" +
+                        ")"
+        );
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "season_rewards (" +
+                        "  season_id INT NOT NULL," +
+                        "  uuid VARCHAR(36) NOT NULL," +
+                        "  rank_position INT NOT NULL," + // 列名避开 SQL 保留字 rank
+                        "  score BIGINT NOT NULL," +
+                        "  reward_coins BIGINT NOT NULL," + // 单位"分"（对齐 RewardEngine 厘级记账）
+                        "  claimed BOOLEAN DEFAULT 0," +
+                        "  claimed_at BIGINT," +
+                        "  PRIMARY KEY (season_id, uuid)" +
+                        ")"
+        );
+        // 补发查询按 uuid 走（PK 前导是 season_id，非前缀），与既有索引同走
+        // createIndexIfMissing（PF-SEA-02：MySQL 不支持 CREATE INDEX IF NOT EXISTS）。
+        createIndexIfMissing("idx_season_rewards_uuid",
+                "season_rewards(uuid)");
     }
 
     /**
@@ -1840,15 +1870,284 @@ public class DatabaseManager {
         }
     }
 
+    // ============================================================
+    //  Season settlement ledger (seasons + season_rewards) —— Wave 3 域 5 批次 A
+    // ============================================================
+
+    /**
+     * 赛季结算头行（{@code seasons} 表的读取投影）。
+     *
+     * @param seasonId    赛季号（1-based，锚点纯函数推导）
+     * @param startDate   yyyy-MM-dd 字符串（与 session_date 同构）
+     * @param endDate     yyyy-MM-dd 字符串（闭区间）
+     * @param settledAt   结算时间戳；null = 未结算
+     * @param topSnapshot 结算时 top10 JSON（回顾用；未结算为 null）
+     */
+    public record SeasonRow(int seasonId, String startDate, String endDate,
+                            Long settledAt, String topSnapshot) { }
+
+    /**
+     * 赛季奖励台账行（{@code season_rewards} 的读取投影）。
+     *
+     * <p>放在 DatabaseManager 内嵌（而非 SeasonManager）的理由：DB 方法参数/返回
+     * 用本类型即可，两个类零互相依赖（SeasonManager → DatabaseManager 单向），
+     * 与既有 {@link FeedRow} / {@link CheerStatsRow} 惯例一致。
+     *
+     * @param seasonId     赛季号
+     * @param uuid         获奖玩家
+     * @param rankPosition 名次；0 = 参与奖（未上榜）
+     * @param score        窗口内学习分
+     * @param rewardCents  奖励金额，单位"分"（对齐 RewardEngine 厘级记账）
+     */
+    public record SeasonRewardRow(int seasonId, UUID uuid, int rankPosition,
+                                  long score, long rewardCents) { }
+
+    /**
+     * 建立赛季行（幂等，双后端对照）：SQLite {@code INSERT OR IGNORE} /
+     * MySQL {@code INSERT IGNORE}（F2-01 教训，不做裸 INSERT）。已存在（含已结算）
+     * 的行不被覆盖——结算抢占只动 {@code settled_at} 列。
+     */
+    public void ensureSeasonRow(int seasonId, LocalDate start, LocalDate end) {
+        String sql = (isSQLite()
+                ? "INSERT OR IGNORE INTO "
+                : "INSERT IGNORE INTO ") + tablePrefix + "seasons"
+                + " (season_id, start_date, end_date, settled_at, top_snapshot) VALUES (?, ?, ?, NULL, NULL)";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setInt(1, seasonId);
+                stmt.setString(2, start.toString());
+                stmt.setString(3, end.toString());
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to ensure season row " + seasonId, e);
+            }
+        }
+    }
+
+    /**
+     * 结算抢占（多服单发保护）：条件 UPDATE {@code WHERE season_id=? AND settled_at IS NULL}。
+     * {@code executeUpdate()==1} = 本服获得结算权（唯一赢家）；0 = 他服已抢先或行不存在。
+     * 无后端差异（纯 UPDATE）。
+     */
+    public boolean tryClaimSettlement(int seasonId, long settledAt, String topSnapshot) {
+        String sql = "UPDATE " + tablePrefix + "seasons"
+                + " SET settled_at = ?, top_snapshot = ?"
+                + " WHERE season_id = ? AND settled_at IS NULL";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setLong(1, settledAt);
+                stmt.setString(2, topSnapshot);
+                stmt.setInt(3, seasonId);
+                return stmt.executeUpdate() == 1;
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to claim season settlement for " + seasonId, e);
+                return false;
+            }
+        }
+    }
+
+    /**
+     * 批量写入赛季奖励台账（抢占者唯一，直接 INSERT 无冲突；单事务）。
+     * 空列表 no-op。
+     */
+    public void insertSeasonRewards(List<SeasonRewardRow> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        String sql = "INSERT INTO " + tablePrefix + "season_rewards"
+                + " (season_id, uuid, rank_position, score, reward_coins, claimed, claimed_at)"
+                + " VALUES (?, ?, ?, ?, ?, 0, NULL)";
+        synchronized (connectionLock) {
+            Connection conn = getConnection();
+            try {
+                conn.setAutoCommit(false);
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    for (SeasonRewardRow row : rows) {
+                        stmt.setInt(1, row.seasonId());
+                        stmt.setString(2, row.uuid().toString());
+                        stmt.setInt(3, row.rankPosition());
+                        stmt.setLong(4, row.score());
+                        stmt.setLong(5, row.rewardCents());
+                        stmt.addBatch();
+                    }
+                    stmt.executeBatch();
+                    conn.commit();
+                } catch (SQLException e) {
+                    conn.rollback();
+                    throw e;
+                } finally {
+                    conn.setAutoCommit(true);
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to insert season reward rows (" + rows.size() + ")", e);
+            }
+        }
+    }
+
+    /**
+     * 该玩家全部未领取的台账行（join 补发 / 结算即时发放的数据源），按赛季升序。
+     * 走 {@code idx_season_rewards_uuid}。
+     */
+    public List<SeasonRewardRow> getPendingSeasonRewards(UUID playerId) {
+        List<SeasonRewardRow> rows = new ArrayList<>();
+        String sql = "SELECT season_id, uuid, rank_position, score, reward_coins"
+                + " FROM " + tablePrefix + "season_rewards"
+                + " WHERE uuid = ? AND claimed = 0"
+                + " ORDER BY season_id ASC";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        rows.add(new SeasonRewardRow(
+                                rs.getInt("season_id"),
+                                UUID.fromString(rs.getString("uuid")),
+                                rs.getInt("rank_position"),
+                                rs.getLong("score"),
+                                rs.getLong("reward_coins")
+                        ));
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to load pending season rewards for " + playerId, e);
+            }
+        }
+        return rows;
+    }
+
+    /**
+     * 条件标记已领取：{@code WHERE season_id=? AND uuid=? AND claimed=0}。
+     * {@code executeUpdate()==1} = 本路径抢到发放权（调用方随后才发钱——对齐
+     * CheckInManager "先标记后付款"先例，R-02 双击重发教训）。
+     */
+    public boolean markSeasonRewardClaimed(int seasonId, UUID playerId) {
+        String sql = "UPDATE " + tablePrefix + "season_rewards"
+                + " SET claimed = 1, claimed_at = ?"
+                + " WHERE season_id = ? AND uuid = ? AND claimed = 0";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setLong(1, System.currentTimeMillis());
+                stmt.setInt(2, seasonId);
+                stmt.setString(3, playerId.toString());
+                return stmt.executeUpdate() == 1;
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to mark season reward claimed (" + seasonId + "/" + playerId + ")", e);
+                return false;
+            }
+        }
+    }
+
+    /** 读已结算的赛季行（top_snapshot 回顾；不存在/未结算返回 null）。 */
+    public SeasonRow getSettledSeason(int seasonId) {
+        String sql = "SELECT season_id, start_date, end_date, settled_at, top_snapshot"
+                + " FROM " + tablePrefix + "seasons"
+                + " WHERE season_id = ? AND settled_at IS NOT NULL";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setInt(1, seasonId);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        long settled = rs.getLong("settled_at");
+                        Long settledAt = rs.wasNull() ? null : settled;
+                        return new SeasonRow(
+                                rs.getInt("season_id"),
+                                rs.getString("start_date"),
+                                rs.getString("end_date"),
+                                settledAt,
+                                rs.getString("top_snapshot")
+                        );
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to load settled season " + seasonId, e);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * seasons 表最小 season_id（首次启用语义判定：null = 表空）。行只会由
+     * {@code SeasonManager.settleIfNeededAsync} 建立，最小值即"启用时刻的季"。
+     */
+    public Integer minSeasonId() {
+        String sql = "SELECT MIN(season_id) FROM " + tablePrefix + "seasons";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql);
+                 ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    int min = rs.getInt(1);
+                    return rs.wasNull() ? null : min;
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to query min season id", e);
+            }
+        }
+        return null;
+    }
+
+    /** 最大已结算 season_id（catch-up 游标；null = 尚无已结算季）。 */
+    public Long maxSettledSeasonId() {
+        String sql = "SELECT MAX(season_id) FROM " + tablePrefix + "seasons"
+                + " WHERE settled_at IS NOT NULL";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql);
+                 ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    long max = rs.getLong(1);
+                    return rs.wasNull() ? null : max;
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to query max settled season id", e);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 窗口内有会话记录的玩家 uuid（参与奖判据，plan-season §1.4）。
+     * 读索引 {@code idx_sessions_date} 的日期范围扫；含隐身者（奖励是发放语义，
+     * 不受展示开关约束——与榜单展示过滤口径不同）。
+     */
+    public Set<UUID> getSessionParticipants(LocalDate since, LocalDate until) {
+        Set<UUID> ids = new java.util.HashSet<>();
+        String sql = "SELECT DISTINCT uuid FROM " + tablePrefix + "player_sessions"
+                + " WHERE session_date >= ? AND session_date <= ?";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, since.toString());
+                stmt.setString(2, until.toString());
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        try {
+                            ids.add(UUID.fromString(rs.getString("uuid")));
+                        } catch (IllegalArgumentException e) {
+                            // 脏行跳过，不拖垮整次结算
+                        }
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to load season participants for window", e);
+            }
+        }
+        return ids;
+    }
+
     /**
      * Delete every row that belongs to one player across all player-scoped tables.
      *
      * <p>R-03：{@code /lea reset} 的删表实现（原实现只删 4 表，榜单/签到/挑战/错题/
-     * AI 历史全部残留）。uuid 系 8 表 + player_uuid 系 4 表共 12 表：
+     * AI 历史全部残留）。uuid 系 9 表 + player_uuid 系 4 表共 13 表：
      * player_data、word_progress、achievements、player_achievements（死表 E-03，
      * 删了无害，免残行未来被误接线复活）、learning_log、player_sessions、
-     * player_profiles、daily_challenges、daily_challenge_words、ai_chat_history、
-     * difficult_words、checkin_data。
+     * player_profiles、daily_challenges、season_rewards（Wave 3 域 5 台账）、
+     * daily_challenge_words、ai_chat_history、difficult_words、checkin_data。
      *
      * <p>建表语句无外键（SQLite/MySQL 双实现与 schema.sql 均已查证），直删无需排序。
      * 与本类其他方法一致：全程持 {@code connectionLock}，内部吞异常记 WARNING，
@@ -1859,7 +2158,8 @@ public class DatabaseManager {
     public void deletePlayerData(UUID playerId) {
         String[] uuidTables = {
             "player_data", "word_progress", "achievements", "player_achievements",
-            "learning_log", "player_sessions", "player_profiles", "daily_challenges"
+            "learning_log", "player_sessions", "player_profiles", "daily_challenges",
+            "season_rewards" // Wave 3 域 5：赛季发放台账（uuid 系；seasons 表无玩家列不动）
         };
         // 这 4 表的玩家列叫 player_uuid，不是 uuid（见 createTables 建表语句）
         String[] playerUuidTables = {

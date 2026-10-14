@@ -4,6 +4,7 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.WrongBookGUI;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -132,7 +133,7 @@ public class WrongBookListener implements Listener {
         SoundManager.playSound(player, "menu-click");
 
         String msg = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("wrong-book.removed")
+                MessageUtil.getGuiMsg(messages, "wrong-book.removed")
                         .replace("{word}", word));
         player.sendMessage(msg);
 
@@ -158,12 +159,12 @@ public class WrongBookListener implements Listener {
         String chinese = wordInfo != null ? wordInfo.getChinese() : word;
 
         String msg = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("wrong-book.practice-start")
+                MessageUtil.getGuiMsg(messages, "wrong-book.practice-start")
                         .replace("{chinese}", chinese));
         player.sendMessage(msg);
 
         String cancelMsg = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("wrong-book.practice-cancel-hint"));
+                MessageUtil.getGuiMsg(messages, "wrong-book.practice-cancel-hint"));
         player.sendMessage(cancelMsg);
     }
 

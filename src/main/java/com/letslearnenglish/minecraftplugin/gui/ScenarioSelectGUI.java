@@ -34,6 +34,12 @@ public class ScenarioSelectGUI {
     public static final int DIFFICULTY_SLOT_START = 18;
     /** 刷新 API 按钮 slot（管理员） */
     public static final int RELOAD_API_SLOT = 26;
+    /**
+     * 管理我的场景按钮 slot（Phase 3 · MC-4）。
+     * 空闲位（10-16 场景 / 18-20 难度 / 22 标签 / 26 API 刷新均不占用）；
+     * 可见门 = letslearnenglish.scenario.import（与个人场景功能全集一致）。
+     */
+    public static final int MANAGE_SLOT = 24;
 
     /** R-49 fan-in：场景按钮槽位起点（点击侧映射共用）。 */
     public static final int SCENARIO_SLOT_START = SCENARIO_SLOTS[0];
@@ -159,6 +165,15 @@ public class ScenarioSelectGUI {
         String diffLabel = MessageUtil.getGuiMsg(msg, "dialogue.difficulty-label");
         String diffLore = MessageUtil.getGuiMsg(msg, "dialogue.difficulty-lore");
         gui.setItem(22, createItem(Material.NAME_TAG, diffLabel, diffLore));
+
+        // 管理我的场景按钮 (slot 24) — Phase 3 · MC-4：与个人场景功能全集同权限门
+        //（无此权限者永无个人场景，展示管理页只会困惑）。空场景玩家也可进入——
+        // 页面空态提示如何导入，解决"根本不知道有这功能"的发现性问题。
+        if (player.hasPermission("letslearnenglish.scenario.import")) {
+            gui.setItem(MANAGE_SLOT, createItem(Material.BOOKSHELF,
+                    MessageUtil.getGuiMsg(msg, "scenario.manage-button"),
+                    MessageUtil.getGuiMsg(msg, "scenario.manage-button-lore")));
+        }
 
         // 刷新 API 密钥按钮 (slot 26) — R-55m：权限与 /le load_scenario 对齐，
         // 持 letslearnenglish.scenario.import 者可见（原 letslearnenglish.admin）
