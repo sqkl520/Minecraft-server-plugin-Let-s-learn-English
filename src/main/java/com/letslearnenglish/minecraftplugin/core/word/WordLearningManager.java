@@ -355,7 +355,7 @@ public class WordLearningManager implements Listener {
             org.bukkit.configuration.file.FileConfiguration messages = plugin.getConfigManager()
                     .getMessageConfig(plugin.getPlayerLanguage(player));
             String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("wrong-book.auto-add"));
+                    MessageUtil.getGuiMsg(messages, "wrong-book.auto-add"));
             player.sendMessage(msg);
         }
     }
@@ -562,7 +562,7 @@ public class WordLearningManager implements Listener {
 
         FileConfiguration messages = getMessages(player);
         player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-learning-gui.session-stopped")
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.session-stopped")
                         .replace("{correct}", String.valueOf(correct))
                         .replace("{total}", String.valueOf(total))
                         .replace("{score}", String.valueOf(score))));
@@ -710,7 +710,7 @@ public class WordLearningManager implements Listener {
     public void showSessionComplete(Player player, AnswerResult result) {
         FileConfiguration messages = getMessages(player);
         String msg = ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-learning-gui.session-complete")
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.session-complete")
                         .replace("{correct}", String.valueOf(result.correctCount))
                         .replace("{total}", String.valueOf(result.totalWords))
                         .replace("{accuracy}", String.format("%.1f", result.accuracy * 100))
@@ -810,7 +810,7 @@ public class WordLearningManager implements Listener {
             if (newCount <= 0) {
                 store.removeDifficultWord(playerId, word);
                 String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.practice-removed"));
+                        MessageUtil.getGuiMsg(messages, "wrong-book.practice-removed"));
                 player.sendMessage(msg);
                 // Phase 3 achievements H7（plan-achievements N2）：通过练习攻克并移出
                 // 错题本的词计数 +1（手动点击删除不计数，见 PlayerDataStore 注释），
@@ -820,7 +820,7 @@ public class WordLearningManager implements Listener {
                         playerId, newTotal, store.getDifficultWordsData(playerId).isEmpty());
             } else {
                 String msg = ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("wrong-book.practice-correct")
+                        MessageUtil.getGuiMsg(messages, "wrong-book.practice-correct")
                                 .replace("{count}", String.valueOf(newCount)));
                 player.sendMessage(msg);
             }
@@ -828,7 +828,7 @@ public class WordLearningManager implements Listener {
             org.bukkit.configuration.file.FileConfiguration messages = plugin.getConfigManager()
                     .getMessageConfig(plugin.getPlayerLanguage(player));
             String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("wrong-book.practice-incorrect")
+                    MessageUtil.getGuiMsg(messages, "wrong-book.practice-incorrect")
                             .replace("{word}", word));
             player.sendMessage(msg);
         }

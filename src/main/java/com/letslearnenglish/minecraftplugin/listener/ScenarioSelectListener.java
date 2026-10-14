@@ -4,6 +4,7 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
+import com.letslearnenglish.minecraftplugin.gui.PersonalScenarioGUI;
 import com.letslearnenglish.minecraftplugin.gui.ScenarioSelectGUI;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -74,6 +75,10 @@ public class ScenarioSelectListener implements Listener {
         if (slot == 8) {
             SoundManager.playSound(player, "menu-click");
             new MainMenu(plugin).open(player);
+            return;
+        }
+        if (slot == ScenarioSelectGUI.MANAGE_SLOT) {
+            handleManage(player);
             return;
         }
         if (slot == ScenarioSelectGUI.RELOAD_API_SLOT) {
@@ -188,6 +193,22 @@ public class ScenarioSelectListener implements Listener {
         plugin.getAIChatManager().setPlayerDifficulty(player, diffKey);
         SoundManager.playSound(player, "menu-click");
         new ScenarioSelectGUI(plugin).open(player);
+    }
+
+    /**
+     * Phase 3 · MC-4：进入个人场景管理页。
+     * 与按钮可见门同口径纵深（无权限者点不到，但页面残留/权限撤换时兜底）；
+     * pushBack 压「场景选择页」帧 —— 管理页返回时弹回本页（SocialListener 子页模式）。
+     */
+    private void handleManage(Player player) {
+        if (!player.hasPermission("letslearnenglish.scenario.import")) {
+            SoundManager.playSound(player, "incorrect");
+            return;
+        }
+        SoundManager.playSound(player, "menu-click");
+        plugin.getGuiNavigationManager().pushBack(player.getUniqueId(),
+                () -> new ScenarioSelectGUI(plugin).open(player));
+        new PersonalScenarioGUI(plugin).open(player, null);
     }
 
     private void handleReloadAPI(Player player) {

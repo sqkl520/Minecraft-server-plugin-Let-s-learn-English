@@ -7,6 +7,7 @@ import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
 import com.letslearnenglish.minecraftplugin.core.word.WordModes;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
@@ -131,36 +132,36 @@ public class WordLearningListener implements Listener {
         // FEAT-MODE-01：答题提示按 mode 渲染（判定收敛于 AnswerChecker，这里只做展示）。
         if (AnswerChecker.isChoice(mode)) {
             player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("word-learning-gui.answer-prompt-choice")
+                    MessageUtil.getGuiMsg(messages, "word-learning-gui.answer-prompt-choice")
                             .replace("{chinese}", currentWord.getChinese())
                             .replace("{seconds}", String.valueOf(timeout))));
             java.util.List<Word> options = wlManager.getChoiceOptions(player.getUniqueId());
             if (options != null) {
                 for (int i = 0; i < options.size(); i++) {
                     player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                            messages.getString("word-learning-gui.choice-option")
+                            MessageUtil.getGuiMsg(messages, "word-learning-gui.choice-option")
                                     .replace("{letter}", String.valueOf(AnswerChecker.indexToLetter(i)))
                                     .replace("{word}", options.get(i).getEnglish())));
                 }
             }
         } else if (AnswerChecker.isFillBlank(mode)) {
             player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("word-learning-gui.answer-prompt-fill-blank")
+                    MessageUtil.getGuiMsg(messages, "word-learning-gui.answer-prompt-fill-blank")
                             .replace("{chinese}", currentWord.getChinese())
                             .replace("{seconds}", String.valueOf(timeout))));
             player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("word-learning-gui.fill-blank-sentence")
+                    MessageUtil.getGuiMsg(messages, "word-learning-gui.fill-blank-sentence")
                             .replace("{sentence}", AnswerChecker.blankSentence(currentWord))));
             // MC-3：首字母提示行按 modes.fill_blank.show-first-letter 短路（实时读配置，
             // reload 即时生效）；false 时只隐藏提示行，题目与判定不变。
             if (WordModes.showFirstLetter(plugin.getConfigManager())) {
                 player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                        messages.getString("word-learning-gui.fill-blank-hint")
+                        MessageUtil.getGuiMsg(messages, "word-learning-gui.fill-blank-hint")
                                 .replace("{letter}", AnswerChecker.firstLetterHint(currentWord))));
             }
         } else {
             player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                    messages.getString("word-learning-gui.answer-prompt")
+                    MessageUtil.getGuiMsg(messages, "word-learning-gui.answer-prompt")
                             .replace("{chinese}", currentWord.getChinese())
                             .replace("{seconds}", String.valueOf(timeout))));
         }
@@ -203,7 +204,7 @@ public class WordLearningListener implements Listener {
             SoundManager.playSound(player, "incorrect");
             String lang = plugin.getPlayerLanguage(player);
             var messages = plugin.getConfigManager().getMessageConfig(lang);
-            String msg = messages.getString("word.pronunciation-unavailable");
+            String msg = MessageUtil.getGuiMsg(messages, "word.pronunciation-unavailable");
             player.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
             return;
         }
@@ -254,6 +255,6 @@ public class WordLearningListener implements Listener {
         player.closeInventory();
 
         player.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                messages.getString("word-learning-gui.session-ended")));
+                MessageUtil.getGuiMsg(messages, "word-learning-gui.session-ended")));
     }
 }

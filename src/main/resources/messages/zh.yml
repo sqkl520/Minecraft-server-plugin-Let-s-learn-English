@@ -153,6 +153,8 @@ leaderboard:
   entry-words: "&7已学单词: &e{score}"
   entry-combo: "&7最长连击: &e{score}"
   click-hint: "&7点击查看玩家主页"
+  tab-season: "&6赛季榜 / Season"
+  entry-season: "&7赛季得分: &e{score}"
 
 progress:
   view: "{prefix}&a正在查看你的学习进度..."
@@ -250,6 +252,7 @@ help:
   load_scenario: "&e/le load_scenario <编码> &7- 导入分享的场景码"
   guide: "&e/le guide &7- 查看新手引导进度 / 重新领取引导手册"
   footer: "&6======================================"
+  season: "&e/le season &7- 查看当前赛季、剩余时间与你的排名"
 
 checkin:
   success: "{prefix}&a签到成功! 连续签到 &e{streak} &a天，获得 &e{coins} &a金币!"
@@ -270,6 +273,17 @@ scenario:
   load-invalid: "{prefix}&c无效的场景码喵~ 请检查是否完整复制"
   load-name-invalid: "{prefix}&c场景名称不合法喵~"
   load-no-permission: "{prefix}&c你没有导入场景的权限喵~ 请联系管理员"
+  manage-button: "&e&l管理我的场景"
+  manage-button-lore: "&7查看/删除自己导入的个人场景"
+  manage-title: "&6&l我的个人场景"
+  manage-count: "&e个人场景: &f{current}&7/&f{max}"
+  manage-click-hint: "&7左键点击删除（需再次点击确认）"
+  manage-confirm: "&c再次点击确认删除！"
+  manage-deleted: "{prefix}&a场景 '{name}' 已删除喵~"
+  manage-not-found: "{prefix}&c未找到该场景喵~（可能已删除）"
+  manage-save-failed: "{prefix}&c删除保存失败喵~ 请检查日志"
+  manage-empty: "&7还没有个人场景喵~"
+  manage-empty-lore: "&7在 AI 对话中用 &e/le save_scenario &7导出分享码，再用 &e/le load_scenario &7导入"
 
 duel:
   cannot-challenge-self: "{prefix}&c你不能挑战自己喵~"
@@ -741,3 +755,20 @@ report:
   batch-start: "{prefix}&7正在为 {count} 位学生生成报告，请稍候…"
   batch-complete: "{prefix}&a全服报告已生成: &e{file}（{count} 位学生）{truncated}"
   batch-truncated: "{prefix}&e学生人数超过上限，报告仅含前 {max} 位"
+
+# ============================================================
+#  赛季 (Season) — Wave 3（域 5 批次 A）
+# ============================================================
+season:
+  started-broadcast: "&6&l第 {season} 赛季开始了！&7持续 {days} 天，冲榜赢奖励！"
+  ended-broadcast: "&6&l第 {season} 赛季结束！&7冠军: &e{top1} &7({score1} 分)"
+  reward-earned: "{prefix}&a赛季奖励已发放：&e{amount} &a金币（第 {season} 赛季第 {rank} 名）"
+  reward-pending-join: "{prefix}&a上个赛季你获得第 {rank} 名，奖励 &e{amount} &a金币已发放！"
+  participated-reward: "{prefix}&a赛季参与奖已发放：&e{amount} &a金币"
+  tab: "&6赛季榜 / Season"
+  title: "&6&l第 {season} 赛季"
+  remaining: "&7剩余: &e{days} 天 {hours} 小时"
+  your-rank: "&7你的名次: &e#{rank} &7(得分 {score})"
+  unranked: "未上榜"
+  empty: "&7本赛季还没有人上榜，快去学习成为第一！"
+  disabled: "&7赛季系统未启用"

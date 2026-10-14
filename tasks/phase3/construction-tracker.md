@@ -111,3 +111,6 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - [x] 3A-1 赛季核心：done（SeasonManager 708 行 + 2 表 + 抢占式结算 + origin 协议跨服分发 + 首次启用/catch-up 语义 + 午夜零 IO 跨季检测；**两个自决：发钱不经 cap 直发（台账幂等）+ 修正 plan 缺陷（无 Vault 保留 pending 不销毁）**；SQLite 真库冒烟 24 断言 + 纯逻辑 23 断言全过）。DB 内嵌 Row 类（SeasonRow/SeasonRewardRow）；冻结接口全命中 + 3 个新增 public（refreshCacheAsync/parseTopSnapshot/applyRelayed*）
 - [x] 编排者 fan-in（3A-1/3A-4 键）：season 12 键 + leaderboard.tab-season/entry-season 双语落盘（655=655 对称，audit 只剩动态拼接误报）
 - [ ] 3A-2 个人场景管理（第3实例，前两实例 524 零落盘）/ 3A-4 赛季展示（半落地——LeaderboardGUI 4 私有方法待补）
+- [x] 3A-2 个人场景管理（第3实例）：done（PersonalScenarioStore ~330 行抽取 + GUI/Listener 新建 + 入口 slot 24；**自决：确认态改条目 PDC 标记（屏幕即真相，无状态残留）**；标题互不命中双向核实闭合；ImportResult 留 AIChatManager 保零改动；javac 全仓 EXIT=0）
+- [x] 编排者 fan-in（3A-2/3A-4 键）：scenario.manage 11 键 + help.season 双语落盘（669=669 对称）；全仓编译 EXIT=0（3A-4 半落地已自愈）
+- [ ] 3A-4 赛季展示（编译已绿，等正式报告）

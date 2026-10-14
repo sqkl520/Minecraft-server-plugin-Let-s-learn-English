@@ -85,6 +85,34 @@ public class ProxyMessenger implements PluginMessageListener {
         sendForward("ALL", "AchievementUnlock", payload);
     }
 
+    // ============================================================
+    //  赛季子通道（Wave 3 域 5 批次 A，plan-season §3.3）
+    // ============================================================
+
+    /**
+     * 广播"赛季已结算"（结算服 → 各子服本地发放在线者 + 播报）。
+     *
+     * <p>payload 格式 {@code {origin}|{seasonId}}：origin = {@code proxy.server-name}
+     * （空串 = 未配置），接收端 origin == 本服名时跳过（回环去重）。子通道自
+     * 本次新增起即为带 origin 的 v1 协议——无旧格式兼容负担。0 人在线时
+     * Forward 静默跳过（既有行为；此时本地也无接收者，语义自洽）。
+     */
+    public void sendSeasonSettled(int seasonId) {
+        sendForward("ALL", "SeasonSettled", serverName() + "|" + seasonId);
+    }
+
+    /** 广播"新赛季开始"（同 {@link #sendSeasonSettled} 的 origin 协议）。 */
+    public void sendSeasonStarted(int seasonId) {
+        sendForward("ALL", "SeasonStarted", serverName() + "|" + seasonId);
+    }
+
+    /** {@code proxy.server-name}（本子服名；空 = 单服/未配置——回环去重退化为"可能重复一次"）。 */
+    public String serverName() {
+        String name = plugin.getConfigManager().getMainConfig()
+                .getString("proxy.server-name", "");
+        return name == null ? "" : name.trim();
+    }
+
     /**
      * 向指定子服发送消息。
      *
@@ -161,12 +189,51 @@ public class ProxyMessenger implements PluginMessageListener {
             switch (subChannel) {
                 case "GlobalMessage" -> handleGlobalMessage(payload.readUTF());
                 case "AchievementUnlock" -> handleAchievementBroadcast(payload.readUTF());
+                // 赛季子通道（Wave 3 域 5）：payload = "{origin}|{seasonId}"，
+                // origin 过滤防回环重复播报（plan-season §3.3 / R2）
+                case "SeasonSettled" -> handleSeasonRelay(payload.readUTF(), true);
+                case "SeasonStarted" -> handleSeasonRelay(payload.readUTF(), false);
                 default -> {
                     // 忽略未知子通道（可能来自其他插件）
                 }
             }
         } catch (Exception e) {
             plugin.getLogger().fine("Malformed proxy payload for subChannel " + subChannel + ": " + e);
+        }
+    }
+
+    /**
+     * SeasonSettled / SeasonStarted 的 origin 去重与回投。
+     *
+     * <p>回环语义：Forward "ALL" 是否把消息投回发送服依代理行为而定（R2 未实测），
+     * 两种行为下本设计都正确——若回环，origin == 本服名时跳过（发送服已本地播报/
+     * 发放过）；若代理不回环，origin 检查恒不命中、无副作用。{@code proxy.server-name}
+     * 留空（单服/未配置）时 origin 为 {@code ""}，比较退化为不跳过——配置注释已
+     * 说明"可能重复一次"（发放仍受 claimed 条件 UPDATE 幂等保护，只多一次播报）。
+     */
+    private void handleSeasonRelay(String payload, boolean settled) {
+        int sep = payload.indexOf('|');
+        if (sep < 0) return;
+        String origin = payload.substring(0, sep);
+        int seasonId;
+        try {
+            seasonId = Integer.parseInt(payload.substring(sep + 1).trim());
+        } catch (NumberFormatException e) {
+            plugin.getLogger().fine("Malformed season relay payload: " + payload);
+            return;
+        }
+        String self = serverName();
+        if (!self.isEmpty() && self.equals(origin)) {
+            return; // 本服即发送源（回环）：已本地处理过
+        }
+        var seasonManager = plugin.getSeasonManager();
+        if (seasonManager == null) {
+            return;
+        }
+        if (settled) {
+            seasonManager.applyRelayedSettlement(seasonId);
+        } else {
+            seasonManager.applyRelayedSeasonStarted(seasonId);
         }
     }
 

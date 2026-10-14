@@ -83,6 +83,10 @@ public class GUIUtils {
                 || title.contains("选择词库")
                 || title.contains("Scenario Select")
                 || title.contains("场景选择")
+                // MC-4：个人场景管理页（scenario.manage-title）——
+                // 标题刻意不含"场景选择"/"Scenario Select"子串，与场景选择页互不命中
+                || title.contains("My Personal Scenarios")
+                || title.contains("我的个人场景")
                 // calendar.title（原「学习日历 / Learning Calendar」，已改名为「过往学习 / Study History」）
                 || title.contains("过往学习")
                 || title.contains("Study History")

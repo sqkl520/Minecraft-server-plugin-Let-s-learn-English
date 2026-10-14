@@ -17,6 +17,7 @@ import com.letslearnenglish.minecraftplugin.core.manager.HotReloadManager;
 import com.letslearnenglish.minecraftplugin.core.manager.ReportGenerator;
 import com.letslearnenglish.minecraftplugin.core.manager.StatisticsHttpServer;
 import com.letslearnenglish.minecraftplugin.core.onboarding.OnboardingManager;
+import com.letslearnenglish.minecraftplugin.core.season.SeasonManager;
 import com.letslearnenglish.minecraftplugin.core.social.SocialManager;
 import com.letslearnenglish.minecraftplugin.core.progress.ProgressManagerImpl;
 import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
@@ -112,6 +113,9 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     private SocialManager socialManager;
 
+    /** Wave 3 域 5 批次 A：赛季系统（窗口计算/结算/奖励补发；isEnabled 门控默认关）。 */
+    private SeasonManager seasonManager;
+
     private StatisticsHttpServer statisticsHttpServer;
 
     private Economy economy = null;
@@ -176,6 +180,10 @@ public final class LetsLearnEnglish extends JavaPlugin {
         // Wave 2 域 4（广场社交）：FeedCache 预热与周期刷新见下方启动异步块（startupWarmup）。
         this.socialManager = new SocialManager(this);
 
+        // Wave 3 域 5 批次 A（赛季）：结算扫描在启动异步块挂载（messenger 已注册、
+        // DB 已初始化）；isEnabled()（season.enabled 默认 false）守卫全部路径。
+        this.seasonManager = new SeasonManager(this);
+
         this.adminCommandHandler = new AdminCommandHandler(this);
         this.dataExporter = new DataExporter(this, playerDataStore);
         this.reportGenerator = new ReportGenerator(this, databaseManager, wordManager);
@@ -210,6 +218,9 @@ public final class LetsLearnEnglish extends JavaPlugin {
             // Wave 2 域 4：广场社交缓存预热 + 保留清理 + 周期刷新排程
             //（对齐 cleanupOldChatHistory 的启动异步模式）。
             socialManager.startupWarmup();
+            // Wave 3 域 5 批次 A：赛季结算扫描（启服 catch-up；幂等，isEnabled 守卫）。
+            // 挂此异步块 = 此时 messenger 已注册、DB 已初始化（plan-season §3.2）。
+            seasonManager.settleIfNeededAsync();
         });
 
         // Statistics HTTP Dashboard
@@ -302,6 +313,10 @@ public final class LetsLearnEnglish extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new MainMenuListener(this), this);
         getServer().getPluginManager().registerEvents(new WordLearningListener(this), this);
         getServer().getPluginManager().registerEvents(new ScenarioSelectListener(this), this);
+        // Phase 3 · MC-4：个人场景管理页（标题等值 + 尺寸双重确认，独立于
+        // ScenarioSelectListener 的 contains 判定）
+        getServer().getPluginManager().registerEvents(
+                new com.letslearnenglish.minecraftplugin.listener.PersonalScenarioListener(this), this);
         getServer().getPluginManager().registerEvents(new SocialListener(this), this);
         getServer().getPluginManager().registerEvents(new MiscGUIListener(this), this);
         getServer().getPluginManager().registerEvents(chatScenarioListener, this);
@@ -355,8 +370,12 @@ public final class LetsLearnEnglish extends JavaPlugin {
         }
 
         // Leaderboard cache refresh every 5 minutes
+        // （Wave 3 域 5：赛季榜快照同乘此班车；结算完成后另有即时重刷）
         getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
             progressManager.getLeaderboard().refreshCache();
+            if (seasonManager != null) {
+                seasonManager.refreshCacheAsync();
+            }
         }, 6000L, 6000L);
     }
 
@@ -512,6 +531,22 @@ public final class LetsLearnEnglish extends JavaPlugin {
                 }
                 dailyChallengeManager.clearAllWordChallengeClaims();
                 wordManager.getReviewScheduler().clearNotifiedDates();
+
+                // Wave 3 域 5 批次 A：午夜跨季检测（纯日期推导零 IO，F2-11 教训：
+                // 不在主线程查库）。仅当"跨过季边界"才派发结算扫描；结算 IO 全在
+                // settleIfNeededAsync 的异步任务里，主线程只做这一次纯计算。
+                if (seasonManager != null) {
+                    SeasonManager sm = seasonManager;
+                    LocalDate today = LocalDate.now();
+                    int todaySeason = sm.currentSeasonId(today);
+                    int yesterdaySeason = sm.currentSeasonId(today.minusDays(1));
+                    if (todaySeason != yesterdaySeason) {
+                        getLogger().info("Season boundary crossed (" + yesterdaySeason
+                                + " -> " + todaySeason + "), dispatching settlement sweep.");
+                        sm.settleIfNeededAsync();
+                    }
+                }
+
                 getLogger().info("Midnight rollover done: daily challenges reassigned.");
             } finally {
                 // R-75 自续：放在 finally——即使本次 rollover 抛异常，也照旧重排下一天，
@@ -715,6 +750,11 @@ public final class LetsLearnEnglish extends JavaPlugin {
     /** Wave 2 域 4：广场社交管理器（GUI/Listener/成就接线四处消费）。 */
     public SocialManager getSocialManager() {
         return socialManager;
+    }
+
+    /** Wave 3 域 5 批次 A：赛季管理器（ProxyMessenger/join/3A-4 展示消费）。 */
+    public SeasonManager getSeasonManager() {
+        return seasonManager;
     }
 
     public ProxyMessenger getProxyMessenger() {

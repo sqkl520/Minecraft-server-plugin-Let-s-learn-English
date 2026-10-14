@@ -174,3 +174,32 @@ CREATE TABLE IF NOT EXISTS {prefix}social_cheers (
 
 CREATE INDEX IF NOT EXISTS {prefix}idx_cheers_feed ON {prefix}social_cheers(feed_id);
 CREATE INDEX IF NOT EXISTS {prefix}idx_cheers_cheerer ON {prefix}social_cheers(cheerer_uuid);
+
+-- Season settlement ledger header (one row per season; season_id derived from
+-- anchor + duration pure function, see plan-season §1.2/§3.1)
+CREATE TABLE IF NOT EXISTS {prefix}seasons (
+    season_id INT PRIMARY KEY,            -- 1-based, anchor+duration 纯函数推导
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,               -- 闭区间（与周/月榜 getRankedPlayersForPeriod 口径一致）
+    settled_at BIGINT,                    -- NULL = 未结算；结算抢占 = 条件 UPDATE 本列
+    top_snapshot TEXT                     -- 结算时 top10 JSON（回顾用，免重聚合）
+);
+
+-- Season reward payout ledger (one row per player per season; doubles as the
+-- cross-server / offline claim queue). reward_coins 单位"分"（对齐 RewardEngine
+-- 厘级记账惯例）。rank_position 列名避开 SQL 保留字 rank。
+CREATE TABLE IF NOT EXISTS {prefix}season_rewards (
+    season_id INT NOT NULL,
+    uuid VARCHAR(36) NOT NULL,
+    rank_position INT NOT NULL,           -- 0 = 参与奖（未上榜）
+    score BIGINT NOT NULL,
+    reward_coins BIGINT NOT NULL,
+    claimed BOOLEAN DEFAULT 0,
+    claimed_at BIGINT,
+    PRIMARY KEY (season_id, uuid)
+);
+
+-- 补发查询按 uuid（PK 前导 season_id 非前缀，需独立索引）；
+-- 注意 MySQL 8 不支持 CREATE INDEX IF NOT EXISTS —— 运行时由
+-- DatabaseManager.createIndexIfMissing 兼容建立，本文件仅为参考文档。
+CREATE INDEX IF NOT EXISTS {prefix}idx_season_rewards_uuid ON {prefix}season_rewards(uuid);

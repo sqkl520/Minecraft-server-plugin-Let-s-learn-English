@@ -85,6 +85,11 @@ public class PlayerJoinListener implements Listener {
         // 主线程发 → 异步标已读，调度细节见 SocialManager.notifyPendingCheers）。
         plugin.getSocialManager().notifyPendingCheers(joining);
 
+        // Wave 3 域 5 批次 A（赛季）：进服补发上一季奖励（异步读 unclaimed → 主线程
+        // 条件标记 + 发钱 + 个人消息；跨服可领——台账共享，任意子服进服都有效）。
+        // isEnabled()（season.enabled 默认 false）与空结果双守卫，未开启时零输出。
+        plugin.getSeasonManager().claimPendingRewards(joining);
+
         plugin.getDailyChallengeManager().checkAndAssign(event.getPlayer().getUniqueId());
     }
 
