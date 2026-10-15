@@ -84,6 +84,7 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 | MessageUtil javadoc 两处 `word.correct` 示例 | MessageUtil.java:47/198 | — | 顺手换活键示例（如 `word.timeout`） |
 
 **config.yml 死键核销**：`general.debug`（零引用已核）、`database.mysql.pool-size`（L78，单连接无池）、`difficulty-settings.*` 整段（L634 起）、`progress-system.rewards.types.{item,command,exp}.enabled`（L284-293；money 子树保留！）、`progress-system.achievements.config-file`、config 版 `gui.main-menu-title`（L323；messages 版是活的，别删）、`gui-layout.profile.*` 段（L474 起 15 叶子，SocialListener:83 注释自认死配置）、`gui-layout.main-menu.scenario-select.back-button`
+**追加（2026-10-16 DEPLOYMENT_WIKI agent 报告核实）**：`proxy.cross-server-announcements` / `proxy.cross-server-messages`（两键零 Java 读取已核——通道无条件注册/接收，与注释承诺不符；处理：**删键 + 注释改写**，勿接线（跨服通道无独立关闭语义需求，删比接简单且注释本来就误导））；`gui.custom-textures`（零 Java 读取已核；D7 已裁决不做资源包，此键随 4B 一并删除并注释）；~~`statistics-server.*`~~（**编排者复核推翻**：StatisticsHttpServer.java:53-57 读 port/bind-address/ip-whitelist/auth.username/auth.password 五键——**是活键不可删**，DEPLOYMENT_WIKI agent 的"死键"标注有误）
 
 
 ### Wave 4 侦察备忘录（编排者 2026-10-15 只读侦察，MC-7 派发时必读）
