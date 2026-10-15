@@ -31,7 +31,7 @@ words:                       # 词条列表
 | example_sentence | string | 模板必填 / loader 可选 | 例句，应包含该单词 |
 | synonyms | list<string> | 可选（缺省 `[]`） | 同义词；无则 `[]` |
 | antonyms | list<string> | 可选（缺省 `[]`） | 反义词；无则 `[]` |
-| difficulty_level | int | 模板必填 / loader 可选（缺省 1） | 数字难度；beginner 用 1~2 |
+| difficulty_level | int | 模板必填 / loader 可选（缺省 1） | 数字难度 1~9；三档各占连续 3 级：beginner 1~3（255/36/26）、intermediate 4~6（134/146/69）、advanced 7~9（125/134/71） |
 | reward | number | 可选（缺省 0.0=用全局配置） | 单词自定义奖励；**现有词库未使用**，sample 也不写 |
 
 说明：
