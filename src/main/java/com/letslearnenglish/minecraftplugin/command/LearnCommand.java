@@ -284,9 +284,9 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             return;
         }
         if (plugin.getChatScenarioListener().isInScenarioMode(player)) {
+            // PF-FB-01 去重（US-FB 3B）：ended 文案与小结卡统一由 removePlayer →
+            // handleEndConversation 流程发送（此前此处重复补发 ended）。
             plugin.getChatScenarioListener().removePlayer(player);
-            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "dialogue.ended"));
             return;
         }
         if (args.length > 1) {

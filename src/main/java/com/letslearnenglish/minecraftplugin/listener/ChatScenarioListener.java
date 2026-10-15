@@ -45,9 +45,14 @@ public class ChatScenarioListener implements Listener {
         activePlayers.add(player.getUniqueId());
     }
 
+    /**
+     * 命令退出路径（{@code /le dialogue} 二次执行）：与聊天 bye 同流程 ——
+     * 委托 {@link #handleEndConversation}（ended → 小结卡/AI 点评 → return-menu）。
+     * PF-FB-01 去重：调用方（LearnCommand）不再自行补发 ended 文案。
+     * 注意：本方法须在主线程调用（LearnCommand 命令线程即主线程）。
+     */
     public void removePlayer(Player player) {
-        activePlayers.remove(player.getUniqueId());
-        aiChatManager.endConversation(player);
+        handleEndConversation(player);
     }
 
     public boolean isInScenarioMode(Player player) {
@@ -164,7 +169,9 @@ public class ChatScenarioListener implements Listener {
         Player player = event.getPlayer();
         if (activePlayers.remove(player.getUniqueId())) {
             // H3：下线结束与正常结束走同一有效对话标准，未达阈值不计数
-            aiChatManager.endConversationOnQuit(player);
+            AIChatManager.SessionSummary summary = aiChatManager.endConversationOnQuit(player);
+            // US-FB（3B 集成）：下线只落本地行（人已走——不发卡不请求 AI）。
+            plugin.getChatFeedbackManager().persistOnQuit(player, summary);
         }
     }
 
@@ -175,10 +182,12 @@ public class ChatScenarioListener implements Listener {
         if (!activePlayers.remove(player.getUniqueId())) {
             return;
         }
-        aiChatManager.endConversation(player);
+        AIChatManager.SessionSummary summary = aiChatManager.endConversation(player);
 
         String endedMsg = getMessageLine(player, "dialogue.ended");
         player.sendMessage(endedMsg);
+        // US-FB（3B 集成）时序照 plan §3.6：ended → deliverEnd（小结卡/点评）→ return-menu。
+        plugin.getChatFeedbackManager().deliverEnd(player, summary);
         String returnMsg = getMessageLine(player, "dialogue.return-menu");
         player.sendMessage(returnMsg);
     }
@@ -188,14 +197,13 @@ public class ChatScenarioListener implements Listener {
     }
 
     /**
-     * 从语言文件获取单行消息（已处理颜色代码），用于 AI 对话中的标签文本。
-     * W3A tester M2 收口：原裸 getString + 硬编码英文 "Missing: " 兜底改为统一
-     * {@code MessageUtil.getGuiMsg}（缺键显示 [?key] 可见占位，无玩家可见硬编码）。
+     * 从语言文件获取单行消息（已处理颜色代码与前缀），用于 AI 对话中的标签文本。
+     * 3B code tester M-1 收口：原 {@code getGuiMsg} 链不替换 {@code {prefix}}
+     * （dialogue.ended/return-menu 的模板以 {prefix} 开头，玩家会看到字面
+     * {prefix}），改用 {@code getPlayerMessageSafe} —— 语言解析 + {prefix} 替换 +
+     * 缺键 [?key] 可见占位 + 永不抛异常，四者一体。
      */
     private String getMessageLine(Player player, String key) {
-        String lang = plugin.getPlayerLanguage(player);
-        org.bukkit.configuration.file.FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
-        return ChatColor.translateAlternateColorCodes('&',
-                com.letslearnenglish.minecraftplugin.util.MessageUtil.getGuiMsg(messages, key));
+        return plugin.getMessageUtil().getPlayerMessageSafe(player, key);
     }
 }

@@ -1,6 +1,8 @@
 package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.ai.ConversationFeedback;
+import com.letslearnenglish.minecraftplugin.data.ChatFeedbackEntry;
 import com.letslearnenglish.minecraftplugin.data.ChatHistoryEntry;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
@@ -41,6 +43,8 @@ public class ChatHistoryGUI {
     public static final int PREV_PAGE_SLOT = 47;
     public static final int NEXT_PAGE_SLOT = 51;
     public static final int PAGE_INDICATOR_SLOT = 45;
+    /** US-FB：详情页反馈物品槽位（底行导航区空位，避开 45/47/51/53）。 */
+    public static final int FEEDBACK_SLOT = 49;
     /** 会话详情视图里承载「返回页码」标记的槽位。 */
     public static final int RETURN_PAGE_SLOT = 53;
 
@@ -328,9 +332,104 @@ public class ChatHistoryGUI {
                     lore));
         }
 
+        // US-FB（3B 集成，plan §3.6）：反馈槽 49 —— 会话有小结行时渲染只读反馈物品
+        //（本地统计 + 有 AI 点评时展开 comment/纠错/推荐词）；无行则留背景玻璃。
+        renderFeedbackItem(player, gui, msg, sessionId);
+
         // R-86 音效去重（S1 裁决）：menu-open 由 SoundManager 全局 InventoryOpen
         // 唯一播放，本处显式播放移除（原先双声）。
         player.openInventory(gui);
+    }
+
+    /**
+     * US-FB：详情页反馈物品（FEEDBACK_SLOT=49，底行导航区空位）。数据走
+     * ChatFeedbackManager 门面（有界索引查询，与既有详情页查询同姿态）。
+     * 行不存在（老会话/未达标）时整槽留背景，不出现空物。
+     */
+    private void renderFeedbackItem(Player player, Inventory gui, FileConfiguration msg,
+                                    String sessionId) {
+        if (sessionId == null || sessionId.isEmpty()) {
+            return;
+        }
+        // plan §3.4 "四处真接线"之三（GUI 物品）：总开关关闭时详情页零物品零查库，
+        // 表现与旧版完全一致。
+        if (!plugin.getConfigManager().getMainConfig()
+                .getBoolean("ai-chat.feedback.enabled", true)) {
+            return;
+        }
+        ChatFeedbackEntry fb =
+                plugin.getChatFeedbackManager().getFeedback(player.getUniqueId(), sessionId);
+        if (fb == null) {
+            return;
+        }
+        String duration = fb.getDurationSeconds() >= 60
+                ? MessageUtil.getGuiMsg(msg, "dialogue.feedback.duration-minutes")
+                        .replace("{minutes}", String.valueOf(fb.getDurationSeconds() / 60))
+                : MessageUtil.getGuiMsg(msg, "dialogue.feedback.duration-seconds")
+                        .replace("{seconds}", String.valueOf(Math.max(0, fb.getDurationSeconds())));
+        List<String> lore = new ArrayList<>();
+        // plan §2.2 mock-up：场景行（展示名按观察者语言解析，个人场景仅本人可见；
+        // 键缺失回落 key，与 ChatFeedbackManager 同姿态）
+        if (fb.getScenarioKey() != null && !fb.getScenarioKey().isEmpty()) {
+            lore.add(ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(msg, "chat-history.feedback-scenario")
+                            .replace("{scenario}", plugin.getAIChatManager()
+                                    .getScenarioDisplayName(player, fb.getScenarioKey()))));
+        }
+        lore.add(ChatColor.translateAlternateColorCodes('&',
+                MessageUtil.getGuiMsg(msg, "chat-history.feedback-counts")
+                        .replace("{user}", String.valueOf(fb.getUserMessages()))
+                        .replace("{ai}", String.valueOf(fb.getAiMessages()))
+                        .replace("{duration}", duration)));
+        // AI 点评解析（payload JSON）。code tester 5 / arch tester 3 收口：复用
+        // ConversationFeedback.parse —— 单一契约（原实现内联第二份 Gson 解析，
+        // 部分字段渲染后异常会与 feedback-no-ai 行自相矛盾）。parse 永不抛异常，
+        // 返回 null（坏 payload/全字段降级不可解析）才落 no-ai 行；全量解析成功后
+        // 才渲染，无中间态窗口。corrections/words 已完成清洗与硬上限（5/8 条）。
+        ConversationFeedback feedback = null;
+        if ("ai".equals(fb.getSource()) && fb.getPayload() != null) {
+            feedback = ConversationFeedback.parse(fb.getPayload());
+        }
+        if (feedback == null) {
+            lore.add(ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(msg, "chat-history.feedback-no-ai")));
+        } else {
+            lore.add("");
+            lore.add(ChatColor.translateAlternateColorCodes('&',
+                    MessageUtil.getGuiMsg(msg, "chat-history.feedback-ai-header")));
+            if (!feedback.comment().isEmpty()) {
+                lore.add(ChatColor.translateAlternateColorCodes('&',
+                        MessageUtil.getGuiMsg(msg, "chat-history.feedback-comment")
+                                .replace("{comment}", feedback.comment())));
+            }
+            if (!feedback.corrections().isEmpty()) {
+                lore.add(ChatColor.translateAlternateColorCodes('&',
+                        MessageUtil.getGuiMsg(msg, "chat-history.feedback-corrections")
+                                .replace("{count}", String.valueOf(feedback.corrections().size()))));
+                // config 注释口径：聊天栏只显示前 N 条，历史详情页可见全部
+                //（parse 侧已硬上限 5 条）
+                for (ConversationFeedback.Correction c : feedback.corrections()) {
+                    lore.add(ChatColor.translateAlternateColorCodes('&',
+                            MessageUtil.getGuiMsg(msg, "chat-history.feedback-correction-line")
+                                    .replace("{original}", c.original())
+                                    .replace("{corrected}", c.corrected())));
+                    if (!c.note().isEmpty()) {
+                        lore.add(ChatColor.translateAlternateColorCodes('&',
+                                MessageUtil.getGuiMsg(msg, "chat-history.feedback-correction-note")
+                                        .replace("{note}", c.note())));
+                    }
+                }
+            }
+            if (!feedback.words().isEmpty()) {
+                lore.add(ChatColor.translateAlternateColorCodes('&',
+                        MessageUtil.getGuiMsg(msg, "chat-history.feedback-words")
+                                .replace("{words}", String.join(", ", feedback.words()))));
+            }
+        }
+        gui.setItem(FEEDBACK_SLOT, createItemLore(Material.WRITTEN_BOOK,
+                ChatColor.translateAlternateColorCodes('&',
+                        MessageUtil.getGuiMsg(msg, "chat-history.feedback-title")),
+                lore));
     }
 
     // ============================================================

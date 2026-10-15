@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 12
+config-version: 13
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -108,6 +108,24 @@ dialogue:
   finish-quiz-first: "{prefix}&c你正在答题中喵~ 请先完成或结束当前答题，再开始 AI 对话"
   chat-active: "{prefix}&7你正在与 AI 对话中喵~ 请先输入 &fbye &7结束当前对话"
   scenario-not-found: "{prefix}&c场景 '{key}' 不存在喵~ 输入 &e/le dialogue &c查看可用场景"
+  # US-FB（Wave 3 批次 3B）：会话小结卡 + AI 点评（plan-ai-feedback §2.3）
+  feedback:
+    header: "{prefix}&6───── 本次对话小结 ─────"
+    stats: "{prefix}&7场景: &e{scenario} &7| 难度: &e{difficulty} &7| 时长: &e{duration}"
+    counts: "{prefix}&7你说: &f{user} &7句 | AI 回复: &f{ai} &7条"
+    passed: "{prefix}&a✔ 已计入今日对话次数"
+    not-passed: "{prefix}&e对话还差一点才能计入喵~（有效发言 {valid}/{required} 句）"
+    empty: "{prefix}&7还没聊够就结束啦，这次不生成小结喵~ 下次多聊几句吧"
+    hint: "{prefix}&7小结已保存，输入 &e/le history &7可回看"
+    ai-pending: "{prefix}&7AI 点评生成中……"
+    ai-header: "{prefix}&6───── AI 点评 ─────"
+    ai-comment: "{prefix}&7总评: &f{comment}"
+    ai-corrections-header: "{prefix}&c纠错 {count} 处:"
+    ai-correction-line: "{prefix}&f  {original} &7→ &a{corrected}"
+    ai-words: "{prefix}&a推荐词: &f{words}"
+    ai-failed: "{prefix}&7AI 点评这次没能生成喵~ 上面的小结已保存"
+    duration-minutes: "{minutes} 分钟"
+    duration-seconds: "{seconds} 秒"
 
 achievement:
   unlock-title: "&6&l成就解锁！"
@@ -629,6 +647,17 @@ chat-history:
   role-assistant: "&b[AI]"
   session-item-format: "&b&l{scenario} &7- {date}"
   unknown-date: "未知"
+  # US-FB（3B）：详情页反馈物品（plan-ai-feedback §2.3）
+  feedback-title: "&6&l本次对话小结"
+  feedback-scenario: "&7场景: &e{scenario}"
+  feedback-counts: "&7发言 &f{user} &7句 | AI &f{ai} &7条 | 时长 &f{duration}"
+  feedback-ai-header: "&6▸ AI 点评"
+  feedback-comment: "&7总评: &f{comment}"
+  feedback-corrections: "&c纠错 ({count}):"
+  feedback-correction-line: "&f  {original} &7→ &a{corrected}"
+  feedback-correction-note: "&7    {note}"
+  feedback-words: "&a推荐词: &f{words}"
+  feedback-no-ai: "&7（本次没有 AI 点评）"
 
 wrong-book:
   title: "&c&l错题本"

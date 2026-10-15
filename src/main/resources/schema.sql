@@ -125,6 +125,24 @@ CREATE TABLE IF NOT EXISTS {prefix}ai_chat_history (
 CREATE INDEX IF NOT EXISTS {prefix}idx_chat_player_time ON {prefix}ai_chat_history(player_uuid, timestamp);
 CREATE INDEX IF NOT EXISTS {prefix}idx_chat_session ON {prefix}ai_chat_history(session_id);
 
+-- US-FB §3.1（Wave 3 批次 3B）：会话级 AI 对话反馈
+-- 先本地统计（source='local'）兜底落库，AI 点评到达后 UPSERT 覆写为 source='ai' + ai_payload。
+-- UNIQUE(player_uuid, session_id) 兼作唯一查询形态的索引；不落"未达标"行。
+CREATE TABLE IF NOT EXISTS {prefix}ai_chat_feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_uuid VARCHAR(36) NOT NULL,
+    session_id VARCHAR(64) NOT NULL,
+    scenario_key VARCHAR(64),
+    difficulty_key VARCHAR(32),
+    user_messages INT DEFAULT 0,
+    ai_messages INT DEFAULT 0,
+    duration_seconds INT DEFAULT 0,
+    source VARCHAR(8) NOT NULL DEFAULT 'local',
+    ai_payload TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(player_uuid, session_id)
+);
+
 -- Difficult words / Wrong Book (words answered incorrectly 3+ times)
 CREATE TABLE IF NOT EXISTS {prefix}difficult_words (
     player_uuid VARCHAR(36) NOT NULL,

@@ -70,7 +70,7 @@
   │                              （两条失败路径都把已落的本地行留在库里，不重试）
   │
 玩家下线（quit）
-  └─ endConversationOnQuit → SessionSummary → ChatFeedbackManager.persistOnQuit(summary)
+  └─ endConversationOnQuit → SessionSummary → ChatFeedbackManager.persistOnQuit(player, summary)
        达标才异步落本地行；不显示、不调 API
 ```
 
@@ -333,7 +333,7 @@ private final Map<UUID, ChatSessionState> sessions = new ConcurrentHashMap<>();
 ### 3.5 新类 `core/ai/ChatFeedbackManager`（显示/持久化编排）
 
 - `deliverEnd(Player, SessionSummary)`（runTask 主线程；呼叫方线程不限）：按 1.3 状态机执行；卡片/占位/失败/点评块的全部 sendMessage 在此；调用 `aiChatManager.requestConversationSummary(...)`。
-- `persistOnQuit(SessionSummary)`：达标才异步 UPSERT 本地行（`CompletableFuture.runAsync` + `plugin.isEnabled()` 守卫；quit 时机与 `incrementConversationCount` 先在例一致）。
+- `persistOnQuit(Player, SessionSummary)`：达标且 `feedback.enabled` 才异步 UPSERT 本地行（`CompletableFuture.runAsync` + `plugin.isEnabled()` 守卫；quit 时机与 `incrementConversationCount` 先在例一致）。施工期修正：SessionSummary 不含 UUID，须借 Player 取 `getUniqueId()`。
 - `getFeedback(UUID, String)`：读单行 → `ChatFeedbackEntry`（GUI 调用；有界索引查询，与既有 GUI 查询同姿态，P2-27 留账）。
 - `handleSummaryResult(...)`（主线程回调）：解析成功 → 发点评块 + 异步 UPSERT 覆写（source=ai）；失败 → 发失败行（占位已示），本地行留存。
 - `unloadPlayer(UUID)`：清 `pendingSummaries` 相关去重（挂 `PlayerJoinListener.onPlayerQuit` 既有 quit 编排点，S5 模式）。

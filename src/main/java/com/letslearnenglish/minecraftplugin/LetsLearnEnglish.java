@@ -8,6 +8,7 @@ import com.letslearnenglish.minecraftplugin.core.ProxyMessenger;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.achievement.AchievementManager;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
+import com.letslearnenglish.minecraftplugin.core.ai.ChatFeedbackManager;
 import com.letslearnenglish.minecraftplugin.core.ai.TtsManager;
 import com.letslearnenglish.minecraftplugin.core.duel.DuelManager;
 import com.letslearnenglish.minecraftplugin.core.manager.AdminCommandHandler;
@@ -79,6 +80,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     private WordManagerImpl wordManager;
     private AIChatManager aiChatManager;
+    private ChatFeedbackManager chatFeedbackManager;
     private ProgressManagerImpl progressManager;
 
     private AdminCommandHandler adminCommandHandler;
@@ -164,6 +166,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
         this.wordLearningManager = new WordLearningManager(this);
         this.achievementManager = new AchievementManager(this, playerDataStore);
         this.aiChatManager = new AIChatManager(this);
+        this.chatFeedbackManager = new ChatFeedbackManager(this, aiChatManager);
         this.chatScenarioListener = new ChatScenarioListener(this, aiChatManager);
         this.guiNavigationManager = new GuiNavigationManager();
         this.dailyChallengeManager = new DailyChallengeManager(this, wordManager);
@@ -688,6 +691,11 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     public AIChatManager getAIChatManager() {
         return aiChatManager;
+    }
+
+    /** Phase 3 US-FB：会话小结/AI 点评编排（依赖 AIChatManager 的 HTTP 栈单源）。 */
+    public ChatFeedbackManager getChatFeedbackManager() {
+        return chatFeedbackManager;
     }
 
     public ChatScenarioListener getChatScenarioListener() {
