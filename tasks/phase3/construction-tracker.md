@@ -196,5 +196,6 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - [x] 3B 代码质量 tester：**GO**（2 中 4 低；线程/清理/i18n 占位符/防御性/幂等五维 PASS）
 - [x] 3B 收口批次：done（6 项全收：getPlayerMessageSafe 修 {prefix} 泄露 / persistAfter 串行化 / MESSAGE_CONFIG_VERSION 13 / deliverEnd 主线程同步 / GUI 复用 parse 单一契约 / Gson static final）；`mvn clean verify` BUILD SUCCESS（144 类 / 39 测试）
 - [x] **Batch 3B 提交 `459a4e8`**（三维 tester GO/PASS/GO；2中4低全收口；i18n 695=695、config-version 13）
+- [x] 收尾期文档核实发现 Wave 1 漏项并已修 **`3beaeb5`**：3A-4 per-player 音效开关**只有数据层+SoundManager 门、无 UI 入口**（setSoundsEnabled 零调用者）——设置页 slot 16 开关补建（ProfileGUI+MiscGUIListener+sounds 键×4）。3A 其余 story（1/2/3/5）接线抽检完好
 - [ ] Batch 4A 施工中：4A-1 班级数据层+管理命令（并行流，白名单 DatabaseManager/AdminCommand/AdminCommandHandler/schema.sql/config.yml）、4A-2 班级榜+玩家入口（并行流，白名单 PlayerDataStore/ClassBoardGUI(新)/LearnCommand/ClassBoardListener(新)/LetsLearnEnglish 一行）
   - **4A fan-in 检查单**（编排者）：① class.* 15 键 + help.class 双语落盘（help 段需加 `help.class` 键 + `LearnCommand.sendHelpMessage` 一行接线——/le class 已进 SUBCOMMANDS，帮助列表需同步）；② schema.sql vs 内嵌 DDL 双处比对；③ **MESSAGE_CONFIG_VERSION 13→14**（裁决：3B 已以 13 提交，4A 新增键对已持 v13 的服不可达，与 3B tester 同理由升 14；4B 死键删除不涉新键，不重复升）；④ 4A-1 的 list 分数列方案与 4A-2 的班级榜口径一致性核对；⑤ 全仓 mvn clean verify；⑥ 三维 tester；⑦ **`GUIUtils.isPluginGUI` 补班级榜标题白名单**（`班级榜`/`Class Board` 子串——GUIUtils.java 不在 4A-2 白名单，若不补 ClassBoardGUI 会静默丢失打开/点击音效，与既有 `'s Profile`/`的主页` 动态标题同姿态）
