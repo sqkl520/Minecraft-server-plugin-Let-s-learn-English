@@ -195,4 +195,5 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - [x] 3B 架构 tester：**PASS**（零高零中；分层合规零新增越层 / 无环 / 职责单一 / 冻结接口 11 项全命中 / DI 单点）。低 6：①plan 签名漂移（已回写修正）；②quit 清理分裂两监听器（幂等无害，记录）；③GUI 重复实现 payload JSON 解析契约（与 ConversationFeedback.parse 双份）；④AIChatManager 1506 行（300 行准则警告级）；⑤详情页主线程单行查询（plan 授权，随 P2-27）；⑥new Gson() 每次点评 + FQN 内联风格
 - [x] 3B 代码质量 tester：**GO**（2 中 4 低；线程/清理/i18n 占位符/防御性/幂等五维 PASS）
 - [x] 3B 收口批次：done（6 项全收：getPlayerMessageSafe 修 {prefix} 泄露 / persistAfter 串行化 / MESSAGE_CONFIG_VERSION 13 / deliverEnd 主线程同步 / GUI 复用 parse 单一契约 / Gson static final）；`mvn clean verify` BUILD SUCCESS（144 类 / 39 测试）
-- [ ] 3B 提交
+- [x] **Batch 3B 提交 `459a4e8`**（三维 tester GO/PASS/GO；2中4低全收口；i18n 695=695、config-version 13）
+- [ ] Batch 4A 施工中：4A-1 班级数据层+管理命令（并行流，白名单 DatabaseManager/AdminCommand/AdminCommandHandler/schema.sql/config.yml）、4A-2 班级榜+玩家入口（并行流，白名单 PlayerDataStore/ClassBoardGUI(新)/LearnCommand/ClassBoardListener(新)/LetsLearnEnglish 一行）
