@@ -108,6 +108,10 @@ public class GUIUtils {
                 || title.contains("Wrong Book")
                 || title.contains("错题本")
                 // 旧错题本标题（现为「Wrong Book | Page N / 错题本 | 第 N 页」），保留待统一清理
-                || title.contains("Difficult Words");
+                || title.contains("Difficult Words")
+                // Wave 4 · 4A fan-in：班级榜（class.board-title =「班级榜 - X / Class Board - X」；
+                // 与 ClassBoardGUI.isClassBoardGUI 的锚定前缀判定互补——此处白名单只管音效识别）
+                || title.contains("班级榜")
+                || title.contains("Class Board");
     }
 }

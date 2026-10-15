@@ -32,7 +32,7 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
 
     private static final List<String> SUBCOMMANDS = Arrays.asList(
             "reload", "export", "reset", "info", "help", "ignore-update", "broadcast",
-            "exportwordbank", "importwordbank", "duel", "report"
+            "exportwordbank", "importwordbank", "duel", "report", "class"
     );
 
     public AdminCommand(LetsLearnEnglish plugin) {
@@ -99,6 +99,9 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                 break;
             case "report":
                 handleReport(sender, args);
+                break;
+            case "class":
+                plugin.getAdminCommandHandler().handleClassCommand(sender, args);
                 break;
             case "exportwordbank":
                 if (args.length > 1) {
@@ -336,6 +339,14 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                         .map(Player::getName)
                         .filter(name -> name.toLowerCase().startsWith(args[1].toLowerCase()))
                         .forEach(completions::add);
+            } else if ("class".equalsIgnoreCase(args[0])) {
+                // Wave 4 · 4A tester I-1 收口：/lea class <create|delete|add|remove|list>
+                String prefix = args[1].toLowerCase();
+                for (String action : new String[]{"create", "delete", "add", "remove", "list"}) {
+                    if (action.startsWith(prefix)) {
+                        completions.add(action);
+                    }
+                }
             } else if ("exportwordbank".equalsIgnoreCase(args[0])) {
                 String prefix = args[1].toLowerCase();
                 for (String diff : plugin.getWordManager().getAvailableDifficulties()) {
@@ -362,6 +373,15 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                 && "duel".equalsIgnoreCase(args[0])
                 && "cancel".equalsIgnoreCase(args[1])) {
             // FIX-DUEL-01: /lea duel cancel <player> — complete online players
+            plugin.getServer().getOnlinePlayers().stream()
+                    .map(Player::getName)
+                    .filter(name -> name.toLowerCase().startsWith(args[2].toLowerCase()))
+                    .forEach(completions::add);
+        } else if (args.length == 3
+                && "class".equalsIgnoreCase(args[0])
+                && ("add".equalsIgnoreCase(args[1]) || "remove".equalsIgnoreCase(args[1]))) {
+            // Wave 4 · 4A tester I-1 收口：/lea class add|remove <班名> <玩家>——第三参数补在线玩家名
+            //（班名候选需查库，tab 补全在主线程不做 DB 访问，故第二参数不补班名）。
             plugin.getServer().getOnlinePlayers().stream()
                     .map(Player::getName)
                     .filter(name -> name.toLowerCase().startsWith(args[2].toLowerCase()))

@@ -221,3 +221,24 @@ CREATE TABLE IF NOT EXISTS {prefix}season_rewards (
 -- 注意 MySQL 8 不支持 CREATE INDEX IF NOT EXISTS —— 运行时由
 -- DatabaseManager.createIndexIfMissing 兼容建立，本文件仅为参考文档。
 CREATE INDEX IF NOT EXISTS {prefix}idx_season_rewards_uuid ON {prefix}season_rewards(uuid);
+
+-- Wave 4 US-CLS-1（班级系统）：classes = 班级头（class_name 作业务键 UNIQUE，
+-- 建/删/查全走班名）；class_members = 成员关系（一人一班由调用方编排，
+-- Data 层只管单班成员行；PK(class_id, uuid) 兼作唯一索引）。
+CREATE TABLE IF NOT EXISTS {prefix}classes (
+    class_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    class_name VARCHAR(32) NOT NULL UNIQUE,  -- 业务键：命令与查询一律按班名
+    display_name VARCHAR(64),
+    created_by VARCHAR(36) NOT NULL,         -- 创建者 UUID（管理型班级，老师=OP 开好）
+    created_at BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS {prefix}class_members (
+    class_id INT NOT NULL,
+    uuid VARCHAR(36) NOT NULL,
+    joined_at BIGINT NOT NULL,
+    PRIMARY KEY (class_id, uuid)
+);
+
+-- 一人一班反查（getPlayerClassId 按 uuid 查；PK 前导 class_id 非前缀）
+CREATE INDEX IF NOT EXISTS {prefix}idx_class_members_uuid ON {prefix}class_members(uuid);

@@ -4,10 +4,13 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
 import com.letslearnenglish.minecraftplugin.core.ai.ScenarioCodec;
+import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.LeaderboardEntry;
 import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.RankingMode;
 import com.letslearnenglish.minecraftplugin.core.season.SeasonManager;
 import com.letslearnenglish.minecraftplugin.core.word.WordModes;
+import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.gui.ChatHistoryGUI;
+import com.letslearnenglish.minecraftplugin.gui.ClassBoardGUI;
 import com.letslearnenglish.minecraftplugin.gui.EnglishSquareGUI;
 import com.letslearnenglish.minecraftplugin.gui.LeaderboardGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
@@ -47,7 +50,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     private final LetsLearnEnglish plugin;
 
     private static final List<String> SUBCOMMANDS = Arrays.asList(
-            "menu", "word", "dialogue", "progress", "review", "stats", "help", "guide", "square", "profile", "leaderboard", "challenge", "history", "duel", "wrong", "checkin", "season", "save_scenario", "load_scenario"
+            "menu", "word", "dialogue", "progress", "review", "stats", "help", "guide", "square", "profile", "leaderboard", "challenge", "history", "duel", "wrong", "checkin", "season", "class", "save_scenario", "load_scenario"
     );
 
     /**
@@ -133,6 +136,9 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 break;
             case "season":
                 handleSeasonCommand(player);
+                break;
+            case "class":
+                handleClassCommand(player);
                 break;
             case "save_scenario":
                 handleSaveScenarioCommand(player, args);
@@ -741,6 +747,99 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
+     * /le class（Phase 3 · Wave 4 · US-CLS-2）：打开本班班级榜 GUI。
+     *
+     * <p>gating 顺序：{@code class-system.enabled=false} → class.disabled；
+     * SeasonManager 不可用（null / enabled=false / 锚点在未来）→ season.disabled
+     * （班级榜按赛季窗口计分，赛季休眠时无意义 —— 复用既有活键）；本人无班 →
+     * class.not-in-class。
+     *
+     * <p><b>零查库链路（PF-SEA-04 教训）</b>：主线程只做权限/配置判定；成员列表与
+     * 赛季分聚合全部在异步线程（getPlayerClassId → listClasses 找班名 →
+     * getClassMembers → getRankedPlayersForPeriodFiltered）；结果经 runTask 回主线程
+     * 后才 {@code new ClassBoardGUI(plugin).open(...)}。GUI 内不触任何 DB。
+     */
+    private void handleClassCommand(Player player) {
+        // 模块门：class-system.enabled（与 /lea class 族同一键）
+        if (!plugin.getConfigManager().getMainConfig().getBoolean("class-system.enabled", false)) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "class.disabled"));
+            return;
+        }
+
+        SeasonManager season = plugin.getSeasonManager();
+        if (!LeaderboardGUI.isSeasonAvailable(season)) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "season.disabled"));
+            return;
+        }
+
+        UUID uuid = player.getUniqueId();
+        DatabaseManager db = plugin.getDatabaseManager();
+
+        // 赛季窗口在主线程先算好（纯函数零 IO，读 SeasonManager 内存配置）
+        java.time.LocalDate today = java.time.LocalDate.now();
+        var window = season.windowOf(season.currentSeasonId(today));
+
+        try {
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                Integer classId = db.getPlayerClassId(uuid);
+                if (classId == null) {
+                    runTaskSafe(() -> player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                            "class.not-in-class")));
+                    return;
+                }
+
+                // 班名反查：班级量小（管理员手工建班），listClasses 找 id 匹配行即可
+                String className = null;
+                for (DatabaseManager.ClassRow row : db.listClasses()) {
+                    if (row.classId() == classId) {
+                        className = row.className();
+                        break;
+                    }
+                }
+                if (className == null) {
+                    // 竞态兜底：异步查询间隙班级被管理员删除
+                    runTaskSafe(() -> player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                            "class.not-in-class")));
+                    return;
+                }
+
+                // 成员 UUID 集合（限制查询范围到本班；名单天然 ≤ max-members）
+                List<DatabaseManager.ClassMemberRow> memberRows = db.getClassMembers(classId);
+                List<UUID> memberIds = new ArrayList<>(memberRows.size());
+                for (DatabaseManager.ClassMemberRow row : memberRows) {
+                    memberIds.add(row.uuid());
+                }
+
+                List<LeaderboardEntry> entries = plugin.getPlayerDataStore()
+                        .getRankedPlayersForPeriodFiltered(ClassBoardGUI.ENTRY_SLOTS.length,
+                                window.start(), window.end(), memberIds);
+
+                String finalClassName = className;
+                // 4A tester L-1 收口：异步→主线程开 GUI 之间复检在线（同 SocialListener/
+                // SeasonManager 既有守卫姿态；玩家在查询间隙下线则放弃开界面）。
+                runTaskSafe(() -> {
+                    if (player.isOnline()) {
+                        new ClassBoardGUI(plugin).open(player, finalClassName, entries);
+                    }
+                });
+            });
+        } catch (IllegalStateException ignored) {
+            // 插件停用窗口（调度器已关闭）：放弃本次异步查询
+        }
+    }
+
+    /** 主线程回调薄封装（停用窗口静默放弃；照抄 SeasonManager.runMain 姿态）。 */
+    private void runTaskSafe(Runnable task) {
+        try {
+            Bukkit.getScheduler().runTask(plugin, task);
+        } catch (IllegalStateException ignored) {
+            // 插件停用窗口：放弃主线程回调
+        }
+    }
+
+    /**
      * /le season（Phase 3 · 域 5 赛季，plan-season §2.1 可选项）：
      * 聊天输出当前赛季号 / 剩余天数 / 本人名次 + 前 10 快览。
      * 发现性入口 —— 榜单 GUI 的赛季 tab 是主入口，本命令是聊天侧轻量视图。
@@ -950,6 +1049,8 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.wrong"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.checkin"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.season"));
+        // Wave 4 · 4A fan-in：/le class 帮助行
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.class"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.guide"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.save_scenario"));
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "help.load_scenario"));

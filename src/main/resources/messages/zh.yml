@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 13
+config-version: 14
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -271,6 +271,7 @@ help:
   guide: "&e/le guide &7- 查看新手引导进度 / 重新领取引导手册"
   footer: "&6======================================"
   season: "&e/le season &7- 查看当前赛季、剩余时间与你的排名"
+  class: "&e/le class &7- 查看自己班级与班级榜"
 
 checkin:
   success: "{prefix}&a签到成功! 连续签到 &e{streak} &a天，获得 &e{coins} &a金币!"
@@ -804,3 +805,26 @@ season:
   unranked: "未上榜"
   empty: "&7本赛季还没有人上榜，快去学习成为第一！"
   disabled: "&7赛季系统未启用"
+
+# ============================================================
+#  班级 (Class) — Wave 4 批次 4A（管理型班级，class-system.enabled 默认关）
+# ============================================================
+class:
+  board-title: "&6&l班级榜 - {class}"
+  not-in-class: "&7你还没有加入任何班级，请联系管理员"
+  empty: "&7班级还没有成员"
+  disabled: "{prefix}&7班级系统未启用"
+  created: "{prefix}&a班级 &e{class} &a已创建"
+  deleted: "{prefix}&a班级 &e{class} &a已删除"
+  member-added: "{prefix}&a已将 &e{player} &a加入班级 &e{class}"
+  reassigned: "{prefix}&a已将 &e{player} &a从旧班级移入 &e{class}"
+  member-removed: "{prefix}&a已将 &e{player} &a移出班级"
+  member-not-in: "{prefix}&e{player} 不在该班级中"
+  member-full: "{prefix}&c班级人数已满（上限 {max} 人）"
+  name-exists: "{prefix}&c已存在同名班级"
+  not-found: "{prefix}&c找不到班级 &e{name}"
+  name-invalid: "{prefix}&c班名无效（1-{max} 字符，不能含空格）"
+  player-not-found: "{prefix}&c找不到该玩家"
+  usage: "{prefix}&7用法: /lea class create|delete|add|remove|list"
+  list-header: "{prefix}&6===== 班级 {class}（{count} 人）====="
+  list-entry: "{prefix}&e#{rank} &f{player} &7- &b{score} 分"

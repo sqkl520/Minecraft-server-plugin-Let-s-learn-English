@@ -362,6 +362,30 @@ public class DatabaseManager {
         // createIndexIfMissing（PF-SEA-02：MySQL 不支持 CREATE INDEX IF NOT EXISTS）。
         createIndexIfMissing("idx_season_rewards_uuid",
                 "season_rewards(uuid)");
+
+        // Wave 4 US-CLS-1（班级系统）：classes = 班级头（class_name 作业务键 UNIQUE，
+        // 建/删/查全走班名）；class_members = 成员关系（一人一班由调用方编排，
+        // Data 层只管单班成员行；PK(class_id, uuid) 兼作唯一索引）。
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "classes (" +
+                        "  class_id INTEGER PRIMARY KEY " + (isSQLite() ? "AUTOINCREMENT" : "AUTO_INCREMENT") + "," +
+                        "  class_name VARCHAR(32) NOT NULL UNIQUE," +
+                        "  display_name VARCHAR(64)," +
+                        "  created_by VARCHAR(36) NOT NULL," +
+                        "  created_at BIGINT NOT NULL" +
+                        ")"
+        );
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "class_members (" +
+                        "  class_id INT NOT NULL," +
+                        "  uuid VARCHAR(36) NOT NULL," +
+                        "  joined_at BIGINT NOT NULL," +
+                        "  PRIMARY KEY (class_id, uuid)" +
+                        ")"
+        );
+        // 一人一班反查（getPlayerClassId 按 uuid 查；PK 前导 class_id 非前缀）
+        createIndexIfMissing("idx_class_members_uuid",
+                "class_members(uuid)");
     }
 
     /**
@@ -2359,6 +2383,291 @@ public class DatabaseManager {
                         "Failed to delete social_feed rows of " + playerId, e);
             }
         }
+    }
+
+    // ============================================================
+    //  Classes（US-CLS-1，Wave 4 批次 4A）
+    // ============================================================
+
+    /**
+     * 班级头行（{@code classes} 表的读取投影）。
+     *
+     * @param classId     自增主键（成员表以此为关联键）
+     * @param className   业务键（UNIQUE，命令与查询一律按班名）
+     * @param displayName 展示名（建班时默认等于 className；预留改名能力）
+     * @param createdBy   创建者 UUID 字符串
+     * @param createdAt   创建时间戳（epoch 毫秒）
+     */
+    public static record ClassRow(int classId, String className, String displayName,
+                                  String createdBy, long createdAt) { }
+
+    /**
+     * 班级成员行（{@code class_members} LEFT JOIN {@code player_data} 的读取投影）。
+     *
+     * @param classId    所属班级
+     * @param uuid       成员 UUID
+     * @param playerName player_data 的名字；查不到（LEFT JOIN 空）回落 uuid 字符串
+     * @param joinedAt   加入时间戳（epoch 毫秒）
+     */
+    public static record ClassMemberRow(int classId, UUID uuid, String playerName, long joinedAt) { }
+
+    /**
+     * US-CLS-1：建班。{@code class_name} 为业务键（UNIQUE），重名返回 false。
+     *
+     * <p>先查后插（同锁内；多服共享 MySQL 时并发插入由 UNIQUE 约束兜底，
+     * 冲突同样归为 false）。display_name 默认取 className（预留改名能力）。
+     */
+    public boolean createClass(String className, UUID createdBy, long createdAt) {
+        synchronized (connectionLock) {
+            if (getClassByName(className) != null) {
+                return false; // 重名（调用方据此提示 class.name-exists）
+            }
+            String sql = "INSERT INTO " + tablePrefix + "classes"
+                    + " (class_name, display_name, created_by, created_at) VALUES (?, ?, ?, ?)";
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, className);
+                stmt.setString(2, className);
+                stmt.setString(3, createdBy.toString());
+                stmt.setLong(4, createdAt);
+                stmt.executeUpdate();
+                return true;
+            } catch (SQLException e) {
+                // UNIQUE 冲突（多服并发建同名班）或连接故障；两种都归 false 不抛
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to create class " + className, e);
+                return false;
+            }
+        }
+    }
+
+    /**
+     * US-CLS-1：删班。不存在返回 false。先删成员行再删班级行（无外键，排序防孤儿）；
+     * 成员行删除失败即中止（不留下指向已删班级的孤儿成员行）。
+     */
+    public boolean deleteClass(String className) {
+        synchronized (connectionLock) {
+            // 4A tester L-2 收口：查名+删行同锁内（原锁外查+锁内删存在 TOCTOU——
+            // 共享 MySQL 双服并发删同一班时旧实现可能"成员删了、班已不在"）。
+            // 锁可重入，getClassByName 内部自身取锁安全。
+            ClassRow row = getClassByName(className);
+            if (row == null) {
+                return false;
+            }
+            try (PreparedStatement stmt = getConnection().prepareStatement(
+                    "DELETE FROM " + tablePrefix + "class_members WHERE class_id = ?")) {
+                stmt.setInt(1, row.classId());
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to delete members of class " + className, e);
+                return false;
+            }
+            try (PreparedStatement stmt = getConnection().prepareStatement(
+                    "DELETE FROM " + tablePrefix + "classes WHERE class_id = ?")) {
+                stmt.setInt(1, row.classId());
+                // 影响 0 行 = 班级已被并发删除（TOCTOU 后窗）——报 false 而非虚报成功
+                if (stmt.executeUpdate() == 0) {
+                    return false;
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to delete class " + className, e);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * US-CLS-1：按班名取班级头（null = 不存在）。
+     */
+    public ClassRow getClassByName(String className) {
+        String sql = "SELECT class_id, class_name, display_name, created_by, created_at FROM "
+                + tablePrefix + "classes WHERE class_name = ?";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, className);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return new ClassRow(rs.getInt("class_id"), rs.getString("class_name"),
+                                rs.getString("display_name"), rs.getString("created_by"),
+                                rs.getLong("created_at"));
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to load class by name: " + className, e);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * US-CLS-1：全部班级（建班顺序）。list 命令与补全消费。
+     */
+    public List<ClassRow> listClasses() {
+        List<ClassRow> classes = new ArrayList<>();
+        String sql = "SELECT class_id, class_name, display_name, created_by, created_at FROM "
+                + tablePrefix + "classes ORDER BY class_id ASC";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql);
+                 ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    classes.add(new ClassRow(rs.getInt("class_id"), rs.getString("class_name"),
+                            rs.getString("display_name"), rs.getString("created_by"),
+                            rs.getLong("created_at")));
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to list classes", e);
+            }
+        }
+        return classes;
+    }
+
+    /**
+     * US-CLS-1：班级成员（LEFT JOIN player_data 取名；player_name 空回落 uuid 字符串）。
+     *
+     * <p>ResultSet 关闭后再组装（UUID 解析/名字回落为纯内存操作，不持语句句柄）；
+     * 脏 uuid 行跳过不拖垮整列表。
+     */
+    public List<ClassMemberRow> getClassMembers(int classId) {
+        List<Object[]> raw = new ArrayList<>();
+        String sql = "SELECT m.class_id, m.uuid, m.joined_at, p.player_name FROM "
+                + tablePrefix + "class_members m LEFT JOIN " + tablePrefix + "player_data p"
+                + " ON p.uuid = m.uuid WHERE m.class_id = ? ORDER BY m.joined_at ASC";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setInt(1, classId);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        raw.add(new Object[]{
+                                rs.getInt("class_id"), rs.getString("uuid"),
+                                rs.getString("player_name"), rs.getLong("joined_at")
+                        });
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to load members of class " + classId, e);
+            }
+        }
+        List<ClassMemberRow> members = new ArrayList<>(raw.size());
+        for (Object[] r : raw) {
+            String uuidStr = (String) r[1];
+            UUID uuid;
+            try {
+                uuid = UUID.fromString(uuidStr);
+            } catch (IllegalArgumentException e) {
+                continue; // 脏行跳过，不拖垮整列表
+            }
+            String name = (String) r[2];
+            if (name == null || name.isBlank()) {
+                name = uuidStr;
+            }
+            members.add(new ClassMemberRow((int) r[0], uuid, name, (long) r[3]));
+        }
+        return members;
+    }
+
+    /**
+     * US-CLS-1：玩家所在班级（一人一班由调用方编排；null = 无班）。
+     */
+    public Integer getPlayerClassId(UUID uuid) {
+        String sql = "SELECT class_id FROM " + tablePrefix
+                + "class_members WHERE uuid = ? LIMIT 1";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, uuid.toString());
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getInt("class_id");
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to load class of player " + uuid, e);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * US-CLS-1：加成员。已在班内返回 false（幂等由调用方提示）。
+     * 换班语义（退旧班 + 进新班）由调用方编排——Data 层只管单班成员行。
+     */
+    public boolean addClassMember(int classId, UUID uuid, long joinedAt) {
+        synchronized (connectionLock) {
+            try (PreparedStatement check = getConnection().prepareStatement(
+                    "SELECT 1 FROM " + tablePrefix
+                            + "class_members WHERE class_id = ? AND uuid = ?")) {
+                check.setInt(1, classId);
+                check.setString(2, uuid.toString());
+                try (ResultSet rs = check.executeQuery()) {
+                    if (rs.next()) {
+                        return false; // 已在班内
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to check class membership for " + uuid, e);
+                return false;
+            }
+            try (PreparedStatement stmt = getConnection().prepareStatement(
+                    "INSERT INTO " + tablePrefix
+                            + "class_members (class_id, uuid, joined_at) VALUES (?, ?, ?)")) {
+                stmt.setInt(1, classId);
+                stmt.setString(2, uuid.toString());
+                stmt.setLong(3, joinedAt);
+                stmt.executeUpdate();
+                return true;
+            } catch (SQLException e) {
+                // PK 冲突（多服并发加同人）或连接故障；两种都归 false 不抛
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to add member " + uuid + " to class " + classId, e);
+                return false;
+            }
+        }
+    }
+
+    /**
+     * US-CLS-1：移出成员。不在班返回 false。
+     */
+    public boolean removeClassMember(int classId, UUID uuid) {
+        String sql = "DELETE FROM " + tablePrefix
+                + "class_members WHERE class_id = ? AND uuid = ?";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setInt(1, classId);
+                stmt.setString(2, uuid.toString());
+                return stmt.executeUpdate() > 0;
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to remove member " + uuid + " from class " + classId, e);
+                return false;
+            }
+        }
+    }
+
+    /**
+     * US-CLS-1：班级人数（/lea class add 满员判定；0 = 空班或班不存在）。
+     */
+    public int getClassMemberCount(int classId) {
+        String sql = "SELECT COUNT(*) FROM " + tablePrefix
+                + "class_members WHERE class_id = ?";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setInt(1, classId);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getInt(1);
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to count members of class " + classId, e);
+            }
+        }
+        return 0;
     }
 
     /**

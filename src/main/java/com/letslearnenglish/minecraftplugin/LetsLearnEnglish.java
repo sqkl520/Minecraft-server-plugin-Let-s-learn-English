@@ -329,6 +329,8 @@ public final class LetsLearnEnglish extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new DuelChallengeListener(this), this);
         getServer().getPluginManager().registerEvents(new DuelListener(this), this);
         getServer().getPluginManager().registerEvents(new com.letslearnenglish.minecraftplugin.listener.WrongBookListener(this), this);
+        // Wave 4 · US-CLS-2：班级榜（标题锚定前缀 + 尺寸双重确认）
+        getServer().getPluginManager().registerEvents(new com.letslearnenglish.minecraftplugin.listener.ClassBoardListener(this), this);
         getServer().getPluginManager().registerEvents(soundManager, this);
     }
 

@@ -6,6 +6,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -1189,6 +1190,90 @@ public class PlayerDataStore {
 
         // Step 2: ResultSet closed — 此处不能调用任何 Bukkit API（如 getPlayerName），
         // 因为本方法会在插件启动的异步任务里被调用；player_name 为空时回落到 uuid.toString()。
+        int rank = 1;
+        for (Object[] row : rawRows) {
+            UUID uuid = UUID.fromString((String) row[0]);
+            String name = (String) row[1];
+            if (name == null || name.isEmpty()) {
+                name = uuid.toString();
+            }
+            long periodScore = (Long) row[2];
+            int periodCorrect = (Integer) row[3];
+            int periodWords = (Integer) row[4];
+            int periodIncorrect = Math.max(0, periodWords - periodCorrect);
+            int sessions = 0; // Not easily available from aggregated query
+            entries.add(new LeaderboardEntry(uuid, name, periodScore,
+                    periodCorrect, periodIncorrect, sessions, rank++));
+        }
+        return entries;
+    }
+
+    /**
+     * Get the top N players ranked by score within a date range, restricted to a
+     * specific set of member UUIDs (class leaderboard, US-CLS-2).
+     * Same aggregation as {@link #getRankedPlayersForPeriod(int, LocalDate, LocalDate)}
+     * with an extra "uuid IN (?)" filter.
+     *
+     * @param members members of the class; an empty collection short-circuits to an empty list
+     */
+    public List<LeaderboardEntry> getRankedPlayersForPeriodFiltered(int count, LocalDate since, LocalDate until,
+            Collection<UUID> members) {
+        List<LeaderboardEntry> entries = new ArrayList<>();
+        if (members == null || members.isEmpty()) {
+            return entries;
+        }
+        String tablePrefix = databaseManager.getTablePrefix();
+        // 与 getRankedPlayersForPeriod 同款聚合，只多了 uuid IN 过滤。
+        // player_name 用 MAX() 包住以兼容 MySQL 的 ONLY_FULL_GROUP_BY。
+        StringBuilder inClause = new StringBuilder();
+        for (int i = 0; i < members.size(); i++) {
+            if (i > 0) {
+                inClause.append(", ");
+            }
+            inClause.append("?");
+        }
+        String sql = "SELECT s.uuid AS uuid, MAX(p.player_name) AS player_name, "
+                + "SUM(s.score) as period_score, "
+                + "SUM(s.correct_count) as total_correct, SUM(s.words_count) as total_words "
+                + "FROM " + tablePrefix + "player_sessions s "
+                + "LEFT JOIN " + tablePrefix + "player_data p ON p.uuid = s.uuid "
+                + "LEFT JOIN " + tablePrefix + "player_profiles pf ON pf.uuid = s.uuid "
+                + "WHERE s.session_date >= ? AND s.session_date <= ? "
+                + "AND COALESCE(pf.show_in_square, 1) <> 0 "
+                + "AND s.uuid IN (" + inClause + ") "
+                + "GROUP BY s.uuid ORDER BY period_score DESC LIMIT ?";
+
+        Connection conn = databaseManager.getConnection();
+
+        // Step 1: collect raw rows while ResultSet is open — no nested queries
+        List<Object[]> rawRows = new ArrayList<>();
+        synchronized (databaseManager.getConnectionLock()) {
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            int idx = 1;
+            stmt.setString(idx++, since.toString());
+            stmt.setString(idx++, until.toString());
+            for (UUID member : members) {
+                stmt.setString(idx++, member.toString());
+            }
+            stmt.setInt(idx, count);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    rawRows.add(new Object[]{
+                        rs.getString("uuid"),
+                        rs.getString("player_name"),
+                        rs.getLong("period_score"),
+                        rs.getInt("total_correct"),
+                        rs.getInt("total_words")
+                    });
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to load ranked class players for period", e);
+            return entries;
+        }
+        }
+
+        // Step 2: ResultSet closed — no Bukkit API here (may run async); falls back to uuid.toString().
         int rank = 1;
         for (Object[] row : rawRows) {
             UUID uuid = UUID.fromString((String) row[0]);
