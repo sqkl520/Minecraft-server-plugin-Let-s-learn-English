@@ -115,3 +115,7 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - [x] 编排者 fan-in（3A-2/3A-4 键）：scenario.manage 11 键 + help.season 双语落盘（669=669 对称）；全仓编译 EXIT=0（3A-4 半落地已自愈）
 - [ ] 3A-4 赛季展示（编译已绿，等正式报告）
 - [x] W3A 三维 tester：构建 **GO**（verify 全绿 137 classes / DDL 双处逐字一致 / 668=668 对称 / 窗口纯函数 7 边界断言过）；架构 **PASS**（无 FAIL；防环命中——SeasonManager 零引用成就/社交；ProxyMessenger 双向用 var 规避 import 成"类型无环"；Store↔AIChat 仅类型互引可接受）。**待收口 2 中 + 5 低**（① seasonDaysLeft 双份复制→上收 SeasonManager 单一真相源；② AIChatManager 行数未降 1155；低：Store 类型互引固化/FQN 风格/join null 守卫/同值双常量/纯函数缺单测——②⑤ 建议随 3B 处理）；代码质量 tester 运行中
+- [x] **Batch 3A 提交 `a25d861`**（三维 tester GO/PASS/PASS；2中8低收口6项；i18n 668=668）
+- [ ] Batch 3B 启动：3B-1a 会话核心（ChatSessionState 收敛 + SessionSummary + ConversationFeedback.parse）先行——1b（持久化/集成/显示）待 1a 落盘后放，避免 AIChatManager 撞车
+- [x] 3B-1a 会话核心重构：done（ChatSessionState 5map→1map 收敛 + SessionSummary/TranscriptLine record + requestConversationSummary 总结通道（守卫表逐行）+ ConversationFeedback.parse（salvage/上限/清洗）+ 单测 6/6；**接口要点：endConversation 无会话返回 null（1b 判空）；canRequestConversationSummary 预检含 dedup；clearPendingSummary 供 quit 钩**）。自决：超时重载/预检签名/开场白不入 transcript/解析器 string-only 收紧
+- [ ] 3B-1b 持久化与集成（ChatFeedbackManager + ai_chat_feedback 表 + 三处集成 + config feedback 块）
