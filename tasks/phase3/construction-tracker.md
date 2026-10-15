@@ -201,6 +201,7 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - [x] Batch 4A 施工：done（4A-1 第 2 实例：两表+九方法+两 record+/lea class 族；4A-2 第 2 实例：过滤查询+ClassBoardGUI+ClassBoardListener+/le class 入口——第 1 实例各 4 小时零落盘被停后重派，重派带"立即落盘"纪律两小时内全部完成）
   - **4A fan-in done**：① class.* 18 键 + help.class 双语落盘（716=716 对称）；② DDL 双处逐字一致（build tester 复核）；③ MESSAGE_CONFIG_VERSION 14（三处对齐）；④ list 分数列=赛季缓存反查方案（4A-1）与班级榜=窗口过滤查询（4A-2）双口径共存合理（前者零查库榜单快览、后者窗口精确榜——各自注释）；⑤ mvn clean verify BUILD SUCCESS（148 类/39 测试）；⑥ 三维 tester 全回：构建 **GO** / 架构 **PASS** / 代码 **GO**；⑦ GUIUtils.isPluginGUI 已补班级榜两子串；⑧ help.class 已接线 sendHelpMessage
 - [x] **4A tester 收口 4 项**：isOnline 复检 / deleteClass TOCTOU 同锁+0 行报 false / tab 补全 class 动作+玩家名 / class-system.enabled 入诊断名单；arch 低项 tracker 签名回写 + javadoc 悬空引用修复。留档 2 不确定项（max-members 双服抢末位理论超额——低频可接受；GUI 隐身后过滤 vs 管理全量——有意设计）
-- [ ] 4A 提交
+- [x] **Batch 4A 提交 `2a9823e`**（三维 tester GO/PASS/GO；4 低项收口；i18n 716=716、config-version 14）
+- [ ] Batch 4B 施工中（MC-7 死键/死类大扫除：14 项 i18n 死键对称删 + ProgressGUI 死类 + 11 项 config 死键 + MessageUtil javadoc 示例替换；核销表与活键保护名单见 "4B 死键核销表"节）
 
   - **4A fan-in 检查单**（编排者）：① class.* 15 键 + help.class 双语落盘（help 段需加 `help.class` 键 + `LearnCommand.sendHelpMessage` 一行接线——/le class 已进 SUBCOMMANDS，帮助列表需同步）；② schema.sql vs 内嵌 DDL 双处比对；③ **MESSAGE_CONFIG_VERSION 13→14**（裁决：3B 已以 13 提交，4A 新增键对已持 v13 的服不可达，与 3B tester 同理由升 14；4B 死键删除不涉新键，不重复升）；④ 4A-1 的 list 分数列方案与 4A-2 的班级榜口径一致性核对；⑤ 全仓 mvn clean verify；⑥ 三维 tester；⑦ **`GUIUtils.isPluginGUI` 补班级榜标题白名单**（`班级榜`/`Class Board` 子串——GUIUtils.java 不在 4A-2 白名单，若不补 ClassBoardGUI 会静默丢失打开/点击音效，与既有 `'s Profile`/`的主页` 动态标题同姿态）
