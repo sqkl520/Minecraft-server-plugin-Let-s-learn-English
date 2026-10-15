@@ -38,9 +38,79 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - MC-7 死键/死类终局大扫除（必须在全部接线落盘后）
 - 3B 资源包（默认不做，待用户拍板）
 
+### Wave 4 施工设计（编排者规划，2026-10-15）
+**分两批串行（用户"分批干"指令）**：
+
+#### 批次 4A：班级系统（2 流并行 + fan-in）
+| 流 | 内容 | 白名单 |
+|----|------|--------|
+| 4A-1 数据层+管理命令 | classes/class_members 建表（DatabaseManager 内嵌 DDL 双后端） + 数据方法族 + `/lea class create\|delete\|add\|remove\|list` 族（AdminCommand + AdminCommandHandler） | DatabaseManager、AdminCommand、AdminCommandHandler |
+| 4A-2 班级榜+玩家入口 | `getRankedPlayersForPeriodFiltered`（PlayerDataStore） + ClassBoardGUI(新) + `/le class` 入口（LearnCommand）+ 点击处理（返回键——接入既有 listener 或新 listener，含 drag guard 纪律） | PlayerDataStore、ClassBoardGUI(新)、LearnCommand、点击监听（SocialListener 或新文件） |
+
+**4A 冻结接口（派发前固定，两流互斥不撞车）**：
+- `DatabaseManager.createClass(String className, UUID createdBy, long createdAt) -> boolean`（false=重名）
+- `deleteClass(String className) -> boolean`（false=不存在；级联删成员行）
+- `getClassByName(String className) -> ClassRow|null`；`listClasses() -> List<ClassRow>`
+- `getClassMembers(int classId) -> List<ClassMemberRow>`（管理路径全量，LEFT JOIN player_data 取名）
+- `getPlayerClassId(UUID) -> Integer|null`（一人一班）
+- `addClassMember(int classId, UUID, long joinedAt) -> boolean`（换班：先删玩家现有班成员行再插；false=已在班内）
+- `removeClassMember(int classId, UUID) -> boolean`；`getClassMemberCount(int classId) -> int`
+- `record ClassRow(int classId, String className, String displayName, String createdBy, long createdAt)`；`record ClassMemberRow(int classId, UUID uuid, String playerName, long joinedAt)`
+- `PlayerDataStore.getRankedPlayersForPeriodFiltered(int count, LocalDate since, LocalDate until, Collection<UUID> members) -> List<LeaderboardEntry>`（空集合早退→空表；SQL 同 getRankedPlayersForPeriod + `AND s.uuid IN (?,?…)`；**保留** show_in_square 隐身过滤——同学视角口径）
+- `ClassBoardGUI(LetsLearnEnglish).open(Player, String className)`（标题 class.board-title{class}；成员按当前赛季窗聚合分排序）
+- 上限校验在调用方（AdminCommandHandler）：`class-system.max-members`(50)/`max-name-length`(32)
+
+#### 批次 4B：MC-7 死键/死类大扫除（1 流 + fan-in）
+- 死类：删除 `gui/ProgressGUI.java`（零 Java 引用已复核）+ `progress-gui.*` 键整段（同批成对）
+- i18n 死键对称删（**修正版表，见下方侦察备忘录**）
+- config 死键：`general.debug`、`database.mysql.pool-size`、`difficulty-settings.*` 整段、`progress-system.rewards.types.{item,command,exp}.enabled` 三子键、`progress-system.achievements.config-file`、`gui.main-menu-title`、`gui-layout.profile.*` 段（15 叶子）、`gui-layout.main-menu.scenario-select.back-button`
+- P3-18 尾项：DuelManager 等 4 处裸 getString 收敛（如未在 3A 已收）
+- **删除前逐键全路径 grep 复核（行号漂移教训）**
+
+#### 4B 死键核销表（编排者 2026-10-15/16 复核版，ZH/EN 行号快照）
+| 键 | zh 行 | en 行 | 判定 |
+|----|------|------|------|
+| `word-learning-gui.answer-broadcast` | 476 | 476 | 删（`answer-broadcast-correct` 保留勿删） |
+| `daily-challenge.claim-button` + `-lore` | 449/450 | 449/450 | 删 |
+| `leaderboard.title-weekly/monthly/alltime` | 155/156/157 | 同 | 删 |
+| `leaderboard.header/entry/footer` | 152/153/154 | 同 | **保留（活键！/le season 快览在用，LearnCommand ~795-810）** |
+| `word.session-end/correct/incorrect/mastery-update/daily-limit-reached` | 37/38/39/40/41 | 同 | 删（`dialogue.daily-limit-reached` L100 是活键，别误删） |
+| `checkin.streak-info` | 279 | 279 | 删 |
+| `general.data-saved` | 14 | 14 | 删 |
+| `admin.reset-pending` | 193 | 193 | 删 |
+| `error.scenario-save-failed` | 33 | 33 | 删 |
+| `dialogue-gui.*` 整段（title/instructions） | 506-511 | 506-511 | 删段 |
+| `progress-gui.*` 整段（9 键） | 513-521 | 513-521 | 删段 + 同批删 `gui/ProgressGUI.java` 死类 |
+| MessageUtil javadoc 两处 `word.correct` 示例 | MessageUtil.java:47/198 | — | 顺手换活键示例（如 `word.timeout`） |
+
+**config.yml 死键核销**：`general.debug`（零引用已核）、`database.mysql.pool-size`（L78，单连接无池）、`difficulty-settings.*` 整段（L634 起）、`progress-system.rewards.types.{item,command,exp}.enabled`（L284-293；money 子树保留！）、`progress-system.achievements.config-file`、config 版 `gui.main-menu-title`（L323；messages 版是活的，别删）、`gui-layout.profile.*` 段（L474 起 15 叶子，SocialListener:83 注释自认死配置）、`gui-layout.main-menu.scenario-select.back-button`
+
+
+### Wave 4 侦察备忘录（编排者 2026-10-15 只读侦察，MC-7 派发时必读）
+- **plan 死键表两处过期**：① `leaderboard.header`/`entry`/`footer` **已复活**——`LearnCommand.handleSeasonCommand`（约 795-810 行）复用为 `/le season` 前 10 快览行格式（注释"复用榜单行格式…与聊天榜样式统一"），**不可删**；② `word.correct`/`word.incorrect` 的 2 处引用是 `MessageUtil.java:47/198` javadoc 举例（非运行时引用），可删键但顺手把 javadoc 示例换成活键（如 `word.timeout`）
+- 其余 plan 死键表逐键 grep 复核（2026-10-15）：`word-learning-gui.answer-broadcast` / `daily-challenge.claim-button(+lore)` / `leaderboard.title-weekly|monthly|alltime` / `word.session-end` / `word.mastery-update` / `word.daily-limit-reached` / `checkin.streak-info` / `general.data-saved` / `admin.reset-pending` / `error.scenario-save-failed` / `dialogue-gui.*` 全段 / `progress-gui.*` 全段（ProgressGUI 死类本身零 Java 引用，可整删）——全部零运行时引用确认
+- `word-learning-gui.answer-broadcast-correct`（2 活引用）**保留**——与 answer-broadcast 一字之差，删除时精确匹配
+- 班级系统落点：config.yml 尚无 `class-system` 段（需新增）；AdminCommand SUBCOMMANDS 列表在 `AdminCommand.java:33-36`（新增 "class" 需同步）；`PlayerDataStore.getRankedPlayersForPeriod`（1149 行）为班级榜过滤查询的基底；`SeasonManager.SeasonWindow/windowOf(id)` 提供季节窗口；`LeaderboardEntry` 复用
+
+### Wave 4 派发要点备忘（4A）
+- **4A-1 i18n 键消耗清单**（编排者 fan-in 落稿，agent 直接用）：`class.created` / `class.deleted` / `class.member-added{player}` / `class.member-removed{player}` / `class.member-full{max}` / `class.name-exists` / `class.not-found{name}` / `class.name-invalid{max}` + admin 命令反馈（含 `/lea class list` 输出头 `class.list-header{class}`）。plan §2.3 已定草案文本：title/board-title/not-in-class/empty（CLS-2 GUI 用）+ created/deleted/member-added/member-removed/member-full/name-exists/not-found/name-invalid（CLS-1 用）
+- **4A-1 线程纪律**：所有班级 DB 读写异步（AdminCommandHandler 既有模式）；`/lea class list` 的异步查 → 主线程 sendMessage
+- **4A-2 班级榜线程**：GUI 打开**不得主线程查库**（PF-SEA-04 教训）——异步查 `getRankedPlayersForPeriodFiltered` → `runTask` 回主线程渲染；窗口取 `season.windowOf(season.currentSeasonId(LocalDate.now()))`；赛季不可用时 `/le class` 给 `season.disabled`（班级榜依赖赛季窗）
+- **4A-2 点击处理**：与 LeaderboardGUI 同姿态注册进 SocialListener？还是 ClassBoardGUI 自持 listener？——`/le class` 直达路径快照陈旧问题（PF-SOC-06 同族）需自决并注明；返回键 slot 8 → 主菜单
+- **4A-2 隐私**：同学视角保留 show_in_square 过滤（SQL 内 COALESCE(pf.show_in_square,1)<>0 沿用）；管理路径 `/lea class list` 全量含隐身（plan §1.5 明示）
+
+
 ## 收尾（用户点名）
 - 验收 + 锐评 agent（数路并行）
 - 全部相关文档更新（README / CHANGELOG / tasks/ / dev-findings / 规划文档状态回写）
+
+### 收尾文档更新清单（编排者预写，2026-10-16）
+1. **dev-findings.md 施工期回流**：Wave 1/2/3A/3B 各流 agent 上报的范围外发现（散见 tracker 各流 done 行）需逐条回写到 dev-findings 表（含状态列）。已知待回流项：W2-C 的 PF-MC-07（WordManagerImpl VALID_MODES）/PF-MC-11 第四份（OnboardingManager:502，3A-3 已收）/word.invalid-mode 不动态收窄；3A-3 的 AIChatManager Material.valueOf 无保护；MC-7 的 answer-broadcast-correct 删除警戒（保留键，无需动作，仅归档）；3B build tester 低 2 项 + arch tester 低 6 项
+2. **plan-master.md**：已回写进度表（本次完成）；出口标准保持不动
+3. **README.md / README-EN.md / DEPLOYMENT_WIKI.md**：等文档侦察 agent 报告后逐项更新（Phase 2/3 新功能入列表：新手引导/广场社交/赛季/家长报告/个人场景管理/主菜单 9 按钮/AI 对话小结/班级系统）
+4. **CHANGELOG.md**：Wave 4 条目 + 收尾条目补入
+5. **construction-tracker.md**：3B/Wave4/收尾状态收口 + 本文件转归档形态
+
 
 
 ## Wave 1 冻结接口一览（Wave 2+ 消费）
@@ -118,4 +188,11 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - [x] **Batch 3A 提交 `a25d861`**（三维 tester GO/PASS/PASS；2中8低收口6项；i18n 668=668）
 - [ ] Batch 3B 启动：3B-1a 会话核心（ChatSessionState 收敛 + SessionSummary + ConversationFeedback.parse）先行——1b（持久化/集成/显示）待 1a 落盘后放，避免 AIChatManager 撞车
 - [x] 3B-1a 会话核心重构：done（ChatSessionState 5map→1map 收敛 + SessionSummary/TranscriptLine record + requestConversationSummary 总结通道（守卫表逐行）+ ConversationFeedback.parse（salvage/上限/清洗）+ 单测 6/6；**接口要点：endConversation 无会话返回 null（1b 判空）；canRequestConversationSummary 预检含 dedup；clearPendingSummary 供 quit 钩**）。自决：超时重载/预检签名/开场白不入 transcript/解析器 string-only 收紧
-- [ ] 3B-1b 持久化与集成（ChatFeedbackManager + ai_chat_feedback 表 + 三处集成 + config feedback 块）
+- [x] 3B-1b 持久化与集成：done（编排者接管完成——agent 反复 API 中断后由编排者编写 ChatFeedbackManager + ChatFeedbackEntry + DatabaseManager 数据层 + schema.sql + 四处集成（ChatScenarioListener/LearnCommand/ChatHistoryGUI/PlayerJoinListener）+ LetsLearnEnglish DI + config feedback 块）。**fan-in 收口三项**：① persistOnQuit 补 feedback.enabled 总开关门（plan §3.4"四处真接线"）；② ChatHistoryGUI 反馈物品补总开关门；③ GUI 补场景行 + 纠错 note 行 + 纠错改全量显示（config 注释"历史详情页可见全部"口径，聊天栏才是 ≤N 条）
+- [x] 编排者 fan-in（3B 键）：dialogue.feedback.* 16 键（+2 子键 duration-minutes/seconds）+ chat-history.feedback-* 10 键双语落盘（叶子键 695=695、SnakeYAML 真解析 694=694 零差异）；audit 脚本只剩已知动态拼接误报；`mvn clean verify` BUILD SUCCESS（39 测试全过含 6 新解析器单测，144 类）
+- [ ] 3B 三维 tester（构建/代码/架构）
+- [x] 3B 构建 tester：**GO**（verify 全绿 39 测试 / DDL 12 列逐字一致 / 695=695 对称 / 6 单测真实）。低 2：ConversationFeedback 不可达防御分支注释、测试注释归因小偏差
+- [x] 3B 架构 tester：**PASS**（零高零中；分层合规零新增越层 / 无环 / 职责单一 / 冻结接口 11 项全命中 / DI 单点）。低 6：①plan 签名漂移（已回写修正）；②quit 清理分裂两监听器（幂等无害，记录）；③GUI 重复实现 payload JSON 解析契约（与 ConversationFeedback.parse 双份）；④AIChatManager 1506 行（300 行准则警告级）；⑤详情页主线程单行查询（plan 授权，随 P2-27）；⑥new Gson() 每次点评 + FQN 内联风格
+- [x] 3B 代码质量 tester：**GO**（2 中 4 低；线程/清理/i18n 占位符/防御性/幂等五维 PASS）
+- [x] 3B 收口批次：done（6 项全收：getPlayerMessageSafe 修 {prefix} 泄露 / persistAfter 串行化 / MESSAGE_CONFIG_VERSION 13 / deliverEnd 主线程同步 / GUI 复用 parse 单一契约 / Gson static final）；`mvn clean verify` BUILD SUCCESS（144 类 / 39 测试）
+- [ ] 3B 提交

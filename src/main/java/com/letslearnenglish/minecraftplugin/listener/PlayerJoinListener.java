@@ -121,5 +121,11 @@ public class PlayerJoinListener implements Listener {
         // Wave 2 域 4（广场社交）quit 编排点：清鼓励点击防抖 map（F2-10/F1-24
         // "只增不删"教训——SocialListener 的快照清理走自己的 quit 事件）。
         plugin.getSocialManager().unloadPlayer(playerId);
+        // Phase 3 US-FB（3B-1b）quit 编排点：清 AI 总结去重（3B-1a 的
+        // pendingSummaries——防"下线后上一单在途条目永留"），与本类上方
+        // clearPendingSummary 调用点同源语义；崩溃丢条目的极端窗口由
+        // requestConversationSummary 的 dedup 下次请求自然刷新（宽容语义）。
+        plugin.getAIChatManager().clearPendingSummary(playerId);
+        plugin.getChatFeedbackManager().unloadPlayer(playerId);
     }
 }

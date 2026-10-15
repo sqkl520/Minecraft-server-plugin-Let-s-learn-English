@@ -209,6 +209,23 @@ ai-chat:
   # 设为 0 则只要求有成功回复（不再要求玩家消息条数）
   count-min-rounds: 3
 
+  # ---- 对话小结 / AI 学习反馈 (Session Feedback, Phase 3 US-FB) ----
+  feedback:
+    # 对话结束时是否显示学习小结（本地统计，零 API 成本；false 时行为与旧版一致）
+    enabled: true
+    # 是否追加一次 AI 总结调用（总评/纠错/推荐词）。
+    # 仅在"达标会话"（有效发言 >= count-min-rounds 且至少 1 次成功回复）时触发，
+    # 消耗约 1.5~2 倍单轮请求的 token；不计每日轮次、不占玩家冷却
+    ai-summary: true
+    # AI 总结请求的独立超时（秒），超时即降级为仅本地统计
+    ai-timeout-seconds: 15
+    # AI 总结请求的 max_tokens（需容纳 JSON 结构化输出；中文点评更占 token）
+    ai-max-tokens: 400
+    # 传给 AI 总结的对话文本上限（字符），超出只取最近部分
+    transcript-max-chars: 4000
+    # 聊天栏最多展示的纠错条数（完整数据仍入库，历史详情页可见全部）
+    max-corrections-display: 3
+
 # ============================================================
 #  场景分享设置 (Scenario Sharing Settings)
 # ============================================================

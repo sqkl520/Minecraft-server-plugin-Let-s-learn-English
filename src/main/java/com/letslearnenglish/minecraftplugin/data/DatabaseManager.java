@@ -234,6 +234,26 @@ public class DatabaseManager {
                         ")"
         );
 
+        // US-FB §3.1（Wave 3 批次 3B）：会话级 AI 对话反馈 —— 先本地统计（source='local'）
+        // 兜底落库，AI 点评异步到达后 UPSERT 覆写为 source='ai' + payload。
+        // UNIQUE(player_uuid, session_id) 兼作唯一查询形态的索引；不落"未达标"行。
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "ai_chat_feedback (" +
+                        "  id INTEGER PRIMARY KEY " + (isSQLite() ? "AUTOINCREMENT" : "AUTO_INCREMENT") + "," +
+                        "  player_uuid VARCHAR(36) NOT NULL," +
+                        "  session_id VARCHAR(64) NOT NULL," +
+                        "  scenario_key VARCHAR(64)," +
+                        "  difficulty_key VARCHAR(32)," +
+                        "  user_messages INT DEFAULT 0," +
+                        "  ai_messages INT DEFAULT 0," +
+                        "  duration_seconds INT DEFAULT 0," +
+                        "  source VARCHAR(8) NOT NULL DEFAULT 'local'," +
+                        "  ai_payload TEXT," +
+                        "  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
+                        "  UNIQUE(player_uuid, session_id)" +
+                        ")"
+        );
+
         // Indexes for ai_chat_history
         // PF-SEA-02（Phase 3 规划期发现，编排者即修）：CREATE INDEX IF NOT EXISTS 是
         // MariaDB 扩展，Oracle MySQL 不支持——异常原被 fine 吞掉，MySQL 后端索引可能
@@ -651,6 +671,103 @@ public class DatabaseManager {
                         "Failed to clean up old chat history", e);
             }
         }
+    }
+
+    // ============================================================
+    //  AI Chat Feedback（US-FB §3.1，Wave 3 批次 3B）
+    // ============================================================
+
+    /**
+     * US-FB §3.1：会话级反馈 UPSERT（先本地行后 AI 覆写，幂等）。
+     *
+     * <p>SQLite {@code ON CONFLICT(player_uuid, session_id) DO UPDATE} /
+     * MySQL {@code ON DUPLICATE KEY UPDATE}（双后端对照，沿 {@link #incrementWrongCount}
+     * 惯例）；全列覆写 —— AI 覆写时 {@code payloadJsonOrNull} 覆盖先前值。
+     *
+     * @param payloadJsonOrNull AI 点评 JSON；仅本地行时传 {@code null}
+     */
+    public void upsertChatFeedback(UUID playerUuid, String sessionId, String scenarioKey,
+                                   String difficultyKey, int userMessages, int aiMessages,
+                                   int durationSeconds, String source, String payloadJsonOrNull) {
+        String upsertSql;
+        if (isSQLite()) {
+            upsertSql = "INSERT INTO " + tablePrefix + "ai_chat_feedback"
+                    + " (player_uuid, session_id, scenario_key, difficulty_key, user_messages,"
+                    + " ai_messages, duration_seconds, source, ai_payload)"
+                    + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                    + " ON CONFLICT(player_uuid, session_id) DO UPDATE SET"
+                    + " scenario_key = excluded.scenario_key, difficulty_key = excluded.difficulty_key,"
+                    + " user_messages = excluded.user_messages, ai_messages = excluded.ai_messages,"
+                    + " duration_seconds = excluded.duration_seconds, source = excluded.source,"
+                    + " ai_payload = excluded.ai_payload";
+        } else {
+            upsertSql = "INSERT INTO " + tablePrefix + "ai_chat_feedback"
+                    + " (player_uuid, session_id, scenario_key, difficulty_key, user_messages,"
+                    + " ai_messages, duration_seconds, source, ai_payload)"
+                    + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                    + " ON DUPLICATE KEY UPDATE"
+                    + " scenario_key = VALUES(scenario_key), difficulty_key = VALUES(difficulty_key),"
+                    + " user_messages = VALUES(user_messages), ai_messages = VALUES(ai_messages),"
+                    + " duration_seconds = VALUES(duration_seconds), source = VALUES(source),"
+                    + " ai_payload = VALUES(ai_payload)";
+        }
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(upsertSql)) {
+                stmt.setString(1, playerUuid.toString());
+                stmt.setString(2, sessionId);
+                stmt.setString(3, scenarioKey);
+                stmt.setString(4, difficultyKey);
+                stmt.setInt(5, userMessages);
+                stmt.setInt(6, aiMessages);
+                stmt.setInt(7, durationSeconds);
+                stmt.setString(8, source);
+                stmt.setString(9, payloadJsonOrNull);
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to upsert chat feedback for player " + playerUuid
+                                + " / session " + sessionId, e);
+            }
+        }
+    }
+
+    /**
+     * US-FB §3.1：读取单会话反馈行（GUI 详情页用；UNIQUE(player_uuid, session_id)
+     * 上的有界索引查询）。无行返回 {@code null}。
+     */
+    public ChatFeedbackEntry getChatFeedback(UUID playerUuid, String sessionId) {
+        String sql = "SELECT id, player_uuid, session_id, scenario_key, difficulty_key,"
+                + " user_messages, ai_messages, duration_seconds, source, ai_payload, created_at"
+                + " FROM " + tablePrefix + "ai_chat_feedback"
+                + " WHERE player_uuid = ? AND session_id = ?";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerUuid.toString());
+                stmt.setString(2, sessionId);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return new ChatFeedbackEntry(
+                                rs.getInt("id"),
+                                rs.getString("player_uuid"),
+                                rs.getString("session_id"),
+                                rs.getString("scenario_key"),
+                                rs.getString("difficulty_key"),
+                                rs.getInt("user_messages"),
+                                rs.getInt("ai_messages"),
+                                rs.getInt("duration_seconds"),
+                                rs.getString("source"),
+                                rs.getString("ai_payload"),
+                                rs.getTimestamp("created_at")
+                        );
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to get chat feedback for player " + playerUuid
+                                + " / session " + sessionId, e);
+            }
+        }
+        return null;
     }
 
     // ============================================================
@@ -2180,8 +2297,10 @@ public class DatabaseManager {
             "season_rewards" // Wave 3 域 5：赛季发放台账（uuid 系；seasons 表无玩家列不动）
         };
         // 这 4 表的玩家列叫 player_uuid，不是 uuid（见 createTables 建表语句）
+        // US-FB（Wave 3 批次 3B）：ai_chat_feedback 一并清收（防 reset 残行）。
         String[] playerUuidTables = {
-            "daily_challenge_words", "ai_chat_history", "difficult_words", "checkin_data"
+            "daily_challenge_words", "ai_chat_history", "difficult_words", "checkin_data",
+            "ai_chat_feedback"
         };
         String id = playerId.toString();
         synchronized (connectionLock) {

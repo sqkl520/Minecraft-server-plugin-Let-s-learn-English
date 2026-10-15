@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 12
+config-version: 13
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -108,6 +108,24 @@ dialogue:
   finish-quiz-first: "{prefix}&cYou're in a quiz! Finish or stop it first before starting AI dialogue."
   chat-active: "{prefix}&7You're chatting with AI! Type &fbye &7to end the current conversation first."
   scenario-not-found: "{prefix}&cScenario '{key}' not found. Use &e/le dialogue &cto see available scenarios."
+  # US-FB (Wave 3 batch 3B): session summary card + AI feedback (plan-ai-feedback §2.3)
+  feedback:
+    header: "{prefix}&6───── Session Summary ─────"
+    stats: "{prefix}&7Scenario: &e{scenario} &7| &e{difficulty} &7| &e{duration}"
+    counts: "{prefix}&7Your messages: &f{user} &7| AI replies: &f{ai}"
+    passed: "{prefix}&a✔ Counted toward today's conversations"
+    not-passed: "{prefix}&eAlmost counted~ keep chatting (valid messages {valid}/{required})"
+    empty: "{prefix}&7Chat ended too soon for a summary~ Try a few more lines next time"
+    hint: "{prefix}&7Summary saved — use &e/le history &7to review it"
+    ai-pending: "{prefix}&7AI feedback is being generated…"
+    ai-header: "{prefix}&6───── AI Feedback ─────"
+    ai-comment: "{prefix}&7Comment: &f{comment}"
+    ai-corrections-header: "{prefix}&cCorrections ({count}):"
+    ai-correction-line: "{prefix}&f  {original} &7→ &a{corrected}"
+    ai-words: "{prefix}&aWords to try: &f{words}"
+    ai-failed: "{prefix}&7AI feedback couldn't be generated this time~ The summary above is saved"
+    duration-minutes: "{minutes} min"
+    duration-seconds: "{seconds}s"
 
 achievement:
   unlock-title: "&6&lAchievement Unlocked!"
@@ -629,6 +647,17 @@ chat-history:
   role-assistant: "&b[AI]"
   session-item-format: "&b&l{scenario} &7- {date}"
   unknown-date: "Unknown"
+  # US-FB (3B): detail-page feedback item (plan-ai-feedback §2.3)
+  feedback-title: "&6&lSession Feedback"
+  feedback-scenario: "&7Scenario: &e{scenario}"
+  feedback-counts: "&7Messages: &f{user} &7| AI: &f{ai} &7| &f{duration}"
+  feedback-ai-header: "&6▸ AI Feedback"
+  feedback-comment: "&7Comment: &f{comment}"
+  feedback-corrections: "&cCorrections ({count}):"
+  feedback-correction-line: "&f  {original} &7→ &a{corrected}"
+  feedback-correction-note: "&7    {note}"
+  feedback-words: "&aWords to try: &f{words}"
+  feedback-no-ai: "&7(No AI feedback for this session)"
 
 wrong-book:
   title: "&c&lWrong Book / Difficult Words"
