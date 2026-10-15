@@ -118,7 +118,7 @@ daily-reminder:
 
 The excerpt above is only a sample. The full configuration is documented with inline comments in `config.yml` (changes take effect immediately on `/lea reload`); see `DEPLOYMENT_WIKI.md` for more deployment details. Main config sections:
 
-`general` / `prefix` / `database` (SQLite / MySQL) / `word-system` (incl. per-mode switches under `modes`) / `onboarding` (starter guide) / `duel` / `ai-chat` (incl. session feedback under `feedback`) / `scenario` / `money` (daily coin cap) / `progress-system` (with `leaderboard` / `achievements` / `rewards` sub-switches) / `gui` + `gui-layout` (interfaces and slots) / `feedback` (countdown and combo feedback) / `achievement-system` / `proxy` (cross-server broadcast) / `daily-reminder` / `daily-challenges` / `checkin` / `tts` (pronunciation) / `difficulty-settings` / `statistics-server` (web dashboard) / `report` (parent report) / `social` + `english-square` (square feed) / `season` / `class-system`
+`general` / `prefix` / `database` (SQLite / MySQL) / `word-system` (incl. per-mode switches under `modes`) / `onboarding` (starter guide) / `duel` / `ai-chat` (incl. session feedback under `feedback`) / `scenario` / `money` (daily coin cap) / `progress-system` (with `leaderboard` / `achievements` / `rewards` sub-switches) / `gui` + `gui-layout` (interfaces and slots) / `feedback` (countdown and combo feedback) / `achievement-system` / `proxy` (cross-server broadcast) / `daily-reminder` / `daily-challenges` / `checkin` / `tts` (pronunciation)  / `statistics-server` (web dashboard) / `report` (parent report) / `social` + `english-square` (square feed) / `season` / `class-system`
 
 ## Requirements
 

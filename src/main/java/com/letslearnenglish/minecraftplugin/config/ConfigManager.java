@@ -396,15 +396,4 @@ public class ConfigManager {
         }
         return defaultMaterial;
     }
-
-    public Material getGuiBorderMaterial(String guiName, Material defaultMaterial) {
-        String matName = mainConfig.getString("gui-layout." + guiName + ".border-material");
-        if (matName != null) {
-            try {
-                return Material.valueOf(matName.toUpperCase());
-            } catch (IllegalArgumentException ignored) {
-            }
-        }
-        return defaultMaterial;
-    }
 }

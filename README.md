@@ -118,7 +118,7 @@ daily-reminder:
 
 以上仅为节选。完整配置见 `config.yml` 内置的全中文注释（改完 `/lea reload` 即时生效），更多部署细节见 `DEPLOYMENT_WIKI.md`。主要配置段：
 
-`general` / `prefix` / `database`（SQLite / MySQL）/ `word-system`（含三模式开关 `modes`）/ `onboarding`（新手引导）/ `duel` / `ai-chat`（含会话小结 `feedback`）/ `scenario` / `money`（每日金币上限）/ `progress-system`（`leaderboard` / `achievements` / `rewards` 子开关）/ `gui` + `gui-layout`（界面与槽位）/ `feedback`（倒计时与连击反馈）/ `achievement-system` / `proxy`（跨服广播）/ `daily-reminder` / `daily-challenges` / `checkin` / `tts`（发音）/ `difficulty-settings` / `statistics-server`（Web 仪表盘）/ `report`（家长报告）/ `social` + `english-square`（广场动态流）/ `season`（赛季）/ `class-system`（班级）
+`general` / `prefix` / `database`（SQLite / MySQL）/ `word-system`（含三模式开关 `modes`）/ `onboarding`（新手引导）/ `duel` / `ai-chat`（含会话小结 `feedback`）/ `scenario` / `money`（每日金币上限）/ `progress-system`（`leaderboard` / `achievements` / `rewards` 子开关）/ `gui` + `gui-layout`（界面与槽位）/ `feedback`（倒计时与连击反馈）/ `achievement-system` / `proxy`（跨服广播）/ `daily-reminder` / `daily-challenges` / `checkin` / `tts`（发音） / `statistics-server`（Web 仪表盘）/ `report`（家长报告）/ `social` + `english-square`（广场动态流）/ `season`（赛季）/ `class-system`（班级）
 
 ## 依赖
 
