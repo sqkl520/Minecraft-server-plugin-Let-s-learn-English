@@ -1,6 +1,7 @@
 # Phase 3 规划：老师端/家长报告（域 6）
 
 - 日期： 2026-10-13
+- 施工状态： **已施工**（P3 Wave 2 域 6，提交 `d926bde`；三维 tester GO/PASS/PASS）
 - 基线： 1.0.7-SNAPSHOT（P2 批次后）
 - 来源： `tasks/plan-roadmap-usable-to-delightful.md` 第 8 节方向清单第 6 条（"老师端/家长报告（/api/player 周报 + 一键导出文本）"）；`tasks/p2-polish-execution-plan.md` 第五节域 6
 - 规划纪律： 本轮为只读规划，未修改任何源码/配置；规划期发现见第 6 节
