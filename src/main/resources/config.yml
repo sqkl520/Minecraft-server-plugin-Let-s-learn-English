@@ -741,3 +741,18 @@ season:
     participated: 0.0     # 参与奖（>0 时窗口内有过会话即发；含隐身者——发放不受展示开关约束）
   # 开始/结束是否全服广播（跨服经 ProxyMessenger 子通道，见 proxy.server-name）
   announce: true
+
+# ============================================================
+#  班级系统 (Class System) — Wave 4（域 6 批次 4A）
+# ============================================================
+#  管理型班级（"老师=OP 开好班级"模式；不做玩家自建/邀请/审批）。
+#  一人一班：加入新班自动退出旧班并提示。数据层 classes / class_members 两表。
+class-system:
+  # 是否启用班级系统（关闭时：/lea class 全部子命令给 class.disabled，
+  # 玩家侧班级入口隐藏）。默认关：运营属性功能，先让用户确认再开
+  # （对齐 season.enabled / money.enabled 先例）
+  enabled: false
+  # 班名最大长度（1 ~ 本值个字符；不能含空格）
+  max-name-length: 32
+  # 单班成员上限（/lea class add 达到上限时拒绝，防丢班——换班时先判新班满再动旧班）
+  max-members: 50

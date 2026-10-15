@@ -22,7 +22,7 @@ import java.util.logging.Level;
  */
 public class ConfigManager {
 
-    private static final int MESSAGE_CONFIG_VERSION = 13;
+    private static final int MESSAGE_CONFIG_VERSION = 14;
 
     /**
      * Config keys the code actually relies on at runtime. Absence is logged as a WARNING on
@@ -41,6 +41,8 @@ public class ConfigManager {
             "onboarding.enabled",
             "duel.enabled",
             "checkin.enabled",
+            // Wave 4 · 4A tester I-2：班级系统门键存在性诊断（缺 key 回落默认 false）
+            "class-system.enabled",
             // Phase 3 · MC-5：挑战奖励键存在性（缺 key / 非法由 getChallengeReward 回落
             // 枚举默认 30/50/25/40 并告警；本名单只做存在性诊断，不影响行为）
             "daily-challenges.rewards.answer_10",

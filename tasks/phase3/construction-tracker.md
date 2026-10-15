@@ -57,7 +57,7 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - `removeClassMember(int classId, UUID) -> boolean`；`getClassMemberCount(int classId) -> int`
 - `record ClassRow(int classId, String className, String displayName, String createdBy, long createdAt)`；`record ClassMemberRow(int classId, UUID uuid, String playerName, long joinedAt)`
 - `PlayerDataStore.getRankedPlayersForPeriodFiltered(int count, LocalDate since, LocalDate until, Collection<UUID> members) -> List<LeaderboardEntry>`（空集合早退→空表；SQL 同 getRankedPlayersForPeriod + `AND s.uuid IN (?,?…)`；**保留** show_in_square 隐身过滤——同学视角口径）
-- `ClassBoardGUI(LetsLearnEnglish).open(Player, String className)`（标题 class.board-title{class}；成员按当前赛季窗聚合分排序）
+- `ClassBoardGUI(LetsLearnEnglish).open(Player viewer, String className, List<LeaderboardEntry> entries)`（标题 class.board-title{class}；成员按当前赛季窗聚合分排序；**数据由调用方异步拉好传入，GUI 零查库**——4A 实现期签名扩展，architecture tester 收口回写）
 - 上限校验在调用方（AdminCommandHandler）：`class-system.max-members`(50)/`max-name-length`(32)
 
 #### 批次 4B：MC-7 死键/死类大扫除（1 流 + fan-in）
@@ -199,6 +199,8 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - [x] **Batch 3B 提交 `459a4e8`**（三维 tester GO/PASS/GO；2中4低全收口；i18n 695=695、config-version 13）
 - [x] 收尾期文档核实发现 Wave 1 漏项并已修 **`3beaeb5`**：3A-4 per-player 音效开关**只有数据层+SoundManager 门、无 UI 入口**（setSoundsEnabled 零调用者）——设置页 slot 16 开关补建（ProfileGUI+MiscGUIListener+sounds 键×4）。3A 其余 story（1/2/3/5）接线抽检完好
 - [x] Batch 4A 施工：done（4A-1 第 2 实例：两表+九方法+两 record+/lea class 族；4A-2 第 2 实例：过滤查询+ClassBoardGUI+ClassBoardListener+/le class 入口——第 1 实例各 4 小时零落盘被停后重派，重派带"立即落盘"纪律两小时内全部完成）
-  - **4A fan-in done**：① class.* 18 键 + help.class 双语落盘（716=716 对称）；② DDL 双处逐字一致（build tester 复核）；③ MESSAGE_CONFIG_VERSION 14（三处对齐）；④ list 分数列=赛季缓存反查方案（4A-1）与班级榜=窗口过滤查询（4A-2）双口径共存合理（前者零查库榜单快览、后者窗口精确榜——各自注释）；⑤ mvn clean verify BUILD SUCCESS（148 类/39 测试）；⑥ 三维 tester 进行中（构建 **GO** 已回：DDL/键/config/版本白名单全 PASS）；⑦ GUIUtils.isPluginGUI 已补班级榜两子串；⑧ help.class 已接线 sendHelpMessage
+  - **4A fan-in done**：① class.* 18 键 + help.class 双语落盘（716=716 对称）；② DDL 双处逐字一致（build tester 复核）；③ MESSAGE_CONFIG_VERSION 14（三处对齐）；④ list 分数列=赛季缓存反查方案（4A-1）与班级榜=窗口过滤查询（4A-2）双口径共存合理（前者零查库榜单快览、后者窗口精确榜——各自注释）；⑤ mvn clean verify BUILD SUCCESS（148 类/39 测试）；⑥ 三维 tester 全回：构建 **GO** / 架构 **PASS** / 代码 **GO**；⑦ GUIUtils.isPluginGUI 已补班级榜两子串；⑧ help.class 已接线 sendHelpMessage
+- [x] **4A tester 收口 4 项**：isOnline 复检 / deleteClass TOCTOU 同锁+0 行报 false / tab 补全 class 动作+玩家名 / class-system.enabled 入诊断名单；arch 低项 tracker 签名回写 + javadoc 悬空引用修复。留档 2 不确定项（max-members 双服抢末位理论超额——低频可接受；GUI 隐身后过滤 vs 管理全量——有意设计）
+- [ ] 4A 提交
 
   - **4A fan-in 检查单**（编排者）：① class.* 15 键 + help.class 双语落盘（help 段需加 `help.class` 键 + `LearnCommand.sendHelpMessage` 一行接线——/le class 已进 SUBCOMMANDS，帮助列表需同步）；② schema.sql vs 内嵌 DDL 双处比对；③ **MESSAGE_CONFIG_VERSION 13→14**（裁决：3B 已以 13 提交，4A 新增键对已持 v13 的服不可达，与 3B tester 同理由升 14；4B 死键删除不涉新键，不重复升）；④ 4A-1 的 list 分数列方案与 4A-2 的班级榜口径一致性核对；⑤ 全仓 mvn clean verify；⑥ 三维 tester；⑦ **`GUIUtils.isPluginGUI` 补班级榜标题白名单**（`班级榜`/`Class Board` 子串——GUIUtils.java 不在 4A-2 白名单，若不补 ClassBoardGUI 会静默丢失打开/点击音效，与既有 `'s Profile`/`的主页` 动态标题同姿态）

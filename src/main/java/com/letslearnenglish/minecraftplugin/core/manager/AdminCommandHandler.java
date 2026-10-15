@@ -1,10 +1,12 @@
 package com.letslearnenglish.minecraftplugin.core.manager;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.season.SeasonManager;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordBank;
 import com.letslearnenglish.minecraftplugin.core.word.WordBankValidator;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
+import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 
 import org.bukkit.Bukkit;
@@ -21,9 +23,12 @@ import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Level;
@@ -589,5 +594,271 @@ public class AdminCommandHandler {
         config.set("words", wordList);
 
         plugin.getConfigManager().saveConfig(config, "words/" + difficulty + ".yml");
+    }
+
+    // ============================================================
+    //  US-CLS-1（Wave 4 批次 4A）：/lea class 班级管理命令族
+    // ============================================================
+
+    /**
+     * US-CLS-1：{@code /lea class} 派发入口（主线程调用，args[0]="class"）。
+     *
+     * <p>子命令：{@code create|delete|add|remove|list}。门与参数校验在主线程；
+     * DB 操作全异步（{@link #runClassAsync}），反馈经 {@link #sendOnMain} 回
+     * 主线程。add/remove 的玩家名解析走既有 {@link #resolvePlayerUUID}（离线
+     * 名册查询是 Bukkit 阻塞 API，仅主线程安全——先在异步查完班存在性，回主线程
+     * 解析玩家，再进异步做成员行变更，对齐"主线程做完 Bukkit 部分再进异步"纪律）。
+     */
+    public void handleClassCommand(org.bukkit.command.CommandSender sender, String[] args) {
+        if (!plugin.getConfigManager().getMainConfig()
+                .getBoolean("class-system.enabled", false)) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "class.disabled"));
+            return;
+        }
+        String action = args.length > 1 ? args[1].toLowerCase(Locale.ROOT) : "";
+        plugin.getLogger().info("Admin: Class command '" + action + "' by " + sender.getName());
+        switch (action) {
+            case "create" -> handleClassCreate(sender, args);
+            case "delete" -> handleClassDelete(sender, args);
+            case "add" -> handleClassAdd(sender, args);
+            case "remove" -> handleClassRemove(sender, args);
+            case "list" -> handleClassList(sender, args);
+            default -> sender.sendMessage(plugin.getMessageUtil()
+                    .getSenderMessage(sender, "class.usage"));
+        }
+    }
+
+    /** {@code /lea class create <班名>}：长度/非空/空格校验 → 异步建班。 */
+    private void handleClassCreate(org.bukkit.command.CommandSender sender, String[] args) {
+        if (args.length < 3) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "class.usage"));
+            return;
+        }
+        String className = args[2];
+        int maxLen = plugin.getConfigManager().getMainConfig()
+                .getInt("class-system.max-name-length", 32);
+        if (className.isBlank() || className.length() > maxLen || className.contains(" ")) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                    "class.name-invalid", "max", String.valueOf(maxLen)));
+            return;
+        }
+        // 控制台建班：created_by 记全零 UUID 哨兵（列 NOT NULL，展示层目前不消费）
+        UUID createdBy = (sender instanceof Player player) ? player.getUniqueId() : new UUID(0L, 0L);
+        long now = System.currentTimeMillis();
+        DatabaseManager db = plugin.getDatabaseManager();
+        runClassAsync(() -> {
+            if (db.createClass(className, createdBy, now)) {
+                sendOnMain(sender, "class.created", "class", className);
+            } else {
+                sendOnMain(sender, "class.name-exists");
+            }
+        });
+    }
+
+    /** {@code /lea class delete <班名>}：不存在 → class.not-found。 */
+    private void handleClassDelete(org.bukkit.command.CommandSender sender, String[] args) {
+        if (args.length < 3) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "class.usage"));
+            return;
+        }
+        String className = args[2];
+        DatabaseManager db = plugin.getDatabaseManager();
+        runClassAsync(() -> {
+            if (db.deleteClass(className)) {
+                sendOnMain(sender, "class.deleted", "class", className);
+            } else {
+                sendOnMain(sender, "class.not-found", "name", className);
+            }
+        });
+    }
+
+    /**
+     * {@code /lea class add <班名> <玩家>}：异步查班存在 → 主线程解析玩家 →
+     * 异步做满员判定与成员行变更（换班 = 退旧班 + 进新班）。
+     */
+    private void handleClassAdd(org.bukkit.command.CommandSender sender, String[] args) {
+        if (args.length < 4) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "class.usage"));
+            return;
+        }
+        String className = args[2];
+        String playerName = args[3];
+        int maxMembers = plugin.getConfigManager().getMainConfig()
+                .getInt("class-system.max-members", 50);
+        DatabaseManager db = plugin.getDatabaseManager();
+        runClassAsync(() -> {
+            DatabaseManager.ClassRow classRow = db.getClassByName(className);
+            if (classRow == null) {
+                sendOnMain(sender, "class.not-found", "name", className);
+                return;
+            }
+            // resolvePlayerUUID 是 Bukkit 阻塞 API：回主线程解析后再次进异步
+            runOnMain(() -> {
+                UUID playerId = resolvePlayerUUID(playerName);
+                if (playerId == null) {
+                    sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                            "class.player-not-found"));
+                    return;
+                }
+                runClassAsync(() -> applyClassAdd(sender, classRow, playerId, playerName, maxMembers));
+            });
+        });
+    }
+
+    /**
+     * 成员行变更（异步线程执行）：一人一班编排 —— 已在本班幂等回 member-added；
+     * 换班先判新班满员（满则拒绝，防丢班）再退旧班进新班；Data 层只做单班成员行。
+     */
+    private void applyClassAdd(org.bukkit.command.CommandSender sender,
+                               DatabaseManager.ClassRow classRow, UUID playerId,
+                               String playerName, int maxMembers) {
+        DatabaseManager db = plugin.getDatabaseManager();
+        boolean reassigned;
+        boolean full;
+        // 满员判定 + 换班（退旧进新）整段持 connectionLock（可重入，内层 DB 方法
+        // 同锁嵌套安全）——防两笔并发 add 抢最后一个名额时本地超额加入。
+        synchronized (db.getConnectionLock()) {
+            Integer currentClassId = db.getPlayerClassId(playerId);
+            if (currentClassId != null && currentClassId == classRow.classId()) {
+                // 已在本班：幂等提示（冻结键无"重复加入"专键，复用 member-added）
+                sendOnMain(sender, "class.member-added",
+                        "player", playerName, "class", classRow.className());
+                return;
+            }
+            full = db.getClassMemberCount(classRow.classId()) >= maxMembers;
+            reassigned = currentClassId != null;
+            if (!full) {
+                if (reassigned) {
+                    db.removeClassMember(currentClassId, playerId);
+                }
+                db.addClassMember(classRow.classId(), playerId, System.currentTimeMillis());
+            }
+        }
+        if (full) {
+            sendOnMain(sender, "class.member-full", "max", String.valueOf(maxMembers));
+            return;
+        }
+        if (reassigned) {
+            sendOnMain(sender, "class.reassigned",
+                    "player", playerName, "class", classRow.className());
+        } else {
+            sendOnMain(sender, "class.member-added",
+                    "player", playerName, "class", classRow.className());
+        }
+    }
+
+    /** {@code /lea class remove <班名> <玩家>}：不在班 → class.member-not-in。 */
+    private void handleClassRemove(org.bukkit.command.CommandSender sender, String[] args) {
+        if (args.length < 4) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "class.usage"));
+            return;
+        }
+        String className = args[2];
+        String playerName = args[3];
+        DatabaseManager db = plugin.getDatabaseManager();
+        runClassAsync(() -> {
+            DatabaseManager.ClassRow classRow = db.getClassByName(className);
+            if (classRow == null) {
+                sendOnMain(sender, "class.not-found", "name", className);
+                return;
+            }
+            runOnMain(() -> {
+                UUID playerId = resolvePlayerUUID(playerName);
+                if (playerId == null) {
+                    sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                            "class.player-not-found"));
+                    return;
+                }
+                runClassAsync(() -> {
+                    if (db.removeClassMember(classRow.classId(), playerId)) {
+                        sendOnMain(sender, "class.member-removed", "player", playerName);
+                    } else {
+                        sendOnMain(sender, "class.member-not-in", "player", playerName);
+                    }
+                });
+            });
+        });
+    }
+
+    /**
+     * {@code /lea class list <班名>}：全量成员（管理路径，含隐身穿透——plan §1.5
+     * 明示不受 show_in_square 过滤）。分数列读赛季榜内存快照
+     * （{@link SeasonManager#getCurrentTopCached(int)}，零查库）反查成员分数，
+     * 榜外显示 0；SeasonManager 为 null 或赛季未启用时分数全 0 但列表照常。
+     * 行序按分数降序（同分按名字），与 4A-2 班级榜 GUI 的展示口径一致。
+     */
+    private void handleClassList(org.bukkit.command.CommandSender sender, String[] args) {
+        if (args.length < 3) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "class.usage"));
+            return;
+        }
+        String className = args[2];
+        DatabaseManager db = plugin.getDatabaseManager();
+        runClassAsync(() -> {
+            DatabaseManager.ClassRow classRow = db.getClassByName(className);
+            if (classRow == null) {
+                sendOnMain(sender, "class.not-found", "name", className);
+                return;
+            }
+            List<DatabaseManager.ClassMemberRow> members = db.getClassMembers(classRow.classId());
+            runOnMain(() -> sendClassList(sender, classRow, members));
+        });
+    }
+
+    /** list 渲染（主线程）：赛季缓存反查分数 + 排序 + 逐行发送。 */
+    private void sendClassList(org.bukkit.command.CommandSender sender,
+                               DatabaseManager.ClassRow classRow,
+                               List<DatabaseManager.ClassMemberRow> members) {
+        Map<UUID, Long> scoreByUuid = new HashMap<>();
+        SeasonManager season = plugin.getSeasonManager();
+        if (season != null && season.isEnabled()) {
+            for (SeasonManager.SeasonRankRow row : season.getCurrentTopCached(50)) {
+                scoreByUuid.put(row.uuid(), row.score());
+            }
+        }
+        List<DatabaseManager.ClassMemberRow> sorted = new ArrayList<>(members);
+        sorted.sort(Comparator
+                .comparingLong((DatabaseManager.ClassMemberRow m) ->
+                        scoreByUuid.getOrDefault(m.uuid(), 0L))
+                .reversed()
+                .thenComparing(DatabaseManager.ClassMemberRow::playerName,
+                        String.CASE_INSENSITIVE_ORDER));
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "class.list-header",
+                "class", classRow.className(), "count", String.valueOf(sorted.size())));
+        int rank = 1;
+        for (DatabaseManager.ClassMemberRow member : sorted) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "class.list-entry",
+                    "rank", String.valueOf(rank++),
+                    "player", member.playerName(),
+                    "score", String.valueOf(scoreByUuid.getOrDefault(member.uuid(), 0L))));
+        }
+    }
+
+    /** 异步执行（调度器关闭/插件停用时静默放弃，对齐 ReportGenerator.runAsync）。 */
+    private void runClassAsync(Runnable task) {
+        try {
+            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, task);
+        } catch (IllegalStateException e) {
+            plugin.getLogger().fine("Class task skipped: scheduler unavailable (plugin disabling).");
+        }
+    }
+
+    /** 回主线程执行（Bukkit API / sendMessage 前置；调度器关闭时静默放弃）。 */
+    private void runOnMain(Runnable action) {
+        if (!plugin.isEnabled()) {
+            return;
+        }
+        try {
+            plugin.getServer().getScheduler().runTask(plugin, action);
+        } catch (IllegalStateException e) {
+            // 调度器已在停用窗口关闭：放弃本次投递
+        }
+    }
+
+    /** 回主线程解析消息并发送（i18n 按 sender 语言，占位符与冻结清单逐位对齐）。 */
+    private void sendOnMain(org.bukkit.command.CommandSender sender, String key,
+                            String... placeholders) {
+        runOnMain(() -> sender.sendMessage(
+                plugin.getMessageUtil().getSenderMessage(sender, key, placeholders)));
     }
 }

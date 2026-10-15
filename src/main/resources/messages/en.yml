@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 13
+config-version: 14
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -271,6 +271,7 @@ help:
   guide: "&e/le guide &7- View starter guide progress / get the guide book"
   footer: "&6======================================"
   season: "&e/le season &7- View the current season, time left and your rank"
+  class: "&e/le class &7- View your class and class board"
 
 checkin:
   success: "{prefix}&aCheck-in successful! Streak: &e{streak} &adays, earned &e{coins} &acoins!"
@@ -805,3 +806,26 @@ season:
   unranked: "Unranked"
   empty: "&7No one on the board yet - be the first!"
   disabled: "&7Season system is disabled"
+
+# ============================================================
+#  Class — Wave 4 batch 4A (managed classes; class-system.enabled off by default)
+# ============================================================
+class:
+  board-title: "&6&lClass Board - {class}"
+  not-in-class: "&7You are not in a class yet; ask an admin"
+  empty: "&7No members yet"
+  disabled: "{prefix}&7Class system is disabled"
+  created: "{prefix}&aClass &e{class} &acreated"
+  deleted: "{prefix}&aClass &e{class} &adeleted"
+  member-added: "{prefix}&aAdded &e{player} &ato class &e{class}"
+  reassigned: "{prefix}&aMoved &e{player} &afrom the old class into &e{class}"
+  member-removed: "{prefix}&aRemoved &e{player} &afrom the class"
+  member-not-in: "{prefix}&e{player} is not in that class"
+  member-full: "{prefix}&cClass is full (max {max} members)"
+  name-exists: "{prefix}&cA class with that name already exists"
+  not-found: "{prefix}&cClass &e{name} &cnot found"
+  name-invalid: "{prefix}&cInvalid class name (1-{max} chars, no spaces)"
+  player-not-found: "{prefix}&cPlayer not found"
+  usage: "{prefix}&7Usage: /lea class create|delete|add|remove|list"
+  list-header: "{prefix}&6===== Class {class} ({count} members) ====="
+  list-entry: "{prefix}&e#{rank} &f{player} &7- &b{score} pts"
