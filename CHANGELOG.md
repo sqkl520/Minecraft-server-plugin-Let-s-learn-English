@@ -2,7 +2,7 @@
 
 ## [1.0.7] - 2026-10-07
 
-> 本版本包含两批改动：v1.0.7 迭代开发（13 个 Story）+ 全项目只读扫描后的缺陷修复批次（中文服止血 / 并发收口 / 仓库卫生）。
+> 本版本包含多批次累积改动：v1.0.7 迭代开发（13 个 Story）+ Phase 0 冻结加固 + Phase 1 止血流 + Phase 2 复活流 + Phase 3 体验层（Wave 1/2/3A/3B/4 四波，8 域）+ 全项目只读扫描后的缺陷修复批次（中文服止血 / 并发收口 / 仓库卫生）。
 
 ### Added
 - **[P3 Wave 3 Batch 3A / 域 5 赛季]** 赛季系统全链（默认关，运营属性）：`SeasonManager`（新类 730 行：anchor-date 纯函数窗口推导 + 抢占式结算（条件 UPDATE 唯一赢家）+ 首次启用不追既往 + catch-up 游标 + 5 分钟热备缓存 + 跨服 origin 协议分发与回环去重）；2 新表 `seasons`（结算台账头 + top_snapshot 回顾）+ `season_rewards`（发放台账，rank_position 避保留字；**付款失败回滚 claimed 供重试**，W3A tester M1 收口）；分层奖励 top1/top3/top10/参与奖（config 可配，直发不经 daily-cap、台账幂等）；结算广播 + 在线即时发放 + 离线 join 补发（`claimPendingRewards`）；**无 Vault 时台账保留 pending 不销毁**（修正 plan 字面缺陷）；午夜跨季零 IO 检测（日期纯比较）+ 启动 catch-up 挂载
@@ -182,18 +182,6 @@
 - **[P0 流 4 / R-04]** `ScenarioSelectListener` 场景点击索引改按玩家版 `getAvailableScenarios(Player)`（与 GUI 同序）；`formatScenarioName` 改按玩家解析（走 `getScenarioDisplayName(Player, key)`），个人 key 显示展示名
 - **[P0 流 4 / R-04]** `/le dialogue <场景>` 回显改按玩家版 `getScenarioDisplayName(Player, key)`，个人 key 显示展示名；tab 补全改按玩家版 `getAvailableScenarios(Player)`（控制台回落全局列表）
 - **[P0 流 4]** i18n 新增 `profile.hidden`（zh/en 双语同位新增）；需编排者同步 bump `ConfigManager.MESSAGE_CONFIG_VERSION` 已部署服才能收到新键
-
-### Added
-
-### Changed
-
-### Fixed
-
-### Changed
-
-### Fixed
-
-### Changed
 
 ### Fixed
 - **[Phase 2 fan-in]** 合流测试建议顺手收：`PlayerDataStore.clearCache()` 补 `playerNameCache.clear()`，reload 后不再把旧名写回 `player_data.player_name`（改名场景）
