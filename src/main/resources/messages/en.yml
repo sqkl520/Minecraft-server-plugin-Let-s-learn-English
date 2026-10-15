@@ -620,6 +620,10 @@ profile:
   settings-show-in-square: "Visible in English Square"
   settings-show-in-square-on: "&aCurrent: Visible"
   settings-show-in-square-off: "&7Current: Hidden"
+  # Wave 1 3A-4 backfill: per-player sound toggle (slot 16; SoundManager gate already wired, UI entry was missing)
+  settings-sounds: "Sound feedback"
+  settings-sounds-on: "&aCurrent: On"
+  settings-sounds-off: "&7Current: Off"
   settings-toggle-hint: "&7Click to toggle"
   hidden: "{prefix}&7That player is hidden and their profile cannot be viewed right now."
   stats-hidden-value: "&7Hidden"

@@ -303,6 +303,22 @@ public class ProfileGUI {
                                 MessageUtil.getGuiMsg(messages, "profile.settings-toggle-hint"))
                 )));
 
+        // Sounds toggle — slot 16（Wave 1 3A-4 补建：per-player 音效开关 UI 入口，
+        // SoundManager.isPlayerSoundEnabled 门早已接线；plan-audio-feedback §2.2 语义：
+        // 关闭后全部 SoundManager 播放静音，ActionBar/BossBar 视觉保留）
+        boolean soundsOn = ps.isSoundsEnabled();
+        inv.setItem(16, createItem(
+                soundsOn ? Material.LIME_DYE : Material.GRAY_DYE,
+                ChatColor.translateAlternateColorCodes('&', "&e" +
+                        MessageUtil.getGuiMsg(messages, "profile.settings-sounds")),
+                Arrays.asList(
+                        ChatColor.translateAlternateColorCodes('&', soundsOn
+                                ? MessageUtil.getGuiMsg(messages, "profile.settings-sounds-on")
+                                : MessageUtil.getGuiMsg(messages, "profile.settings-sounds-off")),
+                        ChatColor.translateAlternateColorCodes('&',
+                                MessageUtil.getGuiMsg(messages, "profile.settings-toggle-hint"))
+                )));
+
         // Back button — slot 8
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +
