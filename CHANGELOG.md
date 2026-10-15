@@ -32,6 +32,7 @@
 - **[P3 Wave 1]** `MESSAGE_CONFIG_VERSION` 11→12：zh/en 双语落盘约 45 新键（onboarding 26 / module.disabled / ai-chat.module-disabled / duel.round-bossbar×2 / combo-milestone / achievement-wall 7 / achievement.prereq-hint / help.guide 等），键级对称校验 548=548 零差异
 
 ### Fixed
+- **[P3 Wave 1 / 3A-4 漏项补建]** per-player 音效开关补 UI 入口：设置页 slot 16 新增"音效反馈"开关（ProfileGUI 渲染 + MiscGUIListener 点击切换 + `profile.settings-sounds(-on/-off)` 双语 4 键）——Wave 1 曾声明该 story 完成，但 `setSoundsEnabled` 除定义外零调用者、设置页只渲染 11/13/15 三开关，实际玩家无 UI 可关（数据列 + SoundManager 门均已接线，仅缺入口；DEPLOYMENT_WIKI 核对时发现）
 - **[P3 Wave 2 / 集成修正]** `SocialListener` 模式识别按标题后缀（`detectModeFromTitle`）+ `renderedFeedPages` 冻结动态页渲染列表：plan "FEED 界面打开即登记快照"对命令/主菜单直达路径不成立且 ESC 重开快照陈旧——修正防"点 A 开 B"缺口；同类面在 `leaderboardGuis` 未修（PF-SOC-06 记 Wave 3）
 - **[P3 Wave 1 / 架构]** tryUnlock 通知段主线程化（`Bukkit.isPrimaryThread()` 判定 + runTask）——根治 PF-ACH-02 bye 分支异步线程直调 Bukkit API 隐患；`achievementConfig` 懒加载改 volatile（F1-03）；`CountdownTier` 纯函数（学习/对决共用 tier 判定）；`VersionAdapter.sendActionBar`（Adventure Component，规避已废弃的 String 重载）
 - **[P3 Wave 1 fan-in]** S-F/S-H 上报缺口收口：`MiscGUIListener` 词库选择补 word 门兜底 + startQuiz null 防御；`LearnCommand.startWordQuiz` 补 startQuiz null 防御；`OnboardingManager.interceptQuizStart` 补 startTutorialQuiz null 接管（S-G 自落）；money 三处直读收口（LearnCommand.isEconomyAvailable / MiscGUIListener 领取判定 / CheckInManager.isMoneyDisabledByConfig 全部改走 `getRewardEngine().isMoneyEnabled()`）

@@ -88,7 +88,7 @@ public class MiscGUIListener implements Listener {
             Runnable backAction = nav.popBack(player.getUniqueId(),
                     () -> new ProfileGUI(plugin).open(player, player.getUniqueId()));
             backAction.run();
-        } else if (slot == 11 || slot == 13 || slot == 15) {
+        } else if (slot == 11 || slot == 13 || slot == 15 || slot == 16) {
             SoundManager.playSound(player, "menu-click");
             PlayerDataStore store = plugin.getPlayerDataStore();
             PlayerDataStore.ProfileSettings ps = store.getProfileSettings(player.getUniqueId());
@@ -96,6 +96,8 @@ public class MiscGUIListener implements Listener {
                 case 11 -> ps.setShowAnswers(!ps.isShowAnswers());
                 case 13 -> ps.setShowResults(!ps.isShowResults());
                 case 15 -> ps.setShowInSquare(!ps.isShowInSquare());
+                // Wave 1 3A-4 补建：per-player 音效开关（SoundManager.isPlayerSoundEnabled 门已接线）
+                case 16 -> ps.setSoundsEnabled(!ps.isSoundsEnabled());
             }
             store.saveProfileSettings(player.getUniqueId());
             new ProfileGUI(plugin).openSettings(player);
