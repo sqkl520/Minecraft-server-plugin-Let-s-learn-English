@@ -16,7 +16,7 @@
 |---|------|------|------|------|
 | P2-26 | `AIChatManager:525` ↔ `DailyChallengeManager:225` | Core↔Core 互引（AIChatManager→updateProgress / DailyChallengeManager→isAvailable），当前无递归栈风险，属结构性环（既有，非本批） | 低 | 待排期（Phase 3：以事件/回调打断） |
 | P2-27 | `ChatHistoryGUI:121/128/146/271` | GUI 越层直调 DatabaseManager（chat-history 既有功能，非本批） | 低 | 待排期（Phase 3：抽 Core 门面收敛） |
-| P2-28 | `AIChatManager` 个人场景持久化 | 类同时承担文件持久化（File/YamlConfiguration/save/.bak，1039-1100 行），建议后续抽 `PersonalScenarioStore`（Arch tester 建议，非本批阻塞） | 低 | 待排期（Phase 3 重构候选） |
+| P2-28 | `AIChatManager` 个人场景持久化 | 类同时承担文件持久化（File/YamlConfiguration/save/.bak，1039-1100 行），建议后续抽 `PersonalScenarioStore`（Arch tester 建议，非本批阻塞） | 低 | **已关闭**（随 Wave 3A 3A-2 收口）：`PersonalScenarioStore` 抽取完成 |
 
 ### 来自 Phase 3 规划期（各域 agent 上报，未修）
 
@@ -39,9 +39,9 @@
 | P3-15 | `core/progress/Achievement.java` | 死类（零引用），与 core/achievement/Achievement.java 同名构成导入歧义陷阱 | 低 | 待排期（Phase 3 与 P2-23/ProgressGUI 一并清理） |
 | P3-16 | `player_data.created_at/last_login` | 死列（影响注册漏斗统计口径） | 低 | 待排期（Phase 3 报告域设计输入） |
 | P3-17 | `MiscGUIListener.claimBehavioralChallenge` | 行为挑战领取绕过 money.enabled 门（关币+Vault 时仍实发金币）—— **已由编排者即修**（PF-MC-01：关闭时终态标记+economy-disabled 提示，与单词挑战同口径） | 中 | **已关闭**（本轮修复） |
-| P3-18 | `DuelManager` 4 处裸 getString | 其一为真实 NPE 路径（域 8 规划新发现，P2-13 白名单外）；另含 `WordLearningGUI` 标题中英混排、`AchievementManager` 解锁瞬间混服语言取单语言（Domain 8 记录） | 低-中 | 待排期（Phase 3 菜单收口域 MC-7 批次一并收敛，已列入 plan-menu-config.md） |
+| P3-18 | `DuelManager` 4 处裸 getString | 其一为真实 NPE 路径（域 8 规划新发现，P2-13 白名单外）；另含 `WordLearningGUI` 标题中英混排、`AchievementManager` 解锁瞬间混服语言取单语言（Domain 8 记录） | 低-中 | **已关闭**（随 Wave 3A 3A-3 收口）：DuelManager 裸 getString 全收敛 |
 | P3-19 | `ChatScenarioListener` bye 分支 | AsyncPlayerChatEvent 异步线程直调 Bukkit API（endConversation 链上可达 tryUnlock 通知段 sendMessage/playSound + 每日挑战记分）—— **已由编排者即修**（PF-ACH-02：bye 切主线程 + handleEndConversation 加"仍在场景模式"守卫） | 中 | **已关闭**（本轮修复，verify 26 测试全绿） |
-| P3-20 | `AchievementManager` unlock-sound | 假配置：`achievement-system.unlock-sound` 只被"判空"消费（留空=不播生效），播放值恒为 SoundManager 的 complete 键、配置的音效名被忽略 | 低 | 待排期（Phase 3 成就域：接线或删键，已列入 plan-achievements.md PF-ACH-01） |
+| P3-20 | `AchievementManager` unlock-sound | 假配置：`achievement-system.unlock-sound` 只被"判空"消费（留空=不播生效），播放值恒为 SoundManager 的 complete 键、配置的音效名被忽略 | 低 | **已关闭**（随 Wave 1 收口）：`SoundManager.playSoundByName` 真播放配置值（PF-ACH-01 修复） |
 
 > P3-01~20 来源：Phase 3 规划各域 agent 的"规划期发现"节（plan-social/plan-ai-feedback/plan-reports/plan-audio-feedback/plan-season/plan-onboarding/plan-menu-config/plan-achievements 等文件）。P3-01/P3-10/P3-11/P3-13/P3-14/P3-17/P3-19 因属"可即修的实伤"已由编排者当轮修复并记 CHANGELOG（verify 26 测试全绿）；其余待 Phase 3 施工时按域排期。
 
@@ -52,7 +52,7 @@
 | P2-01 | `LearnCommand` 等各命令入口的 GUI 直开 | 音效单源收口后（menu-open 仅 SoundManager 全局播放），命令直开的插件 GUI 仍会走 InventoryOpen 全局音——覆盖完整；但若将来标题改名未同步 GUIUtils 白名单，该 GUI 静默丢音（既有注释已警示） | 低 | 已记录（维护约束） |
 | P2-02 | `DuelGUIListener` 展示格 | 删全局 InventoryClick 后，对决界面除退出键外其余展示格点击无声——按设计静音（无可点击动作不应有反馈音），非缺陷 | 低 | 已记录（设计确认） |
 | P2-23 | `gui/ProgressGUI.java` | 全库零实例化点（`new ProgressGUI` 仅构造函数），实际 `/le progress` 走 ProfileGUI —— 死类残留 | 低 | 待排期（Phase 3 清理：删除或复活） |
-| P2-24 | `ScenarioSelectListener` AI 未配置分支 / 无权限分支 | 关界面+发消息但零音效（handleScenarioClick 116-121、handleReloadAPI 192）；`WrongBookListener.handlePractice`（Shift+点练习）有效动作无点击音（同页左键删除有音） | 低 | 待排期（Phase 3 音效面试收尾） |
+| P2-24 | `ScenarioSelectListener` AI 未配置分支 / 无权限分支 | 关界面+发消息但零音效（handleScenarioClick 116-121、handleReloadAPI 192）；`WrongBookListener.handlePractice`（Shift+点练习）有效动作无点击音（同页左键删除有音） | 低 | **已关闭**（随 Wave 1 收口）：三处音效盲点补齐（menu-click/incorrect） |
 | P2-25 | `config.yml` `main-menu.scenario-select.back-button` | 疑似死配置（ScenarioSelectGUI 与 listener 双侧硬编码 slot 8，一致无 bug） | 低 | 待排期（Phase 3 配置面清理） |
 
 ### 来自 S2（AI 健壮性）
@@ -75,16 +75,16 @@
 
 | # | 位置 | 现象 | 严重 | 状态 |
 |---|------|------|------|------|
-| P2-09 | `AdminCommand` export 判定 | 成功判定与 DataExporter 返回串 `"Export failed"` 前缀字符串硬耦合——DataExporter 改失败文案则静默回归 | 低 | 待排期（Phase 3：改协议化返回） |
+| P2-09 | `AdminCommand` export 判定 | 成功判定与 DataExporter 返回串 `"Export failed"` 前缀字符串硬耦合——DataExporter 改失败文案则静默回归 | 低 | **已关闭**（随 Wave 2 域 6 收口）：`ExportResult` record 协议化 |
 | P2-10 | `AdminCommandHandler.addWord/removeWord` | 未知难度只打 console warning 无 sender 反馈（无调用方传 sender，签名改造量大） | 低 | 已记录 |
-| P2-11 | `error.scenario-save-failed` | 被 S4 改造后失去唯一使用点，成死键候选（已在 dev 文档记录） | 低 | 待排期（死键统一清理时一并删） |
+| P2-11 | `error.scenario-save-failed` | 被 S4 改造后失去唯一使用点，成死键候选（已在 dev 文档记录） | 低 | **已关闭**（随 Wave 4 收口）：`error.scenario-save-failed` 键已从 zh/en 删除 |
 | P2-12 | `AIChatManager.getMaxPersonalScenarios()` | S2 落盘的公开 getter 当前无引用（S4 用当前条数实填 {max}），保留备用 | 低 | 已记录 |
 
 ### 来自 S5（生命周期与数据卫生）
 
 | # | 位置 | 现象 | 严重 | 状态 |
 |---|------|------|------|------|
-| P2-13 | 白名单 13 文件 | 剩余 21 处裸 `messages.getString(`（WordLearningListener 8 / WordLearningManager 9 / WrongBookListener 3 / DailyChallengeManager 1），缺键仍 NPE——GUI 侧已清零，listener/core 侧为二期候选 | 中 | 待排期（Phase 3 GUI/listener 硬化二期，方案同 getGuiMsg 收敛） |
+| P2-13 | 白名单 13 文件 | 剩余 21 处裸 `messages.getString(`（WordLearningListener 8 / WordLearningManager 9 / WrongBookListener 3 / DailyChallengeManager 1），缺键仍 NPE——GUI 侧已清零，listener/core 侧为二期候选 | 中 | **已关闭**（随 Wave 3A 3A-3 收口）：21 处裸 getString 全收敛 getGuiMsg |
 | P2-14 | `AchievementManager:178` / `:200` | 带默认值 / 紧跟 null 检查的 getString 保持不动（非缺陷，记录豁免原因） | 低 | 已记录 |
 
 ### 来自 S6（词库内容）
@@ -144,7 +144,7 @@
 |---|------|------|----------|------|------|
 | F3-01 | `LearnCommand` 命令直开榜单/广场 | 不登记快照：排行榜点头像无反应（与 L-02 同事项）；广场 fallback 重建 ALL_PLAYERS 语义可能与所见页错位 | 命令入口不登记 | 中 | 待排期（P1：命令入口补登记或监听器加无快照兜底） |
 | F3-02 | 笑话页返回 | 直达主菜单而非返回栈（与旧行为一致，刻意保持） | 旧行为 | 低 | 待排期（如产品要"回广场原页"需记页码/模式） |
-| F3-03 | 词库展示顺序 | TreeSet 后为字母序（advanced 排第一），非"初级→中级→高级"语义序 | 排序选型 | 低 | 待排期（Phase 3 polish：显式排序表） |
+| F3-03 | 词库展示顺序 | TreeSet 后为字母序（advanced 排第一），非"初级→中级→高级"语义序 | 排序选型 | 低 | **已关闭**（随 P2 清理批次收口）：DIFFICULTY_ORDER 显式排序 |
 | F3-04 | R-09d 尺寸分流约束 | 若未来 openHidden 改 54 格会重新塌回主页分支（约束已写注释） | 尺寸耦合 | 低 | 已记录（code-review 关注点） |
 
 ### 来自流 4（隐私与场景）
@@ -152,16 +152,16 @@
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
 | 已关闭 | 广场内周/月/总榜仍列隐身者 | getRankedPlayers 未过滤 | 同根残留 | 高 | 已关闭（编排者 fan-in 时补：双方法 SQL 过滤 + ALL_PLAYERS 装配跳过） |
-| F4-01 | `AIChatManager.buildSystemPrompt(ownerId)` | 重启后首次纯命令进个人场景 prompt 回落通用句（不走懒加载） | 读内存不触发加载 | 低 | 待排期 |
+| F4-01 | `AIChatManager.buildSystemPrompt(ownerId)` | 重启后首次纯命令进个人场景 prompt 回落通用句（不走懒加载） | 读内存不触发加载 | 低 | **已关闭**（随 P2 清理批次收口）：懒加载触发 |
 | F4-02 | ScenarioSelectGUI 7 格上限 | 个人场景 ≥2 个时 slot 17 玻璃可点，开启"看不见"的场景 | 无分页/扩容 | 低 | 待排期（GUI 分页范畴） |
-| F4-03 | `getPersonalScenarios` 返回活引用 | 暂无写入方，安全但属潜在污染面 | API 设计 | 低 | 待排期 |
+| F4-03 | `getPersonalScenarios` 返回活引用 | 暂无写入方，安全但属潜在污染面 | API 设计 | 低 | **已关闭**（随 Wave 3A 3A-2 收口）：经 PersonalScenarioStore 返回防御性拷贝 |
 | F4-04 | 他人成就墙无独立隐私检查 | 目前无直达命令（依赖主页入口守卫），暂无绕过路径 | 纵深缺失 | 低 | 待排期（判断是否需要纵深检查） |
 
 ### 来自流 5（数据崩溃）
 
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
-| F5-01 | `resolvePlayerUUID` 幂等缺口 | reset 删了 player_data 行后，再对同一离线玩家 reset 报 not found（半删状态无法补删） | 解析与被删数据同表 | 低 | 待排期（改走 getOfflinePlayer 或独立 UUID 映射） |
+| F5-01 | `resolvePlayerUUID` 幂等缺口 | reset 删了 player_data 行后，再对同一离线玩家 reset 报 not found（半删状态无法补删） | 解析与被删数据同表 | 低 | **已关闭**（随 P2 清理批次收口）：R-86h 补 getOfflinePlayer 三级查找 |
 | F5-02 | `AdminCommandHandler.addWord` | chinese 空串不断言，写入后下次加载被跳过但管理员无感知 | 入口无校验 | 低 | 待排期（加空校验 + i18n 提示） |
 | F5-03 | deletePlayerData 与自动保存竞态 | reset 后 persistLongestStreak/recordCoinsEarned 可能重建残行（重进覆盖，影响极小） | 时序 | 低 | 待排期（备查） |
 | F5-04 | `clearCache()` 不清今日计数器 | reload 后防刷上限残留（"reload 不重置防刷"语义可接受但反直觉） | 语义未对齐 | 低 | 待排期（与 D-10 reload 语义分裂一并定） |
@@ -185,7 +185,7 @@
 
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
-| T0-01 | 6 处监听器缺 onInventoryDrag guard | Shift+拖拽可带出展示物（仅 DuelGUI/MainMenu 有） | 漏 guard | 低 | 待排期（P1 R-55e/L-10 同事项，合并修） |
+| T0-01 | 6 处监听器缺 onInventoryDrag guard | Shift+拖拽可带出展示物（仅 DuelGUI/MainMenu 有） | 漏 guard | 低 | **已关闭**（随 P2 清理批次收口）：全库 listener 均有 onInventoryDrag |
 | T0-02 | `clearCache()` 漏清今日计数器 + profile 缓存 | reload 后沿用旧内存值 | 清理不全 | 低 | 待排期（与 F5-04/D-10 一并定 reload 语义） |
 | T0-03 | `SocialListener` 无快照回退重建未过滤隐身 | 与渲染错位但点击仍查开关，只进笑话页不泄主页 | 回退路径漏过滤 | 低 | 待排期 |
 | T0-04 | `loadPlayerLanguages` 缺省 en vs `getPlayerLanguage` 缺省 zh | 默认语言不一致 | fallback 未统一 | 低 | 待排期（与 R-55l 一并定） |
@@ -211,7 +211,7 @@
 
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
-| F2-01 | `DailyChallengeManager.checkAndAssign` MySQL 分支 | INSERT 无 `ON DUPLICATE KEY`，并发重入可能抛 duplicate（SQLite 分支有 OR REPLACE） | 双后端不对称 | 低 | 待排期 |
+| F2-01 | `DailyChallengeManager.checkAndAssign` MySQL 分支 | INSERT 无 `ON DUPLICATE KEY`，并发重入可能抛 duplicate（SQLite 分支有 OR REPLACE） | 双后端不对称 | 低 | **已关闭**（随 P2 清理批次收口）：补 `ON DUPLICATE KEY UPDATE` |
 | F2-02 | `player_sessions.score` / 周榜月榜口径 | `recordSession` 仍存会话学习分，榜单 SQL 未动；周榜月榜是"学习分榜"还是"金币榜"口径未定 | 口径文档缺失 | 低 | 需用户决策（定口径后再看是否改 SQL） |
 
 > 流 A 上报的 `RewardEngine` fallback 残留（review-multiplier 0.5）已由编排者在 fan-in 时修复（0.5→1.2），不再列账。
@@ -221,8 +221,8 @@
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
 | F2-03 | `ChatAnswerListener` 练习分支 | `getPracticingWord(...)` 取出后从未使用（死变量） | 历史残留 | 低 | 待排期 |
-| F2-04 | `Word.equals()` 含 `reward` 字段 | 同英文不同 reward 的词判不等，`getRandomWords` 的 exclude 可能放行同英文词做干扰项（本批次已在 `AnswerChecker` 内加英文去重兜底） | equals 语义过宽 | 低 | 待排期（根因：给 `Word` 加注释或收窄 equals） |
-| F2-05 | `MiscGUIListener.handleWordBankSelect` 写死 `"choice"` | 默认模式第三个散落点（另两处已收敛为常量/回落值）；将来改默认模式时此处会漏 | 散落常量 | 低 | 待排期 |
+| F2-04 | `Word.equals()` 含 `reward` 字段 | 同英文不同 reward 的词判不等，`getRandomWords` 的 exclude 可能放行同英文词做干扰项（本批次已在 `AnswerChecker` 内加英文去重兜底） | equals 语义过宽 | 低 | **已关闭**（随 P2 清理批次收口）：equals 收窄为 english(ignoreCase)+part_of_speech |
+| F2-05 | `MiscGUIListener.handleWordBankSelect` 写死 `"choice"` | 默认模式第三个散落点（另两处已收敛为常量/回落值）；将来改默认模式时此处会漏 | 散落常量 | 低 | **已关闭**（随 P2 清理批次收口）：散落常量收敛 |
 
 > 流 B 上报的旧 `answer-broadcast` 死键与 F1-06 同一事项，不重复列账。
 
@@ -230,10 +230,10 @@
 
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
-| F2-06 | `DuelManager.rewardEngine` 字段 | 构造即赋值，之后零读取（死字段） | 历史残留 | 低 | 待排期 |
+| F2-06 | `DuelManager.rewardEngine` 字段 | 构造即赋值，之后零读取（死字段） | 历史残留 | 低 | **已关闭**（随 P2 清理批次收口）：死字段已删 |
 | F2-07 | `DuelRoom.submitAnswer` | `answer.trim()` 无 null 防护（上游理论非 null） | 防御缺失 | 低 | 待排期 |
 | F2-08 | `DuelManager.cancelDuel` 约 550 行 | `opponentId` 算而不用 | 历史残留 | 低 | 待排期 |
-| F2-09 | `en.yml` 缺 `word-learning-gui.countdown-urgent` | 中英 key 不对称（本次新增 key 双语已对齐，这是历史遗留） | 历史遗留 | 低 | 待排期 |
+| F2-09 | `en.yml` 缺 `word-learning-gui.countdown-urgent` | 中英 key 不对称（本次新增 key 双语已对齐，这是历史遗留） | 历史遗留 | 低 | **已关闭**（随 P2 清理批次收口）：en.yml 已补键 |
 
 > 流 C 上报的 `sendDuelRequest` 过期任务裸 `remove` 已由编排者在 fan-in 时修复（改 `remove(k,v)`），不再列账。
 
@@ -241,10 +241,10 @@
 
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
-| F2-10 | `WordLearningListener.pronounceCooldown` | 只 put 不删，quit 不清，无驱逐（每人一条，量级极小） | 无清理 | 低 | 待排期（quit 清理或复用午夜清理模式） |
+| F2-10 | `WordLearningListener.pronounceCooldown` | 只 put 不删，quit 不清，无驱逐（每人一条，量级极小） | 无清理 | 低 | **已关闭**（随 P2 清理批次收口）：quit 清 pronounceCooldown |
 | F2-11 | `scheduleMidnightRollover` 主线程同步查库 | 每玩家 1~3 条同步 SQL，百人服午夜会卡一下主线程 | 主线程 IO | 中 | 待排期（Phase 3：搬异步快照 + 主线程发消息） |
 | F2-12 | `DuelRoom.timeoutCurrentWord` 零 UUID 哨兵 | `getLastCorrectAnswerer()` 可能对外吐 `new UUID(0,0)`，若 `DuelGUI` 按此查名会有怪显示（未读 `DuelGUI`，待确认非定论） | 哨兵外泄 | 低 | 待排期（先确认 `DuelGUI` 是否消费该方法） |
-| F2-13 | `/le word` 成功提示 `{difficulty}/{mode}` | 填原始英文标识符（如 `choice`/`beginner`），中文玩家看到英文 | 未走 i18n label（review 路径已有 `mode-review` label，普通路径未跟进） | 低 | 待排期 |
+| F2-13 | `/le word` 成功提示 `{difficulty}/{mode}` | 填原始英文标识符（如 `choice`/`beginner`），中文玩家看到英文 | 未走 i18n label（review 路径已有 `mode-review` label，普通路径未跟进） | 低 | **已关闭**（随 P2 清理批次收口）：i18n label 接线（PF-ONB-03 补词库路径） |
 
 > 合流测试建议的 `clearCache` 补 `playerNameCache.clear()` 已由��排者在 fan-in 时顺手收，不再列账。
 
@@ -269,7 +269,7 @@
 
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
-| F1-01 | `DailyChallengeManager.java:367`、`MiscGUIListener.java:132`、`CheckInManager.java:130` | 每日挑战/签到发币直接 `eco.depositPlayer`，不经过 `RewardEngine`，`money.daily-cap` 管不住这三处 | cap 只覆盖 RewardEngine 4 条路径 | 中 | 待排期（Phase 2：cap 口径决策 + 3 处各加一行 `addTodayCoinsEarned`，或将发币收口） |
+| F1-01 | `DailyChallengeManager.java:367`、`MiscGUIListener.java:132`、`CheckInManager.java:130` | 每日挑战/签到发币直接 `eco.depositPlayer`，不经过 `RewardEngine`，`money.daily-cap` 管不住这三处 | cap 只覆盖 RewardEngine 4 条路径 | 中 | **已关闭**（随 P2 清理批次收口）：三处均走 `RewardEngine.depositCappedReward` |
 | F1-02 | `DuelManager.submitAnswer` | 对决答题不计入今日答题数（不走 `submitAnswer`，不调 `incrementTodayAnswerCount`） | 口径未覆盖 | 低 | 需用户决策（对决题算不算"题"？对决本身无发币故无刷币口） |
 | F1-03 | `AchievementManager.getAchievementConfig()` | 非同步懒加载，`tryUnlock` 可达异步路径，与 `clearCache` 置 null 竞态（最坏多读一次文件，无脏数据） | 懒加载未同步 | 低 | 待排期（加 volatile/同步） |
 | F1-04 | cap 提示 `{earned}` 显示 | `String.valueOf(double)` 显示 `490.0` 式小数 | 未格式化 | 低 | 待排期（可选 `eco.format()`，但各服货币格式不一） |
@@ -278,21 +278,21 @@
 
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
-| F1-05 | `AIChatManager.triggerAiOpening` 经 `chatAsync` | 开场白触发语占 1 条有效输入并消耗 1 次每日轮次（GUI 入口每次开对话都调） | 开场白走正常计数通道 | 低 | 待排期（Phase 2：开场白走独立计数或不计轮次） |
+| F1-05 | `AIChatManager.triggerAiOpening` 经 `chatAsync` | 开场白触发语占 1 条有效输入并消耗 1 次每日轮次（GUI 入口每次开对话都调） | 开场白走正常计数通道 | 低 | **已关闭**（随 P2 清理批次收口）：`countsTowardUsage` 接线 |
 | F1-06 | `messages/zh.yml:351`、`en.yml:351` `answer-broadcast`（含 `{answer}`） | 已无代码引用，留存易被后人误用 | 兼容旧包保留 | 低 | 待排期（Phase 2 确认全员升级后删除） |
 | F1-07 | 个人场景可见性 | 个人场景只能 `/le dialogue <个人key>` 进入，场景选择 GUI 和 Tab 补全看不到；`LearnCommand` 回显个人 key 时显示原始 key 而非展示名 | 白名单未覆盖 GUI/Tab 类，刻意收敛 | 中 | 待排期（Phase 2：个人场景 GUI 入口 + `getScenarioDisplayName(Player, key)` 接入） |
-| F1-08 | `ChatScenarioListener` 超限体验 | 超限时先显示一次"AI 正在输入…"再报错 | `aiTyping` 提示在轮次检查之前 | 低 | 待排期 |
+| F1-08 | `ChatScenarioListener` 超限体验 | 超限时先显示一次"AI 正在输入…"再报错 | `aiTyping` 提示在轮次检查之前 | 低 | **已关闭**（随 P2 清理批次收口）：`canSendChat` 只读预检先行 |
 
 ### 来自流 C（挑战领奖）
 
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
-| F1-09 | `MiscGUIListener.handleChallengeComplete` slot 8/22 | 庆祝 GUI 的"领取奖励"按钮纯装饰（只回主菜单），奖励早已自动到账，文案误导 | M18 统一入口未做 | 低 | 待排期（Phase 2，随 M18） |
-| F1-10 | `wordChallengeClaimedToday`（`HashSet`） | 非线程安全 + `clearWordChallengeClaim` 零调用，跨天/长期运行残留过期条目 | 无午夜清理任务 | 中 | 待排期（Phase 2，随跨天 M8） |
-| F1-11 | 经济门不一致 | `CheckInManager.giveCoins` 检查 `rewards.types.money.enabled`，挑战发放点与 `RewardEngine` 不检查——服主关了金币奖励挑战仍发钱 | 开关未统一 | 中 | 待排期（Phase 2：统一经济门） |
-| F1-12 | `DailyChallengeGUI` / `handleDailyChallenge` `idx=(slot-11)/2` | 槽位映射假设恰好 3 个挑战，分配数量变化会错位 | 硬编码映射 | 低 | 待排期（Phase 2，随挑战分配改造） |
-| F1-13 | 领奖双击 interleaving | "到账成功但标记返回 0"极小概率（���次点击交错），钱已发出但无成功消息 | 无按玩家串行锁 | 低 | 待排期（Phase 2 可选：按玩家串行锁，参考 `CheckInManager.playerLocks`） |
-| F1-14 | 单词挑战补发跨天丢失 | 待补发 pending 在跨天（新日期重新分配单词）后按新日期判定会丢失 | 跨天逻辑未做 | 低 | 待排期（Phase 2，随 M8） |
+| F1-09 | `MiscGUIListener.handleChallengeComplete` slot 8/22 | 庆祝 GUI 的"领取奖励"按钮纯装饰（只回主菜单），奖励早已自动到账，文案误导 | M18 统一入口未做 | 低 | **已关闭**（随 P2 清理批次收口）：庆祝页 slot 22 语义修正（"奖励已到账"） |
+| F1-10 | `wordChallengeClaimedToday`（`HashSet`） | 非线程安全 + `clearWordChallengeClaim` 零调用，跨天/长期运行残留过期条目 | 无午夜清理任务 | 中 | **已关闭**（随 P2 清理批次收口）：`ConcurrentHashMap.newKeySet` + 跨天清理 |
+| F1-11 | 经济门不一致 | `CheckInManager.giveCoins` 检查 `rewards.types.money.enabled`，挑战发放点与 `RewardEngine` 不检查——服主关了金币奖励挑战仍发钱 | 开关未统一 | 中 | **已关闭**（随 P2 清理批次收口）：`isMoneyEnabled` 单一真相 |
+| F1-12 | `DailyChallengeGUI` / `handleDailyChallenge` `idx=(slot-11)/2` | 槽位映射假设恰好 3 个挑战，分配数量变化会错位 | 硬编码映射 | 低 | **已关闭**（随 Wave 2 MC-5 收口）：`CHALLENGE_SLOTS` + binarySearch |
+| F1-13 | 领奖双击 interleaving | "到账成功但标记返回 0"极小概率（���次点击交错），钱已发出但无成功消息 | 无按玩家串行锁 | 低 | **已关闭**（随 P2 清理批次收口）：32 槽 stripe lock |
+| F1-14 | 单词挑战补发跨天丢失 | 待补发 pending 在跨天（新日期重新分配单词）后按新日期判定会丢失 | 跨天逻辑未做 | 低 | **已关闭**（随 P2 清理批次收口）：跨天清理链 |
 
 ### 来自流 D（决斗冲突）
 
@@ -300,7 +300,7 @@
 |---|------|------|----------|------|------|
 | F1-15 | `DuelManager.acceptDuel` 开头 | 先 `pendingRequests.remove(targetId)`，后继任一校验失败都会吞掉邀请，需发起方重发 | remove 先于校验 | 低 | 待排期（改：校验全过再 remove） |
 | F1-16 | `DuelManager.sendDuelRequest` | 只查 `isBusy` 不查答题态；单槽 `pendingRequests` 被后请求覆盖 + 先请求的 60s 过期任务误删后请求 | 既有逻辑 | 低 | 待排期 |
-| F1-17 | `ChatScenarioListener`（AI 情景对话） | 第四类聊天消费者，与 quiz/决斗/练习均无互斥 | 超出 M4 三态范围 | 中 | 待排期（Phase 2：四态互斥或明确共存规则） |
+| F1-17 | `ChatScenarioListener`（AI 情景对话） | 第四类聊天消费者，与 quiz/决斗/练习均无互斥 | 超出 M4 三态范围 | 中 | **已关闭**（随 P2 清理批次收口）：R-66 纵深防御 |
 | F1-18 | 决斗分支异步判定 | `isInDuel` 后 cancel 事件、主线程才 `submitAnswer`，若决斗恰在两次之间结束，该条聊天被吞且无反馈 | 判定与消费不在同一线程/时刻 | 低 | 待排期 |
 
 ### 来自流 E（数据 Owner）
@@ -318,7 +318,7 @@
 |---|------|------|----------|------|------|
 | F1-23 | `DailyChallengeManager.depositWordChallengeReward` vs `MiscGUIListener.depositChallengeReward` | 两份 Vault deposit + `recordCoinsEarned` 拷贝；Listener 直接调 `DatabaseManager.recordCoinsEarned` 属越层写 DB | 流 C 白名单收敛所致 | 低 | 待排期（Phase 2：收拢到一处，建议收进 RewardEngine/DatabaseManager 门面并让 Listener 只调一层） |
 | F1-24 | 今日计数 Map 无驱逐 | 三处今日计数 Map + `todayCoinsCache` 只增不删（quit/reload 不清，靠日期懒清零），UUID 缓慢堆积 | 无驱逐 | 低 | 待排期（定期 `removeIf` 或 unload 时清理） |
-| F1-25 | `broadcastCorrectAnswer` 语言 | 取模板用答题者语言，发给所有收件人同一语言版本，混服收件人可能看到对方语言 | 单模板广播 | 低 | 待排期 |
+| F1-25 | `broadcastCorrectAnswer` 语言 | 取模板用答题者语言，发给所有收件人同一语言版本，混服收件人可能看到对方语言 | 单模板广播 | 低 | **已关闭**（随 P2 清理批次收口）：R-86m 按收件人语言渲染 |
 
 ### 本批次语义裁决记录（已定，无需再议）
 
@@ -348,10 +348,10 @@
 |---|------|------|----------|------|------|
 | F0-06 | `ProxyMessenger.java:168-169` | `messages.getString("dialogue.proxy-achievement")` 返回 null 时紧接 `template.replace(...)` 会 NPE，无兜底 | 直接读原始 config，未走安全封装 | 中 | 待排期（Phase 1；可用新 helper `getPlayerMessageSafe` 修） |
 | F0-07 | `MainMenu.java:36` | `translateAlternateColorCodes('&', messages.getString("gui.main-menu-title"))` 无 null 守卫，key 缺失即 NPE | 同上，未走安全封装 | 中 | 待排期（Phase 1） |
-| F0-08 | `UpdateChecker.checkAsync()` 于 `LetsLearnEnglish.java:194-195` | `general.check-updates` 是死配置且注释误导：称"关闭后不连 GitHub API 适合内网"，但代码无条件联网，内网/隐私场景无法通过配置关闭 | 开关从未接线 | 中 | 待排期（Phase 2） |
+| F0-08 | `UpdateChecker.checkAsync()` 于 `LetsLearnEnglish.java:194-195` | `general.check-updates` 是死配置且注释误导：称"关闭后不连 GitHub API 适合内网"，但代码无条件联网，内网/隐私场景无法通过配置关闭 | 开关从未接线 | 中 | **已关闭**（随 Wave 1 收口）：`LetsLearnEnglish` 已读 `general.check-updates` 接线（F0-08 修复） |
 | F0-09 | `config.yml` `gui.main-menu-title` vs `messages/*.yml` 同名键 | 重复定义：管理员改 config.yml 的标题不生效；且 `MainMenuListener` 拿 i18n 标题做点击判定，两者漂移会导致主菜单点击检测失效 | 双真相源 | 中 | 待排期（Phase 2） |
 | F0-10 | `config.yml` `progress-system.achievements.config-file: "achievements-config.yml"` vs `ConfigManager.loadAllConfigs()` 硬编码 `loadConfig("achievements.yml")` | 文件名不一致且该 key 零读取 | 死配置 + 命名漂移 | 低 | 待排期 |
-| F0-11 | 模块级 `enabled` 开关族（`word-system`/`ai-chat`/`progress-system`/`daily-challenges`/`leaderboard`/`achievements`/`rewards`） | 设为 `false` 是静默 no-op，管理员以为关了实际没关 | 开关从未 gating | 中 | 待排期（Phase 2） |
+| F0-11 | 模块级 `enabled` 开关族（`word-system`/`ai-chat`/`progress-system`/`daily-challenges`/`leaderboard`/`achievements`/`rewards`） | 设为 `false` 是静默 no-op，管理员以为关了实际没关 | 开关从未 gating | 中 | **已关闭**（随 Wave 1 MC-2 收口）：`ConfigManager` 11 个 `isXxxEnabled` 门真接线 |
 
 > 流 B 另产出 `tasks/dead-config-audit.md`（21 条必查死配置 + 约 17 条额外死配置），此处不重复。
 
