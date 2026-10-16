@@ -2318,7 +2318,8 @@ public class DatabaseManager {
         String[] uuidTables = {
             "player_data", "word_progress", "achievements", "player_achievements",
             "learning_log", "player_sessions", "player_profiles", "daily_challenges",
-            "season_rewards" // Wave 3 域 5：赛季发放台账（uuid 系；seasons 表无玩家列不动）
+            "season_rewards", // Wave 3 域 5：赛季发放台账（uuid 系；seasons 表无玩家列不动）
+            "class_members" // Wave 4 批次 4A：班级成员关系（uuid 系；classes 表无玩家列不动）
         };
         // 这 4 表的玩家列叫 player_uuid，不是 uuid（见 createTables 建表语句）
         // US-FB（Wave 3 批次 3B）：ai_chat_feedback 一并清收（防 reset 残行）。

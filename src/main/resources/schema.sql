@@ -82,6 +82,12 @@ CREATE TABLE IF NOT EXISTS {prefix}player_profiles (
     sounds_enabled BOOLEAN DEFAULT 1
 );
 
+-- PF-SEA-03 索引（一致性审计 C-8 回写补录）：周/月/赛季/streak/日历大量按日期范围查
+-- player_sessions——运行时由 DatabaseManager.createIndexIfMissing 兼容建（MySQL 8
+-- 不支持 IF NOT EXISTS），此处为文档镜像。
+CREATE INDEX IF NOT EXISTS {prefix}idx_sessions_uuid_date ON {prefix}player_sessions(uuid, session_date);
+CREATE INDEX IF NOT EXISTS {prefix}idx_sessions_date ON {prefix}player_sessions(session_date);
+
 -- Player achievements (separate from old achievements table)
 CREATE TABLE IF NOT EXISTS {prefix}player_achievements (
     uuid VARCHAR(36) NOT NULL,

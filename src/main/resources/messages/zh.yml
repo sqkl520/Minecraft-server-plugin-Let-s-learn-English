@@ -53,7 +53,6 @@ word:
 
 review:
   notification: "{prefix}&6你有 &e{count} &6个单词需要复习！输入 &e/le review &6开始复习"
-  complete: "{prefix}&a复习完成！继续保持！"
   no-words: "{prefix}&a你当前没有需要复习的单词！"
   unavailable: "{prefix}&e部分复习词已失效（可能被移出词库），本次没有可复习的内容，稍后再来看看吧~"
 
@@ -123,7 +122,6 @@ dialogue:
 achievement:
   unlock-title: "&6&l成就解锁！"
   unlock-format: "&b&l✧ {title} &f- {name}"
-  unlocked: "{prefix}&6成就解锁: &e{name} &6- {description}"
   progress: "{prefix}&7成就进度: &e{name} &7({current}/{target})"
   prereq-hint: "&7前置: &c{name}"
 
@@ -165,7 +163,6 @@ leaderboard:
   entry-season: "&7赛季得分: &e{score}"
 
 progress:
-  view: "{prefix}&a正在查看你的学习进度..."
   money-reward: "{prefix}&a答题奖励 &e{amount} &a金币"
   money-session-bonus: "{prefix}&a会话完成奖励 &e{amount} &a金币"
   money-review-reward: "{prefix}&a复习奖励 &e{amount} &a金币"
@@ -175,10 +172,8 @@ progress:
   economy-disabled: "{prefix}&7本服未启用金币经济，本次学习不发放金币，学习进度正常记录~"
 
 admin:
-  export-start: "{prefix}&a开始导出玩家数据..."
   export-complete: "{prefix}&a数据导出完成！文件: &e{file}"
   player-reset: "{prefix}&a已重置玩家 &e{player} &a的学习数据"
-  word-add: "{prefix}&a已添加单词 &e{word} &a到 &e{difficulty} &a单词库"
   usage-reset: "用法: /lea reset <玩家名>"
   usage-exportwordbank: "{prefix}&c用法: /lea exportwordbank <难度>"
   available-difficulties: "{prefix}&7可选难度: &e{list}"
@@ -452,11 +447,9 @@ word-learning-gui:
   title: "单词学习 - {difficulty}"
   answer-hint: "开始答题"
   answer-hint-lore-1: "关闭界面并开始答题"
-  answer-hint-lore-2: ""
   started-hint: "&7请在聊天中输入对应的英文单词。"
   current-word: "&e当前单词: &f{chinese}"
   current-word-lore-1: "关闭此界面后，在聊天栏输入英文"
-  current-word-lore-2: ""
   progress: "进度: {current}/{total}"
   score: "&7分数: &e{score}"
   session-complete: "&6★ &a学习会话完成！ &7正确: &e{correct}&7/&e{total} &7正确率: &e{accuracy}% &7分数: &e{score}"
@@ -633,7 +626,6 @@ chat-history:
   feedback-no-ai: "&7（本次没有 AI 点评）"
 
 wrong-book:
-  title: "&c&l错题本"
   title-page: "&c&l错题本 | 第 {page} 页"
   empty: "&7还没有错题呢~"
   empty-lore: "&7答错3次的单词会自动出现在这里喵~"

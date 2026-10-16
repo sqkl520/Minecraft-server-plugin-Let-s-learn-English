@@ -6,6 +6,25 @@
 
 ---
 
+## 批次：Phase 3 最终验收（锐评 3 路 agent + 编排者收口）
+
+> 跨波一致性审计（`ralph/test-reports/final-consistency-audit.md`）发现的跨批打架项与收口记录。C-1/C-2/C-4/C-5/C-6 已由编排者当轮收口；C-3/C-7 为"旧面从未入账"记入待排期。
+
+| # | 位置 | 现象 | 严重 | 状态 |
+|---|------|------|------|------|
+| C-1 | `config.yml` update-interval ↔ `LetsLearnEnglish` 刷新任务 | plan 裁决"接线"未执行（键悬空、注释与行为差 10 倍）—— MC-2/MC-5/4B 三方互相以为对方处理 | 中 | **已关闭**（Phase 3 收尾）：接线 + 默认 300（零漂移）+ 钳位 [30,3600] |
+| C-2 | `DatabaseManager.deletePlayerData` 缺 `class_members` | 4A 新表未回头补进 reset 函数（后建表没回头补跨批函数的模式）——reset 后残行（占名额/榜 uuid 串） | 中 | **已关闭**（Phase 3 收尾）：补进 uuidTables |
+| C-3 | `DailyChallengeGUI:61` + `DailyChallengeManager:302-330/792-795` | 挑战 GUI 打开主线程直查 DB **且可触发写库**（degrade UPDATE / 首次分配 INSERT）——从未入账；同族 F2-11/PF-SOC-01 | 中 | 待排期（含写路径比纯读重一档；旧面数据路径改造，需异步快照模式） |
+| C-4 | `config.yml` money.vault-required | 零读取真死键 | 低 | **已关闭**（Phase 3 收尾）：删键 + 注释说明（Vault 检测驱动，无需开关） |
+| C-5 | zh/en 8 个 i18n 死键 | 4B 扫除不彻底（含 PF-ACH-05 明确记账却漏删的 `achievement.unlocked`）；audit 脚本单向不查"键→无引用" | 低 | **已关闭**（Phase 3 收尾）：8 键删除（review.complete / achievement.unlocked / progress.view / admin.export-start / admin.word-add / answer-hint-lore-2 / current-word-lore-2 / wrong-book.title） |
+| C-6 | `gui-layout.main-menu.wrong-book` 反向缺键 | 代码双侧读、config 无定义（管理员改不动） | 低 | **已关闭**（Phase 3 收尾）：补录键（值与代码默认一致零漂移） |
+| C-7 | `LearningCalendarGUI.getSessionDays` | 日历 GUI 主线程直查未入账（旧面漏检，同 C-3 族） | 低 | 待排期（与 C-3 同批异步化） |
+| C-8 | `schema.sql` 缺 2 索引文档 | 4 个防扫索引中 2 个未在 schema.sql 注释（运行时由 createIndexIfMissing 建，文档面缺口） | 低 | **已关闭**（Phase 3 收尾）：schema.sql 已补录两索引 |
+| C-9 | `CountdownTier` 学习侧未接 + 无单测 | 纯函数已抽出但学习侧仍走旧路径（对决侧已接）；缺单测 | 低 | **已关闭**（Phase 3 收尾）：学习侧接线 CountdownTier（逐位等价）+ 5 项单测 |
+| C-10 | P3-02/P3-03 挂账措辞 | 措辞引用 ProgressGUI（已删），随 Phase 3 结束失效 | 低 | **已关闭**（Phase 3 收尾）：P3-02/P3-03 措辞已校正（本体仍挂账，见对应行） |
+
+---
+
 ## 批次：P2 清理（甲+乙合并批，8 流 + 2 重跑实例）
 
 > 范围：P2 43 条（核实后实修约 38）+ dev-findings 积压。S1/S5 首实例中断（API 500 / watchdog），重跑实例已补全。各流上报的任务外发现归档如下（一律未修）。
@@ -23,8 +42,8 @@
 | # | 位置 | 现象 | 严重 | 状态 |
 |---|------|------|------|------|
 | P3-01 | `gui/ProfileGUI.java:105` | 正确率恒显 100%：M10 后 `getTotalWords()` 语义=只计答对（=totalCorrect），GUI 却用 `correct/getTotalWords()`，分子分母同值；PAPI 的 accuracy 是正确算法（correct/(correct+incorrect)），两者打架 | 中 | **已关闭（本轮由编排者修复）**：改为 `totalCorrect/(totalCorrect+totalIncorrect)`，与 PAPI 同口径 |
-| P3-02 | `learning_log` 表 | 全库零写入（无任何 INSERT），`DatabaseManager.getTotalSessions()`（统计 HTTP 服务的 totalLearningSessions 与 7 天会话曲线）恒 0——真数据源是 player_sessions | 中 | 待排期（Phase 3：StatisticsHttpServer 改查 player_sessions，或接线 learning_log 写入——建议前者） |
-| P3-03 | `player_data.current_streak` | 零写入（persistLongestStreak 只写 longest_streak），`%lle_streak%` 与 ProgressGUI 当前连续恒 0——真数据源是 checkin_data.streak_count | 中 | 待排期（Phase 3：streak 占位符/ProgressGUI 改走 CheckInManager.getCheckInInfo，或补 current_streak 写入） |
+| P3-02 | `learning_log` 表 | 全库零写入（无任何 INSERT），`DatabaseManager.getTotalSessions()`（统计 HTTP 服务的 totalLearningSessions 与 7 天会话曲线）恒 0——真数据源是 player_sessions | 中 | 待排期（Phase 3 已结束仍未修：StatisticsHttpServer 改查 player_sessions，或接线 learning_log 写入——建议前者） |
+| P3-03 | `player_data.current_streak` | 零写入（persistLongestStreak 只写 longest_streak），`%lle_streak%` 与 ProgressGUI 当前连续恒 0——真数据源是 checkin_data.streak_count | 中 | 待排期（Phase 3 已结束仍未修：streak 占位符改走 CheckInManager.getCheckInInfo，或补 current_streak 写入；ProgressGUI 已随 4B 删除） |
 | P3-04 | `ProgressGUI.java` | 死类（无实例化点，P2-23 同根）——`/le progress` 实际走 ProfileGUI | 低 | **已关闭**（随 Wave 4 4B 收口）：死类已删除 |
 | P3-05 | `player_sessions.mode` | 同日合并（UPSERT）时 mode 列不被更新，记录的是当日首场模式 | 低 | 待排期（Phase 3：报告域做模式统计前需定口径） |
 | P3-06 | `checkin_data` | 无逐日历史（只有 last_checkin_date + streak_count），报告域做"本周签到 X 天"需从 player_sessions 或新表推导 | 低 | 待排期（Phase 3 报告域设计输入） |
