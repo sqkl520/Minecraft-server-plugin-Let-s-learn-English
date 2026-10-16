@@ -11,7 +11,6 @@ general:
   no-permission: "{prefix}&cYou don't have permission to use this command!"
   player-only: "{prefix}&cThis command can only be executed by players!"
   reload-success: "{prefix}&aConfiguration reloaded successfully!"
-  data-saved: "{prefix}&aPlayer data saved!"
   unknown-command: "{prefix}&cUnknown command. Use /le help for help."
   error: "{prefix}&cError: {message}"
 
@@ -30,15 +29,9 @@ error:
   checkin-unavailable: "&cThe check-in system is currently unavailable."
   usage-save-scenario: "&cUsage: /le save_scenario <name>"
   usage-load-scenario: "&cUsage: /le load_scenario <code>"
-  scenario-save-failed: "&cFailed to save the scenario file."
 
 word:
   session-start: "{prefix}&aStarting new learning session! Difficulty: &e{difficulty}&a, Mode: &e{mode}"
-  session-end: "{prefix}&aLearning session complete! Accuracy: &e{accuracy}%"
-  correct: "{prefix}&aCorrect! &f(+{score} points)"
-  incorrect: "{prefix}&cIncorrect! The correct answer is: &e{answer}"
-  mastery-update: "{prefix}&aYour mastery of &e{word} &ahas improved to &e{mastery}%"
-  daily-limit-reached: "{prefix}&cYou've reached your daily learning limit! Come back tomorrow~"
   pronunciation-button: "&d发音 / Pronounce"
   pronunciation-button-lore: "&7Click to play pronunciation cue"
   phonetic-label: "&7Phonetic"
@@ -152,9 +145,6 @@ leaderboard:
   header: "&6&l===== English Learning Leaderboard ====="
   entry: "&e#{rank} &f{player} &7- &b{score} points"
   footer: "&6&l======================================"
-  title-weekly: "&6&lWeekly Ranking - Page {page}"
-  title-monthly: "&6&lMonthly Ranking - Page {page}"
-  title-alltime: "&6&lAll-Time Ranking - Page {page}"
   mode-weekly: "Weekly"
   mode-monthly: "Monthly"
   mode-alltime: "Total"
@@ -190,7 +180,6 @@ admin:
   player-reset: "{prefix}&aReset learning data for player &e{player}"
   word-add: "{prefix}&aAdded word &e{word} &ato &e{difficulty} &aword bank"
   usage-reset: "Usage: /lea reset <player>"
-  reset-pending: "Player data reset for: {player} (feature pending)"
   usage-exportwordbank: "{prefix}&cUsage: /lea exportwordbank <difficulty>"
   available-difficulties: "{prefix}&7Available difficulties: &e{list}"
   usage-importwordbank: "{prefix}&cUsage: /lea importwordbank <filename.yml>"
@@ -277,7 +266,6 @@ checkin:
   success: "{prefix}&aCheck-in successful! Streak: &e{streak} &adays, earned &e{coins} &acoins!"
   already: "{prefix}&eYou've already checked in today! Come back tomorrow~"
   streak-broken: "{prefix}&cStreak broken... &7The old streak is now &e0&7; today's check-in starts a new streak at &e1&7."
-  streak-info: "{prefix}&7Current streak: &e{streak} &7days"
   economy-disabled: "{prefix}&7Coin economy is disabled on this server, so this check-in pays no coins, but your streak is recorded normally~"
 
 scenario:
@@ -447,8 +435,6 @@ daily-challenge:
   firework-lore: "&7You completed all today's challenge words!"
   reward-title: "&eReward: {reward} coins"
   reward-lore: "&7Your hard-earned &e{reward} &7coins have arrived!"
-  claim-button: "&a&lClaim Reward!"
-  claim-button-lore: "&7Click to receive your coins!"
   claimed-button: "&a&l✔ Reward Received!"
   claimed-button-lore: "&7Click to return to the main menu"
   reward-pending: "{prefix}&cChallenge reward delivery failed, {reward} coins are held. Answer any word correctly to retry"
@@ -474,7 +460,6 @@ word-learning-gui:
   progress: "Progress: {current}/{total}"
   score: "&7Score: &e{score}"
   session-complete: "&6★ &aSession complete! &7Correct: &e{correct}&7/&e{total} &7Accuracy: &e{accuracy}% &7Score: &e{score}"
-  answer-broadcast: "&7{player} &7answered: &f{answer}"
   answer-broadcast-correct: "&7{player} &agot it right! &7(+&e{score}&7)"
   session-ended: "&aLearning session ended!"
   answer-prompt: "&eSpell: &f{chinese} &7(Time left: {seconds}s)"
@@ -503,23 +488,6 @@ word-learning-gui:
   answer-expired: "&7This question has already passed — your answer arrived too late~"
   death-paused: "&cYou died while answering! This question won't be marked wrong or penalized; it resumes after you respawn~"
   death-resumed: "&aThe answering screen has been reopened for you — close it to continue answering~"
-
-dialogue-gui:
-  title: "Dialogue - {scene}"
-  instructions:
-    - "&7Type English in chat to talk with the AI"
-    - "&7Type &egoodbye &7or &ebye &7to exit"
-    - "&7The AI will gently correct your grammar"
-
-progress-gui:
-  title: "Learning Progress"
-  player-summary: "Here's your learning summary"
-  words-learned: "Words Learned"
-  sessions: "Sessions"
-  total-score: "Total Score"
-  current-streak: "Current Streak"
-  longest-streak: "Longest Streak"
-  days-suffix: " days"
 
 square:
   title: "&d&lEnglish Square - Page {page}"

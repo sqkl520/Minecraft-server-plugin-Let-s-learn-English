@@ -79,8 +79,8 @@ public class SocialListener implements Listener {
     /**
      * ProfileGUI / AchievementWallGUI 的返回键槽位。
      *
-     * 这两个 GUI 目前把返回键**写死**在 slot 8，并不读 {@code gui-layout}（ProfileGUI 里
-     * {@code gui-layout.profile.back-button.slot} 实际是死配置，无人读取）。
+     * 这两个 GUI 把返回键**写死**在 slot 8，并不读 {@code gui-layout}（旧
+     * {@code gui-layout.profile} 段属死配置，已在 MC-7 死键清理中整体移除）。
      * 因此监听器**不能**改成读配置 —— 一旦管理员改了配置，GUI 仍渲染在 8，
      * 监听器却去判定新槽位，反而制造出 W2 那类静默失效。
      * 唯一真相 = GUI 的写死值，这里用常量表达同一份事实。

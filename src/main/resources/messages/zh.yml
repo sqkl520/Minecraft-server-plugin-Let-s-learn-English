@@ -11,7 +11,6 @@ general:
   no-permission: "{prefix}&c你没有权限使用此命令！"
   player-only: "{prefix}&c此命令只能由玩家执行！"
   reload-success: "{prefix}&a配置已重新加载！"
-  data-saved: "{prefix}&a玩家数据已保存！"
   unknown-command: "{prefix}&c未知命令。输入 /le help 查看帮助。"
   error: "{prefix}&c错误: {message}"
 
@@ -30,15 +29,9 @@ error:
   checkin-unavailable: "&c签到系统当前不可用。"
   usage-save-scenario: "&c用法: /le save_scenario <名称>"
   usage-load-scenario: "&c用法: /le load_scenario <编码>"
-  scenario-save-failed: "&c保存场景文件失败。"
 
 word:
   session-start: "{prefix}&a开始新的学习会话！难度: &e{difficulty}&a, 模式: &e{mode}"
-  session-end: "{prefix}&a学习会话结束！正确率: &e{accuracy}%"
-  correct: "{prefix}&a正确！&f(+{score} 分)"
-  incorrect: "{prefix}&c错误！正确答案是: &e{answer}"
-  mastery-update: "{prefix}&a你对单词 &e{word} &a的掌握度提升到了 &e{mastery}%"
-  daily-limit-reached: "{prefix}&c你今天已达到每日学习上限！明天再来吧~"
   pronunciation-button: "&d发音 / Pronounce"
   pronunciation-button-lore: "&7点击播放发音提示音"
   phonetic-label: "音标 / Phonetic"
@@ -152,9 +145,6 @@ leaderboard:
   header: "&6&l===== 英语学习排行榜 ====="
   entry: "&e#{rank} &f{player} &7- &b{score} 分"
   footer: "&6&l=============================="
-  title-weekly: "&6&l周榜 - 第{page}页"
-  title-monthly: "&6&l月榜 - 第{page}页"
-  title-alltime: "&6&l总榜 - 第{page}页"
   mode-weekly: "周榜"
   mode-monthly: "月榜"
   mode-alltime: "总榜"
@@ -190,7 +180,6 @@ admin:
   player-reset: "{prefix}&a已重置玩家 &e{player} &a的学习数据"
   word-add: "{prefix}&a已添加单词 &e{word} &a到 &e{difficulty} &a单词库"
   usage-reset: "用法: /lea reset <玩家名>"
-  reset-pending: "已请求重置玩家 {player} 的数据 (功能开发中)"
   usage-exportwordbank: "{prefix}&c用法: /lea exportwordbank <难度>"
   available-difficulties: "{prefix}&7可选难度: &e{list}"
   usage-importwordbank: "{prefix}&c用法: /lea importwordbank <文件名.yml>"
@@ -277,7 +266,6 @@ checkin:
   success: "{prefix}&a签到成功! 连续签到 &e{streak} &a天，获得 &e{coins} &a金币!"
   already: "{prefix}&e你今天已经签到过了喵~ 明天再来吧!"
   streak-broken: "{prefix}&c发生断签... &7旧连续签到已归零，今天签到后重新计为 &e1 &7天"
-  streak-info: "{prefix}&7当前连续签到 &e{streak} &7天"
   economy-disabled: "{prefix}&7本服未启用金币经济，本次签到不发放金币，签到天数正常记录~"
 
 scenario:
@@ -447,8 +435,6 @@ daily-challenge:
   firework-lore: "&7你完成了今天所有挑战单词！"
   reward-title: "&e奖励: {reward} 金币"
   reward-lore: "&7你辛苦赢得的 &e{reward} &7金币已到账！"
-  claim-button: "&a&l领取奖励！"
-  claim-button-lore: "&7点击领取你的金币！"
   claimed-button: "&a&l✔ 奖励已到账！"
   claimed-button-lore: "&7点击返回主菜单"
   reward-pending: "{prefix}&c挑战奖励发放失败，{reward} 金币暂存中喵~ 答对任意单词会自动补发"
@@ -474,7 +460,6 @@ word-learning-gui:
   progress: "进度: {current}/{total}"
   score: "&7分数: &e{score}"
   session-complete: "&6★ &a学习会话完成！ &7正确: &e{correct}&7/&e{total} &7正确率: &e{accuracy}% &7分数: &e{score}"
-  answer-broadcast: "&7{player} &7回答了: &f{answer}"
   answer-broadcast-correct: "&7{player} &a答对了！ &7(+&e{score}&7)"
   session-ended: "&a学习会话已结束！"
   answer-prompt: "&e请拼写: &f{chinese} &7(剩余时间: {seconds}秒)"
@@ -503,23 +488,6 @@ word-learning-gui:
   answer-expired: "&7本题已过，你的答案来晚了喵~"
   death-paused: "&c你在答题中死亡了！本题不计错也不扣分，重生后会自动继续喵~"
   death-resumed: "&a已为你重开答题界面，关掉界面即可继续答题喵~"
-
-dialogue-gui:
-  title: "情景对话 - {scene}"
-  instructions:
-    - "&7在聊天栏输入英语与 AI 对话"
-    - "&7输入 &e再见 &7或 &ebye &7退出"
-    - "&7AI 会温柔纠正你的语法错误"
-
-progress-gui:
-  title: "学习进度"
-  player-summary: "以下是你的学习摘要"
-  words-learned: "已学单词"
-  sessions: "学习次数"
-  total-score: "总分"
-  current-streak: "当前连续"
-  longest-streak: "最长连续"
-  days-suffix: " 天"
 
 square:
   title: "&d&l英语广场 - 第{page}页"

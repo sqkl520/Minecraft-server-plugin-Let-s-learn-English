@@ -44,7 +44,7 @@ public class MessageUtil {
      * Get a message by key path with placeholder replacements.
      * Uses the server's default language for prefix resolution.
      *
-     * @param key          the message key (e.g., "word.correct")
+     * @param key          the message key (e.g., "word.session-start")
      * @param placeholders key-value pairs for placeholder replacement
      * @return the formatted message string
      */
@@ -195,7 +195,7 @@ public class MessageUtil {
      * read raw values via {@code FileConfiguration#getString} (which can return null and
      * trigger an NPE) can adopt this helper for a guaranteed-visible fallback.
      *
-     * @param key          the message key (e.g. "word.correct")
+     * @param key          the message key (e.g. "word.session-start")
      * @param placeholders optional key-value pairs for substitution
      * @return the formatted message, or a visible placeholder — never null
      */

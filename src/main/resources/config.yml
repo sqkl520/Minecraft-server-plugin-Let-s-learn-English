@@ -22,10 +22,6 @@ general:
   # R-55l：此 key 缺失时所有代码回落均为 zh（与此处默认值一致，启动审计会告警缺 key）
   language: "zh"
 
-  # 调试模式：开启后会在控制台输出详细日志
-  # 建议仅在排查问题时开启，正常运行请关闭以节省性能
-  debug: false
-
   # 启动时联网检查版本更新
   # 关闭后不会连接 GitHub API，适合无网络的内网服务器
   # F0-08：现已真正接线——false 时跳过 UpdateChecker.checkAsync（含玩家进服的
@@ -74,8 +70,7 @@ database:
     database: "letslearnenglish"
     username: "root"
     password: ""
-    # MySQL 连接池大小，建议 5-20
-    pool-size: 10
+    # 注：本插件使用单连接（无连接池），旧 pool-size 配置项已移除（本就无效）
     # 数据库表名前缀，用于区分不同插件
     table-prefix: "lle_"
 
@@ -273,7 +268,6 @@ progress-system:
     # 事件静默：不再解锁新成就（无播报/无音效/无跨服广播）
     # 数据保留：已解锁记录保留，重开后立即回归
     enabled: true
-    config-file: "achievements-config.yml"
 
   # --- 奖励类型 ---
   rewards:
@@ -282,15 +276,6 @@ progress-system:
     # 数据保留：签到仍记 streak、进度照常累计
     enabled: true
     types:
-      # 物品奖励
-      item:
-        enabled: true
-      # 指令奖励（允许执行自定义指令作为奖励）
-      command:
-        enabled: true
-      # 经验值奖励
-      exp:
-        enabled: true
       # 经济奖励（需要 Vault 插件）
       # 语义叠加：本键 && progress-system.enabled && rewards.enabled，三者都 true 才发金币
       money:
@@ -319,13 +304,9 @@ progress-system:
 #  GUI 界面设置 (GUI Settings)
 # ============================================================
 gui:
-  # 主菜单标题（颜色代码使用 & 符号）
-  main-menu-title: "&6&lLet's Learn English!"
   # 菜单大小：27 / 36 / 45 / 54（按钮布局固定 10-18 槽、含 12/16 新增的对决/签到按钮，
   # 至少需要 27 格；9/18 会因按钮越界在打开菜单时崩溃，故非法值一律回落 27 并记 WARNING）
   menu-size: 27
-  # 是否使用自定义材质（需要额外的资源包）
-  custom-textures: false
 
   # --- 音效设置 ---
   # enabled: 是否启用 GUI 操作音效
@@ -377,10 +358,6 @@ gui-layout:
     dialogue-practice:
       slot: 13
       material: "PAPER"
-    scenario-select:
-      back-button:
-        slot: 8
-        material: "RED_STAINED_GLASS_PANE"
     personal-profile:
       slot: 15
       material: "DIAMOND"
@@ -471,48 +448,8 @@ gui-layout:
     tab-combo:
       slot: 2
       material: "DIAMOND_SWORD"
-  profile:
-    border-material: "BLACK_STAINED_GLASS_PANE"
-    back-button:
-      slot: 8
-      material: "RED_STAINED_GLASS_PANE"
-    player-head:
-      slot: 4
-      material: "PLAYER_HEAD"
-    age:
-      slot: 13
-      material: "CAKE"
-    words-learned:
-      slot: 11
-      material: "BOOK"
-    accuracy:
-      slot: 12
-      material: "EXPERIENCE_BOTTLE"
-    sessions:
-      slot: 14
-      material: "CLOCK"
-    coins:
-      slot: 15
-      material: "GOLD_INGOT"
-    settings-button:
-      slot: 26
-      material: "COMPARATOR"
-    settings-back-button:
-      slot: 8
-      material: "RED_STAINED_GLASS_PANE"
-    settings-toggle-on:
-      material: "LIME_DYE"
-    settings-toggle-off:
-      material: "GRAY_DYE"
-    settings-show-answers:
-      slot: 11
-      material: "LIME_DYE"
-    settings-show-results:
-      slot: 13
-      material: "LIME_DYE"
-    settings-show-in-square:
-      slot: 15
-      material: "LIME_DYE"
+  # 注：旧 profile 段（15 个叶子键）已整体移除 —— ProfileGUI 把布局写死在代码里，
+  # 这些配置从未被读取（死配置）。
   achievement-wall:
     unlocked-material: "GREEN_STAINED_GLASS_PANE"
     locked-material: "GRAY_STAINED_GLASS_PANE"
@@ -528,11 +465,10 @@ achievement-system:
 #  代理网络设置 (Proxy Network Settings)
 # ============================================================
 #  用于 Velocity / BungeeCord 等多服代理网络环境
+#  注：跨服消息通道（成就解锁广播 / 全服公告接收）由 ProxyMessenger 在
+#  检测到代理环境后无条件注册，无独立开关（旧 cross-server-announcements /
+#  cross-server-messages 两项从未被代码读取，已移除）。
 proxy:
-  # 是否启用跨服公告（成就解锁时广播到全服）
-  cross-server-announcements: true
-  # 是否启用跨服全局消息接收（接收来自其他子服的公告）
-  cross-server-messages: true
   # 本子服在代理网络中的服务器名（与 BungeeCord/Velocity 配置一致）。
   # 用于跨服广播回环去重（赛季结算/开始子通道）；留空 = 单服模式
   # （回环语义退化为"可能重复播报一次"，奖励发放仍受台账幂等保护）。
@@ -629,16 +565,11 @@ tts:
   pronounce-cooldown-seconds: 5
 
 # ============================================================
-#  难度等级设置 (Difficulty Settings)
+#  难度等级 (Difficulty Levels)
 # ============================================================
-difficulty-settings:
-  # 可用的难度等级列表
-  available: ["beginner", "intermediate", "advanced"]
-  # 各难度等级的显示名称
-  display-names:
-    beginner: "初级"
-    intermediate: "中级"
-    advanced: "高级"
+#  注：旧 difficulty-settings 段（available/display-names）已整体移除 —— 难度等级
+#  由 words/*.yml 自动发现，显示名走 messages/*.yml（word.difficulty-*），
+#  该段配置从未被代码读取。
 
 # ============================================================
 #  统计仪表盘 HTTP 服务器 (Statistics Dashboard HTTP Server)
