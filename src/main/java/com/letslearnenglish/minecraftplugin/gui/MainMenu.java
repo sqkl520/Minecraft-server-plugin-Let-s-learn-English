@@ -68,8 +68,17 @@ public class MainMenu {
         String progressLore = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "main-menu.progress-stats-lore"));
 
-        menu.setItem(cm.getGuiSlot("main-menu", "word-learning", 11), createMenuItem(cm.getGuiMaterial("main-menu", "word-learning", Material.BOOK), wordName, wordLore));
-        menu.setItem(cm.getGuiSlot("main-menu", "dialogue-practice", 13), createMenuItem(cm.getGuiMaterial("main-menu", "dialogue-practice", Material.PAPER), dialogueName, dialogueLore));
+        // 模块门（渲染侧，一致性审计/旅程验收收口）：config 三层语义承诺"入口隐藏"，
+        // 此前只对 duel/checkin 落了渲染门，word-system/ai-chat/daily-challenges 四个
+        // 按钮关闭后照常渲染（承诺与实现不符的实伤）。现按各模块 config 注释逐一接线；
+        // 关闭时该槽回落开头的灰玻璃占位。个人主页（15）不设门——progress 伞注释明示
+        // "停伞不停展示"。点击侧（MainMenuListener）同款门对僵尸界面兜底拒绝。
+        if (cm.isWordSystemEnabled()) {
+            menu.setItem(cm.getGuiSlot("main-menu", "word-learning", 11), createMenuItem(cm.getGuiMaterial("main-menu", "word-learning", Material.BOOK), wordName, wordLore));
+        }
+        if (cm.isAIChatEnabled()) {
+            menu.setItem(cm.getGuiSlot("main-menu", "dialogue-practice", 13), createMenuItem(cm.getGuiMaterial("main-menu", "dialogue-practice", Material.PAPER), dialogueName, dialogueLore));
+        }
         menu.setItem(cm.getGuiSlot("main-menu", "personal-profile", 15), createMenuItem(cm.getGuiMaterial("main-menu", "personal-profile", Material.DIAMOND), progressName, progressLore));
 
         String squareName = ChatColor.translateAlternateColorCodes('&',
@@ -82,9 +91,11 @@ public class MainMenu {
                 MessageUtil.getGuiMsg(messages, "main-menu.daily-challenge"));
         String dailyLore = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "main-menu.daily-challenge-lore"));
-        menu.setItem(cm.getGuiSlot("main-menu", "daily-challenge", 10),
-                createMenuItem(cm.getGuiMaterial("main-menu", "daily-challenge", Material.WRITABLE_BOOK),
-                        dailyName, dailyLore));
+        if (cm.isDailyChallengesEnabled()) {
+            menu.setItem(cm.getGuiSlot("main-menu", "daily-challenge", 10),
+                    createMenuItem(cm.getGuiMaterial("main-menu", "daily-challenge", Material.WRITABLE_BOOK),
+                            dailyName, dailyLore));
+        }
 
         String wrongName = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "main-menu.wrong-book"));
@@ -94,7 +105,11 @@ public class MainMenu {
         // P2 fan-in（S1 上报）：MainMenuListener.handleMainMenu 已改读同一份
         // gui-layout.main-menu 配置（getGuiSlot + 相同默认值），两侧不再漂移；
         // 管理员改配置槽位后渲染与点击自动对齐。
-        menu.setItem(cm.getGuiSlot("main-menu", "wrong-book", 14), createMenuItem(cm.getGuiMaterial("main-menu", "wrong-book", Material.BOOKSHELF), wrongName, wrongLore));
+        // 模块门（旅程验收收口）：word-system 承诺"错题本隐藏"——归 word-system 门
+        // （错题本是单词学习的从属面；其练习入口消费答题输入，关闭必须同步隐藏）。
+        if (cm.isWordSystemEnabled()) {
+            menu.setItem(cm.getGuiSlot("main-menu", "wrong-book", 14), createMenuItem(cm.getGuiMaterial("main-menu", "wrong-book", Material.BOOKSHELF), wrongName, wrongLore));
+        }
 
         String btnName = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "language.button"));

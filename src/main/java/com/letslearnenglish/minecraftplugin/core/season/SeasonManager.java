@@ -92,6 +92,9 @@ public class SeasonManager {
 
     /** 结算防重入：同一时刻至多一个结算扫描在途（onEnable 与午夜两触发点可能相邻）。 */
     private final AtomicBoolean settleInFlight = new AtomicBoolean(false);
+
+    /** 旅程验收收口：赛季"开而不动"启动 WARNING 一次性标记（防刷屏）。 */
+    private volatile boolean dormancyWarned = false;
     /** 锚点配置非法只告警一次（点读式配置，防每次调用刷屏）。 */
     private final AtomicBoolean anchorWarned = new AtomicBoolean(false);
 
@@ -319,6 +322,16 @@ public class SeasonManager {
      */
     public void settleIfNeededAsync() {
         if (!isEnabled()) {
+            // 旅程验收收口（赛季"开而不动"静默陷阱）：enabled=true 但锚点在未来时
+            // 全系统休眠（isEnabled=false 是正确语义），但管理员会误判"功能没做"——
+            // 启动时打一次 WARNING 说明原因与修正方法（dormancyWarned 防刷屏）。
+            if (!dormancyWarned && plugin.getConfigManager().getMainConfig()
+                    .getBoolean("season.enabled", false)) {
+                dormancyWarned = true;
+                plugin.getLogger().warning("season.enabled=true but the current season has not "
+                        + "started yet (anchor-date is in the future or invalid) — season "
+                        + "features stay dormant. Check season.anchor-date in config.yml.");
+            }
             return;
         }
         if (!settleInFlight.compareAndSet(false, true)) {

@@ -16,7 +16,6 @@ import java.util.logging.Level;
  *
  * Managed configuration files:
  * - config.yml         Main configuration
- * - achievements.yml   Achievement configuration
  * - words/*.yml      Word bank files
  * - messages/*.yml     Multi-language message files
  */
@@ -90,7 +89,6 @@ public class ConfigManager {
     private final Map<String, FileConfiguration> configCache;
 
     private FileConfiguration mainConfig;
-    private FileConfiguration achievementConfig;
     private FileConfiguration messageConfig;
     private FileConfiguration messageConfigZh;
     private FileConfiguration messageConfigEn;
@@ -105,7 +103,9 @@ public class ConfigManager {
         plugin.saveDefaultConfig();
         mainConfig = plugin.getConfig();
 
-        achievementConfig = loadConfig("achievements.yml");
+        // 诚实性审查收口（新发现 A/B）：原此处 loadConfig("achievements.yml")——该文件
+        // 已废弃（自带 deprecated 头注、AchievementManager 实际读 achievements-config.yml），
+        // 死链读取还会把废弃文件释放到数据目录误导管理员。整链移除（字段/getter 同删）。
 
         createDirectoryIfNotExists("words");
 
@@ -255,10 +255,6 @@ public class ConfigManager {
 
     public FileConfiguration getMainConfig() {
         return mainConfig;
-    }
-
-    public FileConfiguration getAchievementConfig() {
-        return achievementConfig;
     }
 
     public FileConfiguration getMessageConfig() {

@@ -73,6 +73,13 @@ public class WrongBookGUI {
     }
 
     public void open(Player player, int page) {
+        // 模块门（旅程验收收口）：word-system 承诺"错题本隐藏"——本类收敛所有打开
+        // 入口（主菜单点击/翻页/删除后重开），单点门覆盖全链；点击侧
+        // WrongBookListener 另有僵尸界面兜底。
+        if (!plugin.getConfigManager().isWordSystemEnabled()) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "module.disabled"));
+            return;
+        }
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 

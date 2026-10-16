@@ -424,7 +424,10 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         if (requireEnabled(player, plugin.getConfigManager().isLeaderboardEnabled())) {
             return;
         }
-        new LeaderboardGUI(plugin).open(player);
+        // F3-01 收口（旅程验收）：此前直开 LeaderboardGUI 不登记快照，玩家点头像
+        // 静默无反应（点击侧要求 SocialListener.leaderboardGuis 快照非空）——改走
+        // 登记式打开（GUI 与快照同刻，主线程）。
+        plugin.getSocialListener().openLeaderboardWithSnapshot(player);
     }
 
     private void handleProfileCommand(Player player, String[] args) {

@@ -64,6 +64,16 @@ public class WrongBookListener implements Listener {
             return;
         }
 
+        // 模块门（点击侧，旅程验收收口）：word-system 关闭时错题本整体拒绝——渲染侧
+        // 主菜单按钮已隐藏、GUI open 有门，本处覆盖"关闭前已打开的僵尸界面"点击
+        //（含删除/翻页/练习入口——练习会消费聊天输入，必须一并拒绝，同 duel 分支模式；
+        //  返回键在上方已放行，玩家总能退出残留界面）。
+        if (!plugin.getConfigManager().isWordSystemEnabled()) {
+            SoundManager.playSound(player, "menu-click");
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "module.disabled"));
+            return;
+        }
+
         // Navigation
         int currentPage = extractPageFromTitle(title);
         if (currentPage < 1) currentPage = 1;

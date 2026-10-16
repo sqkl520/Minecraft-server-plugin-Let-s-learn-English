@@ -186,11 +186,10 @@ public class AchievementWallGUI {
     /**
      * 直读 dataFolder 下的 achievements-config.yml。
      *
-     * <p>PF-ACH-10 交叉引用：成就配置的四个"真相源"里，{@code ConfigManager} 加载的
-     * {@code achievements.yml} 是已废弃文件（F0-10 在案，勿编辑）；运行期真正生效的
-     * 是 {@code achievements-config.yml}——本方法与
-     * {@code AchievementManager.getAchievementConfig} 是仅有的两个消费点，
-     * 管理员改开关/时间窗只认后者（与 {@code AchievementManager} 处注释互为提醒）。
+     * <p>诚实性审查收口：原"四个真相源"中的 {@code ConfigManager.achievements.yml}
+     * 死链已随废弃文件整链移除（2026-10-16）——运行期真正生效的只有
+     * {@code achievements-config.yml}，本方法与
+     * {@code AchievementManager.getAchievementConfig} 是仅有的两个消费点。
      */
     private FileConfiguration loadAchievementConfig() {
         File file = new File(plugin.getDataFolder(), "achievements-config.yml");
