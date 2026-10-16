@@ -205,7 +205,8 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - [x] Batch 4B 施工：done（14 项 i18n 死键 zh/en 对称删 + ProgressGUI 死类成对删 + 11 项 config 死键 + MessageUtil javadoc 替换；每键删前全路径 grep 复核；**agent 上报 2 白名单外发现已收口**：getGuiBorderMaterial 死方法删（编排者）/ README 配置清单去 difficulty-settings（编排者）；**agent 偏差记录**：建议示例键 word.timeout 不存在（全库零命中），改用真活键 word.session-start）；javac EXIT=0、audit 零新增缺失、692=692 对称、mvn verify BUILD SUCCESS（147 类/39 测试）
 - [x] **Batch 4B 提交 `753148f`**（三维 tester 全过：构建 **GO** / 代码 **GO** / 架构 **PASS** 零问题；tester 上报收口 4 项：GUIUtils 死启发式 / P3-15 死类 / getGuiBorderMaterial 死方法 / README 清理；dev-findings P2-23/P2-25/P3-04/P3-15 同步回写已关闭）
 - [x] **Wave 4 全部完成**——Phase 3 施工（Wave 1/2/3A/3B/4A/4B）全部提交
-- [ ] **最终验收 + 锐评 3 路 agent**（计划见 `tasks/phase3/final-review-plan.md`）
-- [ ] 收尾文档最终回写（tracker 转归档 + CHANGELOG 收尾）
+- [x] **最终验收 + 锐评 3 路 agent**：done——旅程验收（可称"完整体验层"，4 断裂全收口 `47d3300`）/ 跨波一致性（良好 GO，C-1~C-10 收口 8 项 `893caed`）/ 诚实性审查（工程 85 分/叙事 70 分，H-1 死链收口）。汇总报告 `tasks/phase3/final-review.md`
+- [x] 收尾文档最终回写：README 双语 / DEPLOYMENT_WIKI / dev-findings（C/J/H 三段新增）/ 7 规划文档状态回写 / plan-master 进度表 / CLAUDE.md×2 修正 / CHANGELOG 收尾条目——全部完成
+- [x] **Phase 3 全部完成**——6 波交付 + 三路锐评 + 全量收口，最终提交 `47d3300` 后本跟踪器转归档
 
   - **4A fan-in 检查单**（编排者）：① class.* 15 键 + help.class 双语落盘（help 段需加 `help.class` 键 + `LearnCommand.sendHelpMessage` 一行接线——/le class 已进 SUBCOMMANDS，帮助列表需同步）；② schema.sql vs 内嵌 DDL 双处比对；③ **MESSAGE_CONFIG_VERSION 13→14**（裁决：3B 已以 13 提交，4A 新增键对已持 v13 的服不可达，与 3B tester 同理由升 14；4B 死键删除不涉新键，不重复升）；④ 4A-1 的 list 分数列方案与 4A-2 的班级榜口径一致性核对；⑤ 全仓 mvn clean verify；⑥ 三维 tester；⑦ **`GUIUtils.isPluginGUI` 补班级榜标题白名单**（`班级榜`/`Class Board` 子串——GUIUtils.java 不在 4A-2 白名单，若不补 ClassBoardGUI 会静默丢失打开/点击音效，与既有 `'s Profile`/`的主页` 动态标题同姿态）
