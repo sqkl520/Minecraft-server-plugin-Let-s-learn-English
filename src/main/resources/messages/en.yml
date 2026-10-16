@@ -53,7 +53,6 @@ word:
 
 review:
   notification: "{prefix}&6You have &e{count} &6words due for review! Type &e/le review &6to start"
-  complete: "{prefix}&aReview complete! Keep it up!"
   no-words: "{prefix}&aYou have no words to review right now!"
   unavailable: "{prefix}&eSome review words are no longer available (they may have been removed from the word bank), so there is nothing to review right now. Check back later~"
 
@@ -123,7 +122,6 @@ dialogue:
 achievement:
   unlock-title: "&6&lAchievement Unlocked!"
   unlock-format: "&b&l✧ {title} &f- {name}"
-  unlocked: "{prefix}&6Achievement Unlocked: &e{name} &6- {description}"
   progress: "{prefix}&7Achievement progress: &e{name} &7({current}/{target})"
   prereq-hint: "&7Prerequisite: &c{name}"
 
@@ -165,7 +163,6 @@ leaderboard:
   entry-season: "&7Season score: &e{score}"
 
 progress:
-  view: "{prefix}&aViewing your learning progress..."
   money-reward: "{prefix}&aAnswer reward: &e{amount} &acoins"
   money-session-bonus: "{prefix}&aSession complete bonus: &e{amount} &acoins"
   money-review-reward: "{prefix}&aReview reward: &e{amount} &acoins"
@@ -175,10 +172,8 @@ progress:
   economy-disabled: "{prefix}&7Coin economy is disabled on this server, so no coins are paid out, but your learning progress is recorded normally~"
 
 admin:
-  export-start: "{prefix}&aStarting player data export..."
   export-complete: "{prefix}&aData export complete! File: &e{file}"
   player-reset: "{prefix}&aReset learning data for player &e{player}"
-  word-add: "{prefix}&aAdded word &e{word} &ato &e{difficulty} &aword bank"
   usage-reset: "Usage: /lea reset <player>"
   usage-exportwordbank: "{prefix}&cUsage: /lea exportwordbank <difficulty>"
   available-difficulties: "{prefix}&7Available difficulties: &e{list}"
@@ -452,11 +447,9 @@ word-learning-gui:
   title: "Word Learning - {difficulty}"
   answer-hint: "Start Answering"
   answer-hint-lore-1: "Close the GUI and start answering"
-  answer-hint-lore-2: ""
   started-hint: "&7Type the corresponding English word in chat."
   current-word: "Current Word: {chinese}"
   current-word-lore-1: "Close this GUI and type the English in chat"
-  current-word-lore-2: ""
   progress: "Progress: {current}/{total}"
   score: "&7Score: &e{score}"
   session-complete: "&6★ &aSession complete! &7Correct: &e{correct}&7/&e{total} &7Accuracy: &e{accuracy}% &7Score: &e{score}"
@@ -633,7 +626,6 @@ chat-history:
   feedback-no-ai: "&7(No AI feedback for this session)"
 
 wrong-book:
-  title: "&c&lWrong Book / Difficult Words"
   title-page: "&c&lWrong Book | Page {page}"
   empty: "&7No difficult words yet!"
   empty-lore: "&7Words you miss 3 times will appear here automatically"

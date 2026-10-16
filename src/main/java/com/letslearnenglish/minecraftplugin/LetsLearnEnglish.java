@@ -374,14 +374,20 @@ public final class LetsLearnEnglish extends JavaPlugin {
             scheduleDatabaseBackup();
         }
 
-        // Leaderboard cache refresh every 5 minutes
-        // （Wave 3 域 5：赛季榜快照同乘此班车；结算完成后另有即时重刷）
+        // Leaderboard cache refresh（Wave 3 域 5：赛季榜快照同乘此班车；结算完成后另有即时重刷）
+        // PF-MC-06 终案（Wave 4 收尾）：周期接线 progress-system.leaderboard.update-interval
+        // （秒，默认 300 = 原硬编码 5 分钟零漂移；钳位 [30, 3600]；周期改动需重启，
+        // reload 不重排任务属既有语义）。原注释 "every 5 minutes" 与 6000L（ticks）对齐。
+        int refreshSeconds = configManager.getMainConfig()
+                .getInt("progress-system.leaderboard.update-interval", 300);
+        refreshSeconds = Math.max(30, Math.min(3600, refreshSeconds));
+        long refreshTicks = refreshSeconds * 20L;
         getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
             progressManager.getLeaderboard().refreshCache();
             if (seasonManager != null) {
                 seasonManager.refreshCacheAsync();
             }
-        }, 6000L, 6000L);
+        }, refreshTicks, refreshTicks);
     }
 
     private void scheduleDailyReminders() {

@@ -1,5 +1,6 @@
 package com.letslearnenglish.minecraftplugin.core.word;
 
+import com.letslearnenglish.minecraftplugin.core.feedback.CountdownTier;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -438,7 +439,9 @@ public class WordLearningManager implements Listener {
                 // 文案先 translateAlternateColorCodes 再交 VersionAdapter（Adventure legacy '§'）。
                 int urgentSeconds = plugin.getConfigManager().getMainConfig()
                         .getInt("feedback.countdown.urgent-seconds", 5);
-                String countdownKey = remaining[0] <= urgentSeconds
+                // 一致性审计 C-9 收口：档位判定收敛 CountdownTier 纯函数（与对决侧同源，
+                // tierOf 语义 remaining <= urgent 即 URGENT——与下方原 `<=` 逐位等价）。
+                String countdownKey = CountdownTier.tierOf(remaining[0], urgentSeconds) == CountdownTier.URGENT
                         ? "word-learning-gui.countdown-urgent" : "word-learning-gui.countdown-normal";
                 String countdownText = ChatColor.translateAlternateColorCodes('&',
                         MessageUtil.getGuiMsg(messages, countdownKey)

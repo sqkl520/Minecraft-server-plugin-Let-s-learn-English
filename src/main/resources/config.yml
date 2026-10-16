@@ -259,8 +259,11 @@ progress-system:
     # 排行榜显示人数（英语广场榜单模式一次拉取的条数）
     # R-55k：此 key 缺失时启动审计会告警；代码缺 key 回落以各调用点注释为准
     display-count: 10
-    # 排行榜刷新间隔（秒）
-    update-interval: 30
+    # 排行榜刷新间隔（秒）。接线于 Wave 4 收尾（PF-MC-06 终案）：原硬编码 5 分钟，
+    # 默认 300 = 保持原行为；下限 30 秒，上限 3600 秒。周期改动需重启生效
+    # （reload 不重排任务属既有语义，任务体内照常刷新）。
+    # 赛季榜快照同乘此班车（结算完成后另有即时重刷）。
+    update-interval: 300
 
   # --- 成就系统 ---
   achievements:
@@ -280,7 +283,8 @@ progress-system:
       # 语义叠加：本键 && progress-system.enabled && rewards.enabled，三者都 true 才发金币
       money:
         enabled: false
-        vault-required: true
+        # Wave 4 收尾（一致性审计 C-4）：原 vault-required 键零读取已删除——
+        # Vault 缺失时 RewardEngine.isMoneyEnabled 已自动为 false（检测驱动，无需开关）。
         # 每答对一题获得的基础金币数
         base-amount: 10.0
         # Combo 倍率是否影响金币奖励（金币 = base-amount × combo-multiplier）
@@ -370,6 +374,12 @@ gui-layout:
     daily-challenge:
       slot: 10
       material: "WRITABLE_BOOK"
+    # Wave 4 收尾（一致性审计 C-6 反向缺键补录）：错题本按钮——MainMenu/MainMenuListener
+    # 双侧早已读此键（默认 slot 14 / BOOKSHELF），此前 config 漏定义导致管理员改不动；
+    # 出厂值与两侧代码默认一致，零行为漂移。
+    wrong-book:
+      slot: 14
+      material: "BOOKSHELF"
     # Phase 3 · MC-1 新增：单词对决（主菜单 slot 12）/ 每日签到（主菜单 slot 16）
     # 渲染侧（MainMenu）与点击侧（MainMenuListener）读同一份配置 + 同一模块门；
     # 对应模块（duel.enabled / checkin.enabled）关闭时该槽回落灰玻璃占位。
