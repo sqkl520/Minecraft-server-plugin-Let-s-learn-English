@@ -25,7 +25,7 @@
 | P3-01 | `gui/ProfileGUI.java:105` | 正确率恒显 100%：M10 后 `getTotalWords()` 语义=只计答对（=totalCorrect），GUI 却用 `correct/getTotalWords()`，分子分母同值；PAPI 的 accuracy 是正确算法（correct/(correct+incorrect)），两者打架 | 中 | **已关闭（本轮由编排者修复）**：改为 `totalCorrect/(totalCorrect+totalIncorrect)`，与 PAPI 同口径 |
 | P3-02 | `learning_log` 表 | 全库零写入（无任何 INSERT），`DatabaseManager.getTotalSessions()`（统计 HTTP 服务的 totalLearningSessions 与 7 天会话曲线）恒 0——真数据源是 player_sessions | 中 | 待排期（Phase 3：StatisticsHttpServer 改查 player_sessions，或接线 learning_log 写入——建议前者） |
 | P3-03 | `player_data.current_streak` | 零写入（persistLongestStreak 只写 longest_streak），`%lle_streak%` 与 ProgressGUI 当前连续恒 0——真数据源是 checkin_data.streak_count | 中 | 待排期（Phase 3：streak 占位符/ProgressGUI 改走 CheckInManager.getCheckInInfo，或补 current_streak 写入） |
-| P3-04 | `ProgressGUI.java` | 死类（无实例化点，P2-23 同根）——`/le progress` 实际走 ProfileGUI | 低 | 待排期（Phase 3 清理时与 P2-23 一并处理） |
+| P3-04 | `ProgressGUI.java` | 死类（无实例化点，P2-23 同根）——`/le progress` 实际走 ProfileGUI | 低 | **已关闭**（随 Wave 4 4B 收口）：死类已删除 |
 | P3-05 | `player_sessions.mode` | 同日合并（UPSERT）时 mode 列不被更新，记录的是当日首场模式 | 低 | 待排期（Phase 3：报告域做模式统计前需定口径） |
 | P3-06 | `checkin_data` | 无逐日历史（只有 last_checkin_date + streak_count），报告域做"本周签到 X 天"需从 player_sessions 或新表推导 | 低 | 待排期（Phase 3 报告域设计输入） |
 | P3-07 | `DataExporter` | 仅导出在线玩家 + CSV 落根目录（非 exports/）；失败判定字符串硬耦合（P2-09 同根） | 低 | 待排期（Phase 3 报告域一并收口） |
@@ -36,7 +36,7 @@
 | P3-12 | `AchievementManager:205` | 硬编码 Asia/Shanghai 时区，与全项目"系统时区"口径并存（成就连续天判定在非东八区服会有偏差） | 低 | 待排期（Phase 3：统一时区口径或提为配置） |
 | P3-13 | `AchievementManager:224` | FIRST_WORD 实际要求"整场零失误"（sessionIncorrect==0），与成就描述"答对第 1 个单词"不符且与 PERFECT_SESSION 重复，伤首会话留存 —— **已由编排者即修**（PF-ONB-01：改为会话内至少答对 1 题） | 中 | **已关闭**（本轮修复） |
 | P3-14 | `MiscGUIListener:141` | 词库选择路径的 word.session-start 回显原始英文标识符（F2-13 只修了命令路径，新手主路径漏网）—— **已由编排者即修**（PF-ONB-03：与 LearnCommand 同口径本地化） | 低 | **已关闭**（本轮修复） |
-| P3-15 | `core/progress/Achievement.java` | 死类（零引用），与 core/achievement/Achievement.java 同名构成导入歧义陷阱 | 低 | 待排期（Phase 3 与 P2-23/ProgressGUI 一并清理） |
+| P3-15 | `core/progress/Achievement.java` | 死类（零引用），与 core/achievement/Achievement.java 同名构成导入歧义陷阱 | 低 | **已关闭**（随 Wave 4 4B 收口）：死类已删（与 ProgressGUI 同批） |
 | P3-16 | `player_data.created_at/last_login` | 死列（影响注册漏斗统计口径） | 低 | 待排期（Phase 3 报告域设计输入） |
 | P3-17 | `MiscGUIListener.claimBehavioralChallenge` | 行为挑战领取绕过 money.enabled 门（关币+Vault 时仍实发金币）—— **已由编排者即修**（PF-MC-01：关闭时终态标记+economy-disabled 提示，与单词挑战同口径） | 中 | **已关闭**（本轮修复） |
 | P3-18 | `DuelManager` 4 处裸 getString | 其一为真实 NPE 路径（域 8 规划新发现，P2-13 白名单外）；另含 `WordLearningGUI` 标题中英混排、`AchievementManager` 解锁瞬间混服语言取单语言（Domain 8 记录） | 低-中 | **已关闭**（随 Wave 3A 3A-3 收口）：DuelManager 裸 getString 全收敛 |
@@ -51,9 +51,9 @@
 |---|------|------|------|------|
 | P2-01 | `LearnCommand` 等各命令入口的 GUI 直开 | 音效单源收口后（menu-open 仅 SoundManager 全局播放），命令直开的插件 GUI 仍会走 InventoryOpen 全局音——覆盖完整；但若将来标题改名未同步 GUIUtils 白名单，该 GUI 静默丢音（既有注释已警示） | 低 | 已记录（维护约束） |
 | P2-02 | `DuelGUIListener` 展示格 | 删全局 InventoryClick 后，对决界面除退出键外其余展示格点击无声——按设计静音（无可点击动作不应有反馈音），非缺陷 | 低 | 已记录（设计确认） |
-| P2-23 | `gui/ProgressGUI.java` | 全库零实例化点（`new ProgressGUI` 仅构造函数），实际 `/le progress` 走 ProfileGUI —— 死类残留 | 低 | 待排期（Phase 3 清理：删除或复活） |
+| P2-23 | `gui/ProgressGUI.java` | 全库零实例化点（`new ProgressGUI` 仅构造函数），实际 `/le progress` 走 ProfileGUI —— 死类残留 | 低 | **已关闭**（随 Wave 4 4B 收口）：死类已删除（成对删 progress-gui.* 键） |
 | P2-24 | `ScenarioSelectListener` AI 未配置分支 / 无权限分支 | 关界面+发消息但零音效（handleScenarioClick 116-121、handleReloadAPI 192）；`WrongBookListener.handlePractice`（Shift+点练习）有效动作无点击音（同页左键删除有音） | 低 | **已关闭**（随 Wave 1 收口）：三处音效盲点补齐（menu-click/incorrect） |
-| P2-25 | `config.yml` `main-menu.scenario-select.back-button` | 疑似死配置（ScenarioSelectGUI 与 listener 双侧硬编码 slot 8，一致无 bug） | 低 | 待排期（Phase 3 配置面清理） |
+| P2-25 | `config.yml` `main-menu.scenario-select.back-button` | 疑似死配置（ScenarioSelectGUI 与 listener 双侧硬编码 slot 8，一致无 bug） | 低 | **已关闭**（随 Wave 4 4B 收口）：config 键已删除 |
 
 ### 来自 S2（AI 健壮性）
 

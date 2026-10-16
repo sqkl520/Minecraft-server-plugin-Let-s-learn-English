@@ -55,22 +55,18 @@ public class GUIUtils {
         if (title == null) return false;
         // 每条都必须与 messages/zh.yml + messages/en.yml 里实际的 GUI 标题对得上。
         // 标题改名后这里不同步 = 该 GUI 静默丢失打开/点击音效（SoundManager 依赖本方法）。
+        // MC-7 终局清理（2026-10-16，Wave 4 4B）：历史死启发式已移除——旧 DialogueGUI
+        // 「Dialogue/情景对话」、旧 ProgressGUI「Learning Progress/学习进度」、旧分榜标题
+        // 「Weekly/Monthly/All-Time Ranking + 周榜/月榜/总榜」（对应 leaderboard.title-*
+        // 键已删；广场标题含这些模式词但恒含「英语广场/English Square」先行命中）、
+        // 旧错题本「Difficult Words」（现行标题同时含「Wrong Book」）。
         return title.contains("Let's Learn English")
                 || title.contains("一起学英语")
                 || ConfirmationGUI.isConfirmGUI(title)
                 || title.contains("Word Learning")
                 || title.contains("单词学习")
-                // 旧 DialogueGUI 标题；该 GUI 已并入 Scenario Select，保留待统一清理
-                || title.contains("Dialogue")
-                || title.contains("情景对话")
-                || title.contains("Learning Progress")
-                || title.contains("学习进度")
                 || title.contains("English Square")
                 || title.contains("英语广场")
-                || title.contains("周榜") || title.contains("月榜") || title.contains("总榜")
-                // 旧的排行榜分榜标题（leaderboard.title-* 已无 GUI 使用），保留待统一清理
-                || title.contains("Weekly Ranking") || title.contains("Monthly Ranking")
-                || title.contains("All-Time Ranking")
                 || title.contains("Leaderboard") || title.contains("排行榜")
                 || title.contains("'s Profile")
                 || title.contains("的主页")
@@ -107,8 +103,6 @@ public class GUIUtils {
                 || title.contains("选择对决对手")
                 || title.contains("Wrong Book")
                 || title.contains("错题本")
-                // 旧错题本标题（现为「Wrong Book | Page N / 错题本 | 第 N 页」），保留待统一清理
-                || title.contains("Difficult Words")
                 // Wave 4 · 4A fan-in：班级榜（class.board-title =「班级榜 - X / Class Board - X」；
                 // 与 ClassBoardGUI.isClassBoardGUI 的锚定前缀判定互补——此处白名单只管音效识别）
                 || title.contains("班级榜")
