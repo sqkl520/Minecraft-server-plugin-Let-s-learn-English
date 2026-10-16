@@ -22,6 +22,12 @@
 | C-8 | `schema.sql` 缺 2 索引文档 | 4 个防扫索引中 2 个未在 schema.sql 注释（运行时由 createIndexIfMissing 建，文档面缺口） | 低 | **已关闭**（Phase 3 收尾）：schema.sql 已补录两索引 |
 | C-9 | `CountdownTier` 学习侧未接 + 无单测 | 纯函数已抽出但学习侧仍走旧路径（对决侧已接）；缺单测 | 低 | **已关闭**（Phase 3 收尾）：学习侧接线 CountdownTier（逐位等价）+ 5 项单测 |
 | C-10 | P3-02/P3-03 挂账措辞 | 措辞引用 ProgressGUI（已删），随 Phase 3 结束失效 | 低 | **已关闭**（Phase 3 收尾）：P3-02/P3-03 措辞已校正（本体仍挂账，见对应行） |
+| J-1 | MainMenu 模块门 | 旅程验收：渲染门只落 duel/checkin，config 承诺的 word-system/ai-chat/daily-challenges "入口隐藏"落空（含 WrongBook 全链零门——唯一"关闭后仍可玩"破口） | 中 | **已关闭**（Phase 3 收尾）：4 渲染门 + MainMenuListener 点击门 + WrongBook GUI/listener 双层门 |
+| J-2 | LearnCommand 榜单直开 | F3-01：/le leaderboard 直开不登记 leaderboardGuis 快照，点头像静默无反应（三个 Phase 未清） | 中 | **已关闭**（Phase 3 收尾）：SocialListener.openLeaderboardWithSnapshot 登记式打开 |
+| J-3 | 赛季"开而不动" | season.enabled=true 但锚点在未来时全系统休眠无提示（验收/运营易误判"功能没做"） | 低 | **已关闭**（Phase 3 收尾）：settleIfNeededAsync 启动 WARNING 一次性提示 |
+| J-4 | ProfileGUI 成就墙点击 | 渲染有 achievements 门、点击分支无（僵尸主页可开只读成就墙） | 低 | **已关闭**（Phase 3 收尾）：SocialListener 点击分支补门 |
+| J-5 | tutorial 强制 choice | 迷你会话绕过 modes.choice.enabled（D4 规划有意豁免——必中性结构保证依赖） | 低 | 已记录（设计豁免+代码注释显式说明；运营要求受门约束属产品变更） |
+| H-1 | ConfigManager.achievementConfig | 诚实性审查：Java 死链（字段+getter 零消费），loadConfig 还把废弃 achievements.yml 释放到数据目录误导管理员 | 中 | **已关闭**（Phase 3 收尾）：整链移除 + 废弃文件从 JAR 删除 |
 
 ---
 

@@ -103,6 +103,9 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     private ChatScenarioListener chatScenarioListener;
 
+    /** F3-01 收口：命令入口榜单打开需经 SocialListener 登记快照（getter 供 LearnCommand）。 */
+    private SocialListener socialListener;
+
     private GuiNavigationManager guiNavigationManager;
 
     private DailyChallengeManager dailyChallengeManager;
@@ -320,7 +323,8 @@ public final class LetsLearnEnglish extends JavaPlugin {
         // ScenarioSelectListener 的 contains 判定）
         getServer().getPluginManager().registerEvents(
                 new com.letslearnenglish.minecraftplugin.listener.PersonalScenarioListener(this), this);
-        getServer().getPluginManager().registerEvents(new SocialListener(this), this);
+        this.socialListener = new SocialListener(this);
+        getServer().getPluginManager().registerEvents(socialListener, this);
         getServer().getPluginManager().registerEvents(new MiscGUIListener(this), this);
         getServer().getPluginManager().registerEvents(chatScenarioListener, this);
         getServer().getPluginManager().registerEvents(new ChatAnswerListener(this), this);
@@ -708,6 +712,11 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     public ChatScenarioListener getChatScenarioListener() {
         return chatScenarioListener;
+    }
+
+    /** F3-01 收口：命令入口榜单打开的快照登记入口（见 SocialListener#openLeaderboardWithSnapshot）。 */
+    public SocialListener getSocialListener() {
+        return socialListener;
     }
 
     public ProgressManagerImpl getProgressManager() {

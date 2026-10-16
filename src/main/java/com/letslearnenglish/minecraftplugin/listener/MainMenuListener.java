@@ -112,10 +112,24 @@ public class MainMenuListener implements Listener {
      */
     private void handleMainMenu(Player player, int slot) {
         var cm = plugin.getConfigManager();
+        // 模块门（点击侧，旅程验收收口）：渲染侧已按 word-system/ai-chat/daily-challenges
+        // 隐藏对应按钮；本处覆盖"关闭前已打开的菜单残留按钮"的存量点击（僵尸界面兜底，
+        // 与 duel/checkin 分支既有模式一致）——关闭时音效 + module.disabled 提示并拒绝。
+        boolean wordOn = cm.isWordSystemEnabled();
         if (slot == cm.getGuiSlot("main-menu", "word-learning", 11)) {
+            if (!wordOn) {
+                SoundManager.playSound(player, "menu-click");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "module.disabled"));
+                return;
+            }
             SoundManager.playSound(player, "menu-click");
             new WordBankSelectGUI(plugin).open(player);
         } else if (slot == cm.getGuiSlot("main-menu", "dialogue-practice", 13)) {
+            if (!cm.isAIChatEnabled()) {
+                SoundManager.playSound(player, "menu-click");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "module.disabled"));
+                return;
+            }
             SoundManager.playSound(player, "menu-click");
             player.performCommand("le dialogue");
         } else if (slot == cm.getGuiSlot("main-menu", "personal-profile", 15)) {
@@ -125,12 +139,23 @@ public class MainMenuListener implements Listener {
             SoundManager.playSound(player, "menu-click");
             player.performCommand("le square");
         } else if (slot == cm.getGuiSlot("main-menu", "daily-challenge", 10)) {
+            if (!cm.isDailyChallengesEnabled()) {
+                SoundManager.playSound(player, "menu-click");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "module.disabled"));
+                return;
+            }
             SoundManager.playSound(player, "menu-click");
             plugin.getGuiNavigationManager().pushBack(player.getUniqueId(),
                     () -> new MainMenu(plugin).open(player));
             new DailyChallengeGUI(plugin).open(player);
         } else if (slot == cm.getGuiSlot("main-menu", "wrong-book", 14)) {
             // R-47 fan-in：错题本槽位改读配置，与渲染侧 MainMenu 对齐
+            // 模块门（旅程验收收口）：归 word-system（错题本是单词学习从属面）
+            if (!wordOn) {
+                SoundManager.playSound(player, "menu-click");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "module.disabled"));
+                return;
+            }
             SoundManager.playSound(player, "menu-click");
             new WrongBookGUI(plugin).open(player, 1);
         } else if (slot == cm.getGuiSlot("main-menu", "language-toggle", 18)) {

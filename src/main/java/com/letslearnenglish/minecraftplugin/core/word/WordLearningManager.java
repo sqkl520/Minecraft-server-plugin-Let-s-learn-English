@@ -112,6 +112,10 @@ public class WordLearningManager implements Listener {
                     "module.disabled"));
             return null;
         }
+        // 旅程验收半截项说明（有意豁免）：迷你会话强制 choice——D4 规划裁决，引导线的
+        // "3 题全对→首成就确定性触发"依赖 choice 4 选 1 必中的结构保证；此处**有意不查**
+        // modes.choice.enabled（管理员关 choice 时教程仍可跑完，否则引导线断尾）。
+        // 若运营要求教程也受模式门约束，属产品变更（需先解决必中性问题），单开 Story。
         cancelAnswerTimer(player);
         quizStates.remove(player.getUniqueId());
         LearningSession session = wordManager.startSession(player, difficulty, "choice", wordCount);

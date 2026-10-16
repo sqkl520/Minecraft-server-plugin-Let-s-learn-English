@@ -423,6 +423,14 @@ public class SocialListener implements Listener {
                     () -> new MainMenu(plugin).open(player));
             backAction.run();
         } else if (slot == PROFILE_ACHIEVEMENT_SLOT) {
+            // 模块门（旅程验收收口）：渲染侧 ProfileGUI 已按 achievements 门隐藏按钮，
+            // 本处覆盖"关闭前已打开的主页残留按钮"点击（渲染与点击同源 gating 闭环）。
+            if (!plugin.getConfigManager().isAchievementsEnabled()) {
+                SoundManager.playSound(player, "menu-click");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "module.disabled"));
+                return;
+            }
             SoundManager.playSound(player, "menu-click");
             UUID targetId = extractTargetIdFromTitle(player, title);
             if (targetId != null) {
@@ -456,8 +464,20 @@ public class SocialListener implements Listener {
         }
     }
 
-    private void handleLeaderboardGUI(Player player, int slot) {
-        GuiNavigationManager nav = plugin.getGuiNavigationManager();
+    /**
+     * F3-01 收口（旅程验收）：命令入口（{@code /le leaderboard}）与主菜单直达——
+     * 打开榜单 GUI 的同时登记 {@link #leaderboardGuis} 快照。此前命令直开不登记，
+     * 玩家点头像会静默无反应（点击侧 {@code handleLeaderboardGUI} 要求快照非空），
+     * 先点任意 tab 后才恢复。本方法为该路径的唯一补登记点（GUI 打开与快照同刻，
+     * 主线程调用）。
+     */
+    public void openLeaderboardWithSnapshot(Player player) {
+        LeaderboardGUI gui = new LeaderboardGUI(plugin);
+        gui.open(player);
+        leaderboardGuis.put(player.getUniqueId(), gui);
+    }
+
+    private void handleLeaderboardGUI(Player player, int slot) {        GuiNavigationManager nav = plugin.getGuiNavigationManager();
         ConfigManager cm = plugin.getConfigManager();
 
         // 槽位与 LeaderboardGUI 渲染时读同一份 gui-layout 配置（默认值与 GUI 常量一致），
