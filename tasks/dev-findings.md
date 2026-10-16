@@ -6,6 +6,19 @@
 
 ---
 
+## 批次：低危积压清零（用户点名，多 Agent 模式）
+
+> 4 路只读核实 agent 先行（红队模式：假设"待排期"描述过时、用代码反驳/证实），随后施工流并行修复。本节记录核实结论与施工收口。
+
+### Duel 系核实（agent 完成，2026-10-17）
+- **状态滞后回写 4 条**：F1-15（acceptDuel 已改"校验全过再原子消费" R-68 token 化）/ F1-16（答题态对称检查 R-27 + token 匹配根治过期误删）/ F2-07（DuelRoom.submitAnswer 已有 null 防护）/ F2-08（cancelDuel 死方法已随 P2 S3 删除）
+- **确认未修 4 条**：F1-18（对局结束窗口聊天被吞静默——修法：364-367 静默 return 改发反馈键）/ P2-06（getDuelRoom/hasPendingRequest 死 API 删）/ P2-07（DisconnectInfo.disconnectTime 死字段删）/ P2-08（双方离线 GM 无法解散——入口按人名回退遍历 activeDuels）
+- **已过时 1 条**：F2-12（零 UUID 哨兵仍在但 getLastCorrectAnswerer 全仓零消费者，实害为零——可选清理）
+- **红队新发现（未入账旧伤）**：`DuelManager.handleDisconnect` 宽限到期分支（830-847）只摘登记不 cancel 任务本体 → 每次判负留一个每 20 tick 空转僵尸任务到关服（cleanup/shutdown 均覆盖不到）——修法：照 R-26 selfRef 自取消模式
+- 附：DuelRoom 另三个零调用 API（containsPlayer/getLastCorrectAnswerer/getWordStartTime + wordStartTime 只写字段）、cancelDuelInternal 的 reason 参数零使用（新账，随本批清理）
+
+---
+
 ## 批次：Phase 3 最终验收（锐评 3 路 agent + 编排者收口）
 
 > 跨波一致性审计（`ralph/test-reports/final-consistency-audit.md`）发现的跨批打架项与收口记录。C-1/C-2/C-4/C-5/C-6 已由编排者当轮收口；C-3/C-7 为"旧面从未入账"记入待排期。
@@ -256,8 +269,8 @@
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
 | F2-06 | `DuelManager.rewardEngine` 字段 | 构造即赋值，之后零读取（死字段） | 历史残留 | 低 | **已关闭**（随 P2 清理批次收口）：死字段已删 |
-| F2-07 | `DuelRoom.submitAnswer` | `answer.trim()` 无 null 防护（上游理论非 null） | 防御缺失 | 低 | 待排期 |
-| F2-08 | `DuelManager.cancelDuel` 约 550 行 | `opponentId` 算而不用 | 历史残留 | 低 | 待排期 |
+| F2-07 | `DuelRoom.submitAnswer` | `answer.trim()` 无 null 防护（上游理论非 null） | 防御缺失 | 低 | **已关闭**（P2 S3 已修）：submitAnswer null 防护在位 |
+| F2-08 | `DuelManager.cancelDuel` 约 550 行 | `opponentId` 算而不用 | 历史残留 | 低 | **已关闭**（P2 S3 已修）：死方法 cancelDuel(UUID) 已删除 |
 | F2-09 | `en.yml` 缺 `word-learning-gui.countdown-urgent` | 中英 key 不对称（本次新增 key 双语已对齐，这是历史遗留） | 历史遗留 | 低 | **已关闭**（随 P2 清理批次收口）：en.yml 已补键 |
 
 > 流 C 上报的 `sendDuelRequest` 过期任务裸 `remove` 已由编排者在 fan-in 时修复（改 `remove(k,v)`），不再列账。
@@ -323,8 +336,8 @@
 
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
-| F1-15 | `DuelManager.acceptDuel` 开头 | 先 `pendingRequests.remove(targetId)`，后继任一校验失败都会吞掉邀请，需发起方重发 | remove 先于校验 | 低 | 待排期（改：校验全过再 remove） |
-| F1-16 | `DuelManager.sendDuelRequest` | 只查 `isBusy` 不查答题态；单槽 `pendingRequests` 被后请求覆盖 + 先请求的 60s 过期任务误删后请求 | 既有逻辑 | 低 | 待排期 |
+| F1-15 | `DuelManager.acceptDuel` 开头 | 先 `pendingRequests.remove(targetId)`，后继任一校验失败都会吞掉邀请，需发起方重发 | remove 先于校验 | 低 | **已关闭**（P2 R-68 已修，状态滞后回写）：peek 校验全过 → remove(targetId, pending) 原子消费 |
+| F1-16 | `DuelManager.sendDuelRequest` | 只查 `isBusy` 不查答题态；单槽 `pendingRequests` 被后请求覆盖 + 先请求的 60s 过期任务误删后请求 | 既有逻辑 | 低 | **已关闭**（P2 R-27/R-66/R-68 已修）：答题态+AI 对话对称检查 + token 匹配 |
 | F1-17 | `ChatScenarioListener`（AI 情景对话） | 第四类聊天消费者，与 quiz/决斗/练习均无互斥 | 超出 M4 三态范围 | 中 | **已关闭**（随 P2 清理批次收口）：R-66 纵深防御 |
 | F1-18 | 决斗分支异步判定 | `isInDuel` 后 cancel 事件、主线程才 `submitAnswer`，若决斗恰在两次之间结束，该条聊天被吞且无反馈 | 判定与消费不在同一线程/时刻 | 低 | 待排期 |
 
