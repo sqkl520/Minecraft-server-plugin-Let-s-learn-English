@@ -148,6 +148,19 @@ public class DailyChallengeManager {
         if (!plugin.getConfigManager().isDailyChallengesEnabled()) {
             return;
         }
+        // F2-11 收口（tester MEDIUM-1）：午夜 rollover 的 checkAndAssign 首次进入异步
+        // 线程后，可与主线程触发者（答题 updateProgress 的 R-32 补分配）并发——COUNT
+        // 预检与 INSERT 分处两个 connectionLock 临界区，两线程可同时见 COUNT=0 各插
+        // 一批（当日行数最多 2N；allDoneToday 遍历全行致"多完成"、极端下多领 ≤1 项）。
+        // R-02 先例：按 UUID stripe lock 串行化本方法的整个"预检+分配"段；与
+        // MiscGUIListener 领取路径的线程序一致性（L→M 同向，无反向路径不死锁）。
+        synchronized (getClaimStripeLock(playerId)) {
+            doCheckAndAssign(playerId);
+        }
+    }
+
+    /** checkAndAssign 的 stripe 锁内体（F2-11 收口拆出）。 */
+    private void doCheckAndAssign(UUID playerId) {
         String today = LocalDate.now().toString();
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
         String checkSql = "SELECT COUNT(*) FROM " + tablePrefix

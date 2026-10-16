@@ -414,7 +414,7 @@ public class SocialListener implements Listener {
             UUID finalTargetId = targetId;
             nav.pushBack(player.getUniqueId(),
                     () -> new ProfileGUI(plugin).open(player, finalTargetId));
-            new LearningCalendarGUI(plugin).open(player);
+            new LearningCalendarGUI(plugin).openAsync(player);
             return;
         }
         if (slot == PROFILE_BACK_SLOT) {

@@ -14,6 +14,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.*;
+import java.util.logging.Level;
 
 /**
  * Daily Challenge GUI — shows today's challenges (up to N, see CHALLENGE_SLOTS)
@@ -46,15 +47,65 @@ public class DailyChallengeGUI {
         this.plugin = plugin;
     }
 
+    /**
+     * C-3：兼容入口 —— 统一委托 {@link #openAsync(Player)}。
+     * 打开路径彻底断根：所有调用方与历史入口都走异步两段式，主线程零查库。
+     */
     public void open(Player player) {
+        openAsync(player);
+    }
+
+    /**
+     * C-3：异步两段式打开入口。
+     *
+     * <p>异步段（仅 DB/logger，无 Bukkit 世界 API）：{@code getTodayChallenges}
+     * （SELECT + 可能的 degradeStaleChallenges UPDATE）与 {@code getTodayWordProgress}
+     * （可能的单词挑战分配写 + SELECT；签名收 Player 但仅用其 UUID，线程安全）。
+     * 主线程段只渲染（{@link #openWithData}，零 DB 调用）。
+     *
+     * <p>R-67：异步体开头与 runTask 前各查一次 {@code isEnabled()}；主线程段
+     * {@code isOnline()} 复检（异步间隙玩家可能下线）。
+     */
+    public void openAsync(Player player) {
+        UUID playerId = player.getUniqueId();
+        try {
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                if (!plugin.isEnabled()) return;
+                List<ChallengeProgress> challenges;
+                int[] wordProgress;
+                try {
+                    challenges = plugin.getDailyChallengeManager().getTodayChallenges(playerId);
+                    wordProgress = plugin.getDailyChallengeManager().getTodayWordProgress(player);
+                } catch (Exception e) {
+                    plugin.getLogger().log(Level.WARNING,
+                            "Failed to preload daily challenge GUI for " + playerId, e);
+                    return;
+                }
+                if (!plugin.isEnabled()) return;
+                try {
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (!player.isOnline()) return;
+                        openWithData(player, challenges, wordProgress);
+                    });
+                } catch (IllegalStateException ignored) {
+                    // 关服竞态：调度器已关闭，放弃本次渲染
+                }
+            });
+        } catch (IllegalStateException ignored) {
+            // 插件停用窗口（调度器已关闭）：放弃本次打开
+        }
+    }
+
+    /**
+     * C-3：主线程渲染 —— 数据由 {@link #openAsync(Player)} 预取，本方法零 DB 调用。
+     */
+    private void openWithData(Player player, List<ChallengeProgress> challenges, int[] wordProgress) {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "daily.title"));
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
-
-        List<ChallengeProgress> challenges = plugin.getDailyChallengeManager().getTodayChallenges(player.getUniqueId());
 
         // MC-5：取前 N 个（N ≤ 4 = CHALLENGE_SLOTS.length，分配侧已按配置/可用数封顶）。
         for (int i = 0; i < Math.min(challenges.size(), CHALLENGE_SLOTS.length); i++) {
@@ -110,7 +161,7 @@ public class DailyChallengeGUI {
         // line at slot 22 (mirrors ChallengeCompleteGUI's center-bottom slot).
         // Clicking does nothing (see MiscGUIListener.handleDailyChallenge);
         // words are completed via learning, not claimed here.
-        int[] wordProgress = plugin.getDailyChallengeManager().getTodayWordProgress(player);
+        // C-3：wordProgress 由 openAsync 异步预取（可能含单词挑战分配写），此处只读渲染。
         int wordDone = wordProgress[0];
         int wordTotal = wordProgress[1];
         Material wordMat = (wordTotal > 0 && wordDone >= wordTotal)

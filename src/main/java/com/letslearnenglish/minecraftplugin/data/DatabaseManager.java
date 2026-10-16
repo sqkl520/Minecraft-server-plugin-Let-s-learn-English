@@ -106,6 +106,9 @@ public class DatabaseManager {
                         "  conversation_count INT DEFAULT 0," +
                         "  onboarding_step INT DEFAULT 0," +
                         "  wrong_book_cleared INT DEFAULT 0," +
+                        // P3-03 收口：current_streak 为历史遗留列、零写入恒 0。
+                        // 真源是 checkin_data.streak_count（每日签到连击）；本列保留不删
+                        //（删列有 schema 变更风险），读侧已改走 checkin_data。
                         "  current_streak INT DEFAULT 0," +
                         "  longest_streak INT DEFAULT 0," +
                         "  last_login BIGINT," +
@@ -1173,6 +1176,7 @@ public class DatabaseManager {
 
     /**
      * Daily statistics record for the 7-day trend chart.
+     * sessions 口径（P3-02）：学习日次 = 当日 player_sessions 行数（每人每日一行）。
      */
     public record DailyStats(String date, int sessions, int players, int wordsLearned) {}
 
@@ -1219,10 +1223,14 @@ public class DatabaseManager {
     }
 
     /**
-     * Count total learning sessions from the learning_log table.
+     * Count total learning sessions.
+     *
+     * <p>P3-02 收口：原查 learning_log（历史遗留表，全库零写入），现改走
+     * player_sessions。口径为"总学习日次"（per-player per-day 行数；
+     * player_sessions 受 UNIQUE(uuid, session_date) UPSERT 合并，每人每日一行）。
      */
     public int getTotalSessions() {
-        String sql = "SELECT COUNT(*) FROM " + tablePrefix + "learning_log";
+        String sql = "SELECT COUNT(*) FROM " + tablePrefix + "player_sessions";
         synchronized (connectionLock) {
             Connection conn = getConnection();
             try (PreparedStatement stmt = conn.prepareStatement(sql);
@@ -1423,8 +1431,10 @@ public class DatabaseManager {
 
     /**
      * Get daily statistics breakdown for the last 7 days.
-     * Combines data from player_sessions (players, words) and
-     * learning_log (session count) per day.
+     * 数据全部来自 player_sessions（P3-02 收口：learning_log 为历史遗留表，
+     * 全库零写入，不再参与统计）：players/wordsLearned 按 uuid/words_count 聚合；
+     * sessions 按 session_date 分组计数。session 口径为"学习日次"——player_sessions
+     * 每人每日一行，故每日 sessions 数值上等于当日 players。
      */
     public List<DailyStats> getLast7DaysStats() {
         Map<String, int[]> dailyData = new LinkedHashMap<>();
@@ -1463,30 +1473,21 @@ public class DatabaseManager {
             }
         }
 
-        // Query learning_log for daily session counts
-        String dateExpr;
-        String logSql;
-        if (isSQLite()) {
-            logSql = "SELECT date(started_at / 1000, 'unixepoch') as day, COUNT(*) as cnt "
-                    + "FROM " + tablePrefix + "learning_log "
-                    + "WHERE started_at >= ? "
-                    + "GROUP BY day";
-        } else {
-            logSql = "SELECT DATE(FROM_UNIXTIME(started_at / 1000)) as day, COUNT(*) as cnt "
-                    + "FROM " + tablePrefix + "learning_log "
-                    + "WHERE started_at >= ? "
-                    + "GROUP BY day";
-        }
+        // P3-02 收口：每日会话数改走 player_sessions（learning_log 零写入历史遗留）。
+        // session_date 为 LocalDate 字符串，与 7 天 key 同构可比（两后端同构先例：
+        // PlayerDataStore.getRankedPlayersForPeriod）。
+        String sessionsCountSql = "SELECT session_date, COUNT(*) as cnt "
+                + "FROM " + tablePrefix + "player_sessions "
+                + "WHERE session_date >= ? "
+                + "GROUP BY session_date";
         synchronized (connectionLock) {
             // E-04：上一个锁块已释放，重连可能已替换引用，此处锁内重取。
             conn = getConnection();
-            try (PreparedStatement stmt = conn.prepareStatement(logSql)) {
-                long sevenDaysAgoMillis = today.minusDays(6).atStartOfDay(
-                        java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
-                stmt.setLong(1, sevenDaysAgoMillis);
+            try (PreparedStatement stmt = conn.prepareStatement(sessionsCountSql)) {
+                stmt.setString(1, today.minusDays(6).toString());
                 try (ResultSet rs = stmt.executeQuery()) {
                     while (rs.next()) {
-                        String day = rs.getString("day");
+                        String day = rs.getString("session_date");
                         int[] data = dailyData.get(day);
                         if (data != null) {
                             data[0] = rs.getInt("cnt");

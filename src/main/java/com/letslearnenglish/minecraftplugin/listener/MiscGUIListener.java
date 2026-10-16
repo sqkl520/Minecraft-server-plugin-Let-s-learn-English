@@ -248,7 +248,7 @@ public class MiscGUIListener implements Listener {
             plugin.getDailyChallengeManager().claimReward(player.getUniqueId(), cp.type);
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "daily-challenge.economy-disabled"));
-            new DailyChallengeGUI(plugin).open(player);
+            new DailyChallengeGUI(plugin).openAsync(player);
             return;
         }
         if (depositChallengeReward(player, reward)) {
@@ -262,7 +262,7 @@ public class MiscGUIListener implements Listener {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "daily.claim-failed", "reward", String.valueOf((int) reward)));
         }
-        new DailyChallengeGUI(plugin).open(player);
+        new DailyChallengeGUI(plugin).openAsync(player);
     }
 
     /**

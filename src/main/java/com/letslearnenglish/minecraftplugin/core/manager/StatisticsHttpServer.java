@@ -326,10 +326,12 @@ public class StatisticsHttpServer {
 
         root.addProperty("totalWords", databaseManager.getTotalWordCount());
         root.addProperty("todayActivePlayers", databaseManager.getTodayActivePlayers());
+        // P3-02：口径 = 累计学习日次（player_sessions 每人每日一行；原 learning_log 零写入已弃用）
         root.addProperty("totalLearningSessions", databaseManager.getTotalSessions());
         root.addProperty("totalCoinsEarned", databaseManager.getTotalCoinsEarned());
         root.addProperty("totalCoinsSpent", databaseManager.getTotalCoinsSpent());
 
+        // P3-02：7 天曲线亦来自 player_sessions；sessions = 当日学习日次（每人每日一行）
         List<DatabaseManager.DailyStats> last7Days = databaseManager.getLast7DaysStats();
         JsonArray daysArray = new JsonArray();
         for (DatabaseManager.DailyStats day : last7Days) {

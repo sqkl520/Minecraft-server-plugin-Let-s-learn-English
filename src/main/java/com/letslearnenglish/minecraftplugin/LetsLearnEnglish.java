@@ -53,8 +53,10 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -531,42 +533,82 @@ public final class LetsLearnEnglish extends JavaPlugin {
                 (nextMidnight.getTimeInMillis() - now.getTimeInMillis()) / 50L);
 
         midnightTask = getServer().getScheduler().runTaskLater(this, () -> {
+            // F2-11 收口（两段式）：重活（昨日作废计数/今日分配 = DB + 词库读）移入异步段；
+            // R-31 补发与发消息（hasPendingWordRewardForDate 链含 Bukkit.getPlayer/
+            // Vault 发币/sendMessage）留在主线程段。原实现逐玩家同步查库串行在主线程，
+            // 百人服午夜卡顿（dev-findings F2-11）。
+            // 顺序重排说明：checkAndAssign 只碰"今日"行 + 词库（异步安全）；
+            // countUnclaimedForDate 只读"昨日"行；hasPendingWordRewardForDate 碰"昨日"
+            // 行 + 内存补发标记——三者集合不相交，重排无语义漂移。
+            final String yesterday = LocalDate.now().minusDays(1).toString();
+            final List<UUID> onlineIds = new ArrayList<>();
+            for (Player p : getServer().getOnlinePlayers()) {
+                onlineIds.add(p.getUniqueId());
+            }
             try {
-                // 昨日未领作废提示（必须在清标记之前），再分配今日挑战
-                String yesterday = LocalDate.now().minusDays(1).toString();
-                for (Player player : getServer().getOnlinePlayers()) {
-                    UUID playerId = player.getUniqueId();
-                    int voidedBehavior = dailyChallengeManager.countUnclaimedForDate(playerId, yesterday);
-                    boolean voidedWord = dailyChallengeManager.hasPendingWordRewardForDate(playerId, yesterday);
-                    dailyChallengeManager.checkAndAssign(playerId);
-                    if (voidedBehavior > 0 || voidedWord) {
-                        player.sendMessage(messageUtil.getPlayerMessage(player,
-                                "daily-challenge.rollover-voided"));
+                getServer().getScheduler().runTaskAsynchronously(this, () -> {
+                    // 异步段：昨日作废计数 + 今日分配（线程干净已逐一核实）
+                    final Map<UUID, Integer> voidedBehaviorByPlayer = new HashMap<>();
+                    try {
+                        if (!isEnabled()) return;
+                        for (UUID id : onlineIds) {
+                            voidedBehaviorByPlayer.put(id,
+                                    dailyChallengeManager.countUnclaimedForDate(id, yesterday));
+                            dailyChallengeManager.checkAndAssign(id);
+                        }
+                    } catch (Exception e) {
+                        getLogger().log(java.util.logging.Level.WARNING,
+                                "Midnight rollover async phase failed", e);
                     }
-                }
-                dailyChallengeManager.clearAllWordChallengeClaims();
-                wordManager.getReviewScheduler().clearNotifiedDates();
+                    if (!isEnabled()) return;
+                    try {
+                        getServer().getScheduler().runTask(this, () -> {
+                            // 主线程段：R-31 补发（含 Bukkit 调用）+ 发消息 + 内存清理 + 自续
+                            try {
+                                for (UUID id : onlineIds) {
+                                    Player player = getServer().getPlayer(id);
+                                    if (player == null || !player.isOnline()) continue;
+                                    boolean voidedWord = dailyChallengeManager
+                                            .hasPendingWordRewardForDate(id, yesterday);
+                                    int voidedBehavior = voidedBehaviorByPlayer.getOrDefault(id, 0);
+                                    if (voidedBehavior > 0 || voidedWord) {
+                                        player.sendMessage(messageUtil.getPlayerMessage(player,
+                                                "daily-challenge.rollover-voided"));
+                                    }
+                                }
+                                dailyChallengeManager.clearAllWordChallengeClaims();
+                                wordManager.getReviewScheduler().clearNotifiedDates();
 
-                // Wave 3 域 5 批次 A：午夜跨季检测（纯日期推导零 IO，F2-11 教训：
-                // 不在主线程查库）。仅当"跨过季边界"才派发结算扫描；结算 IO 全在
-                // settleIfNeededAsync 的异步任务里，主线程只做这一次纯计算。
-                if (seasonManager != null) {
-                    SeasonManager sm = seasonManager;
-                    LocalDate today = LocalDate.now();
-                    int todaySeason = sm.currentSeasonId(today);
-                    int yesterdaySeason = sm.currentSeasonId(today.minusDays(1));
-                    if (todaySeason != yesterdaySeason) {
-                        getLogger().info("Season boundary crossed (" + yesterdaySeason
-                                + " -> " + todaySeason + "), dispatching settlement sweep.");
-                        sm.settleIfNeededAsync();
+                                // Wave 3 域 5 批次 A：午夜跨季检测（纯日期推导零 IO，F2-11 教训：
+                                // 不在主线程查库）。仅当"跨过季边界"才派发结算扫描；结算 IO 全在
+                                // settleIfNeededAsync 的异步任务里，主线程只做这一次纯计算。
+                                if (seasonManager != null) {
+                                    SeasonManager sm = seasonManager;
+                                    LocalDate today = LocalDate.now();
+                                    int todaySeason = sm.currentSeasonId(today);
+                                    int yesterdaySeason = sm.currentSeasonId(today.minusDays(1));
+                                    if (todaySeason != yesterdaySeason) {
+                                        getLogger().info("Season boundary crossed (" + yesterdaySeason
+                                                + " -> " + todaySeason + "), dispatching settlement sweep.");
+                                        sm.settleIfNeededAsync();
+                                    }
+                                }
+
+                                getLogger().info("Midnight rollover done: daily challenges reassigned.");
+                            } finally {
+                                // R-75 自续：放在 finally——即使本次 rollover 抛异常，也照旧重排
+                                // 下一天，保证调度链路不会静默中断（与旧 runTaskTimer 的
+                                // "周期性必然再触发"语义对齐）。异步段异常路径也汇入本段（见上）。
+                                scheduleNextMidnightRollover();
+                            }
+                        });
+                    } catch (IllegalStateException ignored) {
+                        // 插件停用窗口（调度器已关）：两段链终止。isEnabled 已为 false，
+                        // 自续本就不会重排（scheduleNextMidnightRollover 首行守卫）。
                     }
-                }
-
-                getLogger().info("Midnight rollover done: daily challenges reassigned.");
-            } finally {
-                // R-75 自续：放在 finally——即使本次 rollover 抛异常，也照旧重排下一天，
-                // 保证调度链路不会静默中断（与旧 runTaskTimer 的"周期性必然再触发"语义对齐）。
-                scheduleNextMidnightRollover();
+                });
+            } catch (IllegalStateException ignored) {
+                // 停用窗口：异步段未派发，无自续需求（同上）。
             }
         }, delayTicks);
 

@@ -3,6 +3,7 @@ package com.letslearnenglish.minecraftplugin.expansion;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.season.SeasonManager;
+import com.letslearnenglish.minecraftplugin.data.CheckInData;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import org.bukkit.OfflinePlayer;
@@ -24,8 +25,9 @@ import java.util.concurrent.ConcurrentHashMap;
  *   %lle_words%          — total words attempted
  *   %lle_accuracy%       — accuracy percentage (e.g. "85.3%")
  *   %lle_sessions%       — total learning sessions
- *   %lle_streak%         — current daily streak
- *   %lle_longest_streak% — longest daily streak
+ *   %lle_streak%         — current daily check-in streak (P3-03: sourced from
+ *                          checkin_data.streak_count, not player_data)
+ *   %lle_longest_streak% — longest combo streak
  *   %lle_achievements%   — "unlocked/total" (e.g. "3/22")
  *   %lle_achievement_<id>% — "✓"/"✗" for one achievement (e.g.
  *                            %lle_achievement_duel_first_win%); unknown ids
@@ -264,8 +266,8 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
                 yield String.format("%.1f%%", acc);
             }
             case "sessions" -> String.valueOf(stats.getTotalSessions());
-            case "streak" -> String.valueOf(getStreak(playerId, "current_streak"));
-            case "longest_streak" -> String.valueOf(getStreak(playerId, "longest_streak"));
+            case "streak" -> String.valueOf(getCurrentCheckInStreak(playerId));
+            case "longest_streak" -> String.valueOf(getLongestStreak(playerId));
             case "achievements" -> {
                 int unlocked = plugin.getAchievementManager().getUnlockedCount(playerId);
                 int total = com.letslearnenglish.minecraftplugin.core.achievement.Achievement.values().length;
@@ -338,7 +340,24 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
         return plugin.getMessageUtil().getMessage("placeholder.rank-unranked");
     }
 
-    private int getStreak(UUID playerId, String column) {
+    /**
+     * P3-03：current_streak 语义 = 每日签到连击，唯一真源是
+     * {@code checkin_data.streak_count}（CheckInManager 写入）。
+     * {@code player_data.current_streak} 列已废弃（历史零写入，恒 0），
+     * 本占位符不再读它。数据库异常时返回 0（与旧实现同口径）。
+     */
+    private int getCurrentCheckInStreak(UUID playerId) {
+        CheckInData data = plugin.getDatabaseManager().getCheckInData(playerId);
+        return data == null ? 0 : data.getStreakCount();
+    }
+
+    /**
+     * longest_streak = 答题会话连击峰值（PlayerDataStore.persistLongestStreak 写入
+     * player_data.longest_streak，只增不减），与签到连击是两个不同语义，保持直查该列。
+     * 走 DatabaseManager 的 connectionLock 同步姿势（PAPI 可在任意线程被调用）。
+     */
+    private int getLongestStreak(UUID playerId) {
+        String column = "longest_streak";
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
         String sql = "SELECT " + column + " FROM " + tablePrefix + "player_data WHERE uuid = ?";
         java.sql.Connection conn = plugin.getDatabaseManager().getConnection();

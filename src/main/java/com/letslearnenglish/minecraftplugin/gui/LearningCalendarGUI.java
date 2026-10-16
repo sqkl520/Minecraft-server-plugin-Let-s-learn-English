@@ -12,8 +12,8 @@ import org.bukkit.inventory.meta.ItemMeta;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.logging.Level;
 
 /**
  * Study History GUI — GitHub contribution graph style.
@@ -68,7 +68,54 @@ public class LearningCalendarGUI {
         this.plugin = plugin;
     }
 
+    /**
+     * C-7：兼容入口 —— 统一委托 {@link #openAsync(Player)}（主线程零查库，彻底断根）。
+     */
     public void open(Player player) {
+        openAsync(player);
+    }
+
+    /**
+     * C-7：异步两段式打开入口。
+     *
+     * <p>异步段仅查 {@code PlayerDataStore.getSessionDays}（DB 读 + logger，
+     * 无 Bukkit 世界 API）；主线程段渲染（{@link #openWithData}，零 DB 调用）。
+     *
+     * <p>R-67：异步体开头与 runTask 前各查一次 {@code isEnabled()}；主线程段
+     * {@code isOnline()} 复检（异步间隙玩家可能下线）。
+     */
+    public void openAsync(Player player) {
+        UUID playerId = player.getUniqueId();
+        try {
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                if (!plugin.isEnabled()) return;
+                Map<String, Integer> dayData;
+                try {
+                    dayData = plugin.getPlayerDataStore().getSessionDays(playerId, 35);
+                } catch (Exception e) {
+                    plugin.getLogger().log(Level.WARNING,
+                            "Failed to preload learning calendar data for " + playerId, e);
+                    return;
+                }
+                if (!plugin.isEnabled()) return;
+                try {
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (!player.isOnline()) return;
+                        openWithData(player, dayData);
+                    });
+                } catch (IllegalStateException ignored) {
+                    // 关服竞态：调度器已关闭，放弃本次渲染
+                }
+            });
+        } catch (IllegalStateException ignored) {
+            // 插件停用窗口（调度器已关闭）：放弃本次打开
+        }
+    }
+
+    /**
+     * C-7：主线程渲染 —— 数据由 {@link #openAsync(Player)} 预取，本方法零 DB 调用。
+     */
+    private void openWithData(Player player, Map<String, Integer> dayData) {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration msg = plugin.getConfigManager().getMessageConfig(lang);
 
@@ -86,7 +133,7 @@ public class LearningCalendarGUI {
         }
 
         // ── Data ──
-        Map<String, Integer> dayData = plugin.getPlayerDataStore().getSessionDays(player.getUniqueId(), 35);
+        // C-7：dayData 由 openAsync 异步预取，此处只读渲染（零 DB 调用）。
         LocalDate today = LocalDate.now();
         LocalDate startDate = today.minusDays(34); // 35-day window including today
         // Anchor grid to today: start at Monday of today's week, 4 weeks back.

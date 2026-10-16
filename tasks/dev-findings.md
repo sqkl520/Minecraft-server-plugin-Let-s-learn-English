@@ -14,11 +14,11 @@
 |---|------|------|------|------|
 | C-1 | `config.yml` update-interval ↔ `LetsLearnEnglish` 刷新任务 | plan 裁决"接线"未执行（键悬空、注释与行为差 10 倍）—— MC-2/MC-5/4B 三方互相以为对方处理 | 中 | **已关闭**（Phase 3 收尾）：接线 + 默认 300（零漂移）+ 钳位 [30,3600] |
 | C-2 | `DatabaseManager.deletePlayerData` 缺 `class_members` | 4A 新表未回头补进 reset 函数（后建表没回头补跨批函数的模式）——reset 后残行（占名额/榜 uuid 串） | 中 | **已关闭**（Phase 3 收尾）：补进 uuidTables |
-| C-3 | `DailyChallengeGUI:61` + `DailyChallengeManager:302-330/792-795` | 挑战 GUI 打开主线程直查 DB **且可触发写库**（degrade UPDATE / 首次分配 INSERT）——从未入账；同族 F2-11/PF-SOC-01 | 中 | 待排期（含写路径比纯读重一档；旧面数据路径改造，需异步快照模式） |
+| C-3 | `DailyChallengeGUI:61` + `DailyChallengeManager:302-330/792-795` | 挑战 GUI 打开主线程直查 DB **且可触发写库**（degrade UPDATE / 首次分配 INSERT）——从未入账；同族 F2-11/PF-SOC-01 | 中 | **已关闭**（P3 遗留中危修复批）：DailyChallengeGUI openAsync 两段式（两处 DB 面全异步） |
 | C-4 | `config.yml` money.vault-required | 零读取真死键 | 低 | **已关闭**（Phase 3 收尾）：删键 + 注释说明（Vault 检测驱动，无需开关） |
 | C-5 | zh/en 8 个 i18n 死键 | 4B 扫除不彻底（含 PF-ACH-05 明确记账却漏删的 `achievement.unlocked`）；audit 脚本单向不查"键→无引用" | 低 | **已关闭**（Phase 3 收尾）：8 键删除（review.complete / achievement.unlocked / progress.view / admin.export-start / admin.word-add / answer-hint-lore-2 / current-word-lore-2 / wrong-book.title） |
 | C-6 | `gui-layout.main-menu.wrong-book` 反向缺键 | 代码双侧读、config 无定义（管理员改不动） | 低 | **已关闭**（Phase 3 收尾）：补录键（值与代码默认一致零漂移） |
-| C-7 | `LearningCalendarGUI.getSessionDays` | 日历 GUI 主线程直查未入账（旧面漏检，同 C-3 族） | 低 | 待排期（与 C-3 同批异步化） |
+| C-7 | `LearningCalendarGUI.getSessionDays` | 日历 GUI 主线程直查未入账（旧面漏检，同 C-3 族） | 低 | **已关闭**（P3 遗留中危修复批）：LearningCalendarGUI openAsync 两段式 |
 | C-8 | `schema.sql` 缺 2 索引文档 | 4 个防扫索引中 2 个未在 schema.sql 注释（运行时由 createIndexIfMissing 建，文档面缺口） | 低 | **已关闭**（Phase 3 收尾）：schema.sql 已补录两索引 |
 | C-9 | `CountdownTier` 学习侧未接 + 无单测 | 纯函数已抽出但学习侧仍走旧路径（对决侧已接）；缺单测 | 低 | **已关闭**（Phase 3 收尾）：学习侧接线 CountdownTier（逐位等价）+ 5 项单测 |
 | C-10 | P3-02/P3-03 挂账措辞 | 措辞引用 ProgressGUI（已删），随 Phase 3 结束失效 | 低 | **已关闭**（Phase 3 收尾）：P3-02/P3-03 措辞已校正（本体仍挂账，见对应行） |
@@ -48,8 +48,8 @@
 | # | 位置 | 现象 | 严重 | 状态 |
 |---|------|------|------|------|
 | P3-01 | `gui/ProfileGUI.java:105` | 正确率恒显 100%：M10 后 `getTotalWords()` 语义=只计答对（=totalCorrect），GUI 却用 `correct/getTotalWords()`，分子分母同值；PAPI 的 accuracy 是正确算法（correct/(correct+incorrect)），两者打架 | 中 | **已关闭（本轮由编排者修复）**：改为 `totalCorrect/(totalCorrect+totalIncorrect)`，与 PAPI 同口径 |
-| P3-02 | `learning_log` 表 | 全库零写入（无任何 INSERT），`DatabaseManager.getTotalSessions()`（统计 HTTP 服务的 totalLearningSessions 与 7 天会话曲线）恒 0——真数据源是 player_sessions | 中 | 待排期（Phase 3 已结束仍未修：StatisticsHttpServer 改查 player_sessions，或接线 learning_log 写入——建议前者） |
-| P3-03 | `player_data.current_streak` | 零写入（persistLongestStreak 只写 longest_streak），`%lle_streak%` 与 ProgressGUI 当前连续恒 0——真数据源是 checkin_data.streak_count | 中 | 待排期（Phase 3 已结束仍未修：streak 占位符改走 CheckInManager.getCheckInInfo，或补 current_streak 写入；ProgressGUI 已随 4B 删除） |
+| P3-02 | `learning_log` 表 | 全库零写入（无任何 INSERT），`DatabaseManager.getTotalSessions()`（统计 HTTP 服务的 totalLearningSessions 与 7 天会话曲线）恒 0——真数据源是 player_sessions | 中 | **已关闭**（P3 遗留中危修复批）：getTotalSessions/getLast7DaysStats 改走 player_sessions（真数据源；sqlite 冒烟 7 断言） |
+| P3-03 | `player_data.current_streak` | 零写入（persistLongestStreak 只写 longest_streak），`%lle_streak%` 与 ProgressGUI 当前连续恒 0——真数据源是 checkin_data.streak_count | 中 | **已关闭**（P3 遗留中危修复批）：%lle_streak% 与 ProgressManagerImpl 改走 checkin_data.streak_count 真源 |
 | P3-04 | `ProgressGUI.java` | 死类（无实例化点，P2-23 同根）——`/le progress` 实际走 ProfileGUI | 低 | **已关闭**（随 Wave 4 4B 收口）：死类已删除 |
 | P3-05 | `player_sessions.mode` | 同日合并（UPSERT）时 mode 列不被更新，记录的是当日首场模式 | 低 | 待排期（Phase 3：报告域做模式统计前需定口径） |
 | P3-06 | `checkin_data` | 无逐日历史（只有 last_checkin_date + streak_count），报告域做"本周签到 X 天"需从 player_sessions 或新表推导 | 低 | 待排期（Phase 3 报告域设计输入） |
@@ -267,7 +267,7 @@
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
 | F2-10 | `WordLearningListener.pronounceCooldown` | 只 put 不删，quit 不清，无驱逐（每人一条，量级极小） | 无清理 | 低 | **已关闭**（随 P2 清理批次收口）：quit 清 pronounceCooldown |
-| F2-11 | `scheduleMidnightRollover` 主线程同步查库 | 每玩家 1~3 条同步 SQL，百人服午夜会卡一下主线程 | 主线程 IO | 中 | 待排期（Phase 3：搬异步快照 + 主线程发消息） |
+| F2-11 | `scheduleMidnightRollover` 主线程同步查库 | 每玩家 1~3 条同步 SQL，百人服午夜会卡一下主线程 | 主线程 IO | 中 | **已关闭**（P3 遗留中危修复批）：午夜任务两段式重写（异步重活 + 主线程 Bukkit 面） |
 | F2-12 | `DuelRoom.timeoutCurrentWord` 零 UUID 哨兵 | `getLastCorrectAnswerer()` 可能对外吐 `new UUID(0,0)`，若 `DuelGUI` 按此查名会有怪显示（未读 `DuelGUI`，待确认非定论） | 哨兵外泄 | 低 | 待排期（先确认 `DuelGUI` 是否消费该方法） |
 | F2-13 | `/le word` 成功提示 `{difficulty}/{mode}` | 填原始英文标识符（如 `choice`/`beginner`），中文玩家看到英文 | 未走 i18n label（review 路径已有 `mode-review` label，普通路径未跟进） | 低 | **已关闭**（随 P2 清理批次收口）：i18n label 接线（PF-ONB-03 补词库路径） |
 
