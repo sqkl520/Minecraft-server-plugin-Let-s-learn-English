@@ -147,7 +147,7 @@ public class MainMenuListener implements Listener {
             SoundManager.playSound(player, "menu-click");
             plugin.getGuiNavigationManager().pushBack(player.getUniqueId(),
                     () -> new MainMenu(plugin).open(player));
-            new DailyChallengeGUI(plugin).open(player);
+            new DailyChallengeGUI(plugin).openAsync(player);
         } else if (slot == cm.getGuiSlot("main-menu", "wrong-book", 14)) {
             // R-47 fan-in：错题本槽位改读配置，与渲染侧 MainMenu 对齐
             // 模块门（旅程验收收口）：归 word-system（错题本是单词学习从属面）

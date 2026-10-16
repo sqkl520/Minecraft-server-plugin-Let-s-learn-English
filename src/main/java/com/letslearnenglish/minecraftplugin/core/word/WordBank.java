@@ -222,7 +222,16 @@ public class WordBank {
         return words.size();
     }
 
+    /**
+     * 全部单词的只读快照。
+     *
+     * <p>F4-03 先例 + 中危修复批 arch tester O-3 收口：原返回 {@code unmodifiableList}
+     * **视图**（底层是裸 ArrayList），F2-11 后 {@link #getAllWords()} 的消费点首次
+     * 进入异步线程（DailyChallengeManager.ensureWordChallengesAssigned 经午夜任务），
+     * 与主线程 {@link #addWord}（/lea addword 导入）并发时理论可 CME。返回防御拷贝
+     * （单词对象本身不可变，浅拷贝足够）——读侧任意线程安全。
+     */
     public List<Word> getAllWords() {
-        return Collections.unmodifiableList(words);
+        return List.copyOf(words);
     }
 }
