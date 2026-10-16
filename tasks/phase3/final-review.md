@@ -28,7 +28,7 @@
 
 ## 三、遗留账册（不在 Phase 3 范围，转下版本）
 
-**中危**（5 条）：P3-02 learning_log 零写入（统计面板恒 0）/ P3-03 current_streak 零写入（streak 占位符恒 0）/ F2-11 午夜任务主线程查库 / C-3 挑战 GUI 主线程查库+写库 / C-7 日历 GUI 主线程查库。
+**中危（5 条）——已全部修复喵（用户点名，提交 `7f55692`）**：P3-02 learning_log 零写入（统计面板恒 0）→ 改走 player_sessions 真源 / P3-03 current_streak 零写入（streak 占位符恒 0）→ 改走 checkin_data 真源 / F2-11 午夜任务主线程查库 → 两段式重写 / C-3 挑战 GUI 主线程查库+写库 → openAsync 两段式 / C-7 日历 GUI 主线程查库 → openAsync 两段式。三维 tester 架构 PASS / 代码 GO；tester 收口 3 项（checkAndAssign stripe lock / getAllWords 防御拷贝 / 未用 import）。
 **低危**（约 30 条）：见 dev-findings.md 各"待排期"行。
 
 ## 四、Phase 3 出口标准判定
