@@ -125,7 +125,7 @@
 |---|------|------|------|------|
 | P2-06 | `DuelManager.hasPendingRequest` / `getDuelRoom` | 全库零调用死公共 API | 低 |**已关闭**（低危批次流 A）：两死 API 删除（全仓零引用复核） |
 | P2-07 | `DuelManager.DisconnectInfo.disconnectTime` | 只写不读死字段 | 低 |**已关闭**（低危批次流 A）：DisconnectInfo.disconnectTime 删字段+构造简化 |
-| P2-08 | `DuelManager.cancelDuelByAdmin` | 双方都离线时 GM 仍无法解散（R-69 队列只覆盖一名在线场景） | 低 | 已记录（已知限制，待 Phase 3 决策是否扩权） |
+| P2-08 | `DuelManager.cancelDuelByAdmin` | 双方都离线时 GM 仍无法解散（R-69 队列只覆盖一名在线场景） | 低 |**已关闭**（低危尾账批次）：入口离线时按人名回退遍历 activeDuels 找房间（找到照常解散+双方离线通知队列，找不到才回离线提示） |
 
 ### 来自 S4（命令与配置校验）
 

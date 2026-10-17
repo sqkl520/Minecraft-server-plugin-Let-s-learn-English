@@ -956,16 +956,40 @@ public class DuelManager {
      */
     public void cancelDuelByAdmin(CommandSender gm, String targetName) {
         Player target = Bukkit.getPlayer(targetName);
-        if (target == null) {
-            gm.sendMessage(plugin.getMessageUtil().getSenderMessage(gm,
-                    "admin.duel-cancel-offline", "player", targetName));
-            return;
+        DuelRoom room;
+        String displayName;
+        if (target != null) {
+            room = activeDuels.get(target.getUniqueId());
+            displayName = target.getName();
+        } else {
+            // P2-08 收口（低危尾账批次）：双方都离线时 GM 无法解散——原实现直接回
+            // admin.duel-cancel-offline 且无替代通道（R-69 队列只管重连补发，不管入口）。
+            // 离线目标按人名回退遍历 activeDuels 找房间（DuelRoom 有双方名字存量）；
+            // 找到后照常走解散+双方离线通知队列，找不到才回离线提示。
+            room = null;
+            displayName = null;
+            for (DuelRoom candidate : new java.util.HashSet<>(activeDuels.values())) {
+                if (!candidate.isActive()) continue;
+                if (targetName.equalsIgnoreCase(candidate.getPlayer1Name())) {
+                    room = candidate;
+                    displayName = candidate.getPlayer1Name();
+                    break;
+                }
+                if (targetName.equalsIgnoreCase(candidate.getPlayer2Name())) {
+                    room = candidate;
+                    displayName = candidate.getPlayer2Name();
+                    break;
+                }
+            }
+            if (room == null) {
+                gm.sendMessage(plugin.getMessageUtil().getSenderMessage(gm,
+                        "admin.duel-cancel-offline", "player", targetName));
+                return;
+            }
         }
-
-        DuelRoom room = activeDuels.get(target.getUniqueId());
         if (room == null || !room.isActive()) {
             gm.sendMessage(plugin.getMessageUtil().getSenderMessage(gm,
-                    "admin.duel-cancel-not-in-duel", "player", target.getName()));
+                    "admin.duel-cancel-not-in-duel", "player", displayName));
             return;
         }
 
