@@ -613,6 +613,8 @@ chat-history:
   role-assistant: "&b[AI]"
   session-item-format: "&b&l{scenario} &7- {date}"
   unknown-date: "Unknown"
+  # P2-19: display-side fallback for the scenario-extraction failure sentinel ("Unknown" from ChatHistoryEntry)
+  unknown-scenario: "Unknown"
   # US-FB (3B): detail-page feedback item (plan-ai-feedback §2.3)
   feedback-title: "&6&lSession Feedback"
   feedback-scenario: "&7Scenario: &e{scenario}"

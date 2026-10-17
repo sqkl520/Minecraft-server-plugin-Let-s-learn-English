@@ -605,7 +605,6 @@ public class WordLearningManager implements Listener {
     }
 
     public double getComboMultiplier(int consecutiveCorrect) {
-        if (consecutiveCorrect <= 0) return 1.0;
         for (int i = COMBO_THRESHOLDS.length - 1; i >= 0; i--) {
             if (consecutiveCorrect >= COMBO_THRESHOLDS[i]) {
                 return COMBO_MULTIPLIERS[i];

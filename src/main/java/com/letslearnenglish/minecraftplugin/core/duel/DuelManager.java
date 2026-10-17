@@ -46,7 +46,7 @@ public class DuelManager {
     private final Set<UUID> busyPlayers;
     // Pending duel requests: target UUID → PendingDuel (sender + unique token)
     private final Map<UUID, PendingDuel> pendingRequests;
-    // Disconnect grace timers: disconnected player UUID → (duelRoom, disconnectTimestamp)
+    // Disconnect grace timers: disconnected player UUID → duelRoom
     private final Map<UUID, DisconnectInfo> disconnectTimers;
     // Grace period countdown tasks: disconnected player UUID → task
     private final Map<UUID, BukkitTask> graceTasks;
@@ -85,10 +85,8 @@ public class DuelManager {
 
     private static class DisconnectInfo {
         final DuelRoom room;
-        final long disconnectTime;
-        DisconnectInfo(DuelRoom room, long disconnectTime) {
+        DisconnectInfo(DuelRoom room) {
             this.room = room;
-            this.disconnectTime = disconnectTime;
         }
     }
 
@@ -364,7 +362,13 @@ public class DuelManager {
     public void submitAnswer(Player player, String answer) {
         UUID playerId = player.getUniqueId();
         DuelRoom room = activeDuels.get(playerId);
-        if (room == null || !room.isActive()) return;
+        if (room == null || !room.isActive()) {
+            // F1-18: 对局结束/已拆解的窗口期，聊天仍可能被 ChatAnswerListener
+            // 按 isInDuel 快照送进来（异步判定与主线程拆解之间的竞态）。
+            // 不再静默吞答案 —— 复用既有 duel.not-in-duel 键给玩家一句反馈。
+            player.sendMessage(getMsg(player, "duel.not-in-duel"));
+            return;
+        }
 
         DuelRoom.AnswerResult result = room.submitAnswer(playerId, answer);
 
@@ -408,7 +412,10 @@ public class DuelManager {
                 player.sendMessage(getMsg(player, "duel.round-ended"));
             }
             case NOT_IN_DUEL -> {
-                // Should not happen
+                // F1-18: 与 room==null 分支同款收口 —— 房间层拒收（题未就位等
+                // 窗口态）同样给答题者一句反馈，不静默吞输入。本分支在
+                // runTask 回调内（主线程），sendMessage 安全。
+                player.sendMessage(getMsg(player, "duel.not-in-duel"));
             }
         }
     }
@@ -795,7 +802,7 @@ public class DuelManager {
         DuelRoom room = activeDuels.get(playerId);
         if (room == null || !room.isActive()) return;
 
-        disconnectTimers.put(playerId, new DisconnectInfo(room, System.currentTimeMillis()));
+        disconnectTimers.put(playerId, new DisconnectInfo(room));
 
         UUID opponentId = room.getOpponent(playerId);
         Player opponent = Bukkit.getPlayer(opponentId);
@@ -829,7 +836,13 @@ public class DuelManager {
             Player opp = Bukkit.getPlayer(opponentId);
             if (remainingSeconds[0] <= 0) {
                 // Grace period expired — forfeit
-                graceTasks.remove(playerId);
+                // 僵尸任务修复：照 R-26 模式自行摘登记并 cancel 任务本体 ——
+                // 原实现只 graceTasks.remove 不 cancel，任务会带着已空的登记条目
+                // 每 20 tick 空转到关服（cleanup/shutdown 因条目已摘都造访不到它）。
+                BukkitTask self = graceTasks.remove(playerId);
+                if (self != null) {
+                    self.cancel();
+                }
                 disconnectTimers.remove(playerId);
 
                 if (opp != null && opp.isOnline()) {
@@ -1020,6 +1033,15 @@ public class DuelManager {
         return offlineNotices.remove(playerId);
     }
 
+    /**
+     * Tear a duel down internally (no winner/loser) — both sides get the
+     * "duel.cancelled" message and the room goes through {@link #cleanup}.
+     *
+     * @param room   the room to cancel
+     * @param reason currently unused (all call sites pass {@code "no-words"});
+     *               the parameter is kept as the future logging hook — wiring a
+     *               debug log here is the intended consumer, not an oversight
+     */
     private void cancelDuelInternal(DuelRoom room, String reason) {
         room.setActive(false);
         cancelWordTimeout(room);
@@ -1309,14 +1331,6 @@ public class DuelManager {
      */
     public boolean isBusy(UUID playerId) {
         return busyPlayers.contains(playerId);
-    }
-
-    public DuelRoom getDuelRoom(UUID playerId) {
-        return activeDuels.get(playerId);
-    }
-
-    public boolean hasPendingRequest(UUID targetId) {
-        return pendingRequests.containsKey(targetId);
     }
 
     /**

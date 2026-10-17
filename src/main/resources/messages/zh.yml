@@ -613,6 +613,8 @@ chat-history:
   role-assistant: "&b[AI]"
   session-item-format: "&b&l{scenario} &7- {date}"
   unknown-date: "未知"
+  # P2-19：场景提取失败哨兵（ChatHistoryEntry 返回 "Unknown"）的显示侧兜底
+  unknown-scenario: "未知"
   # US-FB（3B）：详情页反馈物品（plan-ai-feedback §2.3）
   feedback-title: "&6&l本次对话小结"
   feedback-scenario: "&7场景: &e{scenario}"

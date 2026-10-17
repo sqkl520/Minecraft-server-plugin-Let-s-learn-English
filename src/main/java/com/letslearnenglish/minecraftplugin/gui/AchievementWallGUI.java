@@ -93,7 +93,9 @@ public class AchievementWallGUI {
         // S-E 流提供（AchievementManager.getProgressSnapshot）。
         Map<Achievement, int[]> progressSnapshot = am.getProgressSnapshot(targetId);
         SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm");
-        dateFormat.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+        // P3-12：统一系统时区（原硬编码 Asia/Shanghai——成就墙解锁日期与
+        // AchievementManager 时窗判定同口径，跟服务器本地时区走）。
+        dateFormat.setTimeZone(TimeZone.getDefault());
 
         int slot = 10;
         int col = 0;
@@ -215,7 +217,9 @@ public class AchievementWallGUI {
 
         try {
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm");
-            sdf.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+            // P3-12：统一系统时区（与 AchievementManager.isAchievementEligible 的
+            // 时窗解析口径一致——同一份配置串在两处被解析，必须同时区）。
+            sdf.setTimeZone(TimeZone.getDefault());
             Date start = sdf.parse(startStr);
             Date end = sdf.parse(endStr);
             Date now = new Date();

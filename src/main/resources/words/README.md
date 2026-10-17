@@ -31,7 +31,7 @@ words:                       # 词条列表
 | example_sentence | string | 模板必填 / loader 可选 | 例句，应包含该单词 |
 | synonyms | list<string> | 可选（缺省 `[]`） | 同义词；无则 `[]` |
 | antonyms | list<string> | 可选（缺省 `[]`） | 反义词；无则 `[]` |
-| difficulty_level | int | 模板必填 / loader 可选（缺省 1） | 数字难度 1~9；三档各占连续 3 级：beginner 1~3（255/36/26）、intermediate 4~6（134/146/69）、advanced 7~9（125/134/71） |
+| difficulty_level | int | 模板必填 / loader 可选（缺省 1） | 数字难度 1~9；三档各占连续 3 级：beginner 1~3（255/36/26）、intermediate 4~6（134/146/69）、advanced 7~9（125/134/70） |
 | reward | number | 可选（缺省 0.0=用全局配置） | 单词自定义奖励；**现有词库未使用**，sample 也不写 |
 
 说明：
@@ -41,8 +41,8 @@ words:                       # 词条列表
   这一更严标准执行。
 - `reward` 虽被 loader 支持，但三档词库均未使用，依“以实际文件为准”本 sample 不输出。
 - 单文件最多 1000 词（`WordBankValidator.MAX_WORDS`）。
-- `difficulty_level` 语义：现有 beginner 全为 1，intermediate 从 4 起。本 sample 采用
-  1=最基础，2=仍属 beginner 但略抽象/略低频（family/money/know/open），均 <4。
+- `difficulty_level` 语义：1=最基础，数字越大越难；beginner 内 2 级为略抽象/略低频词
+  （family/money/know/open 等）。各档区间与分布见上表（与三档实际数据一致）。
 
 ## 词表来源与许可
 
@@ -97,10 +97,11 @@ words:                       # 词条列表
   抽查 20 词（annoyed、bold、witty、leisure、fling、durable、eclipse、embarrass、
   enhance、enquire、dormitory、finale、heir、fragile、fragrant、frugal、frustrate、
   furnish、elastic、dusk）：全部合格，无硬伤。
-- `advanced.yml`：**330 词**（原有 10 词保留 + 新增 320 词）。
+- `advanced.yml`：**329 词**（原有 10 词保留 + 新增 320 词，低危批次内容调优再删生僻词
+  `dingle` → 329）。
   自检：**0 error / 0 warning**（顺带修复 `elaborate` 的 `part_of_speech: "adjective/verb"`
   非法斜杠值 → `verb`；crumb/crust 例句错位、defy/dignify 原形、curfew 缺字段一并修正）。
-  `difficulty_level` 分布：7 级 125 / 8 级 134 / 9 级 71。
+  `difficulty_level` 分布：7 级 125 / 8 级 134 / 9 级 70（dingle 删除后）。
   抽查 20 词（advocate、behalf、capable、chronic、combat、compliment、confer、
   constrict、cordial、crisis、cult、decade、default、delicate、depreciate、deviate、
   dignify、dismal、diversify、phenomenon）：全部合格，无硬伤。
@@ -113,6 +114,16 @@ words:                       # 词条列表
   全部释义、音标、例句为原创编写；音标采用 Cambridge 英式风格（rhotic-r 惯例与
   现有文件一致）。
 - `sample-beginner.yml` 已全数并入 `beginner.yml` 并删除（此前 pom 已将其排除出 JAR）。
+
+## 同义词级别审查（低危批次内容调优）
+
+- 原则：synonyms 中每个词若单独出现，也应属于该词条所在档位（或更低档）；会被放进更高
+  档的属超纲，移除。
+- 本次对 `beginner.yml` 全部 317 条词条的 synonyms 做了泛化扫描，删除 10 个超纲/语域不符的
+  同义词：feline、canine、consume、dine、bold、breeze、companion、automobile、academy、
+  institution；灰色地带一律保留（如 infant、limb、volume、shore，宁缺毋滥）。
+- `advanced.yml` 同步删除生僻噪声词 `dingle`（与 dingy 形近易混）。同原则适用于
+  intermediate/advanced 档的同义词面（尚未执行，留后续批次评估）。
 
 ## 提升为正式词库的流程（人工）
 

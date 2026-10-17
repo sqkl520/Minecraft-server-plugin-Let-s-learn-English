@@ -19,8 +19,8 @@ import java.util.logging.Level;
  * 自 P2 起返回 {@code "Export failed: …"} 字符串供 AdminCommand 前缀判定，
  * 属字符串协议（教训项）。现改为返回 {@link ExportResult} record，成败按
  * {@code success()} 字段判定；AdminCommand 消费点同步迁移（旧串返回语义废弃）。
- * 导出内容与文件位置（插件根目录 CSV）保持现状——读写范围不在本流（PF-RPT-06
- * 已记录目录不一致欠账，独立排期）。
+ * P3-07 收口：CSV 落点由插件根目录改至 {@code exports/} 子目录（并入
+ * AdminCommandHandler 词库导出 / ReportGenerator 报告的同族约定）。
  */
 public class DataExporter {
 
@@ -46,6 +46,10 @@ public class DataExporter {
      * Export online players' learning data to a CSV file.
      * Note: Only exports data for currently online players.
      *
+     * <p>P3-07：仅导出在线玩家为设计约束——数据源是运行期内存缓存
+     * （{@link PlayerDataStore}），离线玩家无缓存快照，导出需新查询
+     * （DB 直读 player_data/word_progress），P3-07 记录待排期。
+     *
      * <p>US-RPT-3：返回 {@link ExportResult}（协议化）。成功时 {@code filePath}
      * 为绝对路径，失败时 {@code errorMessage} 为原因——调用方按字段判定，
      * 不再解析字符串前缀（P2-09 教训落地）。
@@ -55,7 +59,13 @@ public class DataExporter {
     public ExportResult exportAllData() {
         String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
         String fileName = "export_" + timestamp + ".csv";
-        File exportFile = new File(plugin.getDataFolder(), fileName);
+        // P3-07：落 exports/ 子目录（同 AdminCommandHandler 词库导出 / ReportGenerator
+        // 报告目录约定），根目录不再散落 CSV；目录不存在则创建。
+        File exportsDir = new File(plugin.getDataFolder(), "exports");
+        if (!exportsDir.exists()) {
+            exportsDir.mkdirs();
+        }
+        File exportFile = new File(exportsDir, fileName);
 
         try (FileWriter writer = new FileWriter(exportFile)) {
             writer.write("Player UUID,Player Name,Total Words,Total Sessions,Total Score,Correct,Incorrect\n");

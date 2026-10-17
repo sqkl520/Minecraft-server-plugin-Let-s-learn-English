@@ -111,6 +111,9 @@ public class DatabaseManager {
                         //（删列有 schema 变更风险），读侧已改走 checkin_data。
                         "  current_streak INT DEFAULT 0," +
                         "  longest_streak INT DEFAULT 0," +
+                        // P3-16：last_login / created_at 为历史遗留列，全仓零读写（建表后
+                        // 从未写入、无任何查询引用）。保留不删（数据永不删原则，同 P3-03
+                        // 的"保留不删"先例）；如需注册漏斗统计再接线（P3-16）。
                         "  last_login BIGINT," +
                         "  created_at BIGINT," +
                         "  updated_at BIGINT" +
@@ -285,6 +288,11 @@ public class DatabaseManager {
         );
 
         // Daily check-in table
+        // P3-06：checkin_data 仅保存当前态（last_checkin_date + streak_count），
+        // 无逐日历史行——UPSERT 覆盖式写入，昨日之前不可回溯。"本周签到 X 天"
+        // 类需求需从 player_sessions 推导（学习日次口径）或另建历史表（P3-06）；
+        // social_feed 的 CHECKIN 动态带 social.enabled/隐身门且有保留期清理，
+        // 不能当统计真源。
         executeUpdate(
                 "CREATE TABLE IF NOT EXISTS " + tablePrefix + "checkin_data (" +
                         "  player_uuid VARCHAR(36) NOT NULL PRIMARY KEY," +
@@ -2312,6 +2320,11 @@ public class DatabaseManager {
      * <p>建表语句无外键（SQLite/MySQL 双实现与 schema.sql 均已查证），直删无需排序。
      * 与本类其他方法一致：全程持 {@code connectionLock}，内部吞异常记 WARNING，
      * 调用方无需再 try/catch。
+     *
+     * <p>F5-03（备查）：已知极端竞态——在途异步 auto-save 快照（周期保存任务 /
+     * persistLongestStreak / recordCoinsEarned 等即时落库）可能在 delete 后写回
+     * 残行（毫秒窗口；玩家重进时数据正常覆盖，影响极小）。如需根治需引入
+     * resetting per-player 标志（本表标记删中，写侧见此跳过），F5-03 备查。
      *
      * @param playerId the player whose rows should be removed
      */

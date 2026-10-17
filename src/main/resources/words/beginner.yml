@@ -321,8 +321,7 @@ words:
     part_of_speech: "adjective"
     phonetic: "/breɪv/"
     example_sentence: "The brave boy saved the little dog."
-    synonyms:
-      - "bold"
+    synonyms: []
     antonyms: []
     difficulty_level: 3
 
@@ -409,7 +408,6 @@ words:
     phonetic: "/kɑːr/"
     example_sentence: "My father drives a red car."
     synonyms:
-      - "automobile"
       - "vehicle"
     antonyms: []
     difficulty_level: 1
@@ -430,7 +428,6 @@ words:
     phonetic: "/kæt/"
     example_sentence: "The cat is sleeping on the sofa."
     synonyms:
-      - "feline"
       - "kitten"
     antonyms: []
     difficulty_level: 1
@@ -641,7 +638,6 @@ words:
     phonetic: "/dɒɡ/"
     example_sentence: "The dog is playing in the park."
     synonyms:
-      - "canine"
       - "puppy"
     antonyms: []
     difficulty_level: 1
@@ -719,9 +715,7 @@ words:
     part_of_speech: "verb"
     phonetic: "/iːt/"
     example_sentence: "We eat dinner at 7 PM."
-    synonyms:
-      - "consume"
-      - "dine"
+    synonyms: []
     antonyms: []
     difficulty_level: 1
 
@@ -951,7 +945,6 @@ words:
     phonetic: "/frend/"
     example_sentence: "She is my best friend."
     synonyms:
-      - "companion"
       - "pal"
     antonyms:
       - "enemy"
@@ -2128,9 +2121,7 @@ words:
     part_of_speech: "noun"
     phonetic: "/skuːl/"
     example_sentence: "I go to school every morning."
-    synonyms:
-      - "academy"
-      - "institution"
+    synonyms: []
     antonyms: []
     difficulty_level: 1
 
@@ -2917,8 +2908,7 @@ words:
     part_of_speech: "noun"
     phonetic: "/wɪnd/"
     example_sentence: "The wind is strong today."
-    synonyms:
-      - "breeze"
+    synonyms: []
     antonyms: []
     difficulty_level: 1
 
