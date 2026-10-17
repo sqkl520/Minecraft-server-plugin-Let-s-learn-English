@@ -18,9 +18,9 @@ import java.util.regex.Pattern;
 public class UpdateChecker {
 
     private static final String GITHUB_API_URL =
-            "https://api.github.com/repos/sqkl520/Minecraft-server-plugin-Let-s-learn-English-/releases/latest";
+            "https://api.github.com/repos/sqkl520/Minecraft-server-plugin-Let-s-learn-English/releases/latest";
     private static final String GITHUB_RELEASES_URL =
-            "https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English-/releases";
+            "https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/releases";
 
     private static final int MAX_RETRIES = 2;
     private static final int CONNECT_TIMEOUT = 8000;
