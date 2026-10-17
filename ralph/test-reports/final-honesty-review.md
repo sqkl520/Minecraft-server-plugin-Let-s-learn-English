@@ -2,7 +2,7 @@
 
 > 审查 agent：Phase 3 最终验收（诚实性视角）
 > 日期：2026-10-16
-> 基线：HEAD = 9cd24bc（含审查期间并行编排者对跨波审计 C-1~C-10 的收口提交）
+> 基线：HEAD = a6a0847（含审查期间并行编排者对跨波审计 C-1~C-10 的收口提交）
 > 方法：只读。CHANGELOG 抽 10+ 条逐码验证 / dev-findings 状态列全量复核 / TODO 全仓扫描 / JaCoCo 产物读数（未重跑 mvn）/ AIChatManager 全文精读 / 文档数字对照 / tester 报告证据强度抽查
 
 ---
@@ -18,7 +18,7 @@
 | 3 | "P2-13 二期 25 处裸 getString **全收敛**" | 四文件零裸 `messages.getString` 残留 | 真 |
 | 4 | "challenges-per-day **真接线**（钳 [1,4]）" | `DailyChallengeManager:180-186` 钳位到枚举总数（=4），R-74 重抽链整体删除属实 | 真 |
 | 5 | "rewards.* 四键真接线（`instanceof Number` 防 isDouble 误判）" | `getChallengeReward:285-297` 逐行属实 | 真 |
-| 6 | "死键/死类**终局大扫除**…死键/死类零残留" | 4B 当日遗漏：8 个 i18n 死键（`review.complete`/`achievement.unlocked`/`progress.view`/`admin.export-start`/`admin.word-add`/`answer-hint-lore-2`/`current-word-lore-2`/`wrong-book.title`）+ 2 个真死 config 键（`money.vault-required`、`update-interval` 悬空）+ 1 个反向缺键（`gui-layout.main-menu.wrong-book`）。由并行跨波审计 C-5/C-4/C-6 于 9cd24bc 补收 | **当日夸大**（后已收口，教训留存） |
+| 6 | "死键/死类**终局大扫除**…死键/死类零残留" | 4B 当日遗漏：8 个 i18n 死键（`review.complete`/`achievement.unlocked`/`progress.view`/`admin.export-start`/`admin.word-add`/`answer-hint-lore-2`/`current-word-lore-2`/`wrong-book.title`）+ 2 个真死 config 键（`money.vault-required`、`update-interval` 悬空）+ 1 个反向缺键（`gui-layout.main-menu.wrong-book`）。由并行跨波审计 C-5/C-4/C-6 于 a6a0847 补收 | **当日夸大**（后已收口，教训留存） |
 | 7 | "GUIUtils.isPluginGUI 历史死启发式清除" | 最终代码确已清（`GUIUtils.java:58-62` 注释 + 无 Learning Progress/Weekly Ranking 分支）；注意 4B-arch 报告当日这两处还在（O-1/O-2），属收口后真 | 真（先报告后收口） |
 | 8 | "成就墙 22 格…" | 枚举 22 个 + 5 类 + GUI 54 格——数字真 | 真 |
 | 9 | "键级对称校验 548=548 / 638=638 / 695=695 / 716=716 **零差异**" | 各时点可信；当前 683=683（多轮删除后仍对称），audit 脚本仅余 1 条已知动态拼接误报 | 真 |
@@ -41,7 +41,7 @@
 
 > **F3-01 复核（本次实锤，状态"待排期"属实）**：`/le leaderboard` 直达（`LearnCommand:427` 裸 `open`）与主菜单可达路径不登记 `leaderboardGuis` 快照；`SocialListener:526` 点头像时 `gui == null → return`——**命令直达榜单后点头像无任何反应**。广场侧有 fallback 重建（F3-01 上半）已修，榜单侧至今没有。P0 时代的 3 流上报、P1 修复流 3 记"待排期（P1）"，三个 Phase 过去了没排上。
 >
-> **审查结束时的更新（未提交）**：并行的第 3 路（旅程验收）agent 正在工作树上收口 F3-01——`LearnCommand` 改走 `SocialListener.openLeaderboardWithSnapshot`、DI 补 `getSocialListener()`，同时给 MainMenu 补了 word/ai-chat/daily-challenges/wrong-book 四个渲染门（即本报告高估 #1 的修复）。**截至本报告落笔这些修改未提交、未经编译验证**，故本报告数字与判定仍以 HEAD=9cd24bc 为准；F3-01 与"入口隐藏"两笔账已进入收口通道，最终态需以下一次提交+verify 为准。
+> **审查结束时的更新（未提交）**：并行的第 3 路（旅程验收）agent 正在工作树上收口 F3-01——`LearnCommand` 改走 `SocialListener.openLeaderboardWithSnapshot`、DI 补 `getSocialListener()`，同时给 MainMenu 补了 word/ai-chat/daily-challenges/wrong-book 四个渲染门（即本报告高估 #1 的修复）。**截至本报告落笔这些修改未提交、未经编译验证**，故本报告数字与判定仍以 HEAD=a6a0847 为准；F3-01 与"入口隐藏"两笔账已进入收口通道，最终态需以下一次提交+verify 为准。
 
 ### 3. TODO/FIXME 扫描
 
@@ -51,7 +51,7 @@
 
 ### 4. 测试覆盖锐评（读 target/site/jacoco 产物，未重跑）
 
-**裸数据（HEAD=9cd24bc 后的最新产物，10:40 出炉）：**
+**裸数据（HEAD=a6a0847 后的最新产物，10:40 出炉）：**
 - Bundle **146 类**（build 报告写"147 类"，差 1 属 bundle/report 口径小差，不影响结论）
 - **指令覆盖 2.11%（1,399/66,448）；行覆盖 1.87%（258/13,797）；分支覆盖 1.4%**
 - 测试：**44 个 / 7 个测试类**。pom 注释自称"行覆盖约 4%"——**实际约 1.9%，注释高估近一倍**（门禁 1% 通过纯靠地板值低）
@@ -99,7 +99,7 @@
 | 4 | wiki 班级系统"config.yml 尚未包含本段（TODO 待确认）" | 已含且真接线 | 过时（TODO 未清） |
 | 5 | `words-per-session` "范围 5-30" / `answer-timeout` "范围 10-120" | 代码零钳位（裸 getInt）；对比 option-count/challenges-per-day 都有真钳位 | 夸大（管理误以为越界被安全处理） |
 | 6 | wiki "所有 GUI 物品材质和位置可配置" | ProfileGUI 全硬编码（config 注释自承"布局写死在代码里"） | 夸大 |
-| 7 | wiki "update-interval 死键（改动无效）" | 9cd24bc 刚接线（钳 [30,3600]） | **反向过时**（文档比代码慢一拍） |
+| 7 | wiki "update-interval 死键（改动无效）" | a6a0847 刚接线（钳 [30,3600]） | **反向过时**（文档比代码慢一拍） |
 | 8 | 引导第 3 步"查看成就" | 实为打开个人主页 | 不一致（wiki 别处又写对了） |
 | 9 | wiki 示例 YAML 仍展示 `types.item/command/exp`、`achievements.config-file` | 均已删 | 示例失真 |
 | 10 | `achievements.yml`"不参与运行/不读取" | ConfigManager:108 确实读盘一次（死链） | 细微不准 |
@@ -146,7 +146,7 @@ F1-16（R-68 已修）· F2-07（已修）· F2-08（已删）· F2-10（已修�
 "入口隐藏"这一层在主菜单只落了 duel/checkin 两个（2/9），word-system/ai-chat/daily-challenges 的按钮照常渲染，玩家点了才吃 `module.disabled`。最刺眼的是**出厂 config.yml 自己的注释**（:83-84、:168-169）把"入口隐藏：主菜单【单词学习】【错题本】隐藏"写成了既成事实，README 也跟着复制。声明与代码吵架，注释是原告。
 
 **2. MC-7 "死键/死类终局大扫除——零残留"（4B）**
-宣称当日漏网：8 个 i18n 死键（含 PF-ACH-05 规划文档里明确记账要删的 `achievement.unlocked`）+ 2 个真死 config 键（`money.vault-required`；`update-interval` 三方（plan/MC-2/MC-5/4B）互相以为对方处理，悬空三批）+ 1 个反向缺键（`gui-layout.main-menu.wrong-book` 代码双侧读、config 无定义——"接配置"只落一半）+ achievements.yml Java 死链不在任何核销表。4B 报告"零残留 PASS"的直接底气是 audit 脚本**单向盲区**（只查"引用→缺键"不查"键→无引用"）——工具盲区给"彻底性"打了美颜。万物皆可后补（9cd24bc 收了 C-4/C-5/C-6），但"终局"二字当日就破了产。
+宣称当日漏网：8 个 i18n 死键（含 PF-ACH-05 规划文档里明确记账要删的 `achievement.unlocked`）+ 2 个真死 config 键（`money.vault-required`；`update-interval` 三方（plan/MC-2/MC-5/4B）互相以为对方处理，悬空三批）+ 1 个反向缺键（`gui-layout.main-menu.wrong-book` 代码双侧读、config 无定义——"接配置"只落一半）+ achievements.yml Java 死链不在任何核销表。4B 报告"零残留 PASS"的直接底气是 audit 脚本**单向盲区**（只查"引用→缺键"不查"键→无引用"）——工具盲区给"彻底性"打了美颜。万物皆可后补（a6a0847 收了 C-4/C-5/C-6），但"终局"二字当日就破了产。
 
 **3. "三维 tester 全过"的验收叙事**
 字面没有撒谎——build GO/code GO/arch PASS 的报告都在且证据密实（见 §1.7）。但"全过"给的是"大工程被全面验证"的印象，实际是：build 全量（编译+44 测试+1% 地板门）、code/arch 白名单内静态抽查——白名单外恰好埋着 update-interval 悬空、8 死键、reset 漏表（C-2，`class_members` 未进 deletePlayerData，真残行）。真正抓到这批实伤的是跨波审计（第 4 路），不是"三维"本身。加上 Phase 3 六域 ~6,000 行新代码零行为测试（SeasonManager 1372 未覆盖指令、OnboardingManager 907、ChatFeedbackManager 680）——"全过"的确定性配得上的是"抽查无违"四个字，不是"全过"两个字。
@@ -174,5 +174,5 @@ Phase 3 的大工程是真交付的：33 个提交、八域、六波，代码里
 
 ## 附：审查期间观察
 
-- 审查进行中，并行编排者依据第 4 路（跨波一致性）审计提交 **9cd24bc**，收口 C-1~C-10 共 8 项（update-interval 接线 / class_members 补 reset / vault-required 与 8 死键删 / wrong-book 反向缺键 / schema 索引文档 / CountdownTier 学习侧接线+5 测试 / 措辞校正）。本报告所有结论已按该基线校准——余下账目见第二节。
+- 审查进行中，并行编排者依据第 4 路（跨波一致性）审计提交 **a6a0847**，收口 C-1~C-10 共 8 项（update-interval 接线 / class_members 补 reset / vault-required 与 8 死键删 / wrong-book 反向缺键 / schema 索引文档 / CountdownTier 学习侧接线+5 测试 / 措辞校正）。本报告所有结论已按该基线校准——余下账目见第二节。
 - 本报告全程只读；唯一写入为自身（本文件）。
