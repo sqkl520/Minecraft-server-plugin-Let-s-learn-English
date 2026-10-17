@@ -1,7 +1,7 @@
 # Phase 3 规划：赛季与班级 + 跨服榜（域 5）
 
 - 日期： 2026-10-13
-- 基线： 1.0.7-SNAPSHOT（P2 批次 commit `716d4fd` 之后，工作树含 Phase 3 规划只读产出）
+- 基线： 1.0.7-SNAPSHOT（P2 批次 commit `17b0c02` 之后，工作树含 Phase 3 规划只读产出）
 - 来源： `tasks/plan-roadmap-usable-to-delightful.md` 第 8 节方向清单第 5 条（赛季与班级）与第 9 条（跨服榜）；`tasks/p2-polish-execution-plan.md` 第五节域 5
 - 规划纪律： 本轮为只读规划，未修改任何源码/配置；唯一产出为本文件；规划期发现见第 8 节
 - 规模估计： 批次 A（跨服榜 + 赛季）= **M-L**（约 800 行新增）；批次 B（班级）= **M**（约 500 行新增）；合计 **L**，**5 个开发 story + 2 个 fan-in**，两批次拆分见 1.1

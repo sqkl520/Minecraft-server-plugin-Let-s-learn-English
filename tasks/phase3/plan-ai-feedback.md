@@ -1,8 +1,8 @@
 # Phase 3 规划：AI 学习反馈闭环（域 2）
 
 - 日期： 2026-10-13
-- 施工状态： **已施工**（P3 Wave 3 Batch 3B，提交 `459a4e8`；三维 tester 构建 GO/架构 PASS/代码 GO；2 中 4 低全收口；config-version 13）
-- 基线： 1.0.7-SNAPSHOT（P2 批次 commit `716d4fd` 之后，工作树含 8 路只读规划）
+- 施工状态： **已施工**（P3 Wave 3 Batch 3B，提交 `f779964`；三维 tester 构建 GO/架构 PASS/代码 GO；2 中 4 低全收口；config-version 13）
+- 基线： 1.0.7-SNAPSHOT（P2 批次 commit `17b0c02` 之后，工作树含 8 路只读规划）
 - 来源： `tasks/plan-roadmap-usable-to-delightful.md` 第 8 节方向清单第 2 条；`tasks/p2-polish-execution-plan.md` 第五节域 2
 - 规划纪律： 本轮为只读规划，未修改任何源码/配置；规划期发现见第 8 节
 - 规模估计： **M（偏重，约 900~1000 行新增含测试）**，**6 个 story**（5 开发 + 1 编排者 fan-in）

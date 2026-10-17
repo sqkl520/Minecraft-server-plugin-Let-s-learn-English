@@ -1,8 +1,8 @@
 # Phase 3 规划：新手引导线（域 1）
 
 - 日期： 2026-10-13
-- 施工状态： **已施工**（P3 Wave 1，提交 `db1e5bc`；三维 tester GO/PASS/PASS）
-- 基线： 1.0.7-SNAPSHOT（P2 批次 commit `716d4fd` 之后）
+- 施工状态： **已施工**（P3 Wave 1，提交 `2d9037c`；三维 tester GO/PASS/PASS）
+- 基线： 1.0.7-SNAPSHOT（P2 批次 commit `17b0c02` 之后）
 - 来源： `tasks/plan-roadmap-usable-to-delightful.md` 第 8 节方向清单第 1 条；`tasks/p2-polish-execution-plan.md` 第五节域 1
 - 规划纪律： 本轮为只读规划，未修改任何源码/配置；规划期发现见第 8 节
 - 规模估计： **M**（净新增约 450~600 行，13 个触及文件 + 1 个新类 + 1 个新列），**4 个 story**（3 开发 + 1 编排者 fan-in）

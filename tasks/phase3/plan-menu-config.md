@@ -2,7 +2,7 @@
 
 - 日期： 2026-10-13
 - 施工状态： **已施工**（MC-2/MC-1/MC-3/MC-5/MC-4/MC-6 随 Wave 1/2/3A 分批落地；**MC-7 死键大扫除待 Wave 4 4B**）
-- 基线： 1.0.7-SNAPSHOT（commit `716d4fd` 之后；工作树含编排者当轮即修 P3-01/PF-SEA-01/02/03，未提交）
+- 基线： 1.0.7-SNAPSHOT（commit `17b0c02` 之后；工作树含编排者当轮即修 P3-01/PF-SEA-01/02/03，未提交）
 - 来源： `tasks/p2-polish-execution-plan.md` 第五节域 8；`tasks/review-phase2-total.md` P2 段（R-82 / R-55i / R-55f / R-55h / F0-11 等）；`tasks/dev-findings.md` P2 批次段；`tasks/dead-config-audit.md`（Phase 0 清单 + H6 附录）
 - 规划纪律： 本轮只读，未修改任何源码/配置；规划期发现见第 6 节
 - 域目标（一句话）： **消灭死配置与死入口** —— 到本域施工完成时，config.yml / messages 双文件里不再有"设了没用"的键，主菜单与各功能入口不再有"玩家找不到"的功能

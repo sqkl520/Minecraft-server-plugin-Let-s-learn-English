@@ -2,7 +2,7 @@
 
 - 角色：Phase 3 规划 agent（只读，未改任何源码/配置）
 - 日期：2026-10-13 · 版本：1.0.7-SNAPSHOT（不 bump）
-- 施工状态： **3A 已施工**（P3 Wave 1，提交 `db1e5bc`；三维 tester GO/PASS/PASS；**3A-4 音效开关 UI 漏项已于 2026-10-16 补建** `3beaeb5`——原声明完成但设置页无入口）；**3B 资源包不做**（D7 默认裁决）
+- 施工状态： **3A 已施工**（P3 Wave 1，提交 `2d9037c`；三维 tester GO/PASS/PASS；**3A-4 音效开关 UI 漏项已于 2026-10-16 补建** `8638046`——原声明完成但设置页无入口）；**3B 资源包不做**（D7 默认裁决）
 - 范围来源：`tasks/plan-roadmap-usable-to-delightful.md` 第 8 节 Phase 3 方向清单第 7 条（资源包音频 + 连击 pitch 递增）与第 8 条（倒计时改 ActionBar/BossBar）+ 3.0 调研结论的自定义音频标准链路
 - 规划期发现见文末第 6 节，一律未修
 

@@ -1,6 +1,6 @@
 # Phase 3 施工跟踪
 
-- 基线： commit fb9604b（规划期即修 7 项实伤 + 八域规划已提交）
+- 基线： commit 2013b97（规划期即修 7 项实伤 + 八域规划已提交）
 - 总纲： tasks/phase3/plan-master.md（4 波施工顺序）；各域细节以 plan-*.md 为准
 - 纪律： 每波内多流并行（文件白名单严格互斥）；编排者统一 fan-in（i18n/config-version/CHANGELOG）；每波三维 tester + `mvn clean verify` + commit
 
@@ -186,7 +186,7 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - [x] 编排者 fan-in（3A-2/3A-4 键）：scenario.manage 11 键 + help.season 双语落盘（669=669 对称）；全仓编译 EXIT=0（3A-4 半落地已自愈）
 - [ ] 3A-4 赛季展示（编译已绿，等正式报告）
 - [x] W3A 三维 tester：构建 **GO**（verify 全绿 137 classes / DDL 双处逐字一致 / 668=668 对称 / 窗口纯函数 7 边界断言过）；架构 **PASS**（无 FAIL；防环命中——SeasonManager 零引用成就/社交；ProxyMessenger 双向用 var 规避 import 成"类型无环"；Store↔AIChat 仅类型互引可接受）。**待收口 2 中 + 5 低**（① seasonDaysLeft 双份复制→上收 SeasonManager 单一真相源；② AIChatManager 行数未降 1155；低：Store 类型互引固化/FQN 风格/join null 守卫/同值双常量/纯函数缺单测——②⑤ 建议随 3B 处理）；代码质量 tester 运行中
-- [x] **Batch 3A 提交 `a25d861`**（三维 tester GO/PASS/PASS；2中8低收口6项；i18n 668=668）
+- [x] **Batch 3A 提交 `2715ba5`**（三维 tester GO/PASS/PASS；2中8低收口6项；i18n 668=668）
 - [ ] Batch 3B 启动：3B-1a 会话核心（ChatSessionState 收敛 + SessionSummary + ConversationFeedback.parse）先行——1b（持久化/集成/显示）待 1a 落盘后放，避免 AIChatManager 撞车
 - [x] 3B-1a 会话核心重构：done（ChatSessionState 5map→1map 收敛 + SessionSummary/TranscriptLine record + requestConversationSummary 总结通道（守卫表逐行）+ ConversationFeedback.parse（salvage/上限/清洗）+ 单测 6/6；**接口要点：endConversation 无会话返回 null（1b 判空）；canRequestConversationSummary 预检含 dedup；clearPendingSummary 供 quit 钩**）。自决：超时重载/预检签名/开场白不入 transcript/解析器 string-only 收紧
 - [x] 3B-1b 持久化与集成：done（编排者接管完成——agent 反复 API 中断后由编排者编写 ChatFeedbackManager + ChatFeedbackEntry + DatabaseManager 数据层 + schema.sql + 四处集成（ChatScenarioListener/LearnCommand/ChatHistoryGUI/PlayerJoinListener）+ LetsLearnEnglish DI + config feedback 块）。**fan-in 收口三项**：① persistOnQuit 补 feedback.enabled 总开关门（plan §3.4"四处真接线"）；② ChatHistoryGUI 反馈物品补总开关门；③ GUI 补场景行 + 纠错 note 行 + 纠错改全量显示（config 注释"历史详情页可见全部"口径，聊天栏才是 ≤N 条）
@@ -196,17 +196,17 @@ Wave 1 冻结接口：见各流提示词内清单（数据层/音效/配置门/�
 - [x] 3B 架构 tester：**PASS**（零高零中；分层合规零新增越层 / 无环 / 职责单一 / 冻结接口 11 项全命中 / DI 单点）。低 6：①plan 签名漂移（已回写修正）；②quit 清理分裂两监听器（幂等无害，记录）；③GUI 重复实现 payload JSON 解析契约（与 ConversationFeedback.parse 双份）；④AIChatManager 1506 行（300 行准则警告级）；⑤详情页主线程单行查询（plan 授权，随 P2-27）；⑥new Gson() 每次点评 + FQN 内联风格
 - [x] 3B 代码质量 tester：**GO**（2 中 4 低；线程/清理/i18n 占位符/防御性/幂等五维 PASS）
 - [x] 3B 收口批次：done（6 项全收：getPlayerMessageSafe 修 {prefix} 泄露 / persistAfter 串行化 / MESSAGE_CONFIG_VERSION 13 / deliverEnd 主线程同步 / GUI 复用 parse 单一契约 / Gson static final）；`mvn clean verify` BUILD SUCCESS（144 类 / 39 测试）
-- [x] **Batch 3B 提交 `459a4e8`**（三维 tester GO/PASS/GO；2中4低全收口；i18n 695=695、config-version 13）
-- [x] 收尾期文档核实发现 Wave 1 漏项并已修 **`3beaeb5`**：3A-4 per-player 音效开关**只有数据层+SoundManager 门、无 UI 入口**（setSoundsEnabled 零调用者）——设置页 slot 16 开关补建（ProfileGUI+MiscGUIListener+sounds 键×4）。3A 其余 story（1/2/3/5）接线抽检完好
+- [x] **Batch 3B 提交 `f779964`**（三维 tester GO/PASS/GO；2中4低全收口；i18n 695=695、config-version 13）
+- [x] 收尾期文档核实发现 Wave 1 漏项并已修 **`8638046`**：3A-4 per-player 音效开关**只有数据层+SoundManager 门、无 UI 入口**（setSoundsEnabled 零调用者）——设置页 slot 16 开关补建（ProfileGUI+MiscGUIListener+sounds 键×4）。3A 其余 story（1/2/3/5）接线抽检完好
 - [x] Batch 4A 施工：done（4A-1 第 2 实例：两表+九方法+两 record+/lea class 族；4A-2 第 2 实例：过滤查询+ClassBoardGUI+ClassBoardListener+/le class 入口——第 1 实例各 4 小时零落盘被停后重派，重派带"立即落盘"纪律两小时内全部完成）
   - **4A fan-in done**：① class.* 18 键 + help.class 双语落盘（716=716 对称）；② DDL 双处逐字一致（build tester 复核）；③ MESSAGE_CONFIG_VERSION 14（三处对齐）；④ list 分数列=赛季缓存反查方案（4A-1）与班级榜=窗口过滤查询（4A-2）双口径共存合理（前者零查库榜单快览、后者窗口精确榜——各自注释）；⑤ mvn clean verify BUILD SUCCESS（148 类/39 测试）；⑥ 三维 tester 全回：构建 **GO** / 架构 **PASS** / 代码 **GO**；⑦ GUIUtils.isPluginGUI 已补班级榜两子串；⑧ help.class 已接线 sendHelpMessage
 - [x] **4A tester 收口 4 项**：isOnline 复检 / deleteClass TOCTOU 同锁+0 行报 false / tab 补全 class 动作+玩家名 / class-system.enabled 入诊断名单；arch 低项 tracker 签名回写 + javadoc 悬空引用修复。留档 2 不确定项（max-members 双服抢末位理论超额——低频可接受；GUI 隐身后过滤 vs 管理全量——有意设计）
-- [x] **Batch 4A 提交 `2a9823e`**（三维 tester GO/PASS/GO；4 低项收口；i18n 716=716、config-version 14）
+- [x] **Batch 4A 提交 `b7adad8`**（三维 tester GO/PASS/GO；4 低项收口；i18n 716=716、config-version 14）
 - [x] Batch 4B 施工：done（14 项 i18n 死键 zh/en 对称删 + ProgressGUI 死类成对删 + 11 项 config 死键 + MessageUtil javadoc 替换；每键删前全路径 grep 复核；**agent 上报 2 白名单外发现已收口**：getGuiBorderMaterial 死方法删（编排者）/ README 配置清单去 difficulty-settings（编排者）；**agent 偏差记录**：建议示例键 word.timeout 不存在（全库零命中），改用真活键 word.session-start）；javac EXIT=0、audit 零新增缺失、692=692 对称、mvn verify BUILD SUCCESS（147 类/39 测试）
-- [x] **Batch 4B 提交 `753148f`**（三维 tester 全过：构建 **GO** / 代码 **GO** / 架构 **PASS** 零问题；tester 上报收口 4 项：GUIUtils 死启发式 / P3-15 死类 / getGuiBorderMaterial 死方法 / README 清理；dev-findings P2-23/P2-25/P3-04/P3-15 同步回写已关闭）
+- [x] **Batch 4B 提交 `0a83b31`**（三维 tester 全过：构建 **GO** / 代码 **GO** / 架构 **PASS** 零问题；tester 上报收口 4 项：GUIUtils 死启发式 / P3-15 死类 / getGuiBorderMaterial 死方法 / README 清理；dev-findings P2-23/P2-25/P3-04/P3-15 同步回写已关闭）
 - [x] **Wave 4 全部完成**——Phase 3 施工（Wave 1/2/3A/3B/4A/4B）全部提交
-- [x] **最终验收 + 锐评 3 路 agent**：done——旅程验收（可称"完整体验层"，4 断裂全收口 `47d3300`）/ 跨波一致性（良好 GO，C-1~C-10 收口 8 项 `893caed`）/ 诚实性审查（工程 85 分/叙事 70 分，H-1 死链收口）。汇总报告 `tasks/phase3/final-review.md`
+- [x] **最终验收 + 锐评 3 路 agent**：done——旅程验收（可称"完整体验层"，4 断裂全收口 `12c6ba5`）/ 跨波一致性（良好 GO，C-1~C-10 收口 8 项 `9cd24bc`）/ 诚实性审查（工程 85 分/叙事 70 分，H-1 死链收口）。汇总报告 `tasks/phase3/final-review.md`
 - [x] 收尾文档最终回写：README 双语 / DEPLOYMENT_WIKI / dev-findings（C/J/H 三段新增）/ 7 规划文档状态回写 / plan-master 进度表 / CLAUDE.md×2 修正 / CHANGELOG 收尾条目——全部完成
-- [x] **Phase 3 全部完成**——6 波交付 + 三路锐评 + 全量收口，最终提交 `47d3300` 后本跟踪器转归档
+- [x] **Phase 3 全部完成**——6 波交付 + 三路锐评 + 全量收口，最终提交 `12c6ba5` 后本跟踪器转归档
 
   - **4A fan-in 检查单**（编排者）：① class.* 15 键 + help.class 双语落盘（help 段需加 `help.class` 键 + `LearnCommand.sendHelpMessage` 一行接线——/le class 已进 SUBCOMMANDS，帮助列表需同步）；② schema.sql vs 内嵌 DDL 双处比对；③ **MESSAGE_CONFIG_VERSION 13→14**（裁决：3B 已以 13 提交，4A 新增键对已持 v13 的服不可达，与 3B tester 同理由升 14；4B 死键删除不涉新键，不重复升）；④ 4A-1 的 list 分数列方案与 4A-2 的班级榜口径一致性核对；⑤ 全仓 mvn clean verify；⑥ 三维 tester；⑦ **`GUIUtils.isPluginGUI` 补班级榜标题白名单**（`班级榜`/`Class Board` 子串——GUIUtils.java 不在 4A-2 白名单，若不补 ClassBoardGUI 会静默丢失打开/点击音效，与既有 `'s Profile`/`的主页` 动态标题同姿态）

@@ -1,7 +1,7 @@
 # P2 清理批次执行计划（甲+乙合并批）+ Phase 3 规划阶段
 
 - 日期： 2026-10-12
-- 基线： commit 15c6f39（P1 已提交，工作树干净），版本保持 1.0.7-SNAPSHOT（不 bump）
+- 基线： commit c0ffcf5（P1 已提交，工作树干净），版本保持 1.0.7-SNAPSHOT（不 bump）
 - 范围来源： tasks/review-phase2-total.md P2 段（43 条）+ tasks/dev-findings.md 积压（F/T0/F2R 系）
 - 前置动作： 6 路只读核实 agent 已完成逐条现况核实（2026-10-12），下表中"裁决"列为核实结论
 - 处置纪律： agent 只找 bug 上报不自己修范围外问题；编排者统一 fan-in i18n / CHANGELOG；每流文件锁互不重叠；并行期间禁止 mvn
@@ -143,7 +143,7 @@ R-10（越界选项字母）、R-25（迟到答案反馈）、R-26（宽限任�
 - [x] 3 路 tester 全部回流：构建 **GO**（verify 全绿）/ 架构 **PASS**（2 低危已收口）/ 代码质量 **PASS**（四维度零违规：配置路径/i18n 双侧 508 键对齐/线程安全/资源清理；2 非阻断项已收口——config 注释校正 + acceptDuel R-66 对称守卫）
 - [x] 编排者 fan-in（Code tester 反馈收口）：acceptDuel 补 AI 对话互斥（不消费邀请语义）、config.yml menu-size 注释校正——全树编译 EXIT=0
 - [x] 最终门禁：`mvn clean verify` 全量重跑——BUILD SUCCESS / 26 测试全绿 / JaCoCo 过（覆盖全部 fan-in 补丁）
-- [x] 提交：`716d4fd`（P2 批次，58 文件，+4896/-2960）
+- [x] 提交：`17b0c02`（P2 批次，58 文件，+4896/-2960）
 - [ ] Phase 3 规划 8 路 + 合流
   - [x] 域 4 广场社交：done（`tasks/phase3/plan-social.md`——动态流+cheer+回应闭环，2 新表/sqlite+mysql 兼容/异步快照防主线程查库/隐私四层延伸/互助成就单向接口，M 规模 5 story，15 条验收用例；规划期发现 5 条已记录）
   - [x] 域 7 音频反馈层：done（`tasks/phase3/plan-audio-feedback.md`——推荐"反馈层先做(3A)/资源包后置(3B 默认关待拍板)"；否决全自定义路线的硬证据=TTS 缓存 .wav 与资源包只吃 .ogg 冲突+枚举音效模型承载不了命名空间键；3A：倒计时改 ActionBar（复用现有定时器）、对决倒计时 30s 全静默重构为 BossBar 排空+三处清理、连击 pitch 公式 clamp(1.0+0.1×(n-1),0.5,1.6)+里程碑铃音、per-player 音效开关（player_profiles 新列槽 16 空闲）；API 已 javap 验证 1.21.4 废弃面；M 规模 11 story + 3B L 4 story；规划期发现 11 条）
@@ -158,4 +158,4 @@ R-10（越界选项字母）、R-25（迟到答案反馈）、R-26（宽限任�
   - [x] 编排者即修（PF-ONB-01/PF-ONB-03 实伤）：FIRST_WORD 成就语义与描述对齐（原需"首场零失误"且与 PERFECT_SESSION 重复，改为至少答对 1 题）；MiscGUIListener 词库选择路径补标识符本地化（F2-13 漏网的新手主路径）；`mvn clean verify` 26 测试全绿 + JaCoCo 过
   - [x] 编排者即修（PF-SEA-01/02/03 实伤，规划 agent 上报）：跨服接收端按官方协议补帧长消费（原跳过帧长导致短消息带前缀、长消息截断丢失）；`createIndexIfMissing` 修正 MySQL 不支持 `CREATE INDEX IF NOT EXISTS`（查 information_schema 判存在再建）+ 补 player_sessions 两个防全扫索引；编译 EXIT=0，CHANGELOG 已记；跨服实测需双服（单服无法验证）
   - [x] 合流 `tasks/phase3/plan-master.md` 完成（八域一览/域间冻结接口 7 条/4 波施工顺序/待用户决策 D7-D14/即修实伤表/出口标准）→ 向用户汇报（本会话末尾消息）
-  - [x] 提交 `fb9604b`：规划期即修 7 项实伤 + 8 域计划 + 总纲（18 文件，+4358/-36；verify 26 测试全绿）
+  - [x] 提交 `2013b97`：规划期即修 7 项实伤 + 8 域计划 + 总纲（18 文件，+4358/-36；verify 26 测试全绿）
