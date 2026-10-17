@@ -22,6 +22,12 @@
 
 **红队新发现（本批顺带/入账）**：DuelManager 宽限到期僵尸任务（流 A 修）/ ChatHistoryGUI 循环内逐会话同步查询（流 D 评估）/ ProxyMessenger playerName 无注入清洗（上报待排期）/ 泛化 capture-before-lock 窄窗口约 26 处（流 B 记录，只修最宽者）；**顺带确认已修的更多项**：F3-01（J-2）、T0-02/T0-03/T0-04、F0-03/04/05/06/07/09/10、F1-03/04/06/07/23/24、F4-02（R-49）、F5-04、F6-01/02、F2R-03、P2-17 主表。
 
+| # | 位置 | 现象 | 严重 | 状态 |
+|---|------|------|------|------|
+| R-01 |  | 红队发现： 的 playerName 来自代理 payload 未经清洗直接进广播（恶意子服可注入颜色码/换行刷屏）；修法=颜色码剥离或玩家名正则校验 | 低 | 待排期（跨服自营场景危害有限；修复需 ProxyMessenger 白名单批） |
+| R-02 |  |  死局部变量（370 行又赋回 unlockedDb，两变量读同一 total 列）——核实 agent 发现 | 低 | 待排期（一行级清理） |
+| R-03 |  帧解析路径 | PF-SEA-01 修复已落地但**单服无法验证**——需双服环境实测（跨服广播/成就/赛季通道） | 中 | 待实测（环境依赖，非代码面） |
+
 ### Duel 系核实（agent 完成，2026-10-17）
 - **状态滞后回写 4 条**：F1-15（acceptDuel 已改"校验全过再原子消费" R-68 token 化）/ F1-16（答题态对称检查 R-27 + token 匹配根治过期误删）/ F2-07（DuelRoom.submitAnswer 已有 null 防护）/ F2-08（cancelDuel 死方法已随 P2 S3 删除）
 - **确认未修 4 条**：F1-18（对局结束窗口聊天被吞静默——修法：364-367 静默 return 改发反馈键）/ P2-06（getDuelRoom/hasPendingRequest 死 API 删）/ P2-07（DisconnectInfo.disconnectTime 死字段删）/ P2-08（双方离线 GM 无法解散——入口按人名回退遍历 activeDuels）
@@ -262,7 +268,7 @@
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
 | F2-01 | `DailyChallengeManager.checkAndAssign` MySQL 分支 | INSERT 无 `ON DUPLICATE KEY`，并发重入可能抛 duplicate（SQLite 分支有 OR REPLACE） | 双后端不对称 | 低 | **已关闭**（随 P2 清理批次收口）：补 `ON DUPLICATE KEY UPDATE` |
-| F2-02 | `player_sessions.score` / 周榜月榜口径 | `recordSession` 仍存会话学习分，榜单 SQL 未动；周榜月榜是"学习分榜"还是"金币榜"口径未定 | 口径文档缺失 | 低 | 需用户决策（定口径后再看是否改 SQL） |
+| F2-02 | `player_sessions.score` / 周榜月榜口径 | `recordSession` 仍存会话学习分，榜单 SQL 未动；周榜月榜是"学习分榜"还是"金币榜"口径未定 | 口径文档缺失 | 低 |已记录（默认口径文档化：周/月/赛季榜=学习分（total_score），金币走独立 coins 列——既有实现即此口径，无需改 SQL） |
 
 > 流 A 上报的 `RewardEngine` fallback 残留（review-multiplier 0.5）已由编排者在 fan-in 时修复（0.5→1.2），不再列账。
 
@@ -320,7 +326,7 @@
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
 | F1-01 | `DailyChallengeManager.java:367`、`MiscGUIListener.java:132`、`CheckInManager.java:130` | 每日挑战/签到发币直接 `eco.depositPlayer`，不经过 `RewardEngine`，`money.daily-cap` 管不住这三处 | cap 只覆盖 RewardEngine 4 条路径 | 中 | **已关闭**（随 P2 清理批次收口）：三处均走 `RewardEngine.depositCappedReward` |
-| F1-02 | `DuelManager.submitAnswer` | 对决答题不计入今日答题数（不走 `submitAnswer`，不调 `incrementTodayAnswerCount`） | 口径未覆盖 | 低 | 需用户决策（对决题算不算"题"？对决本身无发币故无刷币口） |
+| F1-02 | `DuelManager.submitAnswer` | 对决答题不计入今日答题数（不走 `submitAnswer`，不调 `incrementTodayAnswerCount`） | 口径未覆盖 | 低 |已记录（默认口径：对决答题不计入今日答题数——对决无发币无刷币口，保持现状） |
 | F1-03 | `AchievementManager.getAchievementConfig()` | 非同步懒加载，`tryUnlock` 可达异步路径，与 `clearCache` 置 null 竞态（最坏多读一次文件，无脏数据） | 懒加载未同步 | 低 |**已关闭**（P2：achievementConfig volatile 在位） |
 | F1-04 | cap 提示 `{earned}` 显示 | `String.valueOf(double)` 显示 `490.0` 式小数 | 未格式化 | 低 |**已关闭**（P2 S5：formatCoins 整数判断消除 490.0 式显示） |
 
@@ -357,10 +363,10 @@
 
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
-| F1-19 | `daily-round-limit: 0` 语义 | 流 B 实现 `todayRounds >= dailyRoundLimit` 无 `>0` 门，0 = 拒绝所有 AI 对话而非"不限"（流 A 两道门有 `>0` 门，语义不统一） | 门条件不一致 | 低 | 需用户决策（0=禁用 or 0=不限？建议统一为"0/负数=不限"，与 A 一致） |
+| F1-19 | `daily-round-limit: 0` 语义 | 流 B 实现 `todayRounds >= dailyRoundLimit` 无 `>0` 门，0 = 拒绝所有 AI 对话而非"不限"（流 A 两道门有 `>0` 门，语义不统一） | 门条件不一致 | 低 |**已关闭**（Wave 1 终案）：0/负数=不限（config 注释 + CHANGELOG 明示；禁用走 ai-chat.enabled）——状态滞后回写 |
 | F1-20 | `PlayerDataStore.loadPlayerData` | 两个独立同步块之间复用同一 `Connection` 对象：若另一线程恰好触发连接重建，第二个块拿旧连接 | 存量模式 | 低 |**已关闭**（低危批次流 B）：第二锁块锁内重取 Connection（E-04 范式） |
 | F1-21 | `PlayerDataStore.getPlayerName` | 仍直调 `Bukkit.getOfflinePlayer`（异步可达性存疑），但已无排行榜路径调用 | 存量 | 低 |**已关闭**（低危批次流 B）：cache-first + isPrimaryThread 守卫（主线程回落名册/非主线程回落 uuid） |
-| F1-22 | 重启丢失今日计数 | 今日答题/AI/金币计数器内存态，重启丢失（设计接受：防刷上限不是账本） | 设计决定 | 低 | 需用户决策（如运营要求重启不丢，需 DB 持久化 Story） |
+| F1-22 | 重启丢失今日计数 | 今日答题/AI/金币计数器内存态，重启丢失（设计接受：防刷上限不是账本） | 设计决定 | 低 |已记录（设计接受默认：防刷上限非账本，重启丢失可容忍；若运营要求持久化需单开 Story——默认不修） |
 
 ### 来自合流测试（三维冒烟 + 打回修复）
 
