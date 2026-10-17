@@ -1,7 +1,7 @@
 # Phase 3 最终验收报告（三路锐评汇总）
 
 - 日期：2026-10-16
-- 基线：`12c6ba5`（含三路锐评发现的所有当轮收口）
+- 基线：`0755daf`（含三路锐评发现的所有当轮收口）
 - 锐评来源：`ralph/test-reports/final-player-journey.md`（旅程）/ `final-consistency-audit.md`（一致性）/ `final-honesty-review.md`（诚实性）
 - 收口记录：`tasks/dev-findings.md` "Phase 3 最终验收"段（C-1~C-10 + J-1~J-5 + H-1）
 
@@ -28,8 +28,8 @@
 
 ## 三、遗留账册（不在 Phase 3 范围，转下版本）
 
-**中危（5 条）——已全部修复喵（用户点名，提交 `12aa765`）**：P3-02 learning_log 零写入（统计面板恒 0）→ 改走 player_sessions 真源 / P3-03 current_streak 零写入（streak 占位符恒 0）→ 改走 checkin_data 真源 / F2-11 午夜任务主线程查库 → 两段式重写 / C-3 挑战 GUI 主线程查库+写库 → openAsync 两段式 / C-7 日历 GUI 主线程查库 → openAsync 两段式。三维 tester 架构 PASS / 代码 GO；tester 收口 3 项（checkAndAssign stripe lock / getAllWords 防御拷贝 / 未用 import）。
-**低危（约 30 条）——已全部清零喵（用户点名，提交 `d71fb10`+`ee954f4`+`c7d470e`）**：4 路只读核实（红队模式）发现实际 = 53 条挂账 = 27 条状态滞后已修（批量回写）+ 1 条过时 + 25 条真未修（5 施工流并行修复：决斗死代码/僵尸任务泄漏、F1-20 锁内重取/F1-21 cache-first/P3-07 导出/时区统一、unknown-scenario 键/成就墙纵深/笑话页 popBack、词库 10 同义词清理、F0-12 等）。2 路红队验证全部证实零证伪。剩余：3 条新发现入账（R-01 ProxyMessenger 注入 / R-02 ReportGenerator 死变量 / R-03 PF-SEA-01 待双服实测）+ 3 条用户决策项已按默认值文档化（对决题不计答题数 / 榜单=学习分口径 / 重启丢计数设计接受）。
+**中危（5 条）——已全部修复喵（用户点名，提交 `eb0bf3d`）**：P3-02 learning_log 零写入（统计面板恒 0）→ 改走 player_sessions 真源 / P3-03 current_streak 零写入（streak 占位符恒 0）→ 改走 checkin_data 真源 / F2-11 午夜任务主线程查库 → 两段式重写 / C-3 挑战 GUI 主线程查库+写库 → openAsync 两段式 / C-7 日历 GUI 主线程查库 → openAsync 两段式。三维 tester 架构 PASS / 代码 GO；tester 收口 3 项（checkAndAssign stripe lock / getAllWords 防御拷贝 / 未用 import）。
+**低危（约 30 条）——已全部清零喵（用户点名，提交 `6061556`+`f583972`+`d5ad3a3`）**：4 路只读核实（红队模式）发现实际 = 53 条挂账 = 27 条状态滞后已修（批量回写）+ 1 条过时 + 25 条真未修（5 施工流并行修复：决斗死代码/僵尸任务泄漏、F1-20 锁内重取/F1-21 cache-first/P3-07 导出/时区统一、unknown-scenario 键/成就墙纵深/笑话页 popBack、词库 10 同义词清理、F0-12 等）。2 路红队验证全部证实零证伪。剩余：3 条新发现入账（R-01 ProxyMessenger 注入 / R-02 ReportGenerator 死变量 / R-03 PF-SEA-01 待双服实测）+ 3 条用户决策项已按默认值文档化（对决题不计答题数 / 榜单=学习分口径 / 重启丢计数设计接受）。
 
 ## 四、Phase 3 出口标准判定
 

@@ -13,7 +13,7 @@
 - 测试：Tests run: 39, Failures: 0, Errors: 0, Skipped: 0
 - JaCoCo report/check：`Analyzed bundle ... with 147 classes` + `All coverage checks have been met.`
 - JAR 生成：`target/Let's Learn English!-1.0.7-SNAPSHOT.jar`
-- 注：本批期间编排者在 07:53 提交了 2f586e1（ConfigManager getGuiBorderMaterial + README difficulty-settings 收口），首次 verify(07:52) 与终态 verify(08:02) **两次均 BUILD SUCCESS**，结论不受影响。
+- 注：本批期间编排者在 07:53 提交了 27bc0c2（ConfigManager getGuiBorderMaterial + README difficulty-settings 收口），首次 verify(07:52) 与终态 verify(08:02) **两次均 BUILD SUCCESS**，结论不受影响。
 
 ### 2. 编译警告 — PASS
 - 无 javac 编译警告。
@@ -75,4 +75,4 @@ config 删除（零 Java 引用）：`general.debug`、`database.mysql.pool-size
 
 ## 不确定项
 1. **node 692 vs 全递归 691 口径差**：非缺陷（父 map 误计），但若后续把 692 当"真叶子数"比对会漂移 —— 属观察项，不影响本批 GO。
-2. **本批构建期间编排者中途提交（2f586e1）**：已用终态复跑 verify 覆盖，两次均绿；若后续再有提交，需以最终 commit 为准。
+2. **本批构建期间编排者中途提交（27bc0c2）**：已用终态复跑 verify 覆盖，两次均绿；若后续再有提交，需以最终 commit 为准。
