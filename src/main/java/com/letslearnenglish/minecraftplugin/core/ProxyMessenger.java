@@ -165,25 +165,15 @@ public class ProxyMessenger implements PluginMessageListener {
     public void onPluginMessageReceived(String channel, Player player, byte[] message) {
         if (!CHANNEL.equals(channel)) return;
 
-        ByteArrayDataInput in = ByteStreams.newDataInput(message);
-        String subChannel = in.readUTF();
-
-        // PF-SEA-01（Phase 3 规划期发现，编排者即修）：BungeeCord/Velocity 的 Forward
-        // 投递帧 = [子通道 UTF][short 帧长][载荷字节]。原实现跳过帧长直接 readUTF ——
-        // 短消息会带 2 字节不可见前缀；长消息（modified-UTF ≥128 字节，约 126 ASCII
-        // 字符或 42 个中文字）解码抛 UTFDataFormatException 整条丢失。现按官方协议
-        // 先消费帧长、readFully 取载荷，再在载荷内解析本插件自己的 writeUTF 格式。
-        byte[] payloadBytes;
-        try {
-            int frameLen = in.readShort() & 0xFFFF;
-            payloadBytes = new byte[frameLen];
-            in.readFully(payloadBytes);
-        } catch (Exception e) {
-            // 非法帧（非本插件格式/被截断）——丢弃并记一次 fine，绝不让异常穿出监听器
-            plugin.getLogger().fine("Malformed proxy frame for subChannel " + subChannel + ": " + e);
-            return;
+        // R-03（低危批次收口）：帧解析抽为纯函数（ParsedFrame）——把 PF-SEA-01 的
+        // 修复从"内联在 Bukkit 接口里、单服无法自动验证"变为可单测（ProxyFrameParseTest
+        // 覆盖短帧/长帧≥128 字节/截断/垃圾/中文载荷五场景）。非法帧返回 null。
+        ParsedFrame frame = parseForwardFrame(message);
+        if (frame == null) {
+            return; // parseForwardFrame 内已记 fine
         }
-        ByteArrayDataInput payload = ByteStreams.newDataInput(payloadBytes);
+        String subChannel = frame.subChannel();
+        ByteArrayDataInput payload = ByteStreams.newDataInput(frame.payloadBytes());
 
         try {
             switch (subChannel) {
@@ -199,6 +189,39 @@ public class ProxyMessenger implements PluginMessageListener {
             }
         } catch (Exception e) {
             plugin.getLogger().fine("Malformed proxy payload for subChannel " + subChannel + ": " + e);
+        }
+    }
+
+    /**
+     * R-03：Forward 投递帧的解析结果（子通道 + 载荷字节）。
+     */
+    record ParsedFrame(String subChannel, byte[] payloadBytes) { }
+
+    /**
+     * R-03 / PF-SEA-01：从 BungeeCord/Velocity Forward 投递帧提取子通道与载荷。
+     *
+     * <p>帧 = {@code [子通道 UTF][short 帧长][载荷字节]}。原实现跳过帧长直接 readUTF
+     * ——短消息带 2 字节不可见前缀；长消息（modified-UTF ≥128 字节，约 126 ASCII
+     * 字符或 42 个中文字）解码抛 UTFDataFormatException 整条丢失。本函数按官方协议
+     * 先消费帧长、readFully 取载荷。非法帧（非本插件格式/被截断/空）返回 {@code null}
+     * （调用方静默丢弃并记一次 fine，绝不抛异常）。
+     *
+     * <p>包私有 static：纯字节逻辑零 Bukkit 依赖，供 ProxyFrameParseTest 单测覆盖。
+     */
+    static ParsedFrame parseForwardFrame(byte[] message) {
+        if (message == null) {
+            return null;
+        }
+        try {
+            ByteArrayDataInput in = ByteStreams.newDataInput(message);
+            String subChannel = in.readUTF();
+            int frameLen = in.readShort() & 0xFFFF;
+            byte[] payloadBytes = new byte[frameLen];
+            in.readFully(payloadBytes);
+            return new ParsedFrame(subChannel, payloadBytes);
+        } catch (Exception e) {
+            // 非法帧——调用方负责记日志（本函数无 plugin 引用，保持纯净可测）
+            return null;
         }
     }
 
@@ -255,11 +278,15 @@ public class ProxyMessenger implements PluginMessageListener {
     private void handleAchievementBroadcast(String payload) {
         String[] parts = payload.split("\\|", 4);
         if (parts.length < 3) return;
-        String playerName = parts[0];
+        // R-01 收口（低危批次红队发现）：playerName 来自代理 payload（跨服字节流），
+        // 未经清洗直接进广播——恶意/被攻陷的子服可注入颜色码（&c/&k）或换行刷屏
+        // 全部收件人。照 ChatAnswerListener.sanitizeBroadcastName 先例清洗。
+        String playerName = sanitizeBroadcastName(parts[0]);
         // UUID ignored for broadcast display — just show the achievement
         // 兼容：旧格式 3 段（单名）→ zh = en = parts[2]
-        String zhName = parts[2];
-        String enName = parts.length >= 4 ? parts[3] : zhName;
+        // R-01 配套：成就名同为 payload 来源，同款清洗（防颜色码注入文本内容）
+        String zhName = sanitizeBroadcastName(parts[2]);
+        String enName = parts.length >= 4 ? sanitizeBroadcastName(parts[3]) : zhName;
 
         for (Player online : Bukkit.getOnlinePlayers()) {
             String lang = plugin.getPlayerLanguage(online);
@@ -274,6 +301,28 @@ public class ProxyMessenger implements PluginMessageListener {
             online.sendMessage(msg);
         }
     }
+
+    /**
+     * R-01（低危批次红队发现收口）：清洗跨服 payload 携带的文本（玩家名/成就名）。
+     * 照 {@code ChatAnswerListener.sanitizeBroadcastName} 同款规则：先去 Bukkit
+     * 颜色码（§），再去 & 风格颜色码（模板渲染会二次解析 &），最后截断防超长刷屏；
+     * 空结果回落 "?"（占位而非丢广播）。换行符随颜色码剥离后的空白一并去除。
+     */
+    private static String sanitizeBroadcastName(String name) {
+        if (name == null) {
+            return "?";
+        }
+        String clean = org.bukkit.ChatColor.stripColor(name)
+                .replaceAll("&[0-9a-fk-orA-FK-OR]", "")
+                .replaceAll("[\\r\\n]", " ");
+        if (clean.length() > BROADCAST_TEXT_MAX_LENGTH) {
+            clean = clean.substring(0, BROADCAST_TEXT_MAX_LENGTH);
+        }
+        return clean.isEmpty() ? "?" : clean;
+    }
+
+    /** 与 ChatAnswerListener.BROADCAST_NAME_MAX_LENGTH 同值（防超长 payload 文本刷屏）。 */
+    private static final int BROADCAST_TEXT_MAX_LENGTH = 50;
 
     /**
      * R-78（P2 批次·编排者 fan-in，per-recipient 化）：模板缺失时不再 NPE 半残——
