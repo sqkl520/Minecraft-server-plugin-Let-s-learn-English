@@ -135,7 +135,7 @@ Plugins 目录加载顺序（由 Bukkit 自动处理）:
 #### 步骤 1：获取插件 JAR 文件
 
 从以下渠道获取最新版本的 JAR 文件：
-- GitHub Releases: `https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English-/releases`
+- GitHub Releases: `https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/releases`
 - 自行编译: `mvn clean package`（源码仓库中）
 
 文件名为: `Let's Learn English!-{版本号}.jar`（如 `Let's Learn English!-1.0.7-SNAPSHOT.jar`）
@@ -1253,7 +1253,7 @@ plugins/LetsLearnEnglish/
 
 ### C. 技术支持与反馈
 
-- **GitHub Issues**: https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English-/issues
+- **GitHub Issues**: https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/issues
 - **功能请求**: 请在 Issues 中使用 `Feature Request` 标签
 - **Bug 报告**: 请附上 `/lea info` 输出、`logs/latest.log` 相关片段、以及复现步骤
 

@@ -4,7 +4,7 @@ main: com.letslearnenglish.minecraftplugin.LetsLearnEnglish
 api-version: "1.21"
 description: "Let's learn English! - A gamified English learning plugin for Minecraft (Velocity/BungeeCord compatible)"
 author: sqkl520
-website: https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English-
+website: https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English
 
 softdepend:
   - PlaceholderAPI
