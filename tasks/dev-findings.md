@@ -24,9 +24,9 @@
 
 | # | 位置 | 现象 | 严重 | 状态 |
 |---|------|------|------|------|
-| R-01 |  | 红队发现： 的 playerName 来自代理 payload 未经清洗直接进广播（恶意子服可注入颜色码/换行刷屏）；修法=颜色码剥离或玩家名正则校验 | 低 | 待排期（跨服自营场景危害有限；修复需 ProxyMessenger 白名单批） |
-| R-02 |  |  死局部变量（370 行又赋回 unlockedDb，两变量读同一 total 列）——核实 agent 发现 | 低 | 待排期（一行级清理） |
-| R-03 |  帧解析路径 | PF-SEA-01 修复已落地但**单服无法验证**——需双服环境实测（跨服广播/成就/赛季通道） | 中 | 待实测（环境依赖，非代码面） |
+| R-01 | `core/ProxyMessenger.java:255-275` | 红队发现：`handleAchievementBroadcast` 的 playerName 来自代理 payload 未经清洗直接进广播（恶意子服可注入颜色码/换行刷屏）；修法=颜色码剥离或玩家名正则校验 | 低 | 待排期（跨服自营场景危害有限；修复需 ProxyMessenger 白名单批） |
+| R-02 | `core/manager/ReportGenerator.java:369` | `achTotalDb` 死局部变量（370 行又赋回 unlockedDb，两变量读同一 total 列）——核实 agent 发现 | 低 | 待排期（一行级清理） |
+| R-03 | `core/ProxyMessenger.java` 帧解析路径 | PF-SEA-01 修复已落地但**单服无法验证**——需双服环境实测（跨服广播/成就/赛季通道） | 中 | 待实测（环境依赖，非代码面） |
 
 ### Duel 系核实（agent 完成，2026-10-17）
 - **状态滞后回写 4 条**：F1-15（acceptDuel 已改"校验全过再原子消费" R-68 token 化）/ F1-16（答题态对称检查 R-27 + token 匹配根治过期误删）/ F2-07（DuelRoom.submitAnswer 已有 null 防护）/ F2-08（cancelDuel 死方法已随 P2 S3 删除）
