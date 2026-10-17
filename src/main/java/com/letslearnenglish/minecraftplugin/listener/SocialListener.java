@@ -219,7 +219,16 @@ public class SocialListener implements Listener {
             if (slot == jokeBackSlot) {
                 SoundManager.playSound(player, "menu-click");
                 squareGuis.remove(player.getUniqueId());
-                new MainMenu(plugin).open(player);
+                // F3-02（行为变更，红队收口）：原先直达主菜单（旧行为）——但所有进入笑话页
+                // 的上游路径（广场头像/榜单头像/动态右键，或经主页进入后再点成就墙）此前
+                // 都已 pushBack 压入"来源界面"帧，直开主菜单会把这帧留成栈残留，被后续
+                // 无关界面的返回误消费。现改走 popBack 消费该帧：返回 = 回来源界面
+                //（页码/模式/归属由帧闭包保真）；fallback = 主菜单，覆盖帧缺失窗口
+                //（quit 清栈等）。若产品将来定"笑话页返回应恒到主菜单"，需同步调整
+                // 上游调用点不再 pushBack，而不是退回残留帧写法。
+                Runnable backAction = plugin.getGuiNavigationManager()
+                        .popBack(player.getUniqueId(), () -> new MainMenu(plugin).open(player));
+                backAction.run();
             } else if (slot == HIDDEN_JOKE_POTION_SLOT) {
                 SoundManager.playSound(player, "menu-click");
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
@@ -434,10 +443,24 @@ public class SocialListener implements Listener {
             SoundManager.playSound(player, "menu-click");
             UUID targetId = extractTargetIdFromTitle(player, title);
             if (targetId != null) {
-                UUID backToTarget = targetId;
-                nav.pushBack(player.getUniqueId(),
-                        () -> new ProfileGUI(plugin).open(player, backToTarget));
-                new AchievementWallGUI(plugin).open(player, targetId);
+                // F4-04 纵深：主页入口已有 showInSquare 守卫（广场/榜单/动态/命令），
+                // 但"打开主页时可见 → 查看期间主人改隐身"的陈旧界面窗口可绕过——
+                // 成就墙点击前复核一次。口径与广场/榜单点击分支逐字同款：看自己不受
+                // 影响（targetId == 查看者时放行），隐身者进 openHidden 笑话页。
+                PlayerDataStore store = plugin.getPlayerDataStore();
+                if (targetId.equals(player.getUniqueId())
+                        || store.getProfileSettings(targetId).isShowInSquare()) {
+                    UUID backToTarget = targetId;
+                    // 返回帧只在放行路径压入（成就墙返回键消费它回本人主页）。
+                    // 隐身路径不压 —— 否则笑话页返回（F3-02 popBack）会立刻重开刚被
+                    // 守卫拦下的隐身主页，纵深被自身返回路径绕过；此时笑话页返回落在
+                    // 更下层来源帧（如广场）或 fallback 主菜单。
+                    nav.pushBack(player.getUniqueId(),
+                            () -> new ProfileGUI(plugin).open(player, backToTarget));
+                    new AchievementWallGUI(plugin).open(player, targetId);
+                } else {
+                    new EnglishSquareGUI(plugin).openHidden(player, targetId);
+                }
             }
         } else if (slot == PROFILE_SETTINGS_SLOT) {
             // 设置只能改自己的：主页归属解析不出、或不是本人时，忽略这次点击

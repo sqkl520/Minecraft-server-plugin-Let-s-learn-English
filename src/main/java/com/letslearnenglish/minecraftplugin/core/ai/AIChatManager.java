@@ -623,6 +623,8 @@ public class AIChatManager {
         int count = plugin.getPlayerDataStore().incrementConversationCount(playerId);
         plugin.getAchievementManager().checkAIChatAchievement(playerId, count);
         // Daily challenge: AI conversation completed
+        // 结构性环注记（P2-26）：Core↔Core 互引（反向见 DailyChallengeManager 读 getAIChatManager）；
+        // 无递归栈风险，事件化重构成本大于收益，保持现状。
         plugin.getDailyChallengeManager().updateProgress(playerId, ChallengeType.AI_CHAT_5, 1);
         return summary;
     }

@@ -925,7 +925,7 @@ cp -r plugins/LetsLearnEnglish/ ~/lle_backup_$(date +%Y%m%d)/
 ```
 /lea export
 ```
-导出当前在线玩家数据到 `plugins/LetsLearnEnglish/` 根目录下的 `export_YYYYMMDD_HHmmss.csv`（仅导出当前在线玩家的数据，CSV 格式）。
+导出当前在线玩家数据到 `plugins/LetsLearnEnglish/exports/` 目录下的（P3-07：原根目录已迁移 exports/） `export_YYYYMMDD_HHmmss.csv`（仅导出当前在线玩家的数据，CSV 格式）。
 
 #### 步骤 2: 更新 JAR
 
@@ -1051,7 +1051,7 @@ stop
 | 命令 | 说明 | 权限 |
 |------|------|------|
 | `/lea reload` | 热重载所有配置、词库、音效缓存 | `letslearnenglish.admin` |
-| `/lea export` | 导出在线玩家学习数据为 CSV 文件（落插件根目录） | `letslearnenglish.admin` |
+| `/lea export` | 导出在线玩家学习数据为 CSV 文件（落 exports/ 目录） | `letslearnenglish.admin` |
 | `/lea reset <玩家名>` | 重置指定玩家的学习数据 | `letslearnenglish.admin` |
 | `/lea info` | 查看插件版本和运行状态信息 | `letslearnenglish.admin` |
 | `/lea exportwordbank <难度>` | 导出词库为 YAML 文件（落 `exports/`） | `letslearnenglish.admin` |
@@ -1248,7 +1248,7 @@ plugins/LetsLearnEnglish/
 ├── audio/                     ← TTS 发音音频缓存 (自动清理)
 ├── backups/                   ← SQLite 自动备份
 │   └── playerdata.db.XXXXX.bak
-└── export_YYYYMMDD_HHmmss.csv ← /lea export 导出的玩家数据 CSV (插件根目录)
+└── export_YYYYMMDD_HHmmss.csv ← /lea export 导出的玩家数据 CSV (exports/ 目录，P3-07)
 ```
 
 ### C. 技术支持与反馈

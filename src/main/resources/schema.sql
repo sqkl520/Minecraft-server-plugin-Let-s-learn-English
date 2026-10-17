@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS {prefix}player_data (
     wrong_book_cleared INT DEFAULT 0,
     current_streak INT DEFAULT 0,
     longest_streak INT DEFAULT 0,
-    last_login BIGINT,
-    created_at BIGINT,
+    last_login BIGINT,             -- 历史遗留列，零读写；保留不删，需注册漏斗统计再接线（P3-16）
+    created_at BIGINT,             -- 历史遗留列，零读写；保留不删，需注册漏斗统计再接线（P3-16）
     updated_at BIGINT
 );
 
@@ -159,6 +159,8 @@ CREATE TABLE IF NOT EXISTS {prefix}difficult_words (
 );
 
 -- Daily check-in data (streak tracking)
+-- P3-06：仅保存当前态（last_checkin_date + streak_count），无逐日历史行；
+-- "本周签到 X 天"类需求需从 player_sessions 推导（学习日次口径）或另建历史表。
 CREATE TABLE IF NOT EXISTS {prefix}checkin_data (
     player_uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     last_checkin_date DATE NOT NULL,

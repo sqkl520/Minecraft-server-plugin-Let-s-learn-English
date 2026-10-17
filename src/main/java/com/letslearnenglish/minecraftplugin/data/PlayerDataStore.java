@@ -221,6 +221,9 @@ public class PlayerDataStore {
      * 记录一次学习会话到 player_sessions 表。
      * 同一天多次会话会合并（UPSERT，累加 words/correct/score）。
      *
+     * <p>P3-05：UPSERT 不更新 mode 列——mode 记录当日首场模式（同日合并语义）；
+     * 如需统计模式分布需先定口径（P3-05；报表侧同口径见 ReportGenerator 的 PF-RPT-04）。
+     *
      * <p>Phase 3 S-A（H8）：review_words 为复习会话专用列——mode=review 时累加
      * correctCount（复习答对词数），否则 0。零签名变更（mode 已是入参），供
      * REVIEW_STREAK_7 成就按"当天复习答对 ≥1 词"判定。
@@ -341,7 +344,11 @@ public class PlayerDataStore {
         String statsSql = "SELECT total_sessions, total_score, conversation_count, wrong_book_cleared FROM " + tablePrefix + "player_data WHERE uuid = ?";
         int conversationCount = 0;
         int wrongBookCleared = 0;
+        // F1-20：本块与上方锁块之间已释放过锁——重连（initialize）可能已替换
+        // Connection 引用，原实现在此处复用锁外取得的 conn。照 DatabaseManager
+        // E-04 范式：上个锁块已释放，重连可能已替换引用，此处锁内重取。
         synchronized (databaseManager.getConnectionLock()) {
+        conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(statsSql)) {
             stmt.setString(1, playerId.toString());
             try (ResultSet rs = stmt.executeQuery()) {
@@ -1026,10 +1033,29 @@ public class PlayerDataStore {
         return new ArrayList<>(ids);
     }
 
+    /**
+     * 读取玩家名（展示用）。
+     *
+     * <p>F1-21 防御：优先读 join 时缓存的名（{@link #cachePlayerName}，H10）——
+     * 缓存命中完全不触 Bukkit API。缓存未命中（离线玩家 / reload 后未重登 /
+     * 未来的异步调用窗）时，仅主线程回落名册查询（{@code getOfflinePlayer}
+     * 为阻塞式查询，异步调用不安全）；非主线程直接回落 uuid 字符串。
+     *
+     * <p>已核实既有四个消费点（ProfileGUI / EnglishSquareGUI / Leaderboard /
+     * SocialListener）当前全在主线程——主线程行为与旧实现一致（离线玩家名
+     * 仍走名册解析，不因缓存只覆盖在线而降级）；{@code isPrimaryThread}
+     * 守卫是未来异步调用的防线（届时安全回落 uuid）。
+     */
     public String getPlayerName(UUID playerId) {
-        org.bukkit.OfflinePlayer offlinePlayer = plugin.getServer().getOfflinePlayer(playerId);
-        if (offlinePlayer != null && offlinePlayer.getName() != null) {
-            return offlinePlayer.getName();
+        String cached = playerNameCache.get(playerId);
+        if (cached != null) {
+            return cached;
+        }
+        if (org.bukkit.Bukkit.isPrimaryThread()) {
+            org.bukkit.OfflinePlayer offlinePlayer = plugin.getServer().getOfflinePlayer(playerId);
+            if (offlinePlayer != null && offlinePlayer.getName() != null) {
+                return offlinePlayer.getName();
+            }
         }
         return playerId.toString();
     }

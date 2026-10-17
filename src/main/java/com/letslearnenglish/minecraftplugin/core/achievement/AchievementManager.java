@@ -340,7 +340,9 @@ public class AchievementManager {
         if (startStr == null || endStr == null) return true;
         try {
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm");
-            sdf.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Shanghai"));
+            // P3-12：统一系统时区（原硬编码 Asia/Shanghai，与 checkin/streak 等
+            // 其余全项目模块的"服务器本地时区"口径不一致——修正不一致而非产品变更）。
+            sdf.setTimeZone(java.util.TimeZone.getDefault());
             Date start = sdf.parse(startStr);
             Date end = sdf.parse(endStr);
             Date now = new Date();

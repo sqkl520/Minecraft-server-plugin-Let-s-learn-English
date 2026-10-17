@@ -23,6 +23,11 @@ import java.util.Collection;
 public class ChatAnswerListener implements Listener {
 
     private final LetsLearnEnglish plugin;
+    // P2-21: 3 秒在线玩家快照缓存 —— 意图：答对广播是逐题高频路径，
+    // 每次直接 Bukkit.getOnlinePlayers() 会产生高频集合分配/拷贝；
+    // 3 秒粒度对本广播（纯聊天通知，无正确性要求）足够新鲜。
+    // 已知副作用（刻意保留，B 流核实裁定）：新进服玩家在快照刷新前
+    // （最多 3 秒）收不到广播。
     private volatile Collection<? extends Player> cachedOnlinePlayers;
     private volatile long playersCacheTimestamp;
 

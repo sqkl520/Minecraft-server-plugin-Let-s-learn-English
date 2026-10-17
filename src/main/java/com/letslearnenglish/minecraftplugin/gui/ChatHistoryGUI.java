@@ -34,6 +34,12 @@ import java.util.List;
  *   slot 45    页码指示器
  *   slot 47    上一页
  *   slot 51    下一页
+ *
+ * <p>已知越层（P2-27，属重构批次）：本类直调 DatabaseManager 读取会话数据
+ *（{@code getChatHistoryCount}/{@code getChatSessions} 约 :131-139、
+ * {@code getSessionPreview} 约 :163、{@code getChatSession} 约 :294），
+ * 未经 Core 门面。收敛方向 = 抽 Core 门面（会话读侧统一入口，含批量预取）后
+ * GUI 只依赖门面；接线属重构批次排期，本类暂维持现状。
  */
 public class ChatHistoryGUI {
 
@@ -147,12 +153,24 @@ public class ChatHistoryGUI {
                 slotIndex++;
 
                 String sessionId = session.getSessionId();
+                // P2-27 关联项（dev-findings 已入账，待排期）：本循环逐会话调用
+                // getSessionPreview —— 打开一页 = 1 次 count + 1 次 sessions + ≤10 次
+                // preview 的同步查询。DatabaseManager 无批量 API（getChatHistoryForSessions
+                // 之类不存在，且不在本流白名单），循环前预取无从谈起；整页全量拉取再
+                // 内存分组会退化为无界查询，故作罢。收敛方向随 P2-27：Core 门面提供
+                // 批量预取（或参照 DailyChallengeGUI.openAsync 两段式异步化）。
                 String[] preview = plugin.getDatabaseManager()
                         .getSessionPreview(player.getUniqueId(), sessionId);
                 String systemContent = preview[0];
                 String firstUserContent = preview[1];
 
+                // P2-19：提取失败时数据层返回硬编码英文哨兵 "Unknown"（数据层不在本流
+                // 白名单，显示侧就地兜底；空串同样按失败处理）；lore 与物品名共用此变量，
+                // i18n 化只在一处收口。
                 String scenario = ChatHistoryEntry.extractScenarioFromSystemPrompt(systemContent);
+                if (scenario == null || scenario.isEmpty() || "Unknown".equals(scenario)) {
+                    scenario = MessageUtil.getGuiMsg(msg, "chat-history.unknown-scenario");
+                }
                 String dateStr = session.getTimestamp() != null
                         ? sdf.format(session.getTimestamp()) : MessageUtil.getGuiMsg(msg, "chat-history.unknown-date");
                 String userPreview = firstUserContent != null

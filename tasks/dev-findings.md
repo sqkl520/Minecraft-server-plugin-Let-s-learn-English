@@ -64,8 +64,8 @@
 
 | # | 位置 | 现象 | 严重 | 状态 |
 |---|------|------|------|------|
-| P2-26 | `AIChatManager:525` ↔ `DailyChallengeManager:225` | Core↔Core 互引（AIChatManager→updateProgress / DailyChallengeManager→isAvailable），当前无递归栈风险，属结构性环（既有，非本批） | 低 | 待排期（Phase 3：以事件/回调打断） |
-| P2-27 | `ChatHistoryGUI:121/128/146/271` | GUI 越层直调 DatabaseManager（chat-history 既有功能，非本批） | 低 | 待排期（Phase 3：抽 Core 门面收敛） |
+| P2-26 | `AIChatManager:525` ↔ `DailyChallengeManager:225` | Core↔Core 互引（AIChatManager→updateProgress / DailyChallengeManager→isAvailable），当前无递归栈风险，属结构性环（既有，非本批） | 低 |**已关闭**（低危批次流 F）：双向结构环注记（AIChatManager/DailyChallengeManager 各一处） |
+| P2-27 | `ChatHistoryGUI:121/128/146/271` | GUI 越层直调 DatabaseManager（chat-history 既有功能，非本批） | 低 |**部分收口**（低危批次流 D）：越层注记 + 主线程 IO 成本注释；门面抽取属重构批次（保留） |
 | P2-28 | `AIChatManager` 个人场景持久化 | 类同时承担文件持久化（File/YamlConfiguration/save/.bak，1039-1100 行），建议后续抽 `PersonalScenarioStore`（Arch tester 建议，非本批阻塞） | 低 | **已关闭**（随 Wave 3A 3A-2 收口）：`PersonalScenarioStore` 抽取完成 |
 
 ### 来自 Phase 3 规划期（各域 agent 上报，未修）
@@ -76,18 +76,18 @@
 | P3-02 | `learning_log` 表 | 全库零写入（无任何 INSERT），`DatabaseManager.getTotalSessions()`（统计 HTTP 服务的 totalLearningSessions 与 7 天会话曲线）恒 0——真数据源是 player_sessions | 中 | **已关闭**（P3 遗留中危修复批）：getTotalSessions/getLast7DaysStats 改走 player_sessions（真数据源；sqlite 冒烟 7 断言） |
 | P3-03 | `player_data.current_streak` | 零写入（persistLongestStreak 只写 longest_streak），`%lle_streak%` 与 ProgressGUI 当前连续恒 0——真数据源是 checkin_data.streak_count | 中 | **已关闭**（P3 遗留中危修复批）：%lle_streak% 与 ProgressManagerImpl 改走 checkin_data.streak_count 真源 |
 | P3-04 | `ProgressGUI.java` | 死类（无实例化点，P2-23 同根）——`/le progress` 实际走 ProfileGUI | 低 | **已关闭**（随 Wave 4 4B 收口）：死类已删除 |
-| P3-05 | `player_sessions.mode` | 同日合并（UPSERT）时 mode 列不被更新，记录的是当日首场模式 | 低 | 待排期（Phase 3：报告域做模式统计前需定口径） |
-| P3-06 | `checkin_data` | 无逐日历史（只有 last_checkin_date + streak_count），报告域做"本周签到 X 天"需从 player_sessions 或新表推导 | 低 | 待排期（Phase 3 报告域设计输入） |
-| P3-07 | `DataExporter` | 仅导出在线玩家 + CSV 落根目录（非 exports/）；失败判定字符串硬耦合（P2-09 同根） | 低 | 待排期（Phase 3 报告域一并收口） |
-| P3-08 | 决斗 | 零持久化（无对决历史表），对决类统计与"对决首胜"成就无数据源 | 低 | 待排期（Phase 3 成就域/报告域的依赖项） |
+| P3-05 | `player_sessions.mode` | 同日合并（UPSERT）时 mode 列不被更新，记录的是当日首场模式 | 低 |**已关闭**（低危批次流 B）：recordSession 注释标注当日首场模式语义 + ReportGenerator 同口径交叉引用 |
+| P3-06 | `checkin_data` | 无逐日历史（只有 last_checkin_date + streak_count），报告域做"本周签到 X 天"需从 player_sessions 或新表推导 | 低 |**已关闭**（低危批次流 B）：checkin_data 建表注释（Java+schema.sql 双处）说明无逐日历史与推导方向 |
+| P3-07 | `DataExporter` | 仅导出在线玩家 + CSV 落根目录（非 exports/）；失败判定字符串硬耦合（P2-09 同根） | 低 |**已关闭**（低危批次流 B）：CSV 改落 exports/ 子目录（wiki 同步）+ 在线导出约束注释 |
+| P3-08 | 决斗 | 零持久化（无对决历史表），对决类统计与"对决首胜"成就无数据源 | 低 |已记录（依赖项：对决持久化需新表设计，非本批范围——成就域已用快照替代） |
 | P3-09 | `word_progress` | INSERT OR REPLACE 语义使增量列不能靠 SQL COALESCE 累加，只能靠缓存侧维护 | 低 | 已记录（数据层约束，Phase 3 新功能设计输入） |
 | P3-10 | `ProxyMessenger` 接收端 | 跨服消息通道 Forward 帧解析缺"帧长消费"（短消息带 2 字节前缀、长消息 UTFDataFormatException 丢失）—— **已由编排者即修**（PF-SEA-01）；单服无法验证，需双服实测确认 | 中-高 | **已关闭**（本轮修复，跨服实测待双服环境） |
 | P3-11 | `DatabaseManager` 建索引 | `CREATE INDEX IF NOT EXISTS` Oracle MySQL 不支持（异常被 fine 吞，ai_chat_history 两索引 MySQL 后端可能从未建立）—— **已由编排者即修**（PF-SEA-02/03：createIndexIfMissing + player_sessions 补两索引） | 中 | **已关闭**（本轮修复） |
-| P3-12 | `AchievementManager:205` | 硬编码 Asia/Shanghai 时区，与全项目"系统时区"口径并存（成就连续天判定在非东八区服会有偏差） | 低 | 待排期（Phase 3：统一时区口径或提为配置） |
+| P3-12 | `AchievementManager:205` | 硬编码 Asia/Shanghai 时区，与全项目"系统时区"口径并存（成就连续天判定在非东八区服会有偏差） | 低 |**已关闭**（低危批次流 B）：三处 Asia/Shanghai → TimeZone.getDefault（与 checkin/streak 口径统一；判定与展示同区） |
 | P3-13 | `AchievementManager:224` | FIRST_WORD 实际要求"整场零失误"（sessionIncorrect==0），与成就描述"答对第 1 个单词"不符且与 PERFECT_SESSION 重复，伤首会话留存 —— **已由编排者即修**（PF-ONB-01：改为会话内至少答对 1 题） | 中 | **已关闭**（本轮修复） |
 | P3-14 | `MiscGUIListener:141` | 词库选择路径的 word.session-start 回显原始英文标识符（F2-13 只修了命令路径，新手主路径漏网）—— **已由编排者即修**（PF-ONB-03：与 LearnCommand 同口径本地化） | 低 | **已关闭**（本轮修复） |
 | P3-15 | `core/progress/Achievement.java` | 死类（零引用），与 core/achievement/Achievement.java 同名构成导入歧义陷阱 | 低 | **已关闭**（随 Wave 4 4B 收口）：死类已删（与 ProgressGUI 同批） |
-| P3-16 | `player_data.created_at/last_login` | 死列（影响注册漏斗统计口径） | 低 | 待排期（Phase 3 报告域设计输入） |
+| P3-16 | `player_data.created_at/last_login` | 死列（影响注册漏斗统计口径） | 低 |**已关闭**（低危批次流 B）：last_login/created_at 死列注释（Java+schema.sql）保留不删照 current_streak 先例 |
 | P3-17 | `MiscGUIListener.claimBehavioralChallenge` | 行为挑战领取绕过 money.enabled 门（关币+Vault 时仍实发金币）—— **已由编排者即修**（PF-MC-01：关闭时终态标记+economy-disabled 提示，与单词挑战同口径） | 中 | **已关闭**（本轮修复） |
 | P3-18 | `DuelManager` 4 处裸 getString | 其一为真实 NPE 路径（域 8 规划新发现，P2-13 白名单外）；另含 `WordLearningGUI` 标题中英混排、`AchievementManager` 解锁瞬间混服语言取单语言（Domain 8 记录） | 低-中 | **已关闭**（随 Wave 3A 3A-3 收口）：DuelManager 裸 getString 全收敛 |
 | P3-19 | `ChatScenarioListener` bye 分支 | AsyncPlayerChatEvent 异步线程直调 Bukkit API（endConversation 链上可达 tryUnlock 通知段 sendMessage/playSound + 每日挑战记分）—— **已由编排者即修**（PF-ACH-02：bye 切主线程 + handleEndConversation 加"仍在场景模式"守卫） | 中 | **已关闭**（本轮修复，verify 26 测试全绿） |
@@ -117,8 +117,8 @@
 
 | # | 位置 | 现象 | 严重 | 状态 |
 |---|------|------|------|------|
-| P2-06 | `DuelManager.hasPendingRequest` / `getDuelRoom` | 全库零调用死公共 API | 低 | 待排期（Phase 3 清理） |
-| P2-07 | `DuelManager.DisconnectInfo.disconnectTime` | 只写不读死字段 | 低 | 待排期（Phase 3 清理） |
+| P2-06 | `DuelManager.hasPendingRequest` / `getDuelRoom` | 全库零调用死公共 API | 低 |**已关闭**（低危批次流 A）：两死 API 删除（全仓零引用复核） |
+| P2-07 | `DuelManager.DisconnectInfo.disconnectTime` | 只写不读死字段 | 低 |**已关闭**（低危批次流 A）：DisconnectInfo.disconnectTime 删字段+构造简化 |
 | P2-08 | `DuelManager.cancelDuelByAdmin` | 双方都离线时 GM 仍无法解散（R-69 队列只覆盖一名在线场景） | 低 | 已记录（已知限制，待 Phase 3 决策是否扩权） |
 
 ### 来自 S4（命令与配置校验）
@@ -141,8 +141,8 @@
 
 | # | 位置 | 现象 | 严重 | 状态 |
 |---|------|------|------|------|
-| P2-15 | `advanced.yml` dingle | 疑似生成期噪声词（极度生僻、与 dingy 形近易混） | 低 | 待排期（Phase 3 内容调优复核） |
-| P2-16 | `beginner.yml` 同义词面 | 超纲面大于 tome 单点：cat→feline、dog→canine、eat→consume/dine、baby→infant 等 | 低 | 待排期（Phase 3 内容调优：批量审同义词级别） |
+| P2-15 | `advanced.yml` dingle | 疑似生成期噪声词（极度生僻、与 dingy 形近易混） | 低 |**已关闭**（低危批次流 E）：dingle 词条删除（330→329） |
+| P2-16 | `beginner.yml` 同义词面 | 超纲面大于 tome 单点：cat→feline、dog→canine、eat→consume/dine、baby→infant 等 | 低 |**已关闭**（低危批次流 E）：beginner 同义词越级清理 10 个（泛化扫描全 317 词条；infant 保留） |
 | P2-17 | words/README | "beginner 用 1~2 级"与数据（26 个 level 3）不一致 | 低 |**已关闭**（words/README 主表已校正 1~3 级 255/36/26；残留旧句随低危批次流 E 清理） |
 | P2-18 | 词库字母覆盖面 | beginner 均匀、intermediate 偏 a-i、advanced 96% 集中 a-d——Phase 3 扩充选词参考 | 低 | 已记录 |
 
@@ -150,14 +150,14 @@
 
 | # | 位置 | 现象 | 严重 | 状态 |
 |---|------|------|------|------|
-| P2-19 | `ChatHistoryEntry.extractScenarioFromSystemPrompt` | 缺省返回硬编码英文 "Unknown"（数据层，白名单外） | 低 | 待排期（Phase 3 随 i18n 二期） |
+| P2-19 | `ChatHistoryEntry.extractScenarioFromSystemPrompt` | 缺省返回硬编码英文 "Unknown"（数据层，白名单外） | 低 |**已关闭**（低危批次流 D）：chat-history.unknown-scenario 双语键 + GUI 显示侧三态替换 |
 | P2-20 | `WordBankSelectGUI:92` | 保留 getString+null 判的字母大写化兜底（体验优于 [?key]，S7 自决保留，加 config null 护） | 低 | 已记录（设计确认） |
 
 ### 来自 S8（入口与配置）
 
 | # | 位置 | 现象 | 严重 | 状态 |
 |---|------|------|------|------|
-| P2-21 | `ChatAnswerListener.broadcastCorrectAnswer` 3 秒在线缓存 | 刚进服玩家 3 秒内收不到答对广播（R-86m 修语言时保留的既有缓存） | 低 | 待排期（Phase 3：改为事件驱动失效或缩 TTL） |
+| P2-21 | `ChatAnswerListener.broadcastCorrectAnswer` 3 秒在线缓存 | 刚进服玩家 3 秒内收不到答对广播（R-86m 修语言时保留的既有缓存） | 低 |**已关闭**（低危批次流 A）：3s 缓存注释（意图+副作用+保留裁定） |
 | P2-22 | `daily-reminder` 双通道去重 | 定时发全员时也写 joinReminderSent（S8 自决共享去重）——若编排者要两通道独立，删一行即可 | 低 | 已记录（设计确认，保留共享） |
 
 ### 本批次语义裁决记录（已定，无需再议）
@@ -193,7 +193,7 @@
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
 | F3-01 | `LearnCommand` 命令直开榜单/广场 | 不登记快照：排行榜点头像无反应（与 L-02 同事项）；广场 fallback 重建 ALL_PLAYERS 语义可能与所见页错位 | 命令入口不登记 | 中 |**已关闭**（Phase 3 收尾 J-2：SocialListener.openLeaderboardWithSnapshot 登记式打开） |
-| F3-02 | 笑话页返回 | 直达主菜单而非返回栈（与旧行为一致，刻意保持） | 旧行为 | 低 | 待排期（如产品要"回广场原页"需记页码/模式） |
+| F3-02 | 笑话页返回 | 直达主菜单而非返回栈（与旧行为一致，刻意保持） | 旧行为 | 低 |**已关闭**（低危批次流 D）：笑话页返回改 popBack（消除上游帧栈残留；fallback 主菜单） |
 | F3-03 | 词库展示顺序 | TreeSet 后为字母序（advanced 排第一），非"初级→中级→高级"语义序 | 排序选型 | 低 | **已关闭**（随 P2 清理批次收口）：DIFFICULTY_ORDER 显式排序 |
 | F3-04 | R-09d 尺寸分流约束 | 若未来 openHidden 改 54 格会重新塌回主页分支（约束已写注释） | 尺寸耦合 | 低 | 已记录（code-review 关注点） |
 
@@ -205,7 +205,7 @@
 | F4-01 | `AIChatManager.buildSystemPrompt(ownerId)` | 重启后首次纯命令进个人场景 prompt 回落通用句（不走懒加载） | 读内存不触发加载 | 低 | **已关闭**（随 P2 清理批次收口）：懒加载触发 |
 | F4-02 | ScenarioSelectGUI 7 格上限 | 个人场景 ≥2 个时 slot 17 玻璃可点，开启"看不见"的场景 | 无分页/扩容 | 低 |**已关闭**（R-49/R-53 收口：截断+more 槽+shownCount 边界，点隐藏场景缺陷已消） |
 | F4-03 | `getPersonalScenarios` 返回活引用 | 暂无写入方，安全但属潜在污染面 | API 设计 | 低 | **已关闭**（随 Wave 3A 3A-2 收口）：经 PersonalScenarioStore 返回防御性拷贝 |
-| F4-04 | 他人成就墙无独立隐私检查 | 目前无直达命令（依赖主页入口守卫），暂无绕过路径 | 纵深缺失 | 低 | 待排期（判断是否需要纵深检查） |
+| F4-04 | 他人成就墙无独立隐私检查 | 目前无直达命令（依赖主页入口守卫），暂无绕过路径 | 纵深缺失 | 低 |**已关闭**（低危批次流 D）：成就墙点击补 showInSquare 纵深守卫（返回帧只在放行路径压入） |
 
 ### 来自流 5（数据崩溃）
 
@@ -213,7 +213,7 @@
 |---|------|------|----------|------|------|
 | F5-01 | `resolvePlayerUUID` 幂等缺口 | reset 删了 player_data 行后，再对同一离线玩家 reset 报 not found（半删状态无法补删） | 解析与被删数据同表 | 低 | **已关闭**（随 P2 清理批次收口）：R-86h 补 getOfflinePlayer 三级查找 |
 | F5-02 | `AdminCommandHandler.addWord` | chinese 空串不断言，写入后下次加载被跳过但管理员无感知 | 入口无校验 | 低 |**已过时**（addWord 入口不可达零调用；可达导入路径 importWordBank 已有非空校验——方法本体随低危批次清理） |
-| F5-03 | deletePlayerData 与自动保存竞态 | reset 后 persistLongestStreak/recordCoinsEarned 可能重建残行（重进覆盖，影响极小） | 时序 | 低 | 待排期（备查） |
+| F5-03 | deletePlayerData 与自动保存竞态 | reset 后 persistLongestStreak/recordCoinsEarned 可能重建残行（重进覆盖，影响极小） | 时序 | 低 |**已关闭**（低危批次流 B）：deletePlayerData 竞态注释（备查） |
 | F5-04 | `clearCache()` 不清今日计数器 | reload 后防刷上限残留（"reload 不重置防刷"语义可接受但反直觉） | 语义未对齐 | 低 |**已关闭**（裁决注释在位：reload 不重置防刷为既定语义，计数器按自然日懒清零+quit 清） |
 
 ### 来自流 6（日历二确）
@@ -227,8 +227,8 @@
 
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
-| F2R-01 | `hasPendingWordRewardForDate` 时序契约 | "必须在 clearAllWordChallengeClaims 前调用"是隐式契约，调错顺序误判 | 契约隐式 | 低 | 待排期 |
-| F2R-02 | `onWordCorrect` pending 重试 return | 补发失败时本次答对的挑战词不走标记（好在已在全完成集合内，无实际丢失） | 重试与标记耦合 | 低 | 待排期 |
+| F2R-01 | `hasPendingWordRewardForDate` 时序契约 | "必须在 clearAllWordChallengeClaims 前调用"是隐式契约，调错顺序误判 | 契约隐式 | 低 |**已关闭**（低危批次流 F）：显式调用约束入 javadoc |
+| F2R-02 | `onWordCorrect` pending 重试 return | 补发失败时本次答对的挑战词不走标记（好在已在全完成集合内，无实际丢失） | 重试与标记耦合 | 低 |**已关闭**（低危批次流 F）：重试分支无丢失注释 |
 | F2R-03 | `getTodayChallenges` 无 ORDER BY | 领取 idx 下标与展示可能错位（与 R-33 同根） | 无稳定排序 | 中 |**已关闭**（R-33：ORDER BY challenge_id 在位） |
 
 ### 来自合流测试（建议级，非阻塞）
@@ -270,7 +270,7 @@
 
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
-| F2-03 | `ChatAnswerListener` 练习分支 | `getPracticingWord(...)` 取出后从未使用（死变量） | 历史残留 | 低 | 待排期 |
+| F2-03 | `ChatAnswerListener` 练习分支 | `getPracticingWord(...)` 取出后从未使用（死变量） | 历史残留 | 低 |**已关闭**（低危批次流 A）：practiceWord 死变量随清理删除 |
 | F2-04 | `Word.equals()` 含 `reward` 字段 | 同英文不同 reward 的词判不等，`getRandomWords` 的 exclude 可能放行同英文词做干扰项（本批次已在 `AnswerChecker` 内加英文去重兜底） | equals 语义过宽 | 低 | **已关闭**（随 P2 清理批次收口）：equals 收窄为 english(ignoreCase)+part_of_speech |
 | F2-05 | `MiscGUIListener.handleWordBankSelect` 写死 `"choice"` | 默认模式第三个散落点（另两处已收敛为常量/回落值）；将来改默认模式时此处会漏 | 散落常量 | 低 | **已关闭**（随 P2 清理批次收口）：散落常量收敛 |
 
@@ -293,7 +293,7 @@
 |---|------|------|----------|------|------|
 | F2-10 | `WordLearningListener.pronounceCooldown` | 只 put 不删，quit 不清，无驱逐（每人一条，量级极小） | 无清理 | 低 | **已关闭**（随 P2 清理批次收口）：quit 清 pronounceCooldown |
 | F2-11 | `scheduleMidnightRollover` 主线程同步查库 | 每玩家 1~3 条同步 SQL，百人服午夜会卡一下主线程 | 主线程 IO | 中 | **已关闭**（P3 遗留中危修复批）：午夜任务两段式重写（异步重活 + 主线程 Bukkit 面） |
-| F2-12 | `DuelRoom.timeoutCurrentWord` 零 UUID 哨兵 | `getLastCorrectAnswerer()` 可能对外吐 `new UUID(0,0)`，若 `DuelGUI` 按此查名会有怪显示（未读 `DuelGUI`，待确认非定论） | 哨兵外泄 | 低 | 待排期（先确认 `DuelGUI` 是否消费该方法） |
+| F2-12 | `DuelRoom.timeoutCurrentWord` 零 UUID 哨兵 | `getLastCorrectAnswerer()` 可能对外吐 `new UUID(0,0)`，若 `DuelGUI` 按此查名会有怪显示（未读 `DuelGUI`，待确认非定论） | 哨兵外泄 | 低 |**已关闭**（低危批次流 A）：getLastCorrectAnswerer 死 getter 删除（哨兵随字段保留） |
 | F2-13 | `/le word` 成功提示 `{difficulty}/{mode}` | 填原始英文标识符（如 `choice`/`beginner`），中文玩家看到英文 | 未走 i18n label（review 路径已有 `mode-review` label，普通路径未跟进） | 低 | **已关闭**（随 P2 清理批次收口）：i18n label 接线（PF-ONB-03 补词库路径） |
 
 > 合流测试建议的 `clearCache` 补 `playerNameCache.clear()` 已由��排者在 fan-in 时顺手收，不再列账。
@@ -351,15 +351,15 @@
 | F1-15 | `DuelManager.acceptDuel` 开头 | 先 `pendingRequests.remove(targetId)`，后继任一校验失败都会吞掉邀请，需发起方重发 | remove 先于校验 | 低 | **已关闭**（P2 R-68 已修，状态滞后回写）：peek 校验全过 → remove(targetId, pending) 原子消费 |
 | F1-16 | `DuelManager.sendDuelRequest` | 只查 `isBusy` 不查答题态；单槽 `pendingRequests` 被后请求覆盖 + 先请求的 60s 过期任务误删后请求 | 既有逻辑 | 低 | **已关闭**（P2 R-27/R-66/R-68 已修）：答题态+AI 对话对称检查 + token 匹配 |
 | F1-17 | `ChatScenarioListener`（AI 情景对话） | 第四类聊天消费者，与 quiz/决斗/练习均无互斥 | 超出 M4 三态范围 | 中 | **已关闭**（随 P2 清理批次收口）：R-66 纵深防御 |
-| F1-18 | 决斗分支异步判定 | `isInDuel` 后 cancel 事件、主线程才 `submitAnswer`，若决斗恰在两次之间结束，该条聊天被吞且无反馈 | 判定与消费不在同一线程/时刻 | 低 | 待排期 |
+| F1-18 | 决斗分支异步判定 | `isInDuel` 后 cancel 事件、主线程才 `submitAnswer`，若决斗恰在两次之间结束，该条聊天被吞且无反馈 | 判定与消费不在同一线程/时刻 | 低 |**已关闭**（低危批次流 A）：两分支补 duel.not-in-duel 反馈（复用既有键） |
 
 ### 来自流 E（数据 Owner）
 
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
 | F1-19 | `daily-round-limit: 0` 语义 | 流 B 实现 `todayRounds >= dailyRoundLimit` 无 `>0` 门，0 = 拒绝所有 AI 对话而非"不限"（流 A 两道门有 `>0` 门，语义不统一） | 门条件不一致 | 低 | 需用户决策（0=禁用 or 0=不限？建议统一为"0/负数=不限"，与 A 一致） |
-| F1-20 | `PlayerDataStore.loadPlayerData` | 两个独立同步块之间复用同一 `Connection` 对象：若另一线程恰好触发连接重建，第二个块拿旧连接 | 存量模式 | 低 | 待排期 |
-| F1-21 | `PlayerDataStore.getPlayerName` | 仍直调 `Bukkit.getOfflinePlayer`（异步可达性存疑），但已无排行榜路径调用 | 存量 | 低 | 待排期 |
+| F1-20 | `PlayerDataStore.loadPlayerData` | 两个独立同步块之间复用同一 `Connection` 对象：若另一线程恰好触发连接重建，第二个块拿旧连接 | 存量模式 | 低 |**已关闭**（低危批次流 B）：第二锁块锁内重取 Connection（E-04 范式） |
+| F1-21 | `PlayerDataStore.getPlayerName` | 仍直调 `Bukkit.getOfflinePlayer`（异步可达性存疑），但已无排行榜路径调用 | 存量 | 低 |**已关闭**（低危批次流 B）：cache-first + isPrimaryThread 守卫（主线程回落名册/非主线程回落 uuid） |
 | F1-22 | 重启丢失今日计数 | 今日答题/AI/金币计数器内存态，重启丢失（设计接受：防刷上限不是账本） | 设计决定 | 低 | 需用户决策（如运营要求重启不丢，需 DB 持久化 Story） |
 
 ### 来自合流测试（三维冒烟 + 打回修复）
@@ -409,7 +409,7 @@
 
 | # | 位置 | 现象 | 疑似根因 | 严重 | 状态 |
 |---|------|------|----------|------|------|
-| F0-12 | `WordLearningManager.java:338` | `if (consecutiveCorrect <= 0) return 1.0;` 是冗余守卫（删掉结果完全一致），纯死分支 | 可读性冗余 | 低 | 待排期（清理积压） |
+| F0-12 | `WordLearningManager.java:338` | `if (consecutiveCorrect <= 0) return 1.0;` 是冗余守卫（删掉结果完全一致），纯死分支 | 可读性冗余 | 低 |**已关闭**（低危批次流 F）：冗余守卫删除（319 输入逐位等价实证 + 单测 6/6） |
 
 ### 来自流 D（词库流水线）
 

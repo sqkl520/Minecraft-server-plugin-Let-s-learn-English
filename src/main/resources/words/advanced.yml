@@ -2808,16 +2808,6 @@ words:
       - "increase"
     difficulty_level: 9
 
-  - english: "dingle"
-    chinese: "小山谷"
-    part_of_speech: "noun"
-    phonetic: "/ˈdɪŋ.ɡəl/"
-    example_sentence: "A clear stream runs through the dingle."
-    synonyms:
-      - "dell"
-    antonyms: []
-    difficulty_level: 9
-
   - english: "dingy"
     chinese: "肮脏昏暗的"
     part_of_speech: "adjective"

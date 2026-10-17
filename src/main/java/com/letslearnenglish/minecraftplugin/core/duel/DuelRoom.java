@@ -30,7 +30,6 @@ public class DuelRoom {
     private volatile int score2;
     private volatile Word currentWord;
     private volatile UUID lastCorrectAnswerer;
-    private volatile long wordStartTime;
     private volatile boolean active;
     // Monotonic round id: incremented on every setCurrentWord so the timeout
     // task can tell a stale firing (old round) from the current one.
@@ -52,7 +51,6 @@ public class DuelRoom {
         this.score2 = 0;
         this.currentWord = null;
         this.lastCorrectAnswerer = null;
-        this.wordStartTime = 0;
         this.wordRoundId = 0;
         this.active = true;
     }
@@ -65,7 +63,6 @@ public class DuelRoom {
     public synchronized long setCurrentWord(Word word) {
         this.currentWord = word;
         this.lastCorrectAnswerer = null;
-        this.wordStartTime = System.currentTimeMillis();
         this.wordRoundId++;
         return this.wordRoundId;
     }
@@ -178,13 +175,6 @@ public class DuelRoom {
         return null;
     }
 
-    /**
-     * Check if a player is in this duel.
-     */
-    public boolean containsPlayer(UUID playerId) {
-        return playerId.equals(player1) || playerId.equals(player2);
-    }
-
     public synchronized void setActive(boolean active) {
         this.active = active;
     }
@@ -203,8 +193,6 @@ public class DuelRoom {
         return 0;
     }
     public Word getCurrentWord() { return currentWord; }
-    public UUID getLastCorrectAnswerer() { return lastCorrectAnswerer; }
-    public long getWordStartTime() { return wordStartTime; }
     public long getWordRoundId() { return wordRoundId; }
     public boolean isActive() { return active; }
 }

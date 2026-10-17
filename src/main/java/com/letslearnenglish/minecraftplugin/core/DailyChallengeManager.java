@@ -261,6 +261,8 @@ public class DailyChallengeManager {
      */
     private boolean isChallengeAvailable(ChallengeType type) {
         if (type == ChallengeType.AI_CHAT_5) {
+            // 结构性环注记（P2-26）：Core↔Core 互引（反向见 AIChatManager 调
+            // DailyChallengeManager.updateProgress）；无递归栈风险，事件化重构成本大于收益，保持现状。
             return plugin.getConfigManager().isAIChatEnabled()
                     && plugin.getAIChatManager() != null && plugin.getAIChatManager().isAvailable();
         }
@@ -663,6 +665,7 @@ public class DailyChallengeManager {
         // be outside today's challenge set or already-completed words.
         if (hasPendingWordReward(playerId, today)) {
             onAllWordChallengesComplete(player);
+            // 提前 return 不标记本次词：该词已在"全完成集合"内，奖励已覆盖，无实际丢失（F2R-02）
             return;
         }
 
@@ -849,13 +852,6 @@ public class DailyChallengeManager {
     }
 
     /**
-     * Clear claimed state for a player (called at midnight).
-     */
-    public void clearWordChallengeClaim(UUID playerId) {
-        wordChallengeClaimedToday.remove(playerId);
-    }
-
-    /**
      * M8：午夜跨天时清空全服的单词挑战已领标记。
      * 由 LetsLearnEnglish 的跨天定时任务调用（在 per-player 的
      * {@link #hasPendingWordRewardForDate} 补发之后执行，故补发用的是本次清空前的标记）。
@@ -900,6 +896,7 @@ public class DailyChallengeManager {
      * {@link #clearAllWordChallengeClaims} 全清），因此"已付昨日"会命中 contains 直接返回 false、
      * 绝不会重复补发；重启跨午夜时该定时任务本就不触发，故也不会在重启后误补（无双发风险）。
      * 补发走主线程（rollover 非异步），对在线玩家发币安全。
+     * <p>调用约束：必须在 {@link #clearAllWordChallengeClaims()} 之前调用（rollover 时序），否则 pending 判定失真。</p>
      *
      * @param playerId the player
      * @param date the day to settle (rollover 传昨日)
