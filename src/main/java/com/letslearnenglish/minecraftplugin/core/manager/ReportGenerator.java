@@ -353,7 +353,6 @@ public class ReportGenerator {
                 .toInstant().toEpochMilli();
         long windowEndExclusive = period.to().plusDays(1).atStartOfDay(ZoneId.systemDefault())
                 .toInstant().toEpochMilli();
-        int achTotalDb = 0;
         int unlockedDb = 0;
         int recentAchievements = 0;
         String sql3 = "SELECT COUNT(*) AS total,"
@@ -366,7 +365,6 @@ public class ReportGenerator {
                 stmt.setString(3, playerId.toString());
                 try (ResultSet rs = stmt.executeQuery()) {
                     if (rs.next()) {
-                        achTotalDb = rs.getInt("total");
                         unlockedDb = rs.getInt("total");
                         recentAchievements = rs.getInt("recent");
                     }
