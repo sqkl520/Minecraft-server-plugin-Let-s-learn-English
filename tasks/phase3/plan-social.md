@@ -1,8 +1,8 @@
 # Phase 3 规划：广场社交最小循环（域 4）
 
 - 日期： 2026-10-13
-- 施工状态： **已施工**（P3 Wave 2 域 4，提交 `d926bde`；三维 tester GO/PASS/PASS；PF-SOC-06 留账 Wave 3）
-- 基线： 1.0.7-SNAPSHOT（P2 批次 commit `716d4fd` 之后）
+- 施工状态： **已施工**（P3 Wave 2 域 4，提交 `13dc44a`；三维 tester GO/PASS/PASS；PF-SOC-06 留账 Wave 3）
+- 基线： 1.0.7-SNAPSHOT（P2 批次 commit `17b0c02` 之后）
 - 来源： `tasks/plan-roadmap-usable-to-delightful.md` 第 8 节方向清单第 4 条；`tasks/p2-polish-execution-plan.md` 第五节域 4
 - 规划纪律： 本轮为只读规划，未修改任何源码/配置；规划期发现见第 8 节
 - 规模估计： **M**（新增约 700~800 行 + 12 个触及文件），**5 个 story**（4 开发 + 1 编排者 fan-in）

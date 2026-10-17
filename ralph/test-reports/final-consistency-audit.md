@@ -4,7 +4,7 @@
 > 日期：2026-10-16
 > 范围：Wave 1 / 2 / 3A / 3B / 4A / 4B 六批之间的接口一致性——单批 tester 看不到的"各批自洽但批间打架"问题
 > 方法：只读审计（未修改任何源文件）；脚本 + 人工双路交叉验证
-> 基线：HEAD = c658461（Wave 4 全部提交后）
+> 基线：HEAD = e41a9d6（Wave 4 全部提交后）
 
 ---
 
@@ -137,7 +137,7 @@ tracker"Wave 1 冻结接口一览"逐项 grep 消费点：
 | SoundManager.playSound 重载 / playSoundByName / none 静音语义 | 113 处消费 + AchievementManager:283（unlock-sound 真接线）+ isSilenceMarker 双路径 | ✓ |
 | VersionAdapter.sendActionBar | WordLearningManager:446 / ChatAnswerListener:225 | ✓ |
 | **core.feedback.CountdownTier** | **仅 DuelManager:671 消费；WordLearningManager 学习 timer 未用**（:441 内联 `remaining <= urgentSeconds` 等价判定）——plan-audio-feedback:172 声称"学习 timer、对决 timer 共用 tier 判定"只落了一半（行为等价，无实伤）；且无 CountdownTierTest 单测（plan:269"纯函数按 Phase 0 约定配单测"未配——现有 WordLearningManagerComboTest 测的是 getComboMultiplier，非 getComboPitch/tierOf） | **部分（低）** |
-| PlayerDataStore：increment/getWrongBookCleared / ProfileSettings.isSoundsEnabled | WordLearningManager:818 / SoundManager:194 / ProfileGUI:309 / MiscGUIListener:100（设置页 UI 入口已补，3beaeb5） | ✓ |
+| PlayerDataStore：increment/getWrongBookCleared / ProfileSettings.isSoundsEnabled | WordLearningManager:818 / SoundManager:194 / ProfileGUI:309 / MiscGUIListener:100（设置页 UI 入口已补，8638046） | ✓ |
 | DatabaseManager：get/setOnboardingStep / setWrongBookCleared | OnboardingManager:108/462/474 / PlayerDataStore:203 | ✓ |
 | WordLearningManager：startTutorialQuiz / getComboPitch / isComboMilestone | OnboardingManager:180 / ChatAnswerListener:232 / :223 | ✓ |
 | QuizState.isTutorial / AnswerResult.tutorial | 内部状态机 / ChatAnswerListener:259 | ✓ |

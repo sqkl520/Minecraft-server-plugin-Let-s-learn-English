@@ -92,7 +92,7 @@
 
 ### 12. 个性设置 — 贯通
 
-- `/le profile` → 设置页（slot 16 音效开关，ProfileGUI.java:306-320 渲染 + MiscGUIListener.java:91-104 点击切换）→ `setSoundsEnabled` + saveProfileSettings（sounds_enabled 列已随 S-A 落库）→ SoundManager.isPlayerSoundEnabled 读取（fail-open）。11/13/15 三隐私开关 + 返回栈（R-86b）均正常。3A-4 的"只有数据列无 UI 入口"漏项已在收尾期（3beaeb5）修复——本轮复核确认当前 UI 入口存在且生效。
+- `/le profile` → 设置页（slot 16 音效开关，ProfileGUI.java:306-320 渲染 + MiscGUIListener.java:91-104 点击切换）→ `setSoundsEnabled` + saveProfileSettings（sounds_enabled 列已随 S-A 落库）→ SoundManager.isPlayerSoundEnabled 读取（fail-open）。11/13/15 三隐私开关 + 返回栈（R-86b）均正常。3A-4 的"只有数据列无 UI 入口"漏项已在收尾期（8638046）修复——本轮复核确认当前 UI 入口存在且生效。
 
 ---
 

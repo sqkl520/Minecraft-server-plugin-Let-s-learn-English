@@ -1,8 +1,8 @@
 # Phase 3 规划：成就系统重构（域 3）
 
 - 日期： 2026-10-13
-- 施工状态： **已施工**（P3 Wave 1 域 3，提交 `db1e5bc`；三维 tester GO/PASS/PASS）
-- 基线： 1.0.7-SNAPSHOT（P2 批次 commit `716d4fd` 之后，工作树含 Phase 3 各域规划只读产出）
+- 施工状态： **已施工**（P3 Wave 1 域 3，提交 `2d9037c`；三维 tester GO/PASS/PASS）
+- 基线： 1.0.7-SNAPSHOT（P2 批次 commit `17b0c02` 之后，工作树含 Phase 3 各域规划只读产出）
 - 来源： `tasks/plan-roadmap-usable-to-delightful.md` 第 8 节方向清单第 3 条（"+6 质量型：连续复习/错题清零/正确率90/对决首胜/互助/30天；刷量成就加难度前置"）；`tasks/p2-polish-execution-plan.md` 第五节域 3
 - 规划纪律： 本轮为只读规划，未修改任何源码/配置；唯一产出为本文件；规划期发现见第 6 节
 - 规模估计： **M+**（约 650~800 行，5 个 story = 4 开发 + 1 编排者 fan-in）

@@ -106,7 +106,7 @@ ALL BOUNDARY CHECKS PASS
 
 ## 本批 git 改动面（只读记录，未执行任何写操作）
 
-`git status --short` 仅 5 文件 modified（无未跟踪残留）：`LeaderboardGUI.java`（javadoc 签名修正 `isSeasonAvailable(SeasonManager)`）、`SocialListener.java`（+10 行赛季 tab 点击分支）、`config.yml`（+6 行 leaderboard tab-season/season-info）、`zh.yml`/`en.yml`（各 -1 行，删 `season.tab`）。四流合流产物 `SeasonManager` / `PersonalScenarioStore` / `PersonalScenarioGUI` 等新增文件已在前序 commit（`725abbe` 等）落定，本次工作树干净。
+`git status --short` 仅 5 文件 modified（无未跟踪残留）：`LeaderboardGUI.java`（javadoc 签名修正 `isSeasonAvailable(SeasonManager)`）、`SocialListener.java`（+10 行赛季 tab 点击分支）、`config.yml`（+6 行 leaderboard tab-season/season-info）、`zh.yml`/`en.yml`（各 -1 行，删 `season.tab`）。四流合流产物 `SeasonManager` / `PersonalScenarioStore` / `PersonalScenarioGUI` 等新增文件已在前序 commit（`4b1853f` 等）落定，本次工作树干净。
 
 ---
 
