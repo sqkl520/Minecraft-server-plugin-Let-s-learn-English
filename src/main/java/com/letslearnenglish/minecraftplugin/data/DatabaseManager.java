@@ -229,6 +229,19 @@ public class DatabaseManager {
                         ")"
         );
 
+        // 修复批 A（R10-H1）：单词挑战奖励"已付"台账 —— 内存 Set（wordChallengeClaimedToday）
+        // 之外的重启防重复真源：内存清空后按日期查库防同日重发。幂等写入
+        // （INSERT OR IGNORE / INSERT IGNORE），UNIQUE(player_uuid, challenge_date)
+        // 兜底"每人每日至多一行"；/lea reset 清收随 deletePlayerData 的 player_uuidTables。
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "daily_word_reward_claims (" +
+                        "  player_uuid VARCHAR(36) NOT NULL," +
+                        "  challenge_date DATE NOT NULL," +
+                        "  claimed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
+                        "  UNIQUE(player_uuid, challenge_date)" +
+                        ")"
+        );
+
         executeUpdate(
                 "CREATE TABLE IF NOT EXISTS " + tablePrefix + "ai_chat_history (" +
                         "  id INTEGER PRIMARY KEY " + (isSQLite() ? "AUTOINCREMENT" : "AUTO_INCREMENT") + "," +
@@ -684,6 +697,12 @@ public class DatabaseManager {
 
     /**
      * Delete chat history records older than the specified number of days.
+     *
+     * <p>修复批 B（R3-H2 清理侧）：同窗口一并清 {@code ai_chat_feedback}
+     * （created_at 与 ai_chat_history.timestamp 同为 CURRENT_TIMESTAMP 写入，
+     * 同一 {@code dateExpr} 阈值可直接套用），防该表无限增长。保留期窗口语义 =
+     * "早于阈值行"（非精确边界）：两后端各自按库内时钟自洽，SQLite（UTC 字符串）与
+     * MySQL（会话时区 TIMESTAMP）间的 8h 级偏移可接受，不断言被删行的时区精确性。
      */
     public void cleanupOldChatHistory(int daysToKeep) {
         String dateExpr;
@@ -694,6 +713,7 @@ public class DatabaseManager {
         }
         String sql = "DELETE FROM " + tablePrefix + "ai_chat_history"
                 + " WHERE timestamp < " + dateExpr;
+        String sql2 = "DELETE FROM " + tablePrefix + "ai_chat_feedback WHERE created_at < " + dateExpr;
         synchronized (connectionLock) {
             try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
                 int deleted = stmt.executeUpdate();
@@ -704,6 +724,16 @@ public class DatabaseManager {
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING,
                         "Failed to clean up old chat history", e);
+            }
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql2)) {
+                int deletedFeedback = stmt.executeUpdate();
+                if (deletedFeedback > 0) {
+                    plugin.getLogger().info("Cleaned up " + deletedFeedback
+                            + " old AI chat feedback records (older than " + daysToKeep + " days).");
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to clean up old chat feedback", e);
             }
         }
     }
@@ -1037,6 +1067,70 @@ public class DatabaseManager {
             }
         }
         return new int[]{0, 0};
+    }
+
+    /**
+     * 修复批 A（R10-H1）：标记玩家某日的单词挑战奖励已发放（幂等，双后端对照）。
+     *
+     * <p>SQLite {@code INSERT OR IGNORE} / MySQL {@code INSERT IGNORE}（同
+     * {@link #assignDailyChallengeWords} 惯例），UNIQUE(player_uuid, challenge_date)
+     * 兜底重复标记为 no-op。该表是"已付"的重启后真源——内存
+     * {@code wordChallengeClaimedToday} 重启即空，同日重启不再据此重复发钱。
+     *
+     * <p>静默降级：SQLException 只记 WARNING（标记失败最坏后果 = 重启后可能重复
+     * 发放一次，与修复前行为持平，不崩、不阻断发钱主流程）。
+     *
+     * @param playerId the player
+     * @param date     the challenge date (yyyy-MM-dd；rollover 补发传昨日)
+     */
+    public void markDailyWordRewardClaimed(UUID playerId, String date) {
+        String insertSql;
+        if (isSQLite()) {
+            insertSql = "INSERT OR IGNORE INTO " + tablePrefix
+                    + "daily_word_reward_claims (player_uuid, challenge_date) VALUES (?, ?)";
+        } else {
+            insertSql = "INSERT IGNORE INTO " + tablePrefix
+                    + "daily_word_reward_claims (player_uuid, challenge_date) VALUES (?, ?)";
+        }
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(insertSql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to mark daily word reward claimed for " + playerId
+                                + " / " + date, e);
+            }
+        }
+    }
+
+    /**
+     * 修复批 A（R10-H1）：玩家某日的单词挑战奖励是否已发放（{@code daily_word_reward_claims}
+     * 台账查询）。异常 → false + WARNING（降级语义同 {@link #markDailyWordRewardClaimed}：
+     * 查不到就按未付处理，最坏后果与修复前持平）。
+     *
+     * @param playerId the player
+     * @param date     the challenge date (yyyy-MM-dd)
+     * @return true if a claim row exists for this player on this date
+     */
+    public boolean isDailyWordRewardClaimed(UUID playerId, String date) {
+        String sql = "SELECT COUNT(*) FROM " + tablePrefix + "daily_word_reward_claims"
+                + " WHERE player_uuid = ? AND challenge_date = ?";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    return rs.next() && rs.getInt(1) > 0;
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to check daily word reward claim for " + playerId
+                                + " / " + date, e);
+                return false;
+            }
+        }
     }
 
     // ============================================================
@@ -2339,7 +2433,8 @@ public class DatabaseManager {
         // US-FB（Wave 3 批次 3B）：ai_chat_feedback 一并清收（防 reset 残行）。
         String[] playerUuidTables = {
             "daily_challenge_words", "ai_chat_history", "difficult_words", "checkin_data",
-            "ai_chat_feedback"
+            "ai_chat_feedback",
+            "daily_word_reward_claims" // 修复批 A（R10-H1）：挑战奖励已付台账（player_uuid 系，防后建表盲区）
         };
         String id = playerId.toString();
         synchronized (connectionLock) {

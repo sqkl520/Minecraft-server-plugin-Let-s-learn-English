@@ -958,12 +958,15 @@ public class AIChatManager {
                     }
                     // Write AI response to DB asynchronously (sessionId captured from enclosing scope)
                     if (sessionId != null) {
-                        try {
-                            plugin.getDatabaseManager().insertChatHistory(playerId, sessionId, "assistant", response);
-                        } catch (Exception e) {
-                            // DB write failure should not affect the chat flow
-                            debugLog("[" + player.getName() + "] 写入 AI 回复到数据库失败: " + e.getMessage());
-                        }
+                        CompletableFuture.runAsync(() -> {
+                            // R-67：关服后在途写库直接短路（DB 已关闭，继续写会刷异常栈）。
+                            if (isShuttingDownOrDisabled()) return;
+                            try {
+                                plugin.getDatabaseManager().insertChatHistory(playerId, sessionId, "assistant", response);
+                            } catch (Exception e) {
+                                debugLog("[" + player.getName() + "] 写入 AI 回复到数据库失败: " + e.getMessage());
+                            }
+                        });
                     }
                 }
                 return response;

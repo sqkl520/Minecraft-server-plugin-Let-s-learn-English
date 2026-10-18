@@ -47,7 +47,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -639,28 +639,31 @@ public final class LetsLearnEnglish extends JavaPlugin {
         File backupFile = new File(backupDir, dbFileName + "." + timestamp + ".bak");
 
         try {
-            // Flush SQLite WAL pages before copying the database file.
+            // VACUUM INTO：SQLite 3.27+ 原子一致快照（替代"wal_checkpoint(TRUNCATE)
+            // + Files.copy"——原 PRAGMA 对非 WAL 库是空操作、拷贝在锁外可撕裂；
+            // R3-H1）。路径为内部构造（数据目录+时间戳），单引号转义防御。
             synchronized (databaseManager.getConnectionLock()) {
-            try (PreparedStatement stmt = databaseManager.getConnection()
-                    .prepareStatement("PRAGMA wal_checkpoint(TRUNCATE)")) {
-                stmt.execute();
-            }
-            }
-            Files.copy(dbFile.toPath(), backupFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-            synchronized (databaseManager.getConnectionLock()) {
-            try (PreparedStatement stmt = databaseManager.getConnection()
-                    .prepareStatement("PRAGMA quick_check")) {
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (!rs.next() || !"ok".equalsIgnoreCase(rs.getString(1))) {
-                        Files.deleteIfExists(backupFile.toPath());
-                        getLogger().warning("Database backup rejected: source quick_check failed.");
-                        return;
-                    }
+                String target = backupFile.getAbsolutePath().replace("'", "''");
+                try (PreparedStatement stmt = databaseManager.getConnection()
+                        .prepareStatement("VACUUM INTO '" + target + "'")) {
+                    stmt.execute();
                 }
             }
+            // 独立只读连接校验产物（原实现查的是活连接=查错对象，R3-H1 第二修）
+            boolean ok = checkBackupIntegrity(backupFile);
+            if (!ok) {
+                Files.deleteIfExists(backupFile.toPath());
+                getLogger().warning("Database backup rejected: backup quick_check failed.");
+                return;
             }
             getLogger().info("Database backup created: " + backupFile.getName());
         } catch (IOException | SQLException e) {
+            // V2 红队加固：VACUUM INTO 中途失败（磁盘满等）可能留部分写入产物——
+            // 尽力清理，防残缺文件被 retention 当有效备份留存。
+            try {
+                Files.deleteIfExists(backupFile.toPath());
+            } catch (IOException ignored) {
+            }
             getLogger().warning("Failed to create database backup: " + e.getMessage());
             return;
         }
@@ -674,6 +677,18 @@ public final class LetsLearnEnglish extends JavaPlugin {
                     getLogger().info("Old backup deleted: " + backupFiles[i].getName());
                 }
             }
+        }
+    }
+
+    private boolean checkBackupIntegrity(File backupFile) {
+        String url = "jdbc:sqlite:" + backupFile.getAbsolutePath();
+        try (Connection conn = java.sql.DriverManager.getConnection(url);
+             PreparedStatement stmt = conn.prepareStatement("PRAGMA quick_check");
+             ResultSet rs = stmt.executeQuery()) {
+            return rs.next() && "ok".equalsIgnoreCase(rs.getString(1));
+        } catch (SQLException e) {
+            getLogger().warning("Backup integrity check failed to run: " + e.getMessage());
+            return false;
         }
     }
 

@@ -185,6 +185,7 @@ admin:
   broadcast-hint: "{prefix}&7通过代理向所有子服发送消息。"
   broadcast-sent: "{prefix}&a全局广播已发送到所有子服。"
   broadcast-prefix: "&8[&bLE&8] &e服务器公告: &f"
+  broadcast-too-long: "{prefix}&c广播内容过长（上限 30000 字节），请缩短后重试喵~"
   unknown-command: "未知子命令。输入 /lea help 查看帮助。"
   usage-duel-cancel: "{prefix}&c用法: /lea duel cancel <玩家名>"
   duel-cancel-offline: "{prefix}&c玩家 &e{player} &c不在线或不存在喵~"

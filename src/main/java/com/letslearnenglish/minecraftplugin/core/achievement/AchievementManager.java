@@ -178,7 +178,18 @@ public class AchievementManager {
         if (!plugin.getConfigManager().isAchievementsEnabled()) {
             return false;
         }
-        Set<String> unlocked = unlockedCache.computeIfAbsent(playerId, k -> new HashSet<>());
+        // R4-H1：懒加载（与 hasAchievement 同范式）——原 computeIfAbsent 缺指纹时
+        // 直接建空集、绕过 DB 回填：reload 后 clearCache 清缓存，已解锁玩家的
+        // contains 短路失效 → 重复解锁并覆盖 unlocked_at。
+        Set<String> unlocked = unlockedCache.get(playerId);
+        if (unlocked == null) {
+            loadPlayerAchievements(playerId);   // 尾部无条件回填（含 SQL 异常路径）
+            unlocked = unlockedCache.get(playerId);
+            if (unlocked == null) {             // 防御：并发 unload 窗口，维持非 null 不变量
+                unlocked = new HashSet<>();
+                unlockedCache.put(playerId, unlocked);
+            }
+        }
         FileConfiguration achConfig = getAchievementConfig();
         if (!isAchievementEligible(achConfig, achievement)) {
             return false;
