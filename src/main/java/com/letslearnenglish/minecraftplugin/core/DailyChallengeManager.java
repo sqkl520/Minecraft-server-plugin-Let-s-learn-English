@@ -664,7 +664,7 @@ public class DailyChallengeManager {
         // Must run before the challenge-words membership check: retry answers may
         // be outside today's challenge set or already-completed words.
         if (hasPendingWordReward(playerId, today)) {
-            onAllWordChallengesComplete(player);
+            onAllWordChallengesComplete(player, today);
             // 提前 return 不标记本次词：该词已在"全完成集合"内，奖励已覆盖，无实际丢失（F2R-02）
             return;
         }
@@ -678,7 +678,7 @@ public class DailyChallengeManager {
 
         // Only check all-done if this word was just now completed
         if (freshlyCompleted && plugin.getDatabaseManager().isDailyChallengeWordsCompleted(playerId, today)) {
-            onAllWordChallengesComplete(player);
+            onAllWordChallengesComplete(player, today);
         }
     }
 
@@ -686,21 +686,31 @@ public class DailyChallengeManager {
      * R-07: read-only check whether today's word-challenge reward has actually
      * landed for this player. The claimed flag is only set AFTER the Vault
      * transfer succeeds (M12), so presence in the set means paid and absence
-     * means pending — no DB round trip needed. Set semantics are day-scoped:
-     * entries are added on successful payout and cleared at midnight
+     * means pending. Set semantics are day-scoped: entries are added on
+     * successful payout and cleared at midnight
      * rollover (see {@link #clearAllWordChallengeClaims}), so a stale
      * cross-day true is impossible.
+     *
+     * <p>修复批 A（R10-H1）：内存未命中时回查 DB 台账（{@code daily_word_reward_claims}）
+     * —— 重启后"已付"不再因内存清空被误判为 pending；内存已含则短路免查库。
      *
      * @param playerId the player
      * @return true if today's word reward money has arrived
      */
     public boolean isWordRewardPaidToday(UUID playerId) {
-        return wordChallengeClaimedToday.contains(playerId);
+        return wordChallengeClaimedToday.contains(playerId)
+                || plugin.getDatabaseManager().isDailyWordRewardClaimed(
+                        playerId, LocalDate.now().toString());
     }
 
     /**
      * Check whether the player has finished all of today's word challenges but
      * the reward payout has not landed yet (claimed flag not set).
+     *
+     * <p>修复批 A（R10-H1）：三层判定 —— ① 内存快路径（本进程已付）；② DB 台账
+     * （{@code daily_word_reward_claims}，重启后"已付"真源；命中即回填内存）；
+     * ③ 全完成判定。此前仅 ①②合一的内存 Set 作台账，同日重启后 Set 空 + DB
+     * completed=true → 每答对一题重复发钱。
      *
      * @param playerId the player
      * @param today today's date string (yyyy-MM-dd)
@@ -708,6 +718,10 @@ public class DailyChallengeManager {
      */
     private boolean hasPendingWordReward(UUID playerId, String today) {
         if (wordChallengeClaimedToday.contains(playerId)) {
+            return false;
+        }
+        if (plugin.getDatabaseManager().isDailyWordRewardClaimed(playerId, today)) {
+            wordChallengeClaimedToday.add(playerId); // 回填内存，后续走快路径
             return false;
         }
         return plugin.getDatabaseManager().isDailyChallengeWordsCompleted(playerId, today);
@@ -726,8 +740,16 @@ public class DailyChallengeManager {
      * <p>R-31 reuse: {@link #hasPendingWordRewardForDate} also calls this at the
      * midnight rollover to back-pay a prior-day pending reward (flat amount, same
      * mark), so a deposit that failed before midnight is honored instead of lost.
+     *
+     * <p>修复批 A（R10-H1）：{@code claimDate} 为本次发放归属的挑战日 —— 正常路径
+     * （onWordCorrect 补发/完成）传今日；rollover 补发传昨日（不能把昨日补发标成
+     * "今日已领"，否则误封今日挑战奖励）。成功与"经济禁用终态"两侧均写 DB 台账
+     * （{@code markDailyWordRewardClaimed(claimDate)}），同日重启后不再重复发放。
+     *
+     * @param player    the player
+     * @param claimDate the challenge date this payout settles (yyyy-MM-dd)
      */
-    private void onAllWordChallengesComplete(Player player) {
+    private void onAllWordChallengesComplete(Player player, String claimDate) {
         UUID playerId = player.getUniqueId();
         double reward = getWordChallengeReward();
 
@@ -741,7 +763,10 @@ public class DailyChallengeManager {
             if (!moneyEnabled) {
                 // 经济开关永久关闭 = 无奖可发（终态）。标记已处理避免 hasPendingWordReward
                 // 恒 true 导致每答对一题重入刷屏；发一次 economy-disabled 说明，不承诺"稍后补发"。
+                // 修复批 A（R10-H1）：终态同样写 DB 标记 —— 防重启后内存清空、
+                // 每答对一题重复刷 economy-disabled 提示。
                 wordChallengeClaimedToday.add(playerId);
+                plugin.getDatabaseManager().markDailyWordRewardClaimed(playerId, claimDate);
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "daily-challenge.economy-disabled"));
                 return;
@@ -753,7 +778,9 @@ public class DailyChallengeManager {
         }
 
         // Success: mark claimed only after money arrived.
+        // 修复批 A（R10-H1）：DB 台账同步标记（SQLException 静默降级记 WARNING，不阻断庆祝）。
         wordChallengeClaimedToday.add(playerId);
+        plugin.getDatabaseManager().markDailyWordRewardClaimed(playerId, claimDate);
 
         // Send celebration message
         String lang = plugin.getPlayerLanguage(player);
@@ -895,6 +922,8 @@ public class DailyChallengeManager {
      * 此刻服务器自上个午夜起连续在线、{@code wordChallengeClaimedToday} 标记仍有效（尚未
      * {@link #clearAllWordChallengeClaims} 全清），因此"已付昨日"会命中 contains 直接返回 false、
      * 绝不会重复补发；重启跨午夜时该定时任务本就不触发，故也不会在重启后误补（无双发风险）。
+     * 修复批 A（R10-H1）：DB 台账（{@code daily_word_reward_claims}）按日查重为第二道
+     * 防线——即使内存标记失效（异常窗口），已付日期也命中返回 false、不重复补发。
      * 补发走主线程（rollover 非异步），对在线玩家发币安全。
      * <p>调用约束：必须在 {@link #clearAllWordChallengeClaims()} 之前调用（rollover 时序），否则 pending 判定失真。</p>
      *
@@ -906,13 +935,17 @@ public class DailyChallengeManager {
         if (wordChallengeClaimedToday.contains(playerId)) {
             return false; // 已付，无 pending
         }
+        if (plugin.getDatabaseManager().isDailyWordRewardClaimed(playerId, date)) {
+            return false; // 该日已付（DB 真源；重启后内存清空亦不重复补发）
+        }
         if (!plugin.getDatabaseManager().isDailyChallengeWordsCompleted(playerId, date)) {
             return false; // 未全完成，无 pending
         }
         // R-31：已完成但未付 —— 就地补发（rollover 循环中玩家在线）。
         Player player = org.bukkit.Bukkit.getPlayer(playerId);
         if (player != null && player.isOnline()) {
-            onAllWordChallengesComplete(player);
+            // 修复批 A（R10-H1）：补发按"昨日"标记（不能标成今日，否则误封今日挑战奖励）。
+            onAllWordChallengesComplete(player, date);
             // 补发成功则 wordChallengeClaimedToday 已含该玩家 → 不再算作废。
             return !wordChallengeClaimedToday.contains(playerId);
         }

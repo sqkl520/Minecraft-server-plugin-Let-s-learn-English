@@ -185,6 +185,7 @@ admin:
   broadcast-hint: "{prefix}&7Sends a message to all servers via the proxy."
   broadcast-sent: "{prefix}&aGlobal broadcast sent to all servers."
   broadcast-prefix: "&8[&bLE&8] &eServer Announcement: &f"
+  broadcast-too-long: "{prefix}&cBroadcast too long (30000 bytes max). Please shorten it and try again."
   unknown-command: "Unknown subcommand. Use /lea help for help."
   usage-duel-cancel: "{prefix}&cUsage: /lea duel cancel <player>"
   duel-cancel-offline: "{prefix}&cPlayer &e{player} &cis not online!"

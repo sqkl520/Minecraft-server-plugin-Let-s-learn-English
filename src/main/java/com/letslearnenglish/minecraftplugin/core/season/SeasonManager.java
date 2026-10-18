@@ -390,6 +390,15 @@ public class SeasonManager {
 
         for (int s = from; s <= targetId; s++) {
             SeasonWindow window = windowOf(s);
+            // R7-H2：只结算"真正走完"的季——anchor-date/duration 点读可改，
+            // 改小锚点会让 currentSeasonId 跳变、targetId 命中仍在进行中的窗口；
+            // 未走完的窗口跳过（不写台账不发放），防提前切割发奖。
+            if (!window.end().isBefore(today)) {
+                plugin.getLogger().warning("Skipping settlement for season " + s
+                        + " (window " + window.start() + ".." + window.end()
+                        + " not complete; anchor/duration changed?)");
+                continue;
+            }
             db.ensureSeasonRow(window.id(), window.start(), window.end());
             // 跨服聚合（查全表取 TOP N —— 多服连同一库即共享）
             List<LeaderboardEntry> top = plugin.getPlayerDataStore()

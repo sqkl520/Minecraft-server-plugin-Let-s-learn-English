@@ -118,6 +118,15 @@ CREATE TABLE IF NOT EXISTS {prefix}daily_challenge_words (
     UNIQUE(player_uuid, challenge_date, word_id)
 );
 
+-- R10-H1：单词挑战奖励"已付"台账（重启防重复发放的真源；内存 Set 重启即空）。
+-- 幂等写入（INSERT OR IGNORE / INSERT IGNORE），UNIQUE 兜底每人每日至多一行。
+CREATE TABLE IF NOT EXISTS {prefix}daily_word_reward_claims (
+    player_uuid VARCHAR(36) NOT NULL,
+    challenge_date DATE NOT NULL,
+    claimed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(player_uuid, challenge_date)
+);
+
 -- AI chat history
 CREATE TABLE IF NOT EXISTS {prefix}ai_chat_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

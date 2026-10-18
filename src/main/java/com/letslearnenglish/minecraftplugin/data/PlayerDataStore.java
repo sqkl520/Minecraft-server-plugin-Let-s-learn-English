@@ -238,8 +238,8 @@ public class PlayerDataStore {
                 ? "INSERT INTO " + tablePrefix + "player_sessions (uuid, session_date, words_count, correct_count, score, mode, review_words) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(uuid, session_date) DO UPDATE SET words_count = words_count + excluded.words_count, correct_count = correct_count + excluded.correct_count, score = score + excluded.score, review_words = review_words + excluded.review_words"
                 : "INSERT INTO " + tablePrefix + "player_sessions (uuid, session_date, words_count, correct_count, score, mode, review_words) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE words_count = words_count + VALUES(words_count), correct_count = correct_count + VALUES(correct_count), score = score + VALUES(score), review_words = review_words + VALUES(review_words)";
 
-        Connection conn = databaseManager.getConnection();
         synchronized (databaseManager.getConnectionLock()) {
+        Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, dateStr);
@@ -265,8 +265,8 @@ public class PlayerDataStore {
         String sql = "SELECT session_date, words_count FROM " + tablePrefix + "player_sessions WHERE uuid = ? AND session_date >= ? ORDER BY session_date ASC";
 
         java.time.LocalDate since = java.time.LocalDate.now().minusDays(daysBack);
-        Connection conn = databaseManager.getConnection();
         synchronized (databaseManager.getConnectionLock()) {
+        Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, since.toString());
@@ -290,8 +290,9 @@ public class PlayerDataStore {
         String sql = "SELECT word, mastery, correct_count, incorrect_count, last_review_time, review_count FROM "
                 + tablePrefix + "word_progress WHERE uuid = ?";
 
-        Connection conn = databaseManager.getConnection();
+        Connection conn;
         synchronized (databaseManager.getConnectionLock()) {
+        conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setString(1, playerId.toString());
@@ -526,8 +527,8 @@ public class PlayerDataStore {
         String tablePrefix = databaseManager.getTablePrefix();
         String upsertSql = buildUpsertSql(tablePrefix);
 
-        Connection conn = databaseManager.getConnection();
         synchronized (databaseManager.getConnectionLock()) {
+        Connection conn = databaseManager.getConnection();
         try {
             conn.setAutoCommit(false);
 
@@ -945,8 +946,8 @@ public class PlayerDataStore {
                 ? "INSERT OR REPLACE INTO " + tablePrefix + "player_profiles (uuid, age, show_answers, show_results, show_in_square, sounds_enabled) VALUES (?, ?, ?, ?, ?, ?)"
                 : "INSERT INTO " + tablePrefix + "player_profiles (uuid, age, show_answers, show_results, show_in_square, sounds_enabled) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE age=VALUES(age), show_answers=VALUES(show_answers), show_results=VALUES(show_results), show_in_square=VALUES(show_in_square), sounds_enabled=VALUES(sounds_enabled)";
 
-        Connection conn = databaseManager.getConnection();
         synchronized (databaseManager.getConnectionLock()) {
+        Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setInt(2, settings.getAge());
@@ -965,8 +966,8 @@ public class PlayerDataStore {
         String tablePrefix = databaseManager.getTablePrefix();
         String sql = "SELECT age, show_answers, show_results, show_in_square, sounds_enabled FROM " + tablePrefix + "player_profiles WHERE uuid = ?";
 
-        Connection conn = databaseManager.getConnection();
         synchronized (databaseManager.getConnectionLock()) {
+        Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             try (ResultSet rs = stmt.executeQuery()) {
@@ -1089,8 +1090,8 @@ public class PlayerDataStore {
         String updateSql = "UPDATE " + tablePrefix
                 + "player_data SET longest_streak = ?, updated_at = ? WHERE uuid = ? AND (longest_streak IS NULL OR longest_streak < ?)";
 
-        Connection conn = databaseManager.getConnection();
         synchronized (databaseManager.getConnectionLock()) {
+        Connection conn = databaseManager.getConnection();
         try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
             insertStmt.setString(1, playerId.toString());
             insertStmt.setInt(2, streak);
@@ -1128,11 +1129,10 @@ public class PlayerDataStore {
                 + "WHERE COALESCE(p.show_in_square, 1) <> 0 "
                 + "ORDER BY d.total_score DESC LIMIT ?";
 
-        Connection conn = databaseManager.getConnection();
-
         // Step 1: collect raw rows while ResultSet is open — no nested queries
         List<Object[]> rawRows = new ArrayList<>();
         synchronized (databaseManager.getConnectionLock()) {
+        Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, count);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -1188,11 +1188,10 @@ public class PlayerDataStore {
                 + "AND COALESCE(pf.show_in_square, 1) <> 0 "
                 + "GROUP BY s.uuid ORDER BY period_score DESC LIMIT ?";
 
-        Connection conn = databaseManager.getConnection();
-
         // Step 1: collect raw rows while ResultSet is open — no nested queries
         List<Object[]> rawRows = new ArrayList<>();
         synchronized (databaseManager.getConnectionLock()) {
+        Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, since.toString());
             stmt.setString(2, until.toString());
@@ -1269,11 +1268,10 @@ public class PlayerDataStore {
                 + "AND s.uuid IN (" + inClause + ") "
                 + "GROUP BY s.uuid ORDER BY period_score DESC LIMIT ?";
 
-        Connection conn = databaseManager.getConnection();
-
         // Step 1: collect raw rows while ResultSet is open — no nested queries
         List<Object[]> rawRows = new ArrayList<>();
         synchronized (databaseManager.getConnectionLock()) {
+        Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             int idx = 1;
             stmt.setString(idx++, since.toString());

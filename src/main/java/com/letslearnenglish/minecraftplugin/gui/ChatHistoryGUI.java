@@ -16,10 +16,14 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 
+import java.sql.Timestamp;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.List;
+import java.util.TimeZone;
 
 /**
  * AI Chat History GUI — browse past AI conversations.
@@ -144,7 +148,6 @@ public class ChatHistoryGUI {
             String emptyLore = MessageUtil.getGuiMsg(msg, "chat-history.empty-lore");
             gui.setItem(22, createItem(Material.PAPER, emptyLabel, emptyLore));
         } else {
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm");
             int slotIndex = 0;
             for (ChatHistoryEntry session : sessions) {
                 if (slotIndex >= SESSION_SLOTS.length) break;
@@ -172,7 +175,8 @@ public class ChatHistoryGUI {
                     scenario = MessageUtil.getGuiMsg(msg, "chat-history.unknown-scenario");
                 }
                 String dateStr = session.getTimestamp() != null
-                        ? sdf.format(session.getTimestamp()) : MessageUtil.getGuiMsg(msg, "chat-history.unknown-date");
+                        ? formatHistoryTimestamp(session.getTimestamp(), "yyyy-MM-dd HH:mm")
+                        : MessageUtil.getGuiMsg(msg, "chat-history.unknown-date");
                 String userPreview = firstUserContent != null
                         ? (firstUserContent.length() > 40
                                 ? firstUserContent.substring(0, 40) + "..."
@@ -293,7 +297,6 @@ public class ChatHistoryGUI {
         List<ChatHistoryEntry> messages = plugin.getDatabaseManager()
                 .getChatSession(player.getUniqueId(), sessionId);
 
-        SimpleDateFormat sdf = new SimpleDateFormat("MM-dd HH:mm");
         int slot = 0;
         for (ChatHistoryEntry entry : messages) {
             if (slot >= PAGE_INDICATOR_SLOT) break; // 底行留给返回键标记与导航，不铺消息
@@ -321,7 +324,7 @@ public class ChatHistoryGUI {
             }
 
             String time = entry.getTimestamp() != null
-                    ? sdf.format(entry.getTimestamp()) : "";
+                    ? formatHistoryTimestamp(entry.getTimestamp(), "MM-dd HH:mm") : "";
 
             // Truncate content for display
             String displayContent = entry.getContent() != null
@@ -453,6 +456,34 @@ public class ChatHistoryGUI {
     // ============================================================
     //  Utility
     // ============================================================
+
+    /**
+     * R9-H2/R3-H2（显示侧读取换算）：SQLite 的 {@code ai_chat_history.timestamp} 是
+     * CURRENT_TIMESTAMP 写入的 UTC 文本（P3-12 时区统一只统了 Java 侧、未统 DB 默认值
+     * ——本处收口该裂缝的显示缝口，写入侧不改）。sqlite-jdbc 将库内文本按 JVM 默认时区
+     * 解读，{@link Timestamp#toString()} 在合法范围内原样回显库内数字（3.47 驱动实测），
+     * 故把这些数字按 UTC 重解析得到真实时刻，再按系统时区渲染；MySQL 的 TIMESTAMP 列
+     * 按会话时区自洽，原样渲染；解析失败防御性回落原样渲染。
+     */
+    private String formatHistoryTimestamp(Timestamp raw, String pattern) {
+        if (raw == null) {
+            return "";
+        }
+        SimpleDateFormat out = new SimpleDateFormat(pattern);
+        if (plugin.getDatabaseManager().isSQLite()) {
+            try {
+                SimpleDateFormat in = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                in.setTimeZone(TimeZone.getTimeZone("UTC"));
+                Date d = in.parse(raw.toString());
+                if (d != null) {
+                    return out.format(d);
+                }
+            } catch (ParseException ignored) {
+                // 解析失败：按原样渲染（防御）
+            }
+        }
+        return out.format(raw);
+    }
 
     private ItemStack createItem(Material material, String name, String lore) {
         return createItemLore(material, name,

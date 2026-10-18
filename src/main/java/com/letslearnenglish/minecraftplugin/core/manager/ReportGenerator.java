@@ -20,6 +20,7 @@ import java.text.SimpleDateFormat;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -376,17 +377,36 @@ public class ReportGenerator {
         }
         int unlocked = snapshot != null ? snapshot.unlockedCount() : unlockedDb;
 
-        // AI 对话：窗口内完成的对话会话数（Q4）。timestamp 为
-        // yyyy-MM-dd HH:mm:ss 文本/时间戳列，用同格式字符串边界比较
-        // （SQLite 文本比较与 CURRENT_TIMESTAMP 写入格式一致；MySQL 自动转 TIMESTAMP 比较）。
+        // AI 对话：窗口内完成的对话会话数（Q4）。R9-H2（读取侧换算）：SQLite 的
+        // timestamp 是 CURRENT_TIMESTAMP 写入的 UTC 字符串（P3-12 时区统一只统了
+        // Java 侧、未统 DB 默认值——本处收口该裂缝的新缝口，写入侧不改）；边界按
+        // "本地日 → UTC 区间 [start, nextDayStart)" 换算后比较。MySQL 侧 TIMESTAMP
+        // 列自动按会话时区转换，维持本地字符串边界（含 23:59:59 上界）。
         int recentConversations = 0;
+        String lowerBound;
+        String upperBound;
+        boolean exclusiveUpper;
+        if (databaseManager.isSQLite()) {
+            DateTimeFormatter utcFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+            ZoneId sys = ZoneId.systemDefault();
+            lowerBound = period.from().atStartOfDay(sys)
+                    .withZoneSameInstant(ZoneOffset.UTC).format(utcFmt);
+            upperBound = period.to().plusDays(1).atStartOfDay(sys)
+                    .withZoneSameInstant(ZoneOffset.UTC).format(utcFmt);
+            exclusiveUpper = true;
+        } else {
+            lowerBound = period.from() + " 00:00:00";
+            upperBound = period.to() + " 23:59:59";
+            exclusiveUpper = false;
+        }
+        String op = exclusiveUpper ? "<" : "<=";
         String sql4 = "SELECT COUNT(DISTINCT session_id) FROM " + prefix
-                + "ai_chat_history WHERE player_uuid = ? AND timestamp >= ? AND timestamp <= ?";
+                + "ai_chat_history WHERE player_uuid = ? AND timestamp >= ? AND timestamp " + op + " ?";
         synchronized (databaseManager.getConnectionLock()) {
             try (PreparedStatement stmt = databaseManager.getConnection().prepareStatement(sql4)) {
                 stmt.setString(1, playerId.toString());
-                stmt.setString(2, period.from() + " 00:00:00");
-                stmt.setString(3, period.to() + " 23:59:59");
+                stmt.setString(2, lowerBound);
+                stmt.setString(3, upperBound);
                 try (ResultSet rs = stmt.executeQuery()) {
                     if (rs.next()) {
                         recentConversations = rs.getInt(1);

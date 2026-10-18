@@ -8,6 +8,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.messaging.PluginMessageListener;
 
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.logging.Level;
 
@@ -25,6 +26,11 @@ import java.util.logging.Level;
 public class ProxyMessenger implements PluginMessageListener {
 
     public static final String CHANNEL = "BungeeCord";
+
+    /** 插件消息通道安全上限（字节）。Minecraft 网络层单包 32767 字节含通道名/
+     *  子通道/长度前缀等开销，载荷保守上限取 30000（R9-H3/R7-H1）。
+     *  public：AdminCommand.handleBroadcast 命令层拒绝复用同一上限（单源）。 */
+    public static final int MAX_PAYLOAD_BYTES = 30000;
 
     private final LetsLearnEnglish plugin;
     private volatile boolean registered;
@@ -121,6 +127,17 @@ public class ProxyMessenger implements PluginMessageListener {
      * @param data         载荷数据
      */
     private void sendForward(String targetServer, String subChannel, String data) {
+        if (data == null) return;
+
+        // R9-H3/R7-H1 纵深防御：命令层已拒绝超长（AdminCommand.handleBroadcast），
+        // 此处兜底截断防 writeUTF/网络层 32767 异常逃逸（仅防御性路径可达）。
+        byte[] utf8 = data.getBytes(StandardCharsets.UTF_8);
+        if (utf8.length > MAX_PAYLOAD_BYTES) {
+            plugin.getLogger().warning("Proxy payload truncated ("
+                    + utf8.length + " > " + MAX_PAYLOAD_BYTES + " bytes)");
+            data = truncateUtf8(data, MAX_PAYLOAD_BYTES);
+        }
+
         if (!registered) return;
 
         // 需要至少一个在线玩家作为"信使"来发送 PluginMessage
@@ -143,7 +160,32 @@ public class ProxyMessenger implements PluginMessageListener {
         out.writeShort(payloadBytes.length);
         out.write(payloadBytes);
 
-        messenger.sendPluginMessage(plugin, CHANNEL, out.toByteArray());
+        // R9-H3：网络层单包超限等异常不再逃逸到命令层（防刷栈/踢信使玩家）
+        try {
+            messenger.sendPluginMessage(plugin, CHANNEL, out.toByteArray());
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to send proxy message", e);
+        }
+    }
+
+    /**
+     * R9-H3/R7-H1：按 UTF-8 字节数截断字符串至 ≤ {@code maxBytes}。
+     *
+     * <p>逐 char 累计（中文 3 字节）。按 char 边界截断，不会劈坏 multi-byte
+     * 字符的 UTF-8 字节序列；BMP 外字符（代理对）按 1+1 字节计（lone surrogate
+     * 经 getBytes 编码为 '?'）——规格指定的简化，仅防御路径使用，中文/ASCII
+     * 载荷计数精确。
+     */
+    private static String truncateUtf8(String s, int maxBytes) {
+        int bytes = 0;
+        for (int i = 0; i < s.length(); i++) {
+            int charBytes = String.valueOf(s.charAt(i)).getBytes(StandardCharsets.UTF_8).length;
+            if (bytes + charBytes > maxBytes) {
+                return s.substring(0, i);
+            }
+            bytes += charBytes;
+        }
+        return s;
     }
 
     private Player getAnyOnlinePlayer() {

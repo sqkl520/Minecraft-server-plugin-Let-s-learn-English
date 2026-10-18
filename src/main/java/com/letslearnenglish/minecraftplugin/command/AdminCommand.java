@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.command;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.ProxyMessenger;
 import com.letslearnenglish.minecraftplugin.core.manager.DataExporter;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
@@ -9,10 +10,12 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.io.File;
 
 /**
@@ -63,16 +66,39 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                         "general.reload-success"));
                 break;
             case "export":
+                // R9-H1：主线程仅取快照（UUID+名字），文件 IO 与 cache-miss 查库全异步。
                 // US-RPT-3：DataExporter 返回 ExportResult 协议对象（原 "Export failed: ..."
                 // 字符串前缀判定已消——P2-09 教训落地）。失败按字段判定，不需要嗅探内容。
-                DataExporter.ExportResult exportResult = plugin.getDataExporter().exportAllData();
-                if (!exportResult.success()) {
+                List<Player> onlineSnapshot = new ArrayList<>(plugin.getServer().getOnlinePlayers());
+                List<UUID> exportIds = new ArrayList<>(onlineSnapshot.size());
+                List<String> exportNames = new ArrayList<>(onlineSnapshot.size());
+                for (Player p : onlineSnapshot) {
+                    exportIds.add(p.getUniqueId());
+                    exportNames.add(p.getName());
+                }
+                try {
+                    plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+                        DataExporter.ExportResult r = plugin.getDataExporter()
+                                .exportAllData(exportIds, exportNames);
+                        try {
+                            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                                if (r.success()) {
+                                    sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                                            "admin.export-complete", "file", r.filePath()));
+                                } else {
+                                    sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                                            "admin.export-failed"));
+                                }
+                            });
+                        } catch (IllegalStateException e) {
+                            // 关服竞态：调度器已关闭，放弃回投消息
+                        }
+                    });
+                } catch (IllegalStateException e) {
+                    // 插件停用窗口（调度器已关闭）：放弃本次导出
                     sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                             "admin.export-failed"));
-                    break;
                 }
-                sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
-                        "admin.export-complete", "file", exportResult.filePath()));
                 break;
             case "reset":
                 if (args.length > 1) {
@@ -172,6 +198,13 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
         // 广播前缀走 i18n（服务端默认语言），消息本身通过代理发给所有子服
         String formatted = ChatColor.translateAlternateColorCodes('&',
                 plugin.getMessageUtil().getMessage("admin.broadcast-prefix") + message);
+        // R9-H3/R7-H1：命令层前置拒绝超长（上限与 ProxyMessenger 单源），
+        // 防 writeUTF/网络层 32767 异常逃逸与踢信使玩家
+        if (formatted.getBytes(StandardCharsets.UTF_8).length > ProxyMessenger.MAX_PAYLOAD_BYTES) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                    "admin.broadcast-too-long"));
+            return;
+        }
         plugin.getProxyMessenger().sendGlobalMessage(formatted);
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "admin.broadcast-sent"));
         plugin.getLogger().info("Global broadcast sent by " + sender.getName() + ": " + message);
