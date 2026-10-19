@@ -42,16 +42,23 @@ const zh = leafKeys('src/main/resources/messages/zh.yml');
 const en = leafKeys('src/main/resources/messages/en.yml');
 
 // 3) Referenced-but-missing (only check keys whose top segment is a known message section)
+// R10-L5：season/class 补入白名单（Wave 3/4 新增顶层段，此前是扫描盲区）。
 const sections = new Set(['general','module','ai-chat','error','word','review','dialogue','achievement','achievement-wall',
  'leaderboard','progress','admin','wordbank','placeholder','join','update','language','help','checkin','scenario','duel',
  'admin-help','plugin-info','gui','main-menu','daily','daily-challenge','word-learning-gui','progress-gui','square',
- 'word-bank','calendar','profile','chat-history','wrong-book','onboarding','report','dialogue-gui']);
+ 'word-bank','calendar','profile','chat-history','wrong-book','onboarding','report','dialogue-gui','season','class']);
 const missing = [];
+// R10-L5：以 '-' 或 '.' 结尾的键是代码里的前缀拼接串（如 "achievement-wall.category-" +
+// 枚举名），不是完整字面键 —— 跳过并单独计数，消除假阳性。
+const suspectedConcat = [];
 for (const k of referenced) {
   const top = k.split('.')[0];
   if (!sections.has(top)) continue;
+  if (k.endsWith('-') || k.endsWith('.')) { suspectedConcat.push(k); continue; }
   if (!zh.has(k) || !en.has(k)) missing.push(k + (zh.has(k) ? '' : ' [zh-miss]') + (en.has(k) ? '' : ' [en-miss]'));
 }
 console.log('referenced dotted keys:', referenced.size);
+console.log('suspected concatenation keys (skipped):', suspectedConcat.length);
+if (suspectedConcat.length) console.log(suspectedConcat.sort().join('\n'));
 console.log('MISSING (referenced but not in yml):');
 console.log(missing.length ? missing.sort().join('\n') : '(none)');

@@ -277,10 +277,6 @@ public final class AnswerChecker {
         return indexToLetter(index) + ". " + text;
     }
 
-    public static boolean isSpelling(String mode) {
-        return MODE_SPELLING.equalsIgnoreCase(mode);
-    }
-
     public static boolean isChoice(String mode) {
         return MODE_CHOICE.equalsIgnoreCase(mode);
     }

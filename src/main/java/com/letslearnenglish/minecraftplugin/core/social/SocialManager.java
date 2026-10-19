@@ -3,6 +3,7 @@ package com.letslearnenglish.minecraftplugin.core.social;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
+import com.letslearnenglish.minecraftplugin.util.SchedulerGuard;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -467,21 +468,14 @@ public class SocialManager {
 
     // ============================================================
     //  调度工具（停用窗口静默放弃，对齐 AchievementManager PF-ACH-02）
+    //  D2-5：实现已抽取至 util.SchedulerGuard，此处保留薄委托（调用点零改动）
     // ============================================================
 
     private void runAsync(Runnable task) {
-        try {
-            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, task);
-        } catch (IllegalStateException ignored) {
-            // 插件停用窗口（调度器已关闭）：放弃本次异步写/刷新（与 tryUnlock 通知段同口径）
-        }
+        SchedulerGuard.runAsync(plugin, task);
     }
 
     private void runMain(Runnable task) {
-        try {
-            plugin.getServer().getScheduler().runTask(plugin, task);
-        } catch (IllegalStateException ignored) {
-            // 同上：停用窗口放弃主线程回调
-        }
+        SchedulerGuard.runMain(plugin, task);
     }
 }

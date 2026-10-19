@@ -1,7 +1,6 @@
 package com.letslearnenglish.minecraftplugin.util;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
-import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 
@@ -40,31 +39,6 @@ public class VersionAdapter {
     }
 
     /**
-     * Get a cross-version compatible Material.
-     * Handles name changes after the 1.13+ flattening.
-     */
-    public Material getMaterial(String modernName, String legacyName) {
-        try {
-            return Material.valueOf(modernName);
-        } catch (IllegalArgumentException e) {
-            plugin.getLogger().warning("Material not found: " + modernName
-                    + ", falling back to: " + legacyName);
-            return Material.valueOf(legacyName);
-        }
-    }
-
-    /**
-     * Get a cross-version compatible Sound.
-     */
-    public Sound getSound(String modernName, String legacyName) {
-        try {
-            return Sound.valueOf(modernName);
-        } catch (IllegalArgumentException e) {
-            return Sound.valueOf(legacyName);
-        }
-    }
-
-    /**
      * Play a sound to a player (cross-version compatible).
      */
     public void playSound(Player player, Sound sound, float volume, float pitch) {
@@ -83,20 +57,6 @@ public class VersionAdapter {
     public void sendActionBar(Player player, String legacyText) {
         player.sendActionBar(net.kyori.adventure.text.serializer.legacy
                 .LegacyComponentSerializer.legacySection().deserialize(legacyText));
-    }
-
-    /**
-     * Get the server major version number.
-     */
-    public int getMajorVersion() {
-        return majorVersion;
-    }
-
-    /**
-     * Get the server minor version number.
-     */
-    public int getMinorVersion() {
-        return minorVersion;
     }
 
     /**

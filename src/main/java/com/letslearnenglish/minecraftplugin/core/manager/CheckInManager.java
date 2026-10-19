@@ -117,16 +117,6 @@ public class CheckInManager {
     }
 
     /**
-     * Get a player's current check-in info for display.
-     *
-     * @param player the player
-     * @return CheckInData or null if never checked in
-     */
-    public CheckInData getCheckInInfo(Player player) {
-        return plugin.getDatabaseManager().getCheckInData(player.getUniqueId());
-    }
-
-    /**
      * R-44: outcome of a coin payout attempt. Distinguishes "economy disabled
      * by config" from other failures so the caller can hint correctly.
      */

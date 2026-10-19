@@ -101,8 +101,8 @@ public enum Achievement {
             "spelling_master",
             "拼写达人",
             "Spelling Bee",
-            "完成一次拼写模式的完整答题会话，手打单词不含糊！",
-            "Complete a full spelling-mode session — typing words like a pro!",
+            "完成一次拼写模式的答题会话（至少拼对 1 题），手打单词不含糊！",
+            "Complete a spelling-mode session with at least 1 correct spelling — typing words like a pro!",
             AchievementCategory.LEARNING, ProgressSource.NONE, 0
     ),
 

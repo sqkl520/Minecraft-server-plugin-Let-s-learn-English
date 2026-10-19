@@ -10,6 +10,9 @@ import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.ProfileGUI;
 import com.letslearnenglish.minecraftplugin.gui.WordBankSelectGUI;
 import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
+import org.bukkit.ChatColor;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -26,6 +29,16 @@ import java.util.UUID;
 public class MiscGUIListener implements Listener {
 
     private final LetsLearnEnglish plugin;
+
+    /** R8-L4：本监听器辖下 5 类 GUI 的标题配置键（判定与渲染同源）。 */
+    private static final String[] PRIVACY_TITLE_KEYS = { "profile.settings-title" };
+    private static final String[] WORD_BANK_TITLE_KEYS = { "word-bank.title" };
+    /** 日历有两个标题（本人 / 查看他人）——viewing 变体含 {player} 占位符。 */
+    private static final String[] CALENDAR_TITLE_KEYS = { "calendar.title", "calendar.viewing-title" };
+    private static final String[] DAILY_TITLE_KEYS = { "daily.title" };
+    private static final String[] COMPLETE_TITLE_KEYS = { "daily-challenge.complete-title" };
+    /** 占位符模板做前缀锚定时的可见长度下限（防"占位符在开头"的退化配置过宽误配）。 */
+    private static final int MIN_ANCHOR_MATCH = 4;
 
     /**
      * R-02: behavioral-claim stripe locks. A fixed array of 32 monitors —
@@ -45,11 +58,13 @@ public class MiscGUIListener implements Listener {
     public void onInventoryClick(InventoryClickEvent event) {
         String title = event.getView().getTitle();
 
-        if (!title.contains("Privacy Settings") && !title.contains("隐私设置")
-                && !title.contains("Select Word Bank") && !title.contains("选择词库")
-                && !title.contains("过往学习") && !title.contains("Study History")
-                && !title.contains("Daily Challenge") && !title.contains("每日挑战")
-                && !title.contains("Challenge Complete") && !title.contains("挑战完成")) {
+        // R8-L4：判定与渲染同源（配置等值/前缀锚定），替代原裸子串白名单。
+        boolean privacy = matchesAnyTitle(title, PRIVACY_TITLE_KEYS);
+        boolean wordBank = matchesAnyTitle(title, WORD_BANK_TITLE_KEYS);
+        boolean calendar = matchesAnyTitle(title, CALENDAR_TITLE_KEYS);
+        boolean daily = matchesAnyTitle(title, DAILY_TITLE_KEYS);
+        boolean complete = matchesAnyTitle(title, COMPLETE_TITLE_KEYS);
+        if (!privacy && !wordBank && !calendar && !daily && !complete) {
             return;
         }
 
@@ -66,17 +81,52 @@ public class MiscGUIListener implements Listener {
 
         int slot = event.getSlot();
 
-        if (title.contains("Privacy Settings") || title.contains("隐私设置")) {
+        if (privacy) {
             handlePrivacySettings(player, slot);
-        } else if (title.contains("Select Word Bank") || title.contains("选择词库")) {
+        } else if (wordBank) {
             handleWordBankSelect(player, slot);
-        } else if (title.contains("过往学习") || title.contains("Study History")) {
+        } else if (calendar) {
             handleLearningCalendar(player, slot);
-        } else if (title.contains("Daily Challenge") || title.contains("每日挑战")) {
+        } else if (daily) {
             handleDailyChallenge(player, slot);
-        } else if (title.contains("Challenge Complete") || title.contains("挑战完成")) {
+        } else if (complete) {
             handleChallengeComplete(player, slot);
         }
+    }
+
+    /**
+     * R8-L4：标题归属判定 —— 与各 GUI 开菜单侧同源：按 zh/en 读标题配置键，经与
+     * 渲染侧相同的 {@code &} 颜色码转换后做等值比对（照 {@code ConfirmationGUI.isConfirmGUI}
+     * 先例），替代原裸子串白名单（过宽：任何未来标题含这些词都会被本监听器吞掉点击）。
+     *
+     * <p>开菜单侧截断核查（逐类读 createInventory 的标题构造）：
+     * profile.settings-title / word-bank.title / daily.title / daily-challenge.complete-title
+     * 均为「纯 translate → createInventory」，无截断无占位符 → 等值安全；
+     * calendar.viewing-title（他人日历）含 {@code {player}} 占位符，替换后标题与模板
+     * 不等（等值必不中）→ 对该类按「占位符前的字面前缀」锚定（照 MainMenuListener:90-104
+     * 的截断宽松比对先例），锚（剥色后）至少 {@link #MIN_ANCHOR_MATCH} 个可见字符
+     * 防退化配置过宽误配。
+     */
+    private boolean matchesAnyTitle(String title, String... keys) {
+        if (title == null || title.isEmpty()) return false;
+        for (String lang : new String[] { "zh", "en" }) {
+            FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
+            for (String key : keys) {
+                String raw = MessageUtil.getGuiMsg(messages, key);
+                String expected = ChatColor.translateAlternateColorCodes('&', raw);
+                if (title.equals(expected)) return true;
+                int placeholderAt = raw.indexOf('{');
+                if (placeholderAt > 0) {
+                    String anchor = ChatColor.translateAlternateColorCodes('&',
+                            raw.substring(0, placeholderAt));
+                    if (ChatColor.stripColor(anchor).length() >= MIN_ANCHOR_MATCH
+                            && title.startsWith(anchor)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     private void handlePrivacySettings(Player player, int slot) {
@@ -355,11 +405,8 @@ public class MiscGUIListener implements Listener {
         String title = event.getView().getTitle();
         if (title == null) return;
 
-        if (!title.contains("Privacy Settings") && !title.contains("隐私设置")
-                && !title.contains("Select Word Bank") && !title.contains("选择词库")
-                && !title.contains("过往学习") && !title.contains("Study History")
-                && !title.contains("Daily Challenge") && !title.contains("每日挑战")
-                && !title.contains("Challenge Complete") && !title.contains("挑战完成")) {
+        // R8-L4：与 onInventoryClick 同源判定（同一 helper，防两处白名单漂移）。
+        if (!matchesTrackedTitle(title)) {
             return;
         }
 
@@ -370,5 +417,14 @@ public class MiscGUIListener implements Listener {
                 return;
             }
         }
+    }
+
+    /** R8-L4：任意一类被本监听器辖管的 GUI 标题（拖拽守卫用，布尔并集）。 */
+    private boolean matchesTrackedTitle(String title) {
+        return matchesAnyTitle(title, PRIVACY_TITLE_KEYS)
+                || matchesAnyTitle(title, WORD_BANK_TITLE_KEYS)
+                || matchesAnyTitle(title, CALENDAR_TITLE_KEYS)
+                || matchesAnyTitle(title, DAILY_TITLE_KEYS)
+                || matchesAnyTitle(title, COMPLETE_TITLE_KEYS);
     }
 }

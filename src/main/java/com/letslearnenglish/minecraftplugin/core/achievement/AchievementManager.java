@@ -240,6 +240,8 @@ public class AchievementManager {
 
         // PF-ACH-02：通知段（聊天/Title/音效/广播）统一调度回主线程——本方法可从
         // 异步线程到达（AI 对话 bye 分支直调链），其内全是主线程 API。
+        // D2-5：同型帮助器见 util.SchedulerGuard（本处为内联 try/catch + 主线程分支，
+        // 语义微差），本批未迁移。
         if (Bukkit.isPrimaryThread()) {
             notifyUnlock(playerId, achievement);
         } else {

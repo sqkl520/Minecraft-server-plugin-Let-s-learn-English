@@ -139,7 +139,10 @@ public class Leaderboard {
      */
     public int getPlayerRank(UUID playerId) {
         List<Map.Entry<UUID, Long>> sorted = new ArrayList<>(scores.entrySet());
-        sorted.sort(Map.Entry.<UUID, Long>comparingByValue().reversed());
+        // R4-L2：并列分数以 UUID 自然序为 secondary key —— 确定性、全序的 tie-break，
+        // 保证同分两玩家多次查询 rank 恒定（不引入需持久化的"首上榜时间"字段）。
+        sorted.sort(Map.Entry.<UUID, Long>comparingByValue().reversed()
+                .thenComparing(Map.Entry.comparingByKey()));
 
         for (int i = 0; i < sorted.size(); i++) {
             if (sorted.get(i).getKey().equals(playerId)) {

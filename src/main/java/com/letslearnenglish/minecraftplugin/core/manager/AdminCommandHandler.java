@@ -23,7 +23,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -68,6 +67,10 @@ public class AdminCommandHandler {
         plugin.getAchievementManager().unloadPlayer(playerId);
 
         plugin.getDatabaseManager().deletePlayerData(playerId);
+
+        // R9-L3：删表后立即刷榜单缓存，/lea class list 等不等到 5 分钟周期才更新。
+        // 同步 DB 读，与本命令既有主线程删表同量级（照 LetsLearnEnglish :225/:425 先例）。
+        plugin.getProgressManager().getLeaderboard().refreshCache();
 
         plugin.getLogger().info("Admin: Player data reset complete for: " + playerName);
         return true;
@@ -239,48 +242,6 @@ public class AdminCommandHandler {
             }
         }
         return names;
-    }
-
-    public void addWord(String difficulty, String english, String chinese) {
-        plugin.getLogger().info("Admin: Adding word '" + english + "' to " + difficulty);
-
-        WordManagerImpl wordManager = plugin.getWordManager();
-        WordBank bank = wordManager.getWordBank(difficulty);
-        if (bank == null) {
-            plugin.getLogger().warning("Admin: Unknown difficulty level: " + difficulty);
-            return;
-        }
-
-        Word word = new Word(english, chinese, null, null, null,
-                Collections.emptyList(), Collections.emptyList(), difficulty, 1);
-        bank.addWord(word);
-
-        saveWordBankToYaml(difficulty, bank);
-        plugin.getLogger().info("Admin: Word '" + english
-                + "' added successfully to " + difficulty);
-    }
-
-    public void removeWord(String difficulty, String english) {
-        plugin.getLogger().info("Admin: Removing word '" + english
-                + "' from " + difficulty);
-
-        WordManagerImpl wordManager = plugin.getWordManager();
-        WordBank bank = wordManager.getWordBank(difficulty);
-        if (bank == null) {
-            plugin.getLogger().warning("Admin: Unknown difficulty level: " + difficulty);
-            return;
-        }
-
-        boolean removed = bank.removeWord(english);
-        if (!removed) {
-            plugin.getLogger().warning("Admin: Word '" + english
-                    + "' not found in " + difficulty);
-            return;
-        }
-
-        saveWordBankToYaml(difficulty, bank);
-        plugin.getLogger().info("Admin: Word '" + english
-                + "' removed successfully from " + difficulty);
     }
 
     /**
@@ -719,26 +680,33 @@ public class AdminCommandHandler {
                                DatabaseManager.ClassRow classRow, UUID playerId,
                                String playerName, int maxMembers) {
         DatabaseManager db = plugin.getDatabaseManager();
-        boolean reassigned;
-        boolean full;
+        boolean alreadyMember = false;
+        boolean reassigned = false;
+        boolean full = false;
         // 满员判定 + 换班（退旧进新）整段持 connectionLock（可重入，内层 DB 方法
         // 同锁嵌套安全）——防两笔并发 add 抢最后一个名额时本地超额加入。
+        // R9-L5：锁内零消息投递——幂等分支只置标志，sendOnMain 统一移到锁外
+        //（调度器投递不占 DB 锁，缩短持锁区间）。
         synchronized (db.getConnectionLock()) {
             Integer currentClassId = db.getPlayerClassId(playerId);
             if (currentClassId != null && currentClassId == classRow.classId()) {
                 // 已在本班：幂等提示（冻结键无"重复加入"专键，复用 member-added）
-                sendOnMain(sender, "class.member-added",
-                        "player", playerName, "class", classRow.className());
-                return;
-            }
-            full = db.getClassMemberCount(classRow.classId()) >= maxMembers;
-            reassigned = currentClassId != null;
-            if (!full) {
-                if (reassigned) {
-                    db.removeClassMember(currentClassId, playerId);
+                alreadyMember = true;
+            } else {
+                full = db.getClassMemberCount(classRow.classId()) >= maxMembers;
+                reassigned = currentClassId != null;
+                if (!full) {
+                    if (reassigned) {
+                        db.removeClassMember(currentClassId, playerId);
+                    }
+                    db.addClassMember(classRow.classId(), playerId, System.currentTimeMillis());
                 }
-                db.addClassMember(classRow.classId(), playerId, System.currentTimeMillis());
             }
+        }
+        if (alreadyMember) {
+            sendOnMain(sender, "class.member-added",
+                    "player", playerName, "class", classRow.className());
+            return;
         }
         if (full) {
             sendOnMain(sender, "class.member-full", "max", String.valueOf(maxMembers));
@@ -870,7 +838,11 @@ public class AdminCommandHandler {
         }
     }
 
-    /** 异步执行（调度器关闭/插件停用时静默放弃，对齐 ReportGenerator.runAsync）。 */
+    /**
+     * 异步执行（调度器关闭/插件停用时静默放弃，对齐 ReportGenerator.runAsync）。
+     * D2-5：同型帮助器见 util.SchedulerGuard（语义微差：本处带 fine 日志级别），
+     * 本批未迁移（薄委托面只收 SocialManager/SeasonManager 两处）。
+     */
     private void runClassAsync(Runnable task) {
         try {
             plugin.getServer().getScheduler().runTaskAsynchronously(plugin, task);
@@ -879,7 +851,11 @@ public class AdminCommandHandler {
         }
     }
 
-    /** 回主线程执行（Bukkit API / sendMessage 前置；调度器关闭时静默放弃）。 */
+    /**
+     * 回主线程执行（Bukkit API / sendMessage 前置；调度器关闭时静默放弃）。
+     * D2-5：同型帮助器见 util.SchedulerGuard（语义微差：本处带 isEnabled 预检），
+     * 本批未迁移。
+     */
     private void runOnMain(Runnable action) {
         if (!plugin.isEnabled()) {
             return;

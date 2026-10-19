@@ -196,14 +196,6 @@ public class WordBank {
         invalidateCache();
     }
 
-    public boolean removeWord(String english) {
-        boolean removed = words.removeIf(w -> w.getEnglish().equalsIgnoreCase(english));
-        if (removed) {
-            invalidateCache();
-        }
-        return removed;
-    }
-
     private void invalidateCache() {
         cachedMasteredKey = null;
         cachedUnmastered = null;

@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 16
+config-version: 17
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -176,6 +176,7 @@ progress:
 admin:
   export-complete: "{prefix}&a数据导出完成！文件: &e{file}"
   player-reset: "{prefix}&a已重置玩家 &e{player} &a的学习数据"
+  reset-confirm: "{prefix}&c危险：这将删除玩家 &e{player} &c的全部数据（15 张表）。确认请再执行 &e/lea reset {player} confirm"
   usage-reset: "用法: /lea reset <玩家名>"
   usage-exportwordbank: "{prefix}&c用法: /lea exportwordbank <难度>"
   available-difficulties: "{prefix}&7可选难度: &e{list}"
@@ -305,7 +306,7 @@ duel:
   usage: "{prefix}&e用法: /le duel <玩家名> &7发起对决 | /le duel accept &7接受 | /le duel quit &7退出 | /le duel gui &7重开界面 | /le duel cancel <玩家名> &7（管理员）"
   request-sent: "{prefix}&a你向 &e{player} &a发起了单词对决挑战喵~"
   request-received: "{prefix}&6★ &e{player} &6向你发起了单词对决挑战！"
-  accept-hint: "&6点击这里或输入 &e/le duel accept &6接受挑战！"
+  accept-hint: "&6输入 &e/le duel accept &6接受挑战！"
   request-expired: "{prefix}&7你对 &e{player} &7的对决邀请已过期喵~"
   request-expired-target: "{prefix}&7来自 &e{player} &7的对决邀请已过期喵~"
   sender-chatting: "{prefix}&c你正在 AI 对话中喵~ 请先输入 bye 结束对话，再发起对决"
@@ -364,6 +365,7 @@ admin-help:
   duel-cancel: "&e/lea duel cancel <玩家名> &7- 强制解散该玩家的单词对决（不判胜负）"
   footer: "&6======================================"
   report: "&e/lea report <玩家名|all> [week|lastweek|<N>d] &7- 生成学习报告（TXT，落 exports/reports/）"
+  class: "&e/lea class <create|add|remove|list|delete> ... &7- 班级管理"
 
 plugin-info:
   header: "&6===== 英语学习 信息 ====="

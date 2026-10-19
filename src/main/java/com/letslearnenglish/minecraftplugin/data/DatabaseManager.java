@@ -556,41 +556,6 @@ public class DatabaseManager {
     }
 
     /**
-     * Get paginated chat history entries for a player, most recent first.
-     */
-    public List<ChatHistoryEntry> getChatHistory(UUID playerUuid, int page, int pageSize) {
-        List<ChatHistoryEntry> entries = new ArrayList<>();
-        String sql = "SELECT id, player_uuid, session_id, role, content, timestamp"
-                + " FROM " + tablePrefix + "ai_chat_history"
-                + " WHERE player_uuid = ?"
-                + " ORDER BY timestamp DESC"
-                + " LIMIT ? OFFSET ?";
-        synchronized (connectionLock) {
-            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-                stmt.setString(1, playerUuid.toString());
-                stmt.setInt(2, pageSize);
-                stmt.setInt(3, (page - 1) * pageSize);
-                try (ResultSet rs = stmt.executeQuery()) {
-                    while (rs.next()) {
-                        entries.add(new ChatHistoryEntry(
-                                rs.getInt("id"),
-                                rs.getString("player_uuid"),
-                                rs.getString("session_id"),
-                                rs.getString("role"),
-                                rs.getString("content"),
-                                rs.getTimestamp("timestamp")
-                        ));
-                    }
-                }
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to get chat history for player " + playerUuid, e);
-            }
-        }
-        return entries;
-    }
-
-    /**
      * Get all messages for a specific session, ordered by timestamp ascending.
      */
     public List<ChatHistoryEntry> getChatSession(UUID playerUuid, String sessionId) {
@@ -725,13 +690,17 @@ public class DatabaseManager {
      * 同一 {@code dateExpr} 阈值可直接套用），防该表无限增长。保留期窗口语义 =
      * "早于阈值行"（非精确边界）：两后端各自按库内时钟自洽，SQLite（UTC 字符串）与
      * MySQL（会话时区 TIMESTAMP）间的 8h 级偏移可接受，不断言被删行的时区精确性。
+     *
+     * <p>修复批 D（R3-L2）：天数经占位符绑定（原为字符串拼接；唯一调用传常量 30
+     * 无注入面，此处对齐全仓参数化惯例）——SQLite 绑字符串 modifier（"-N days"）、
+     * MySQL 绑 int，见 {@link #bindKeepDays}。
      */
     public void cleanupOldChatHistory(int daysToKeep) {
         String dateExpr;
         if (isSQLite()) {
-            dateExpr = "datetime('now', '-" + daysToKeep + " days')";
+            dateExpr = "datetime('now', ?)";
         } else {
-            dateExpr = "DATE_SUB(NOW(), INTERVAL " + daysToKeep + " DAY)";
+            dateExpr = "DATE_SUB(NOW(), INTERVAL ? DAY)";
         }
         String sql = "DELETE FROM " + tablePrefix + "ai_chat_history"
                 + " WHERE timestamp < " + dateExpr;
@@ -740,12 +709,13 @@ public class DatabaseManager {
         // 与日期阈值精确字典序可比——SQLite date('now') / MySQL CURDATE() 两后端对照）
         // ——新表必须有清理者，先例 R3-H2。
         String roundDateExpr = isSQLite()
-                ? "date('now', '-" + daysToKeep + " days')"
-                : "DATE_SUB(CURDATE(), INTERVAL " + daysToKeep + " DAY)";
+                ? "date('now', ?)"
+                : "DATE_SUB(CURDATE(), INTERVAL ? DAY)";
         String sql3 = "DELETE FROM " + tablePrefix + "ai_round_counters"
                 + " WHERE round_date < " + roundDateExpr;
         synchronized (connectionLock) {
             try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                bindKeepDays(stmt, daysToKeep);
                 int deleted = stmt.executeUpdate();
                 if (deleted > 0) {
                     plugin.getLogger().info("Cleaned up " + deleted
@@ -756,6 +726,7 @@ public class DatabaseManager {
                         "Failed to clean up old chat history", e);
             }
             try (PreparedStatement stmt = getConnection().prepareStatement(sql2)) {
+                bindKeepDays(stmt, daysToKeep);
                 int deletedFeedback = stmt.executeUpdate();
                 if (deletedFeedback > 0) {
                     plugin.getLogger().info("Cleaned up " + deletedFeedback
@@ -766,6 +737,7 @@ public class DatabaseManager {
                         "Failed to clean up old chat feedback", e);
             }
             try (PreparedStatement stmt = getConnection().prepareStatement(sql3)) {
+                bindKeepDays(stmt, daysToKeep);
                 int deletedRounds = stmt.executeUpdate();
                 if (deletedRounds > 0) {
                     plugin.getLogger().info("Cleaned up " + deletedRounds
@@ -1372,24 +1344,6 @@ public class DatabaseManager {
         }
     }
 
-    /**
-     * Clear wrong count to 0 for a word (reset without removing).
-     */
-    public void clearWrongCount(UUID playerId, String word) {
-        String sql = "UPDATE " + tablePrefix + "difficult_words SET wrong_count = 0 WHERE player_uuid = ? AND word = ?";
-        synchronized (connectionLock) {
-            Connection conn = getConnection();
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, playerId.toString());
-                stmt.setString(2, word.toLowerCase());
-                stmt.executeUpdate();
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to clear wrong count for " + playerId + " / " + word, e);
-            }
-        }
-    }
-
     // ============================================================
     //  Statistics HTTP Dashboard queries
     // ============================================================
@@ -1787,22 +1741,6 @@ public class DatabaseManager {
                 plugin.getLogger().log(Level.WARNING,
                         "Failed to update check-in data for " + playerId, e);
                 return false;
-            }
-        }
-    }
-
-    /**
-     * Reset a player's check-in streak to 0.
-     */
-    public void resetCheckInStreak(UUID playerId) {
-        String sql = "UPDATE " + tablePrefix + "checkin_data SET streak_count = 0 WHERE player_uuid = ?";
-        synchronized (connectionLock) {
-            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-                stmt.setString(1, playerId.toString());
-                stmt.executeUpdate();
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to reset check-in streak for " + playerId, e);
             }
         }
     }
@@ -3018,12 +2956,76 @@ public class DatabaseManager {
         return connectionLock;
     }
 
+    /**
+     * R3-L4：幂等补列 —— 先以元数据查询判"列是否已存在"再决定 ALTER
+     * （SQLite {@code PRAGMA table_info}、MySQL {@code information_schema.columns}，
+     * 与 {@link #createIndexIfMissing} 的 MySQL 侧做法同源）。原实现按异常消息
+     * 含 "duplicate"/"already exists" 判定，locale/驱动消息差异下口径不稳。
+     */
     private void addColumnIfMissing(String table, String column, String definition) throws SQLException {
+        if (columnAlreadyExists(table, column)) {
+            return; // 已存在（或查询故障的保守跳过，见 helper）——跳过 ALTER
+        }
         try {
             executeUpdate("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
         } catch (SQLException e) {
+            // 查后改的 TOCTOU 残余窗口（多服共享 MySQL 并发启动同时补同一列，
+            // 败者报 duplicate）仍按旧口径吞掉；其余真实错误（权限/磁盘/语法）
+            // 照旧上抛，由 initialize 记 SEVERE。
             String message = e.getMessage() == null ? "" : e.getMessage().toLowerCase(java.util.Locale.ROOT);
             if (!message.contains("duplicate") && !message.contains("already exists")) throw e;
+        }
+    }
+
+    /**
+     * R3-L4：列存在性元数据查询。返回 true = 已存在或查询故障（保守跳过 ALTER）——
+     * 查询故障（连接/权限等）记 WARNING 后按"已存在"处理，与旧实现"不因补列失败
+     * 打断建表主流程"的容错口径一致，仅明确"列不存在"才返回 false 放行 ALTER。
+     */
+    private boolean columnAlreadyExists(String table, String column) {
+        synchronized (connectionLock) {
+            try {
+                if (isSQLite()) {
+                    try (PreparedStatement stmt = getConnection().prepareStatement(
+                            "PRAGMA table_info(" + table + ")")) {
+                        try (ResultSet rs = stmt.executeQuery()) {
+                            while (rs.next()) {
+                                if (column.equals(rs.getString("name"))) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    return false;
+                }
+                String checkSql = "SELECT COUNT(*) FROM information_schema.columns "
+                        + "WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?";
+                try (PreparedStatement stmt = getConnection().prepareStatement(checkSql)) {
+                    stmt.setString(1, table);
+                    stmt.setString(2, column);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        return rs.next() && rs.getInt(1) > 0;
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to check existence of column " + column + " on " + table
+                                + " — skipping ALTER (conservative)", e);
+                return true;
+            }
+        }
+    }
+
+    /**
+     * 修复批 D（R3-L2）：把保留天数绑到唯一占位符——
+     * SQLite 的 {@code datetime('now', ?)} / {@code date('now', ?)} 需字符串
+     * modifier（{@code "-N days"}），MySQL 的 {@code INTERVAL ? DAY} 需 int。
+     */
+    private void bindKeepDays(PreparedStatement stmt, int daysToKeep) throws SQLException {
+        if (isSQLite()) {
+            stmt.setString(1, "-" + daysToKeep + " days");
+        } else {
+            stmt.setInt(1, daysToKeep);
         }
     }
 }

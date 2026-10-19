@@ -12,6 +12,7 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
+import java.util.Arrays;
 import java.util.Collections;
 
 /**
@@ -21,6 +22,14 @@ import java.util.Collections;
  * Provides access to all learning modules.
  */
 public class MainMenu {
+
+    /** R8-L3（D3-7）：主菜单 9 个按钮的 gui-layout 键，与下方默认槽位表逐位对应。 */
+    private static final String[] MENU_SLOT_KEYS = {
+            "word-learning", "dialogue-practice", "personal-profile", "english-square",
+            "daily-challenge", "wrong-book", "language-toggle", "duel", "checkin"
+    };
+    /** R8-L3（D3-7）：9 个按钮的默认槽位（任一配置槽位越界时整组回落此表）。 */
+    private static final int[] MENU_SLOT_DEFAULTS = { 11, 13, 15, 17, 10, 14, 18, 12, 16 };
 
     private final LetsLearnEnglish plugin;
 
@@ -47,9 +56,32 @@ public class MainMenu {
             size = 27;
         }
 
-        Inventory menu = Bukkit.createInventory(null, size, title);
-
+        // R8-L3（D3-7）：槽位守卫（R8-L3 的 clamp 换位到本文件，ConfigManager 不动）。
+        // gui-layout.main-menu 的 9 个槽位逐一校验：越界（<0 / >= size）会让 setItem 抛
+        // ArrayIndexOutOfBoundsException（开菜单即崩），任一非法即整组回落默认槽位表 +
+        // WARNING。点击侧（MainMenuListener）按裁决不动、仍读原配置——配置合法时两侧
+        // 天然一致；配置非法时属管理员自担（WARNING 已明示），本批只保不崩。
         ConfigManager cm = plugin.getConfigManager();
+        int[] menuSlots = new int[MENU_SLOT_KEYS.length];
+        boolean menuSlotsValid = true;
+        for (int i = 0; i < MENU_SLOT_KEYS.length; i++) {
+            menuSlots[i] = cm.getGuiSlot("main-menu", MENU_SLOT_KEYS[i], MENU_SLOT_DEFAULTS[i]);
+            if (menuSlots[i] < 0 || menuSlots[i] >= size) {
+                plugin.getLogger().warning("Invalid gui-layout.main-menu." + MENU_SLOT_KEYS[i]
+                        + ".slot: " + menuSlots[i] + " (must be 0.." + (size - 1)
+                        + "). Falling back to default main-menu layout.");
+                menuSlotsValid = false;
+            }
+        }
+        if (!menuSlotsValid) {
+            menuSlots = MENU_SLOT_DEFAULTS.clone();
+        } else if (hasDuplicateSlots(menuSlots)) {
+            // 同槽重复：仅告警不阻止（后渲染的按钮覆盖先渲染的，点击侧两分支取先命中者）
+            plugin.getLogger().warning("Duplicate slot(s) in gui-layout.main-menu: "
+                    + Arrays.toString(menuSlots) + " — buttons may overlap.");
+        }
+
+        Inventory menu = Bukkit.createInventory(null, size, title);
 
         for (int i = 0; i < size; i++) {
             menu.setItem(i, createMenuItem(Material.GRAY_STAINED_GLASS_PANE, " ", ""));
@@ -74,25 +106,25 @@ public class MainMenu {
         // 关闭时该槽回落开头的灰玻璃占位。个人主页（15）不设门——progress 伞注释明示
         // "停伞不停展示"。点击侧（MainMenuListener）同款门对僵尸界面兜底拒绝。
         if (cm.isWordSystemEnabled()) {
-            menu.setItem(cm.getGuiSlot("main-menu", "word-learning", 11), createMenuItem(cm.getGuiMaterial("main-menu", "word-learning", Material.BOOK), wordName, wordLore));
+            menu.setItem(menuSlots[0], createMenuItem(cm.getGuiMaterial("main-menu", "word-learning", Material.BOOK), wordName, wordLore));
         }
         if (cm.isAIChatEnabled()) {
-            menu.setItem(cm.getGuiSlot("main-menu", "dialogue-practice", 13), createMenuItem(cm.getGuiMaterial("main-menu", "dialogue-practice", Material.PAPER), dialogueName, dialogueLore));
+            menu.setItem(menuSlots[1], createMenuItem(cm.getGuiMaterial("main-menu", "dialogue-practice", Material.PAPER), dialogueName, dialogueLore));
         }
-        menu.setItem(cm.getGuiSlot("main-menu", "personal-profile", 15), createMenuItem(cm.getGuiMaterial("main-menu", "personal-profile", Material.DIAMOND), progressName, progressLore));
+        menu.setItem(menuSlots[2], createMenuItem(cm.getGuiMaterial("main-menu", "personal-profile", Material.DIAMOND), progressName, progressLore));
 
         String squareName = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "main-menu.square"));
         String squareLore = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "main-menu.square-lore"));
-        menu.setItem(cm.getGuiSlot("main-menu", "english-square", 17), createMenuItem(cm.getGuiMaterial("main-menu", "english-square", Material.PLAYER_HEAD), squareName, squareLore));
+        menu.setItem(menuSlots[3], createMenuItem(cm.getGuiMaterial("main-menu", "english-square", Material.PLAYER_HEAD), squareName, squareLore));
 
         String dailyName = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "main-menu.daily-challenge"));
         String dailyLore = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "main-menu.daily-challenge-lore"));
         if (cm.isDailyChallengesEnabled()) {
-            menu.setItem(cm.getGuiSlot("main-menu", "daily-challenge", 10),
+            menu.setItem(menuSlots[4],
                     createMenuItem(cm.getGuiMaterial("main-menu", "daily-challenge", Material.WRITABLE_BOOK),
                             dailyName, dailyLore));
         }
@@ -108,14 +140,14 @@ public class MainMenu {
         // 模块门（旅程验收收口）：word-system 承诺"错题本隐藏"——归 word-system 门
         // （错题本是单词学习的从属面；其练习入口消费答题输入，关闭必须同步隐藏）。
         if (cm.isWordSystemEnabled()) {
-            menu.setItem(cm.getGuiSlot("main-menu", "wrong-book", 14), createMenuItem(cm.getGuiMaterial("main-menu", "wrong-book", Material.BOOKSHELF), wrongName, wrongLore));
+            menu.setItem(menuSlots[5], createMenuItem(cm.getGuiMaterial("main-menu", "wrong-book", Material.BOOKSHELF), wrongName, wrongLore));
         }
 
         String btnName = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "language.button"));
         String btnLore = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "language.button-lore"));
-        menu.setItem(cm.getGuiSlot("main-menu", "language-toggle", 18), createMenuItem(cm.getGuiMaterial("main-menu", "language-toggle", Material.RED_BED), btnName, btnLore));
+        menu.setItem(menuSlots[6], createMenuItem(cm.getGuiMaterial("main-menu", "language-toggle", Material.RED_BED), btnName, btnLore));
 
         // Phase 3 · MC-1（R-82 收口）：新增【单词对决】slot 12 +【每日签到】slot 16，
         // 零移动零扩容（既有 7 按钮零改动）。槽位/材质走同一份 gui-layout.main-menu
@@ -127,7 +159,7 @@ public class MainMenu {
                     MessageUtil.getGuiMsg(messages, "main-menu.duel"));
             String duelLore = ChatColor.translateAlternateColorCodes('&',
                     MessageUtil.getGuiMsg(messages, "main-menu.duel-lore"));
-            menu.setItem(cm.getGuiSlot("main-menu", "duel", 12),
+            menu.setItem(menuSlots[7],
                     createMenuItem(cm.getGuiMaterial("main-menu", "duel", Material.DIAMOND_SWORD),
                             duelName, duelLore));
         }
@@ -137,7 +169,7 @@ public class MainMenu {
                     MessageUtil.getGuiMsg(messages, "main-menu.checkin"));
             String checkinLore = ChatColor.translateAlternateColorCodes('&',
                     MessageUtil.getGuiMsg(messages, "main-menu.checkin-lore"));
-            menu.setItem(cm.getGuiSlot("main-menu", "checkin", 16),
+            menu.setItem(menuSlots[8],
                     createMenuItem(cm.getGuiMaterial("main-menu", "checkin", Material.SUNFLOWER),
                             checkinName, checkinLore));
         }
@@ -145,6 +177,16 @@ public class MainMenu {
         // R-86：menu-open 不再在此显式播放 —— SoundManager.onInventoryOpen 会对所有
         // 插件 GUI 全局播一次，此处保留会双声（去重方向与理由见 SoundManager 类注释）。
         player.openInventory(menu);
+    }
+
+    /** R8-L3（D3-7）：排序后相邻相等即存在同槽（仅告警，不阻止）。 */
+    private static boolean hasDuplicateSlots(int[] slots) {
+        int[] sorted = slots.clone();
+        Arrays.sort(sorted);
+        for (int i = 1; i < sorted.length; i++) {
+            if (sorted[i] == sorted[i - 1]) return true;
+        }
+        return false;
     }
 
     private ItemStack createMenuItem(Material material, String name, String lore) {

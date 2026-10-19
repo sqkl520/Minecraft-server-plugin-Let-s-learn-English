@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.listener;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.gui.ConfirmationGUI;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -142,5 +143,9 @@ public class PlayerJoinListener implements Listener {
         plugin.getAIChatManager().unloadPlayer(playerId);
         plugin.getWordManager().getReviewScheduler().unloadPlayer(playerId);
         plugin.getChatFeedbackManager().unloadPlayer(playerId);
+        // R8-L1 quit 清理：语言二确流程的静态阶段 map（ConfirmationGUI.confirmStages）
+        // —— quit 不清理会让"确认页 1 → 下线 → 重登"的玩家从阶段 1 残留状态继续，
+        // 跳过二段确认。quit 事件有 Player 对象，直接走 resetStage。
+        ConfirmationGUI.resetStage(event.getPlayer());
     }
 }

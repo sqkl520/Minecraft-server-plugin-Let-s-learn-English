@@ -219,20 +219,7 @@ public class ChatFeedbackManager {
         if (playerId == null) {
             return CompletableFuture.completedFuture(null);
         }
-        return CompletableFuture.runAsync(() -> {
-            if (!plugin.isEnabled()) {
-                return;
-            }
-            try {
-                plugin.getDatabaseManager().upsertChatFeedback(playerId, summary.sessionId(),
-                        summary.scenarioKey(), summary.difficultyKey(),
-                        summary.validInputs(), summary.aiReplyCount(),
-                        (int) summary.durationSeconds(), source, payloadJson);
-            } catch (Exception e) {
-                plugin.getLogger().warning("Failed to persist chat feedback for "
-                        + playerId + ": " + e.getMessage());
-            }
-        });
+        return CompletableFuture.runAsync(writeTask(playerId, summary, source, payloadJson));
     }
 
     /**
@@ -245,7 +232,18 @@ public class ChatFeedbackManager {
         if (playerId == null) {
             return;
         }
-        prerequisite.thenRunAsync(() -> {
+        prerequisite.thenRunAsync(writeTask(playerId, summary, source, payloadJson));
+    }
+
+    /**
+     * 落库任务工厂（D2-4：persistAsync/persistAfter 两路径逐字去重）：
+     * isEnabled 守卫 + upsertChatFeedback 7 参 + WARNING 吞异常。
+     *
+     * <p>每次调用返回新 Runnable 实例（无状态，但保守起见不跨 future 复用同一实例）。
+     */
+    private Runnable writeTask(UUID playerId, AIChatManager.SessionSummary summary,
+                               String source, String payloadJson) {
+        return () -> {
             if (!plugin.isEnabled()) {
                 return;
             }
@@ -258,7 +256,7 @@ public class ChatFeedbackManager {
                 plugin.getLogger().warning("Failed to persist chat feedback for "
                         + playerId + ": " + e.getMessage());
             }
-        });
+        };
     }
 
     /** 读单行反馈（GUI 详情页用；有界索引查询——UNIQUE(player_uuid, session_id) 天然覆盖）。 */
@@ -269,7 +267,10 @@ public class ChatFeedbackManager {
         return plugin.getDatabaseManager().getChatFeedback(playerId, sessionId);
     }
 
-    /** quit 生命周期钩（当前无自持 map——预留与 clearPendingSummary 同编排点对齐）。 */
+    /**
+     * quit 生命周期钩（当前无自持 map——预留与 clearPendingSummary 同编排点对齐）。
+     * 经死代码审计豁免（D2-3）：空实现系编排点形状保留，非遗漏。
+     */
     public void unloadPlayer(UUID playerId) {
         // 本类当前无 per-player 状态；保留方法维持 quit 编排点形状一致（未来扩展点）。
     }

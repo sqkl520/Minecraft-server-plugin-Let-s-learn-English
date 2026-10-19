@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 16
+config-version: 17
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -176,6 +176,7 @@ progress:
 admin:
   export-complete: "{prefix}&aData export complete! File: &e{file}"
   player-reset: "{prefix}&aReset learning data for player &e{player}"
+  reset-confirm: "{prefix}&cDANGER: This deletes ALL data for &e{player} &c(15 tables). To confirm, run &e/lea reset {player} confirm"
   usage-reset: "Usage: /lea reset <player>"
   usage-exportwordbank: "{prefix}&cUsage: /lea exportwordbank <difficulty>"
   available-difficulties: "{prefix}&7Available difficulties: &e{list}"
@@ -305,7 +306,7 @@ duel:
   usage: "{prefix}&eUsage: /le duel <player> &7challenge | /le duel accept &7accept | /le duel quit &7quit | /le duel gui &7reopen GUI | /le duel cancel <player> &7(admin)"
   request-sent: "{prefix}&aYou sent a word duel challenge to &e{player}!"
   request-received: "{prefix}&6★ &e{player} &6has challenged you to a word duel!"
-  accept-hint: "&6Click here or type &e/le duel accept &6to accept!"
+  accept-hint: "&6Type &e/le duel accept &6to accept!"
   request-expired: "{prefix}&7Your duel invitation to &e{player} &7has expired!"
   request-expired-target: "{prefix}&7Duel invitation from &e{player} &7has expired!"
   sender-chatting: "{prefix}&cYou're in an AI chat! Type bye to end it first, then send the duel request."
@@ -364,6 +365,7 @@ admin-help:
   duel-cancel: "&e/lea duel cancel <player> &7- Force-dismiss that player's word duel (no winner)"
   footer: "&6======================================"
   report: "&e/lea report <player|all> [week|lastweek|<N>d] &7- Generate a learning report (TXT in exports/reports/)"
+  class: "&e/lea class <create|add|remove|list|delete> ... &7- Class management"
 
 plugin-info:
   header: "&6===== Let's Learn English! Info ====="
