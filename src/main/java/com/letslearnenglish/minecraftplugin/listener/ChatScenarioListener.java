@@ -33,7 +33,16 @@ public class ChatScenarioListener implements Listener {
     private final LetsLearnEnglish plugin;
     private final AIChatManager aiChatManager;
 
-    /** 正在 AI 对话模式中的玩家 */
+    /**
+     * 正在 AI 对话模式中的玩家。
+     *
+     * <p>R2-L3 漂移契约（死代码/卫生审计记录）：本集合与 {@code AIChatManager.sessions}
+     * 成对写入——进入：{@code LearnCommand:349} / {@code ScenarioSelectListener:153}
+     * 两处 {@link #addPlayer}；退出：{@link #onPlayerQuit} 与
+     * {@link #handleEndConversation} 两处 remove。任何新增写入点必须同时维护另一侧；
+     * 若未来写入点数量超过阈值，改用 {@code aiChatManager.hasActiveConversation(player)}
+     * 派生。现全部入口均成对，无漂移路径（本契约即为审计处置：不做派生重构）。
+     */
     private final Set<UUID> activePlayers = Collections.synchronizedSet(new HashSet<>());
 
     public ChatScenarioListener(LetsLearnEnglish plugin, AIChatManager aiChatManager) {

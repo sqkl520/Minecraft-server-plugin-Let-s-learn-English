@@ -568,14 +568,6 @@ public class PlayerDataStore {
     }
 
     /**
-     * Save difficult words cache to database.
-     */
-    public void saveDifficultWords(UUID playerId) {
-        // Difficult words are written incrementally via async DB ops,
-        // so no explicit full save is needed. This method exists for API consistency.
-    }
-
-    /**
      * Save a player's data from cache to the database.
      * Uses UPSERT (INSERT OR REPLACE for SQLite, INSERT...ON DUPLICATE KEY UPDATE for MySQL)
      * in a single transaction to eliminate the DELETE+INSERT double-operation.

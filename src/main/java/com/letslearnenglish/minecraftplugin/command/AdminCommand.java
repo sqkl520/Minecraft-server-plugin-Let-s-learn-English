@@ -101,8 +101,19 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                 }
                 break;
             case "reset":
-                if (args.length > 1) {
+                // R9-L2 两段式确认：/lea reset <player> 只提示不执行；
+                // /lea reset <player> confirm 才真正删除。控制台同式（统一路径，
+                // 脚本自动化追加 confirm 即可），防手滑选错人一次性删光 15 张表。
+                if (args.length == 2) {
+                    sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                            "admin.reset-confirm", "player", args[1]));
+                } else if (args.length > 2 && "confirm".equalsIgnoreCase(args[2])) {
                     handleReset(sender, args[1]);
+                } else if (args.length > 2) {
+                    // 第三参数写了但不是 confirm（如 /lea reset X y 手误）：
+                    // 重发确认提示，不做静默丢弃
+                    sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                            "admin.reset-confirm", "player", args[1]));
                 } else {
                     sender.sendMessage(plugin.getMessageUtil()
                             .getSenderMessage(sender, "admin.usage-reset"));
@@ -316,6 +327,10 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                 "admin-help.duel-cancel"));
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "admin-help.report"));
+        // R9-L7：class 行补齐——与 SUBCOMMANDS 顺序对齐（class 紧随 report 之后），
+        // 消除"tab 有 class、help 无说明"的不可发现缺口。
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "admin-help.class"));
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "admin-help.footer"));
     }

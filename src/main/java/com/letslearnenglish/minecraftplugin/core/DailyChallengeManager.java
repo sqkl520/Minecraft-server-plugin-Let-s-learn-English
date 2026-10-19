@@ -895,8 +895,10 @@ public class DailyChallengeManager {
         String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
         String sql = "SELECT COUNT(*) FROM " + tablePrefix
                 + "daily_challenges WHERE uuid = ? AND challenge_date = ? AND completed = 1 AND claimed = 0";
-        Connection conn = plugin.getDatabaseManager().getConnection();
+        // R6-L1：getConnection() 移入锁内首行（照批 A R3-H3 范式）——锁外取引用的
+        // double-check 窗口内连接可能被重建，锁外引用即陈旧句柄。
         synchronized (plugin.getDatabaseManager().getConnectionLock()) {
+        Connection conn = plugin.getDatabaseManager().getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
             stmt.setString(2, date);

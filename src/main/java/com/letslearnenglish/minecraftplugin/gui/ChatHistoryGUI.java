@@ -484,6 +484,12 @@ public class ChatHistoryGUI {
                 int pos = 0;
                 while (pos < full.length()) {
                     int end = Math.min(pos + wrapLen, full.length());
+                    // D2-8：防在代理对（emoji/生僻字）中间截断——若截点恰落在 low
+                    // surrogate 上则回退一位（wrapLen=40 为字符数而非视觉宽度的语义
+                    // 不变，视觉宽度改进超出本批范围）。
+                    if (end < full.length() && Character.isLowSurrogate(full.charAt(end))) {
+                        end--;
+                    }
                     lore.add(ChatColor.WHITE + full.substring(pos, end));
                     pos = end;
                 }

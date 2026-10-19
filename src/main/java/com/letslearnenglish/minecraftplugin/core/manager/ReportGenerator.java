@@ -1125,6 +1125,10 @@ public class ReportGenerator {
     //  线程调度守卫
     // ============================================================
 
+    /**
+     * D2-5：同型帮助器见 util.SchedulerGuard（语义微差：本处带 fine 日志级别），
+     * 本批未迁移。
+     */
     private void runAsync(Runnable task) {
         try {
             plugin.getServer().getScheduler().runTaskAsynchronously(plugin, task);

@@ -476,7 +476,10 @@ public class EnglishSquareGUI {
         ConfigManager cm = plugin.getConfigManager();
         FileConfiguration messages = cm.getMessageConfig(plugin.getPlayerLanguage(viewer));
         String title = ChatColor.translateAlternateColorCodes('&',
-                MessageUtil.getGuiMsg(messages, "square.title"));
+                MessageUtil.getGuiMsg(messages, "square.title")
+                        // R11-L1：补 {page} 替换（照 open() :168 写法；笑话页无分页语义，
+                        // 取 open() 空列表同款的 "1/1" —— 标题残留 {page} 视觉破绽）。
+                        .replace("{page}", "1/1"));
         Inventory inv = Bukkit.createInventory(null, 27, title);
 
         String jokeName = ChatColor.translateAlternateColorCodes('&',

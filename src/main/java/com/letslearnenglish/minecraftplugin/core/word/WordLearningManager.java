@@ -697,12 +697,6 @@ public class WordLearningManager implements Listener {
         return false;
     }
 
-    public int getConsecutiveCorrect(UUID playerId) {
-        QuizState state = quizStates.get(playerId);
-        if (state == null) return 0;
-        return state.consecutiveCorrect;
-    }
-
     public String getDifficulty(UUID playerId) {
         QuizState state = quizStates.get(playerId);
         if (state == null) return "beginner";

@@ -140,6 +140,9 @@ public class WordManagerImpl {
 
         LearningSession session = new LearningSession(player.getUniqueId(), difficulty, mode, sessionWords);
         activeSessions.put(player.getUniqueId(), session);
+        // R13-L2：公共 API isPlayerLearning 的真相标记（原 setPlayerInSession 零调用，
+        // activeSessionPlayers 恒空 → API 恒 false）。startSession/endSession 成对维护。
+        plugin.getPlayerDataStore().setPlayerInSession(player.getUniqueId(), true);
         return session;
     }
 
@@ -157,6 +160,9 @@ public class WordManagerImpl {
      */
     public void endSession(UUID playerId) {
         LearningSession session = activeSessions.remove(playerId);
+        // R13-L2：与 startSession/startReviewSession 的置位成对（清理完成处；
+        // 无会话时调用亦安全——幂等清位，防 API 卡在 true）。
+        playerDataStore.setPlayerInSession(playerId, false);
         if (session != null) {
             playerDataStore.updateWordProgress(playerId, session.getResults());
             playerDataStore.getPlayerStats(playerId).addScore(session.getScore());
@@ -261,6 +267,8 @@ public class WordManagerImpl {
 
         LearningSession session = new LearningSession(player.getUniqueId(), "review", "review", reviewWords);
         activeSessions.put(player.getUniqueId(), session);
+        // R13-L2：复习会话同走 endSession 收尾，开局侧成对置位（否则 API 在复习中恒 false）。
+        plugin.getPlayerDataStore().setPlayerInSession(player.getUniqueId(), true);
         return session;
     }
 

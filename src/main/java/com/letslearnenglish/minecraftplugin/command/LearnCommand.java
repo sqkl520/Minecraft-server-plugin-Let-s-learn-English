@@ -316,6 +316,14 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                         "dialogue.scenario-not-found", "key", args[1]));
                 return;
             }
+            // R11-L3：命令路径补 AI 可用性预检（照 ScenarioSelectListener:121-129 先例）。
+            // 原先命令路径直接开始对话，玩家看到"已开启"后每条消息才被
+            // dialogue.ai-not-configured 打脸；GUI 路径会拦、命令路径放行，双入口语义漂移。
+            if (!plugin.getAIChatManager().isAvailable()) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "dialogue.ai-not-configured"));
+                return;
+            }
             // S4 互斥：答题 / 错题练习 / 决斗 / 已有 AI 对话进行中时不重复开聊
             // （/le dialogue 的退出语义在上面 isInScenarioMode 分支已提前处理，不受影响）。
             // 决斗优先判：决斗中本身就有答题态，报"先结束对决"比报"先结束答题"更准确。
@@ -878,7 +886,11 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    /** 主线程回调薄封装（停用窗口静默放弃；照抄 SeasonManager.runMain 姿态）。 */
+    /**
+     * 主线程回调薄封装（停用窗口静默放弃；照抄 SeasonManager.runMain 姿态）。
+     * D2-5：同型帮助器见 util.SchedulerGuard（语义微差：其余调用点带 isEnabled
+     * 预检/日志级别），本批未迁移，仅留注释指向。
+     */
     private void runTaskSafe(Runnable task) {
         try {
             Bukkit.getScheduler().runTask(plugin, task);

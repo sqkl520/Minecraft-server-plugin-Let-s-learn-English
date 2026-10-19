@@ -613,9 +613,11 @@ public class SocialListener implements Listener {
         });
         // R-05：与广场点击分支同语义 —— 看别人主页先查 showInSquare，
         // 隐身者进 openHidden 笑话页；看自己主页不受影响。
+        // R4-L1：榜单头像点击是纯读判定 —— 走 getProfileSettingsReadOnly 只读快照，
+        // 不把目标玩家拉进本机缓存（全仓 10+ 消费点同款；与动态条目 :721 分支一致）。
         if (targetId.equals(player.getUniqueId())) {
             new ProfileGUI(plugin).open(player, targetId);
-        } else if (plugin.getPlayerDataStore().getProfileSettings(targetId).isShowInSquare()) {
+        } else if (plugin.getPlayerDataStore().getProfileSettingsReadOnly(targetId).isShowInSquare()) {
             new ProfileGUI(plugin).open(player, targetId);
         } else {
             new EnglishSquareGUI(plugin).openHidden(player, targetId);

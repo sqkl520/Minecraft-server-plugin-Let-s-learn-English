@@ -61,6 +61,11 @@ public class StatisticsHttpServer {
      * Start the HTTP server and bind to the configured port.
      */
     public void start() {
+        // R13-L5：默认/弱口令启动告警（不改行为——只是让"忘了改密码"可见）
+        if (authPassword == null || authPassword.isEmpty() || "changeme".equals(authPassword)) {
+            plugin.getLogger().warning("Statistics HTTP dashboard is using the default/empty auth password!"
+                    + " Please set 'statistics-server.auth.password' in config.yml.");
+        }
         try {
             server = HttpServer.create(new InetSocketAddress(bindAddress, port), 0);
             executor = Executors.newFixedThreadPool(2, runnable -> {
@@ -206,7 +211,15 @@ public class StatisticsHttpServer {
             if (parts.length != 2) {
                 return false;
             }
-            return authUsername.equals(parts[0]) && authPassword.equals(parts[1]);
+            // R13-L5：常数时间比较（防时序侧信道）——两字段都走 MessageDigest.isEqual；
+            // 用户名比较保持"长度泄漏"与密码同口径（Basic Auth 用户名非秘密，但
+            // 统一写法避免后人只改一半）。
+            return java.security.MessageDigest.isEqual(
+                    authUsername.getBytes(StandardCharsets.UTF_8),
+                    parts[0].getBytes(StandardCharsets.UTF_8))
+                    && java.security.MessageDigest.isEqual(
+                    authPassword.getBytes(StandardCharsets.UTF_8),
+                    parts[1].getBytes(StandardCharsets.UTF_8));
         } catch (IllegalArgumentException e) {
             return false;
         }
