@@ -1052,7 +1052,7 @@ stop
 |------|------|------|
 | `/lea reload` | 热重载所有配置、词库、音效缓存 | `letslearnenglish.admin` |
 | `/lea export` | 导出在线玩家学习数据为 CSV 文件（落 exports/ 目录） | `letslearnenglish.admin` |
-| `/lea reset <玩家名>` | 重置指定玩家的学习数据 | `letslearnenglish.admin` |
+| `/lea reset <玩家名>` | 重置指定玩家的学习数据（两段式确认：首执行提示，再执行 `/lea reset <玩家名> confirm` 生效） | `letslearnenglish.admin` |
 | `/lea info` | 查看插件版本和运行状态信息 | `letslearnenglish.admin` |
 | `/lea exportwordbank <难度>` | 导出词库为 YAML 文件（落 `exports/`） | `letslearnenglish.admin` |
 | `/lea importwordbank <文件名.yml>` | 从 `exports/` 导入词库 YAML（含校验与去重） | `letslearnenglish.admin` |
@@ -1069,7 +1069,8 @@ stop
 ```
 /lea reload                     # 修改配置后无需重启
 /lea export                     # 导出 CSV 格式的在线玩家数据
-/lea reset Steve                # 重置玩家 Steve 的数据
+/lea reset Steve                # 重置玩家 Steve 的数据（首执行出确认提示）
+/lea reset Steve confirm        # 二次确认后真正执行重置
 /lea info                       # 查看版本、数据库类型等
 /lea report Anna week           # 生成 Anna 的本周学习报告
 /lea report all                 # 全服批量对比报告（上限 50 人，超出截断标注）

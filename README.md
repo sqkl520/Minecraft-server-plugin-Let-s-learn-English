@@ -71,7 +71,7 @@
 | 命令 | 说明 |
 |------|------|
 | `/lea reload` | 热重载所有配置、词库、音效缓存 |
-| `/lea reset <玩家名>` | 重置玩家学习数据 |
+| `/lea reset <玩家名>` | 重置玩家学习数据（两段式确认：先提示，再执行 `/lea reset <玩家名> confirm` 生效） |
 | `/lea info` | 查看插件信息 |
 | `/lea export` | 导出玩家数据 |
 | `/lea exportwordbank <难度>` | 导出单词库至 YAML 文件 |
