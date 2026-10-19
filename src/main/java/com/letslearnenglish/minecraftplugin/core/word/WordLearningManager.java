@@ -60,6 +60,21 @@ public class WordLearningManager implements Listener {
                     "module.disabled"));
             return null;
         }
+        // R1-M1：进行中的会话不静默覆盖（原先 quizStates.remove 直接丢弃旧会话，
+        // 已发奖励不回滚）。入口拒入 + 提示；守卫在模块门之后（module.disabled 优先），
+        // 调用方对 null 为静默 return —— 提示必须由守卫自己发。
+        if (hasActiveQuiz(player.getUniqueId())) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "word.session-in-progress"));
+            return null;
+        }
+        // R1-M2：错题练习与答题互斥 —— 两态并存时答题输入会被 practice 分支先吞掉
+        // （ChatAnswerListener 的 hard-order），在此构建双态即不可能。
+        if (isPracticingWord(player.getUniqueId())) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "word.practice-in-progress"));
+            return null;
+        }
         cancelAnswerTimer(player);
         quizStates.remove(player.getUniqueId());
         LearningSession session = wordManager.startSession(player, difficulty, mode);
@@ -79,6 +94,17 @@ public class WordLearningManager implements Listener {
         if (!plugin.getConfigManager().isWordSystemEnabled()) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "module.disabled"));
+            return null;
+        }
+        // R1-M1 + R1-M2：同 startQuiz 入口守卫（进行中会话 / 错题练习拒入）。
+        if (hasActiveQuiz(player.getUniqueId())) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "word.session-in-progress"));
+            return null;
+        }
+        if (isPracticingWord(player.getUniqueId())) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "word.practice-in-progress"));
             return null;
         }
         cancelAnswerTimer(player);
@@ -110,6 +136,19 @@ public class WordLearningManager implements Listener {
         if (!plugin.getConfigManager().isWordSystemEnabled()) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "module.disabled"));
+            return null;
+        }
+        // R1-M1 + R1-M2：同 startQuiz 入口守卫 —— 教程开局走本方法（OnboardingManager
+        // 调用），interceptQuizStart 对 null 返回 true（已接管、不回落），守卫发的提示
+        // 不会与调用点重复。
+        if (hasActiveQuiz(player.getUniqueId())) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "word.session-in-progress"));
+            return null;
+        }
+        if (isPracticingWord(player.getUniqueId())) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "word.practice-in-progress"));
             return null;
         }
         // 旅程验收半截项说明（有意豁免）：迷你会话强制 choice——D4 规划裁决，引导线的

@@ -21,7 +21,7 @@ import java.util.logging.Level;
  */
 public class ConfigManager {
 
-    private static final int MESSAGE_CONFIG_VERSION = 14;
+    private static final int MESSAGE_CONFIG_VERSION = 15;
 
     /**
      * Config keys the code actually relies on at runtime. Absence is logged as a WARNING on

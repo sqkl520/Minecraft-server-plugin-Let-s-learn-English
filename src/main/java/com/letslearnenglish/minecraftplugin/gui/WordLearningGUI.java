@@ -30,9 +30,14 @@ public class WordLearningGUI {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
+        // R11-M1：标题难度本地化（F2-13 同根漏面收口）；"review" 特判 ——
+        // localizeDifficulty 的 switch 只覆盖三档，review 会原样回落。
+        String difficultyLabel = "review".equalsIgnoreCase(difficulty)
+                ? plugin.getMessageUtil().getPlayerMessage(player, "word.mode-review")
+                : WordModes.localizeDifficulty(plugin.getMessageUtil(), player, difficulty);
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "word-learning-gui.title")
-                        .replace("{difficulty}", difficulty));
+                        .replace("{difficulty}", difficultyLabel));
 
         Inventory inv = Bukkit.createInventory(null, 27, title);
         buildInventory(inv, player);

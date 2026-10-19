@@ -584,6 +584,17 @@ public class DuelManager {
     }
 
     /**
+     * R5-M1(b)：宽限任务自清理 —— remove(key, value) 双参只摘"仍是自己"的条目，
+     * 无论条目在否都 cancel 自己（cancel 幂等）；防 stale 任务每秒空转。
+     * 模式抄 {@link #selfCancelWordTimeout}（:580-584）。
+     */
+    private void selfCancelGrace(UUID playerId, BukkitTask task) {
+        if (task == null) return;
+        graceTasks.remove(playerId, task);
+        task.cancel();
+    }
+
+    /**
      * Cancel the pending single-question countdown for a room, if any.
      */
     private void cancelWordTimeout(DuelRoom room) {
@@ -802,6 +813,10 @@ public class DuelManager {
         DuelRoom room = activeDuels.get(playerId);
         if (room == null || !room.isActive()) return;
 
+        // R5-M1(a)：覆盖写前先取消旧宽限任务（幂等；正常路径恒为空）。
+        BukkitTask prevGrace = graceTasks.remove(playerId);
+        if (prevGrace != null) { prevGrace.cancel(); }
+
         disconnectTimers.put(playerId, new DisconnectInfo(room));
 
         UUID opponentId = room.getOpponent(playerId);
@@ -814,21 +829,23 @@ public class DuelManager {
 
         // Start grace period countdown
         int[] remainingSeconds = {GRACE_PERIOD_SECONDS};
-        BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+        // R5-M1(b)：自引用 holder —— lambda 里的 this 是 DuelManager（非 task），
+        // 需要 hold 住自身引用供自清理使用；首 tick 在 20L 之后，届时 holder[0] 必然已赋值。
+        final BukkitTask[] selfRef = new BukkitTask[1];
+        selfRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             remainingSeconds[0]--;
 
             // Check if player reconnected
             if (!disconnectTimers.containsKey(playerId)) {
-                return; // timer will be cancelled below
+                selfCancelGrace(playerId, selfRef[0]); // 原"return; // timer will be cancelled below"——下方不可达，改自取消
+                return;
             }
 
             DuelRoom currentRoom = activeDuels.get(opponentId);
             if (currentRoom == null || !currentRoom.isActive()) {
                 // R-26: 对局已无 —— 停掉本宽限任务，不再每秒空转。
-                BukkitTask self = graceTasks.remove(playerId);
-                if (self != null) {
-                    self.cancel();
-                }
+                // R5-M1(b)：改自引用自取消（对称统一，防未来回归）。
+                selfCancelGrace(playerId, selfRef[0]);
                 disconnectTimers.remove(playerId);
                 return;
             }
@@ -839,10 +856,8 @@ public class DuelManager {
                 // 僵尸任务修复：照 R-26 模式自行摘登记并 cancel 任务本体 ——
                 // 原实现只 graceTasks.remove 不 cancel，任务会带着已空的登记条目
                 // 每 20 tick 空转到关服（cleanup/shutdown 因条目已摘都造访不到它）。
-                BukkitTask self = graceTasks.remove(playerId);
-                if (self != null) {
-                    self.cancel();
-                }
+                // R5-M1(b)：改双参自取消 —— 单参 remove 可能误摘同房间新一轮任务。
+                selfCancelGrace(playerId, selfRef[0]);
                 disconnectTimers.remove(playerId);
 
                 if (opp != null && opp.isOnline()) {
@@ -873,13 +888,17 @@ public class DuelManager {
             }
         }, 20L, 20L); // every second
 
-        graceTasks.put(playerId, task);
+        graceTasks.put(playerId, selfRef[0]);
     }
 
     /**
      * Called when a player rejoins after disconnecting during a duel.
      */
     public void handleReconnect(Player player) {
+        if (player == null || !player.isOnline()) {
+            return;   // R5-M1(c)/R5-L1：延迟回调落在已离线玩家 —— 放弃（新 quit 的宽限不受扰）。
+                      // 注：离线补通知属 R-69 offlineNotices 链路，不走本方法。
+        }
         UUID playerId = player.getUniqueId();
         DisconnectInfo info = disconnectTimers.remove(playerId);
         if (info == null) return;

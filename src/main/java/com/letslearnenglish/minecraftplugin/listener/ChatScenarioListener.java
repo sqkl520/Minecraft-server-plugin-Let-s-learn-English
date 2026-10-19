@@ -71,10 +71,11 @@ public class ChatScenarioListener implements Listener {
             return; // 不是对话模式，正常聊天
         }
 
-        // R-66 纵深防御：答题/决斗优先 —— 玩家在答题或决斗中时，对话侧不处理该消息
-        // （正常流 ChatAnswerListener 已先 cancel 事件使其不可达；此处防竞态窗口。
-        //  不 cancel、不提示、不消费 —— 让给答题/决斗路径处理）。
+        // R-66 纵深防御：答题/错题练习/决斗优先 —— 玩家在答题、错题练习或决斗中时，
+        // 对话侧不处理该消息（正常流 ChatAnswerListener 已先 cancel 事件使其不可达；
+        // 此处防竞态窗口。不 cancel、不提示、不消费 —— 让给答题/练习/决斗路径处理）。
         if (plugin.getWordLearningManager().hasActiveQuiz(player.getUniqueId())
+                || plugin.getWordLearningManager().isPracticingWord(player.getUniqueId())
                 || (plugin.getDuelManager() != null
                         && plugin.getDuelManager().isInDuel(player.getUniqueId()))) {
             return;

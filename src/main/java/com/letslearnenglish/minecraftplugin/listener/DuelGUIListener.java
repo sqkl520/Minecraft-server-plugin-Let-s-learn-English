@@ -38,6 +38,17 @@ public class DuelGUIListener implements Listener {
         if (event.getClickedInventory() == null) return;
         int topSize = event.getView().getTopInventory().getSize();
         int rawSlot = event.getRawSlot();
+
+        // R5V-1 纵深：下半区 shift-click（MOVE_TO_OTHER_INVENTORY）补 cancel ——
+        // 铺满后原版已无落点，此处防未来布局改动回归。其余下半区点击不 cancel
+        //（玩家整理背包不受影响，R-01/R-22 语义保持）。
+        // 注：MOVE_TO_OTHER_INVENTORY 是 InventoryAction 常量（fix-plan 写 ClickType 系笔误，编译不过）。
+        if (event.getAction() == org.bukkit.event.inventory.InventoryAction.MOVE_TO_OTHER_INVENTORY
+                && rawSlot >= topSize) {
+            event.setCancelled(true);
+            return;
+        }
+
         if (rawSlot < 0 || rawSlot >= topSize) return;
 
         // 上半区命中后立刻取消：确保没有任何分支能把展示用的物品从界面里拿走

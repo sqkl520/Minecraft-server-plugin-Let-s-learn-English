@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 14
+config-version: 15
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -42,6 +42,8 @@ word:
   invalid-mode: "{prefix}&c未知的学习模式: &e{mode}&c，可用模式: &espelling &7/ &echoice &7/ &efill_blank"
   invalid-difficulty: "{prefix}&c无效的难度喵~ 可用难度: &e{options}"
   no-words-available: "{prefix}&c该难度暂时没有可学习的单词喵~ 换个难度试试吧"
+  session-in-progress: "{prefix}&c你还有一场学习会话正在进行中喵~ 请先答完它，或点停止按钮结束本局后再开新局"
+  practice-in-progress: "{prefix}&c你正在错题练习中喵~ 请在聊天栏输入 &fcancel &c结束练习后再开始答题"
   difficulty-beginner: "初级"
   difficulty-intermediate: "中级"
   difficulty-advanced: "高级"
@@ -94,7 +96,7 @@ dialogue:
   rate-limited: "{prefix}&eAI 请求过于频繁，服务器正忙，请稍后再试喵~"
   timeout: "{prefix}&eAI 响应超时了，请稍后再试喵~"
   more-scenarios: "&e&l更多场景…"
-  more-scenarios-lore: "&7还有 {count} 个场景未显示，翻页功能即将上线"
+  more-scenarios-lore: "&7还有 {count} 个场景未显示，输入 &e/le dialogue <场景名> &7可直接进入（支持 Tab 补全）"
   more-difficulties: "&e&l更多难度…"
   more-difficulties-lore: "&7还有 {count} 个难度未显示，翻页功能即将上线"
   finish-quiz-first: "{prefix}&c你正在答题中喵~ 请先完成或结束当前答题，再开始 AI 对话"
@@ -261,6 +263,7 @@ help:
 checkin:
   success: "{prefix}&a签到成功! 连续签到 &e{streak} &a天，获得 &e{coins} &a金币!"
   already: "{prefix}&e你今天已经签到过了喵~ 明天再来吧!"
+  storage-failed: "{prefix}&c签到写入失败喵~ 本次签到没有记录成功，请稍后再试一次"
   streak-broken: "{prefix}&c发生断签... &7旧连续签到已归零，今天签到后重新计为 &e1 &7天"
   economy-disabled: "{prefix}&7本服未启用金币经济，本次签到不发放金币，签到天数正常记录~"
 
@@ -397,6 +400,7 @@ main-menu:
 
 daily:
   title: "&6&l每日挑战"
+  load-failed: "{prefix}&c界面数据加载失败喵~ 请稍后再试一次"
   claimed: "&a已领取！"
   completed: "&6点击领取奖励！"
   in-progress: "&7进行中"

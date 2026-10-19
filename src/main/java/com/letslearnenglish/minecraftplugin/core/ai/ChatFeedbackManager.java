@@ -150,6 +150,17 @@ public class ChatFeedbackManager {
     private void handleSummaryResult(Player player, AIChatManager.SessionSummary summary,
                                      ConversationFeedback feedback, String errorKey,
                                      CompletableFuture<Void> localWrite) {
+        // R2-M3：玩家已开新会话 —— 上一场点评不显示（防串台）。仍照常落库：
+        // 成功分支经 persistAfter 写 source=ai 行（数据不丢）；失败分支无库写，直接丢。
+        // 判据：上一场会话在 endConversation 时已从 sessions 移除，此处若仍有活跃
+        // 会话必然是新的（sessionId 必不同），等价实现"比对不匹配静默丢弃"。
+        if (aiChatManager.hasActiveConversation(player)) {
+            if (errorKey == null && feedback != null) {
+                persistAfter(player.getUniqueId(), summary, localWrite,
+                        "ai", GSON.toJson(feedback));
+            }
+            return;
+        }
         if (errorKey != null || feedback == null) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "dialogue.feedback.ai-failed"));
