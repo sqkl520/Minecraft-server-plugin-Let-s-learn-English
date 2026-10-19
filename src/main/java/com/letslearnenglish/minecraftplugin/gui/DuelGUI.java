@@ -150,6 +150,13 @@ public class DuelGUI {
     private void buildInventory(Inventory inv, DuelRoom room, FileConfiguration messages) {
         inv.clear();
 
+        // R5V-1：灰色玻璃铺满全部槽位 —— 根因封堵 shift-click 塞入（原版无落点），
+        // 保持与 DuelChallengeGUI 全格填充同模式（该界面因此天然免疫）。
+        ItemStack filler = createItem(Material.GRAY_STAINED_GLASS_PANE, " ");
+        for (int i = 0; i < inv.getSize(); i++) {
+            inv.setItem(i, filler.clone());
+        }
+
         String p1Name = room.getPlayer1Name();
         String p2Name = room.getPlayer2Name();
         int score1 = room.getScore1();

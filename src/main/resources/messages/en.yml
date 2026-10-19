@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 14
+config-version: 15
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -42,6 +42,8 @@ word:
   invalid-mode: "{prefix}&cUnknown learning mode: &e{mode}&c. Valid modes: &espelling&c, &echoice&c, &efill_blank"
   invalid-difficulty: "{prefix}&cInvalid difficulty! Available: &e{options}"
   no-words-available: "{prefix}&cNo words available for this difficulty yet. Try another one!"
+  session-in-progress: "{prefix}&cYou already have a learning session in progress! Finish it (or press Stop) before starting a new one."
+  practice-in-progress: "{prefix}&cYou're practicing a wrong-book word! Type &fcancel &cin chat to stop, then start the quiz."
   difficulty-beginner: "Beginner"
   difficulty-intermediate: "Intermediate"
   difficulty-advanced: "Advanced"
@@ -94,7 +96,7 @@ dialogue:
   rate-limited: "{prefix}&eAI requests are too frequent and the service is busy. Please try again shortly~"
   timeout: "{prefix}&eThe AI response timed out. Please try again later~"
   more-scenarios: "&e&lMore scenarios…"
-  more-scenarios-lore: "&7{count} more scenario(s) not shown, paging coming soon"
+  more-scenarios-lore: "&7{count} more scenario(s) not shown — use &e/le dialogue <name> &7to open directly (Tab-completes)"
   more-difficulties: "&e&lMore difficulties…"
   more-difficulties-lore: "&7{count} more difficultie(s) not shown, paging coming soon"
   finish-quiz-first: "{prefix}&cYou're in a quiz! Finish or stop it first before starting AI dialogue."
@@ -261,6 +263,7 @@ help:
 checkin:
   success: "{prefix}&aCheck-in successful! Streak: &e{streak} &adays, earned &e{coins} &acoins!"
   already: "{prefix}&eYou've already checked in today! Come back tomorrow~"
+  storage-failed: "{prefix}&cCheck-in could not be saved! It was NOT recorded — please try again in a moment."
   streak-broken: "{prefix}&cStreak broken... &7The old streak is now &e0&7; today's check-in starts a new streak at &e1&7."
   economy-disabled: "{prefix}&7Coin economy is disabled on this server, so this check-in pays no coins, but your streak is recorded normally~"
 
@@ -397,6 +400,7 @@ main-menu:
 
 daily:
   title: "&6&lDaily Challenges"
+  load-failed: "{prefix}&cFailed to load the interface data. Please try again in a moment."
   claimed: "&aClaimed!"
   completed: "&6Click to claim!"
   in-progress: "&7In progress"

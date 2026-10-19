@@ -127,6 +127,15 @@ public class ScenarioSelectListener implements Listener {
                     "dialogue.ai-not-configured"));
             return;
         }
+        // R2-M4：决斗优先判（与 /le dialogue 命令入口逐字对齐）。决斗中已开
+        // 对话时的消息竞争由 ChatScenarioListener R-66 让路，但入口直接拒绝最干净。
+        var duelManager = plugin.getDuelManager();
+        if (duelManager != null && duelManager.isInDuel(player.getUniqueId())) {
+            player.closeInventory();
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "duel.finish-duel-first"));
+            return;
+        }
         // R-66：答题优先 —— 答题/错题练习中不允许开启 AI 对话（否则对话静默挂起、
         // 聊天输入被两系统争抢）。条件与 /le dialogue 命令入口的答题分支一致。
         if (plugin.getWordLearningManager().hasActiveQuiz(player.getUniqueId())

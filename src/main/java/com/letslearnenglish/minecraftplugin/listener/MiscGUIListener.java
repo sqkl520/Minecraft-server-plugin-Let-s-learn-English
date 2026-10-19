@@ -137,6 +137,16 @@ public class MiscGUIListener implements Listener {
         if (index < 0 || index >= shownCount) return;
         SoundManager.playSound(player, "menu-click");
         String difficulty = banks.get(index);
+        // C1-N1 收口（R2-M4 同族，存量守卫缺口）：决斗中不开新答题 —— 决斗分支
+        // 优先吞全部聊天（ChatAnswerListener），答题输入静默超时判错。守卫先于
+        // 对话判，与 /le dialogue 命令入口的守卫顺序一致。
+        var duelManager = plugin.getDuelManager();
+        if (duelManager != null && duelManager.isInDuel(player.getUniqueId())) {
+            player.closeInventory();
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "duel.finish-duel-first"));
+            return;
+        }
         // R-66 反向（P2 编排者 fan-in）：AI 对话进行中不开新答题（与 /le word 入口对称守卫）。
         if (plugin.getAIChatManager().hasActiveConversation(player)) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
@@ -158,10 +168,25 @@ public class MiscGUIListener implements Listener {
         if (plugin.getOnboardingManager().interceptQuizStart(player, difficulty)) {
             return;
         }
-        var session = plugin.getWordLearningManager().startQuiz(player, difficulty, mode);
-        // Wave 1 fan-in（S-F 上报纵深）：word 门关闭时 startQuiz 返回 null 已发
-        // module.disabled——此处不再开 GUI / 发 session-start（上方兜底门之外的第二道防线）。
-        if (session == null) {
+        try {
+            var session = plugin.getWordLearningManager().startQuiz(player, difficulty, mode);
+            // Wave 1 fan-in（S-F 上报纵深）：word 门关闭时 startQuiz 返回 null 已发
+            // module.disabled——此处不再开 GUI / 发 session-start（上方兜底门之外的第二道防线）。
+            // R1-M1/M2：session-in-progress / practice-in-progress 的 null 同样已由
+            // 守卫内发提示，此处一并静默 return。
+            if (session == null) {
+                return;
+            }
+        } catch (IllegalStateException e) {
+            // R11-M2（含 R8-L2 合并）：空词池窗口 selectWordsForSession 抛 ISE 原先冒泡
+            // 出事件处理器——玩家零反馈且困在原界面。逐字对齐命令路径
+            // （LearnCommand.startWordQuiz 的 catch）：界面不关，玩家可改点其它词库。
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "word.no-words-available"));
+            return;
+        } catch (IllegalArgumentException e) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "general.error", "message", e.getMessage()));
             return;
         }
         new WordLearningGUI(plugin).openWithMessage(player, difficulty, mode);

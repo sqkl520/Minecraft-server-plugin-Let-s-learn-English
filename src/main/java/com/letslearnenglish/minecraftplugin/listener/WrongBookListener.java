@@ -155,6 +155,35 @@ public class WrongBookListener implements Listener {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
+        // C1-N1 收口（R2-M4 同族，存量守卫缺口）：决斗中拒进错题练习 —— 决斗分支
+        // 优先吞全部聊天（ChatAnswerListener），练习输入永不到达、练习态永挂。
+        // 守卫顺序照既有先例：决斗优先、其次对话、其次答题。
+        var duelManager = plugin.getDuelManager();
+        if (duelManager != null && duelManager.isInDuel(player.getUniqueId())) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "duel.finish-duel-first"));
+            return;   // 不关界面、不进入练习
+        }
+        // C1-N2 收口（R2-M4 同族）：AI 对话进行中拒进错题练习 —— ChatScenarioListener
+        // 以 HIGH 优先级消费聊天，练习输入被 AI 侧拦走（对话静默饥饿，可恢复无惩罚）。
+        // 守卫顺序照编排裁决：决斗 > 对话 > 答题（答题判紧随下方 R1-M2）。
+        if (plugin.getAIChatManager().hasActiveConversation(player)) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "dialogue.chat-active"));
+            return;   // 不关界面、不进入练习
+        }
+
+        // R1-M2：答题与错题练习互斥 —— 答题中拒进练习（practice 输入分支在
+        // ChatAnswerListener 里先于 quiz 分支消费聊天，两态并存会把答题输入吞掉）。
+        // 守卫放 listener 入口：startPracticeWord 只收 UUID，无法在 manager 内发消息；
+        // 本方法是全仓唯一调用方。复用 word.session-in-progress 键。
+        var wl = plugin.getWordLearningManager();
+        if (wl.hasActiveQuiz(player.getUniqueId())) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "word.session-in-progress"));
+            return;   // 不关界面、不进入练习
+        }
+
         // Close inventory first
         player.closeInventory();
 

@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -95,6 +96,17 @@ public class LearningCalendarGUI {
                 } catch (Exception e) {
                     plugin.getLogger().log(Level.WARNING,
                             "Failed to preload learning calendar data for " + playerId, e);
+                    // R11-M3：失败必有反馈 —— 异步段不得直调 Bukkit API，切主线程发提示+失败音。
+                    try {
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            if (!player.isOnline()) return;
+                            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                                    "daily.load-failed"));
+                            SoundManager.playSound(player, "incorrect");
+                        });
+                    } catch (IllegalStateException ignored) {
+                        // 关服竞态：调度器已关闭，放弃提示（与同方法既有 openWithData 调度守卫同款）
+                    }
                     return;
                 }
                 if (!plugin.isEnabled()) return;
