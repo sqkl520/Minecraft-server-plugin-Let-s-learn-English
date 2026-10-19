@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 15
+config-version: 16
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -533,6 +533,8 @@ word-bank:
 
 calendar:
   title: "&a&l过往学习"
+  viewing-title: "&a&l过往学习 - {player}"
+  not-public: "{prefix}&7对方未公开学习日历"
   back: "返回"
   back-lore: "&7返回来源页面"
   legend-no-activity: "无学习记录"
@@ -790,7 +792,7 @@ class:
   member-full: "{prefix}&c班级人数已满（上限 {max} 人）"
   name-exists: "{prefix}&c已存在同名班级"
   not-found: "{prefix}&c找不到班级 &e{name}"
-  name-invalid: "{prefix}&c班名无效（1-{max} 字符，不能含空格）"
+  name-invalid: "{prefix}&c班名无效（1-{max} 字符，不能含空格或颜色符号）"
   player-not-found: "{prefix}&c找不到该玩家"
   usage: "{prefix}&7用法: /lea class create|delete|add|remove|list"
   list-header: "{prefix}&6===== 班级 {class}（{count} 人）====="

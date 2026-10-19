@@ -14,6 +14,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -242,6 +243,20 @@ public class DatabaseManager {
                         ")"
         );
 
+        // Block C2（R2-M2）：今日 AI 轮次计数器持久化 —— 原内存 TodayCounter 重启/换服/
+        // quit-rejoin 即清零，daily-round-limit（默认 30）可无限绕过（API 成本面）。
+        // 与 daily_word_reward_claims 同式"重启后真源"：UNIQUE(player_uuid, round_date)
+        // 兜底每人每日至多一行；/lea reset 清收随 deletePlayerData 的 player_uuidTables。
+        // 旧行由 cleanupOldChatHistory 同窗口清理。
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "ai_round_counters (" +
+                        "  player_uuid VARCHAR(36) NOT NULL," +
+                        "  round_date DATE NOT NULL," +
+                        "  rounds INT NOT NULL DEFAULT 0," +
+                        "  UNIQUE(player_uuid, round_date)" +
+                        ")"
+        );
+
         executeUpdate(
                 "CREATE TABLE IF NOT EXISTS " + tablePrefix + "ai_chat_history (" +
                         "  id INTEGER PRIMARY KEY " + (isSQLite() ? "AUTOINCREMENT" : "AUTO_INCREMENT") + "," +
@@ -410,6 +425,13 @@ public class DatabaseManager {
         // 一人一班反查（getPlayerClassId 按 uuid 查；PK 前导 class_id 非前缀）
         createIndexIfMissing("idx_class_members_uuid",
                 "class_members(uuid)");
+
+        // Block C2（A6/R9-M4）：player_data(player_name) 索引 —— getKnownPlayerNames
+        // （AdminCommandHandler tab 补全）按 player_name LIKE 前缀查，无索引则主线程
+        // 全表扫 + 持锁阻塞（每次按键）。createIndexIfMissing 已处理双后端查重与
+        // 失败静默（索引非致命）。
+        createIndexIfMissing("idx_player_data_name",
+                "player_data(player_name)");
     }
 
     /**
@@ -714,6 +736,14 @@ public class DatabaseManager {
         String sql = "DELETE FROM " + tablePrefix + "ai_chat_history"
                 + " WHERE timestamp < " + dateExpr;
         String sql2 = "DELETE FROM " + tablePrefix + "ai_chat_feedback WHERE created_at < " + dateExpr;
+        // Block C2（A1/R2-M2）：ai_round_counters 旧行同窗口清理（round_date 为纯日期，
+        // 与日期阈值精确字典序可比——SQLite date('now') / MySQL CURDATE() 两后端对照）
+        // ——新表必须有清理者，先例 R3-H2。
+        String roundDateExpr = isSQLite()
+                ? "date('now', '-" + daysToKeep + " days')"
+                : "DATE_SUB(CURDATE(), INTERVAL " + daysToKeep + " DAY)";
+        String sql3 = "DELETE FROM " + tablePrefix + "ai_round_counters"
+                + " WHERE round_date < " + roundDateExpr;
         synchronized (connectionLock) {
             try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
                 int deleted = stmt.executeUpdate();
@@ -734,6 +764,16 @@ public class DatabaseManager {
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING,
                         "Failed to clean up old chat feedback", e);
+            }
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql3)) {
+                int deletedRounds = stmt.executeUpdate();
+                if (deletedRounds > 0) {
+                    plugin.getLogger().info("Cleaned up " + deletedRounds
+                            + " old AI round counter records (older than " + daysToKeep + " days).");
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to clean up old AI round counters", e);
             }
         }
     }
@@ -1133,6 +1173,74 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * Block C2（R2-M2）：今日 AI 有效轮次 +1 落库（UPSERT，双后端对照）。
+     *
+     * <p>SQLite {@code ON CONFLICT(player_uuid, round_date) DO UPDATE} /
+     * MySQL {@code ON DUPLICATE KEY UPDATE}（同 {@link #incrementWrongCount} 惯例）。
+     * 该表是 daily-round-limit 的重启后真源——内存 TodayCounter 重启/quit-rejoin
+     * 即清，按 {@link #getAiRoundCount} 回读真值闭合绕过路径。
+     *
+     * <p>静默降级：SQLException 只记 WARNING（写失败最坏后果 = 重启后计数可重复，
+     * 与修复前行为持平，不崩、不阻断聊天主流程）。
+     *
+     * @param playerId the player
+     * @param date     the round date (yyyy-MM-dd)
+     */
+    public void incrementAiRound(UUID playerId, String date) {
+        String upsertSql;
+        if (isSQLite()) {
+            upsertSql = "INSERT INTO " + tablePrefix
+                    + "ai_round_counters (player_uuid, round_date, rounds) VALUES (?, ?, 1)"
+                    + " ON CONFLICT(player_uuid, round_date) DO UPDATE SET rounds = rounds + 1";
+        } else {
+            upsertSql = "INSERT INTO " + tablePrefix
+                    + "ai_round_counters (player_uuid, round_date, rounds) VALUES (?, ?, 1)"
+                    + " ON DUPLICATE KEY UPDATE rounds = rounds + 1";
+        }
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(upsertSql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to increment AI round counter for " + playerId
+                                + " / " + date, e);
+            }
+        }
+    }
+
+    /**
+     * Block C2（R2-M2）：玩家某日的 AI 有效轮次累计（{@code ai_round_counters} 查询）。
+     * 无行 → 0；异常 → 0 + WARNING（降级语义同 {@link #incrementAiRound}：查不到
+     * 就按 0 处理，最坏后果 = 重启后防刷上限可重复，与修复前持平）。
+     *
+     * @param playerId the player
+     * @param date     the round date (yyyy-MM-dd)
+     * @return rounds recorded for this player on this date, 0 if none
+     */
+    public int getAiRoundCount(UUID playerId, String date) {
+        String sql = "SELECT rounds FROM " + tablePrefix + "ai_round_counters"
+                + " WHERE player_uuid = ? AND round_date = ?";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getInt("rounds");
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to get AI round count for " + playerId
+                                + " / " + date, e);
+            }
+        }
+        return 0;
+    }
+
     // ============================================================
     //  Difficult Words / Wrong Book
     // ============================================================
@@ -1234,11 +1342,21 @@ public class DatabaseManager {
     }
 
     /**
-     * Reset the wrong count for a word to 0 (used when practicing correctly).
-     * Returns true if the row was updated (word existed), false otherwise.
+     * Decrement the wrong count for a word (used when practicing correctly).
+     *
+     * <p>Block C2（A3/R3-M2）：原子化边界 —— 条件改为 {@code wrong_count > 1}
+     * （纯标准 UPDATE，无后端差异），单条 SQL 同时完成"减 1"与"是否应删行"的判定，
+     * 消除原先"decrement → getWrongCount 读回 → removeDifficultWord"三段独立取锁
+     * 之间被并发 increment 插入导致的状态漂移。
+     *
+     * <p>返回语义变更：{@code false} = 计数已达 1（或行不存在）——调用方应删行
+     * （{@link #removeDifficultWord}，幂等）；{@code true} = 已减 1 且仍 &gt; 0。
+     * 残余乱序窗口（同一玩家的 increment 异步任务整体晚于本 decrement 执行）在
+     * 调用方 {@code PlayerDataStore.decrementWrongCount} 注明，最坏结果 = 词留书
+     * （可重试清除，无数据损坏）。
      */
     public boolean decrementWrongCount(UUID playerId, String word) {
-        String sql = "UPDATE " + tablePrefix + "difficult_words SET wrong_count = wrong_count - 1 WHERE player_uuid = ? AND word = ? AND wrong_count > 0";
+        String sql = "UPDATE " + tablePrefix + "difficult_words SET wrong_count = wrong_count - 1 WHERE player_uuid = ? AND word = ? AND wrong_count > 1";
         synchronized (connectionLock) {
             Connection conn = getConnection();
             try (PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -1330,6 +1448,12 @@ public class DatabaseManager {
      * <p>P3-02 收口：原查 learning_log（历史遗留表，全库零写入），现改走
      * player_sessions。口径为"总学习日次"（per-player per-day 行数；
      * player_sessions 受 UNIQUE(uuid, session_date) UPSERT 合并，每人每日一行）。
+     *
+     * <p>Block C2（A5/R3-M4）双口径说明：本方法返回 player_sessions 行数
+     * （**天数口径**）——管理报表/统计 HTTP 消费。如需**局数口径**（每次会话结束
+     * +1、同日多局累计）走 {@code player_data.total_sessions}（内存侧
+     * {@code PlayerDataStore.PlayerStats.getTotalSessions}，成就判定以该口径为准）。
+     * 两值同屏展示（如 ProfileGUI 与统计面板）数值可不同，属既定口径差，非缺陷。
      */
     public int getTotalSessions() {
         String sql = "SELECT COUNT(*) FROM " + tablePrefix + "player_sessions";
@@ -2264,6 +2388,72 @@ public class DatabaseManager {
     }
 
     /**
+     * Block C2（A7/R7-M1 配对，供 C2-C 结算批量发放消费）：多名玩家全部未领取的
+     * 台账行，按 player_uuid 分组（仅含至少一行 pending 的玩家）。
+     *
+     * <p>IN 占位符展开照 {@code PlayerDataStore.getRankedPlayersForPeriodFiltered}
+     * 先例；{@code claimed} 条件与 {@link #getPendingSeasonRewards} 同式。
+     * SQLite 变量上限 999 —— 集合 &gt; 500 时分批查询合并（每批独立 SELECT，
+     * 结果并集语义与单查等价）。空集合 → 空 map。
+     *
+     * <p>异常 → 空 map + WARNING（静默降级 = 发放推迟到 join 路径，与
+     * deliverPending 现有"秒退留待下次"语义同族）。
+     *
+     * @param playerIds 待查玩家（在线 UUID 快照；null/空 → 空 map）
+     * @return player_uuid → 该玩家 pending 行列表（按赛季升序，与单查排序一致）
+     */
+    public Map<UUID, List<SeasonRewardRow>> getPendingSeasonRewardsFor(Collection<UUID> playerIds) {
+        Map<UUID, List<SeasonRewardRow>> byPlayer = new LinkedHashMap<>();
+        if (playerIds == null || playerIds.isEmpty()) {
+            return byPlayer;
+        }
+        // SQLite 999 变量上限防御：>500 分批（每批一次 SELECT，并集合并）
+        List<UUID> idList = new ArrayList<>(playerIds);
+        final int batchSize = 500;
+        for (int start = 0; start < idList.size(); start += batchSize) {
+            List<UUID> batch = idList.subList(start, Math.min(start + batchSize, idList.size()));
+            StringBuilder inClause = new StringBuilder();
+            for (int i = 0; i < batch.size(); i++) {
+                if (i > 0) {
+                    inClause.append(", ");
+                }
+                inClause.append("?");
+            }
+            String sql = "SELECT season_id, uuid, rank_position, score, reward_coins"
+                    + " FROM " + tablePrefix + "season_rewards"
+                    + " WHERE uuid IN (" + inClause + ") AND claimed = 0"
+                    + " ORDER BY season_id ASC";
+            synchronized (connectionLock) {
+                try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                    int idx = 1;
+                    for (UUID id : batch) {
+                        stmt.setString(idx++, id.toString());
+                    }
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        while (rs.next()) {
+                            UUID uuid = UUID.fromString(rs.getString("uuid"));
+                            byPlayer.computeIfAbsent(uuid, k -> new ArrayList<>())
+                                    .add(new SeasonRewardRow(
+                                            rs.getInt("season_id"),
+                                            uuid,
+                                            rs.getInt("rank_position"),
+                                            rs.getLong("score"),
+                                            rs.getLong("reward_coins")
+                                    ));
+                        }
+                    }
+                } catch (SQLException e) {
+                    plugin.getLogger().log(Level.WARNING,
+                            "Failed to batch load pending season rewards (" + batch.size()
+                                    + " players in batch)", e);
+                    return new LinkedHashMap<>(); // 静默降级：推迟到 join 路径
+                }
+            }
+        }
+        return byPlayer;
+    }
+
+    /**
      * 条件标记已领取：{@code WHERE season_id=? AND uuid=? AND claimed=0}。
      * {@code executeUpdate()==1} = 本路径抢到发放权（调用方随后才发钱——对齐
      * CheckInManager "先标记后付款"先例，R-02 双击重发教训）。
@@ -2434,7 +2624,8 @@ public class DatabaseManager {
         String[] playerUuidTables = {
             "daily_challenge_words", "ai_chat_history", "difficult_words", "checkin_data",
             "ai_chat_feedback",
-            "daily_word_reward_claims" // 修复批 A（R10-H1）：挑战奖励已付台账（player_uuid 系，防后建表盲区）
+            "daily_word_reward_claims", // 修复批 A（R10-H1）：挑战奖励已付台账（player_uuid 系，防后建表盲区）
+            "ai_round_counters" // Block C2（R2-M2）：今日 AI 轮次计数器（player_uuid 系，防后建表盲区）
         };
         String id = playerId.toString();
         synchronized (connectionLock) {

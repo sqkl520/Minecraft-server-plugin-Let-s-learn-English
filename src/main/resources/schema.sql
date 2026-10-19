@@ -127,6 +127,16 @@ CREATE TABLE IF NOT EXISTS {prefix}daily_word_reward_claims (
     UNIQUE(player_uuid, challenge_date)
 );
 
+-- Block C2（R2-M2）：今日 AI 轮次计数器持久化（daily-round-limit 重启后真源；
+-- 内存 TodayCounter 重启/quit-rejoin 即清，本表 UPSERT 回读闭合绕过路径）。
+-- UNIQUE 兜底每人每日至多一行；旧行由 cleanupOldChatHistory 同窗口清理。
+CREATE TABLE IF NOT EXISTS {prefix}ai_round_counters (
+    player_uuid VARCHAR(36) NOT NULL,
+    round_date DATE NOT NULL,
+    rounds INT NOT NULL DEFAULT 0,
+    UNIQUE(player_uuid, round_date)
+);
+
 -- AI chat history
 CREATE TABLE IF NOT EXISTS {prefix}ai_chat_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -259,3 +269,8 @@ CREATE TABLE IF NOT EXISTS {prefix}class_members (
 
 -- 一人一班反查（getPlayerClassId 按 uuid 查；PK 前导 class_id 非前缀）
 CREATE INDEX IF NOT EXISTS {prefix}idx_class_members_uuid ON {prefix}class_members(uuid);
+
+-- Block C2（A6/R9-M4）：player_data(player_name) —— getKnownPlayerNames tab 补全的
+-- LIKE 前缀查走此索引，防主线程全表扫。运行时由 DatabaseManager.createIndexIfMissing
+-- 兼容建立（MySQL 8 不支持 CREATE INDEX IF NOT EXISTS），此处为文档镜像。
+CREATE INDEX IF NOT EXISTS {prefix}idx_player_data_name ON {prefix}player_data(player_name);

@@ -1,5 +1,10 @@
 package com.letslearnenglish.minecraftplugin.gui;
 
+import org.bukkit.Material;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -16,6 +21,24 @@ public class GUIUtils {
 
     private GUIUtils() {
         // Utility class — cannot be instantiated
+    }
+
+    /**
+     * R12-M3：把空槽统一填为玻璃板（防拖纵深；照 LearningCalendarGUI filler 先例
+     * 逐字等价，8 个 GUI 共用）。调用约定：在 {@code openInventory(inv)} 之前、
+     * 全部 setItem 之后调用一次——晚于本调用的 setItem 不受影响（filler 只是空槽
+     * 兜底，不覆盖已渲染物品）。
+     */
+    public static void fillEmpty(Inventory inv) {
+        ItemStack filler = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
+        ItemMeta meta = filler.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(" ");
+            filler.setItemMeta(meta);
+        }
+        for (int i = 0; i < inv.getSize(); i++) {
+            if (inv.getItem(i) == null) inv.setItem(i, filler.clone());
+        }
     }
 
     /**

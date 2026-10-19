@@ -76,6 +76,7 @@ public class WordBankSelectGUI {
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE, backLabel,
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
                         MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
+        GUIUtils.fillEmpty(inv); // R12-M3：空槽填灰玻璃（防拖纵深）
 
         player.openInventory(inv);
     }

@@ -43,6 +43,9 @@ public class HotReloadManager {
         if (plugin.getSoundManager() != null) {
             plugin.getSoundManager().reloadSoundCache();
         }
+        // R9-M1：统计服务配置为构造快照——按最新配置重启（enabled 切换/端口/认证生效）。
+        // 方法本身幂等（isRunning 防御 + enabled=false 仅停置空），异常自吞，不阻断 reload。
+        plugin.restartStatisticsServerIfNeeded();
         plugin.getLogger().info("All configurations hot-reloaded successfully.");
     }
 

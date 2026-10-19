@@ -75,6 +75,16 @@ public class ReviewScheduler {
         lastNotifiedDate.clear();
     }
 
+    /**
+     * R13-M4 quit 清理钩：清玩家的 due 词缓存条目（只增不删的口径与本类其他清理
+     * 同族）——quit 后 rejoin 首次 getDueReviewWords cache miss 重查 DB 重建，
+     * TTL 语义不变，仅内存回收；中断玩家在途条目不再永留。由
+     * PlayerJoinListener.onPlayerQuit 经 wordManager.getReviewScheduler() 调用。
+     */
+    public void unloadPlayer(UUID playerId) {
+        dueWordCache.remove(playerId);
+    }
+
     public List<String> getDueReviewWords(UUID playerId) {
         long now = System.currentTimeMillis();
 

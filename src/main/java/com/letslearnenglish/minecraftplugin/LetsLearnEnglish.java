@@ -316,6 +316,30 @@ public final class LetsLearnEnglish extends JavaPlugin {
         getLogger().info("Let's Learn English! plugin has been safely disabled.");
     }
 
+    /**
+     * R9-M1：reload 后按最新配置重启统计服务（enabled 切换/端口/认证改动生效）。
+     * 幂等：先停（isRunning 防御）再按最新配置建/启；enabled=false 时仅停并置空。
+     * 异常自吞（不阻断 reload 主流程）；由 HotReloadManager.reloadAll 尾部调用。
+     */
+    public void restartStatisticsServerIfNeeded() {
+        if (statisticsHttpServer != null && statisticsHttpServer.isRunning()) {
+            statisticsHttpServer.stop();
+        }
+        boolean enabled = configManager.getMainConfig()
+                .getBoolean("statistics-server.enabled", false);
+        if (!enabled) {
+            statisticsHttpServer = null;
+            return;
+        }
+        try {
+            statisticsHttpServer = new StatisticsHttpServer(this, databaseManager);
+            statisticsHttpServer.start();
+        } catch (Exception e) {
+            getLogger().log(java.util.logging.Level.WARNING,
+                    "Failed to restart statistics HTTP server after reload", e);
+        }
+    }
+
     private void registerListeners() {
         getServer().getPluginManager().registerEvents(new PlayerJoinListener(this), this);
         getServer().getPluginManager().registerEvents(new MainMenuListener(this), this);
@@ -352,7 +376,16 @@ public final class LetsLearnEnglish extends JavaPlugin {
     }
 
     private void startScheduledTasks() {
+        // R10-M3：钳位 [1,60]（照 update-interval 先例）。0/负数会退化为 1 tick
+        // 保存风暴（CraftScheduler 周期 0 钳到 1）；超出范围钳位并告警，
+        // 不引入"0=禁用"新语义（注释声称范围 1-60，歧义应消除而非另赋意义）。
         int saveInterval = configManager.getMainConfig().getInt("general.auto-save-interval", 5);
+        int clamped = Math.max(1, Math.min(60, saveInterval));
+        if (clamped != saveInterval) {
+            getLogger().warning("general.auto-save-interval=" + saveInterval
+                    + " out of range [1,60], clamped to " + clamped + ".");
+            saveInterval = clamped;
+        }
         getServer().getScheduler().runTaskTimer(this, () -> {
             List<UUID> onlinePlayerIds = getServer().getOnlinePlayers().stream()
                     .map(Player::getUniqueId)
@@ -407,6 +440,8 @@ public final class LetsLearnEnglish extends JavaPlugin {
         final Set<Integer> effectiveHours = new HashSet<>(reminderHours);
 
         getServer().getScheduler().runTaskTimer(this, () -> {
+            // R10-M1：reload 不重建任务，体内点读门是唯一保障（对齐 ReviewScheduler 先例）。
+            if (!configManager.getMainConfig().getBoolean("daily-reminder.enabled", true)) return;
             Calendar cal = Calendar.getInstance();
             int currentHour = cal.get(Calendar.HOUR_OF_DAY);
             int currentMinute = cal.get(Calendar.MINUTE);
@@ -578,6 +613,11 @@ public final class LetsLearnEnglish extends JavaPlugin {
                                 }
                                 dailyChallengeManager.clearAllWordChallengeClaims();
                                 wordManager.getReviewScheduler().clearNotifiedDates();
+                                // R10-L3/R13-M4：跨日后旧日期条目一律失效（当日去重语义不受影响）。
+                                // 注：下方赛季段内另有名为 today 的局部变量（同 lambda 嵌套块），
+                                // 故本处用独立变量名，避免重复声明/遮蔽冲突。
+                                LocalDate rolloverToday = LocalDate.now();
+                                joinReminderSent.values().removeIf(d -> !rolloverToday.equals(d));
 
                                 // Wave 3 域 5 批次 A：午夜跨季检测（纯日期推导零 IO，F2-11 教训：
                                 // 不在主线程查库）。仅当"跨过季边界"才派发结算扫描；结算 IO 全在

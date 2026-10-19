@@ -120,6 +120,28 @@ public class PlayerDataStore {
             }
             return count.get();
         }
+
+        /** Block C2（R2-M2）：当前计数归属的自然日；从未 seed/increment 时为 null。 */
+        LocalDate date() {
+            return date;
+        }
+
+        /**
+         * Block C2（R2-M2）：从持久化真源回填计数（AI 轮次表重启/quit-rejoin 后回读）。
+         * synchronized 双检（同 {@link #increment} 惯式）：若 seed 前已有并发线程把日期
+         * 推到 d 并开始递增，则跳过覆盖，保住新的递增结果（seeded 值最坏差 1，
+         * 防刷上限语义容忍）。
+         */
+        void seed(LocalDate d, int v) {
+            if (!d.equals(date)) {
+                synchronized (this) {
+                    if (!d.equals(date)) {
+                        date = d;
+                        count.set(v);
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -141,17 +163,54 @@ public class PlayerDataStore {
     /**
      * 今日 AI 有效轮次 +1（由 AIChatManager 在一轮对话记为有效时调用），返回递增后的值。
      * 按服务器时区自然日懒清零。
+     *
+     * <p>Block C2（R2-M2）：持久化版 —— 内存 TodayCounter 重启/换服/quit-rejoin 即清零，
+     * daily-round-limit（默认 30）唯一判据源可被无限绕过（API 成本面）。三层：
+     * ① 日期非今日（或从未 seed）→ 先同步回读 DB 真源 seed（读失败按 0 降级）；
+     * ② 内存 increment 立即生效（返回值语义不变，AIChatManager 消费）；
+     * ③ 经调度器异步落库（调用点在 {@code supplyAsync} 的 commonPool 链内——
+     * 与 R2-H1 修复纪律一致，绝不直调 JDBC；关服窗口静默弃）。
      */
     public int incrementTodayAiRound(UUID playerId) {
-        return todayAiRoundCache.computeIfAbsent(playerId, k -> new TodayCounter()).increment();
+        LocalDate today = LocalDate.now();
+        String todayStr = today.toString();
+        TodayCounter counter = todayAiRoundCache.computeIfAbsent(playerId, k -> new TodayCounter());
+        if (!today.equals(counter.date())) {
+            // ① 内存态无今日真值（重启/quit-rejoin/跨日）→ 先回读 DB 真源
+            int db = databaseManager.getAiRoundCount(playerId, todayStr);
+            counter.seed(today, db);
+        }
+        int v = counter.increment(); // ② 内存立即生效
+        try {
+            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () ->
+                    databaseManager.incrementAiRound(playerId, todayStr)); // ③ 异步落库
+        } catch (IllegalStateException ignored) {
+            // 关服窗口调度器已关：静默弃（与 R2-H1 纪律一致）
+        }
+        return v;
     }
 
     /**
      * 读取玩家今日 AI 有效轮次。跨天后自动视为 0。
+     *
+     * <p>Block C2（R2-M2）：cache miss 或当日计数器未载入时，同步回读
+     * {@code ai_round_counters} 真源并 seed（先例：{@link #getConversationCount}
+     * "miss 时同步加载再读"模式；本处仅一条 SELECT）。quit/rejoin 后首次调用即走
+     * 此路径读回真值——正是本修复要闭合的绕过路径。读取点均在异步线程
+     * （AsyncPlayerChatEvent 线程 / chatAsync 异步链），同步 DB 读持 connectionLock 可接受。
      */
     public int getTodayAiRound(UUID playerId) {
+        LocalDate today = LocalDate.now();
         TodayCounter counter = todayAiRoundCache.get(playerId);
-        return counter != null ? counter.get() : 0;
+        if (counter == null || !today.equals(counter.date())) {
+            counter = todayAiRoundCache.computeIfAbsent(playerId, k -> new TodayCounter());
+            if (!today.equals(counter.date())) {
+                // 内存态无今日真值 → 同步回读 DB 真源（读失败按 0 降级）
+                int db = databaseManager.getAiRoundCount(playerId, today.toString());
+                counter.seed(today, db);
+            }
+        }
+        return counter.get();
     }
 
     /**
@@ -478,6 +537,14 @@ public class PlayerDataStore {
 
     /**
      * Decrement wrong count by 1 (on practice correct). If reaches 0, remove from book.
+     *
+     * <p>Block C2（A3/R3-M2）：缓存 merge 后 ≤0 即 remove，缓存地板为 0；DB 侧走
+     * {@code DatabaseManager.decrementWrongCount} 的原子条件 SQL（{@code wrong_count > 1}
+     * 才减、否则返回 false → 本处删行），与缓存两值逐值对齐（cache 3→2 ↔ db 3→2；
+     * cache 1→0 删 ↔ db 1→删）。残余乱序窗口：同一玩家的 increment 异步任务整体晚于
+     * 本 decrement 任务执行时词会留书——概率极低（跨秒提交两任务乱序），最坏结果 =
+     * 词留书（可重试清除，无数据损坏）；executor 保序队列会同时改动 increment 热路径，
+     * 收益/风险不成比，接受此窗口。
      */
     public void decrementWrongCount(UUID playerId, String word) {
         String wordLower = word.toLowerCase();
@@ -493,10 +560,8 @@ public class PlayerDataStore {
             }
         }
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
-            databaseManager.decrementWrongCount(playerId, wordLower);
-            // Check if count reached 0 in DB and remove
-            int dbCount = databaseManager.getWrongCount(playerId, wordLower);
-            if (dbCount <= 0) {
+            if (!databaseManager.decrementWrongCount(playerId, wordLower)) {
+                // 计数已达 1（或行不存在）→ 移出（幂等）；原子 SQL 已消除读回分裂窗口
                 databaseManager.removeDifficultWord(playerId, wordLower);
             }
         });
@@ -642,22 +707,14 @@ public class PlayerDataStore {
     }
 
     /**
-     * Get a player's mastery level for a specific word.
-     * Uses computeIfAbsent to avoid redundant loadPlayerData calls across threads.
-     */
-    public double getWordMastery(UUID playerId, String word) {
-        Map<String, Double> masteryMap = wordMasteryCache.computeIfAbsent(playerId, k -> {
-            loadPlayerData(k);
-            return wordMasteryCache.getOrDefault(k, new ConcurrentHashMap<>());
-        });
-
-        Double val = masteryMap.get(word.toLowerCase());
-        return val != null ? val : 0.0;
-    }
-
-    /**
      * Update word progress after a learning session.
      * Invalidates the mastered words cache for the player.
+     *
+     * <p>Block C2（A4/R3-M3）：补全 5 个 map 的 computeIfAbsent —— savePlayerData 按
+     * masteryMap 全量遍历、7 列全写，review 两 map 缺失时 getLongValue/getIntValue
+     * 回落 0 会覆盖 DB 非零值（复习调度被清零）。masteryMap 的创建点仅本方法与
+     * loadPlayerData 两处（后者五 map 全填），故补两行后"凡 savePlayerData 可被触达
+     * （masteryMap 非 null）的状态下 5 map 必同存"，覆盖窗口封死。
      */
     public void updateWordProgress(UUID playerId, Map<String, LearningSession.WordResult> results) {
         Map<String, Double> masteryMap = wordMasteryCache.computeIfAbsent(
@@ -666,6 +723,8 @@ public class PlayerDataStore {
                 playerId, k -> new ConcurrentHashMap<>());
         Map<String, Integer> incorrectMap = incorrectCountCache.computeIfAbsent(
                 playerId, k -> new ConcurrentHashMap<>());
+        lastReviewTimeCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
+        reviewCountCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
 
         int sessionCorrect = 0;
         int sessionIncorrect = 0;
@@ -698,6 +757,12 @@ public class PlayerDataStore {
         updatePlayerStats(playerId, sessionCorrect, sessionIncorrect);
     }
 
+    /**
+     * Block C2（A5/R3-M4）：会话结算入口 —— total_sessions 按"局数口径"累加
+     * （每次会话结束 +1，同日多局累计）。与 player_sessions 表"每人每日一行"的
+     * 学习天数口径**不同源**（后者另有 DatabaseManager.getTotalSessions 消费）；
+     * 成就判定（AchievementManager 按 total_sessions 涨幅）以本口径为准，属既定语义。
+     */
     private void updatePlayerStats(UUID playerId, int correct, int incorrect) {
         PlayerStats stats = playerStatsCache.computeIfAbsent(playerId, k -> new PlayerStats());
         stats.addCorrect(correct);
@@ -869,6 +934,11 @@ public class PlayerDataStore {
 
         public void addCorrect(int count) { totalCorrect += count; }
         public void addIncorrect(int count) { totalIncorrect += count; }
+        /**
+         * Block C2（A5/R3-M4）：total_sessions = 学习局数（每次会话结束 +1，同日多局
+         * 累计）——与 player_sessions 表"每人每日一行"的天数口径**不同源**；
+         * 成就判定（AchievementManager）以本口径为准。
+         */
         public void incrementSessions() { totalSessions++; }
         public void addScore(long score) { totalScore += score; }
         public void setSessions(int sessions) { totalSessions = sessions; }
@@ -1165,6 +1235,67 @@ public class PlayerDataStore {
             entries.add(new LeaderboardEntry(uuid, name, (Long) row[2],
                     stats.getTotalCorrect(), stats.getTotalIncorrect(),
                     (Integer) row[3], rank++));
+        }
+        return entries;
+    }
+
+    /**
+     * F3（R13-M3）：广场"全部玩家"聚合查询 —— 单条 SQL 取代
+     * {@code getActivePlayerIds + 逐人 getPlayerStats/隐身过滤} 的 N+1 装配
+     *（旧路径每 cache-miss 玩家一次 loadPlayerData 全量查库）。
+     *
+     * <p>SQL 口径：{@code player_data} LEFT JOIN {@code player_profiles}
+     *（COALESCE 隐身过滤，同 {@link #getRankedPlayers(int)}）+ LEFT JOIN
+     * {@code word_progress} 按 uuid 聚合子查询（correct/incorrect 顺带 SUM，
+     * 不再对每行补读——两处消费侧一次查询拿全）。"答过题"判定 = 聚合
+     * correct+incorrect &gt; 0（等价旧 {@code getTotalCorrect()+getTotalIncorrect() > 0}）。
+     * ORDER BY total_score DESC LIMIT ?（与 getRankedPlayers 同式）。
+     * word_progress 聚合走 UNIQUE(uuid, word) 的 uuid 前缀索引。
+     *
+     * <p>数据源 = DB 真值（非内存统计镜像）：在线玩家在自动保存间隔（默认 5 分钟）
+     * 内尚未落盘的最新答题会延迟可见——这是本方法替换装配口径的既定语义
+     *（fix-plan-c2 F3 裁决：同步单查已达标，不加快照层）。
+     *
+     * @param limit 行数上限（"全部"语义传 {@link Integer#MAX_VALUE}；LIMIT ? 双后端兼容）
+     */
+    public List<LeaderboardEntry> getActiveSquareEntries(int limit) {
+        List<LeaderboardEntry> entries = new ArrayList<>();
+        String tablePrefix = databaseManager.getTablePrefix();
+        String sql = "SELECT d.uuid AS uuid, d.player_name AS player_name, "
+                + "d.total_score AS total_score, d.total_sessions AS total_sessions, "
+                + "COALESCE(w.correct_sum, 0) AS correct_sum, COALESCE(w.incorrect_sum, 0) AS incorrect_sum "
+                + "FROM " + tablePrefix + "player_data d "
+                + "LEFT JOIN " + tablePrefix + "player_profiles p ON p.uuid = d.uuid "
+                + "LEFT JOIN (SELECT uuid, SUM(correct_count) AS correct_sum, SUM(incorrect_count) AS incorrect_sum "
+                + "FROM " + tablePrefix + "word_progress GROUP BY uuid) w ON w.uuid = d.uuid "
+                + "WHERE COALESCE(p.show_in_square, 1) <> 0 "
+                + "AND COALESCE(w.correct_sum, 0) + COALESCE(w.incorrect_sum, 0) > 0 "
+                + "ORDER BY d.total_score DESC LIMIT ?";
+
+        synchronized (databaseManager.getConnectionLock()) {
+        Connection conn = databaseManager.getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, limit);
+            try (ResultSet rs = stmt.executeQuery()) {
+                // 本方法无嵌套查询：行内数据即全部所需（区别于 getRankedPlayers 的两段式）。
+                // 同样不调任何 Bukkit API（player_name 为空回落 uuid.toString()）。
+                int rank = 1;
+                while (rs.next()) {
+                    UUID uuid = UUID.fromString(rs.getString("uuid"));
+                    String name = rs.getString("player_name");
+                    if (name == null || name.isEmpty()) {
+                        name = uuid.toString();
+                    }
+                    entries.add(new LeaderboardEntry(uuid, name,
+                            rs.getLong("total_score"),
+                            rs.getInt("correct_sum"), rs.getInt("incorrect_sum"),
+                            rs.getInt("total_sessions"), rank++));
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to load active square entries", e);
+            return entries;
+        }
         }
         return entries;
     }

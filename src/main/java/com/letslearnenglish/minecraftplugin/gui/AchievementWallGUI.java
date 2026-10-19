@@ -173,6 +173,7 @@ public class AchievementWallGUI {
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
                         MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
 
+        GUIUtils.fillEmpty(inv); // R12-M3：空槽填灰玻璃（防拖纵深）
         viewer.openInventory(inv);
     }
 

@@ -5,6 +5,7 @@
 #
 #  说明：
 #  - 修改此文件后，输入 /lea reload 即可热重载，无需重启服务器
+#  - 例外：标注"需重启生效"的键为启动快照，不受 reload 影响。
 #  - 所有时间单位均为分钟（除特别标注外）
 #  - 颜色代码使用 & 符号（如 &a 表示绿色）
 #  - 布尔值使用 true / false
@@ -31,11 +32,13 @@ general:
   # 自动保存间隔（分钟），玩家数据自动保存至数据库
   # 范围：1 - 60，默认 5 分钟
   # 设置过短会增加数据库写入压力，过长则存在数据丢失风险
+  # 改动需重启生效（reload 不重排周期任务）。
   auto-save-interval: 5
 
   # 数据备份策略
   # interval: 备份间隔（分钟），0 表示禁用自动备份
   # max-backups: 保留的备份数量上限，超出后自动删除最旧的备份
+  # backup.* 各键在启动时快照，改动需重启生效。
   backup:
     enabled: true
     interval: 1440
@@ -490,6 +493,7 @@ proxy:
 daily-reminder:
   # 是否启用每日学习提醒
   # 关闭后：定时提醒与进服提醒（on-join）都不再发送
+  # enabled 可经 /lea reload 即时生效；reminder-hours 为启动快照，改动需重启。
   enabled: true
   # 玩家进服时是否发送学习提醒（R-86p：现已接线）
   # 开启后，同一玩家每个自然日首次进服会收到一条鼓励学习消息（每日去重，repeat 进服不打扰）
@@ -562,6 +566,8 @@ onboarding:
 # ============================================================
 #  单词发音辅助功能：在 GUI 中显示音标符号，并支持 TTS 音频发音
 #  音标显示为主要功能；音频下载需要 VoiceRSS API 密钥（免费注册）
+#  R10-M5：enabled / cache-days / voicerss-api-key 为启动快照（TtsManager 构造读取），
+#  改动需重启生效（reload 不重建）；pronounce-cooldown-seconds 为点读，reload 即时生效。
 tts:
   # 是否启用发音功能（至少显示音标符号）
   enabled: true
@@ -586,6 +592,8 @@ tts:
 # ============================================================
 #  为管理员提供一个 Web 仪表盘，展示学习统计数据与图表
 #  使用 Java 内置 HttpServer，无需额外 HTTP 依赖
+#  R9-M1：本节各键在服务构造时读取；/lea reload 会自动重启统计服务，
+#  enabled/port/认证等改动经 reload 生效（无需整服重启）。
 statistics-server:
   # 是否启用统计 HTTP 服务器
   enabled: false
@@ -679,6 +687,7 @@ season:
     top1: 5000.0
     top3: 2000.0          # 第 2-3 名
     top10: 500.0          # 第 4-10 名
+    # R7-M1 规模提示（C2-C 规格委托 D4 批）：开启后结算将为本窗口全部活跃玩家建台账，大服注意。
     participated: 0.0     # 参与奖（>0 时窗口内有过会话即发；含隐身者——发放不受展示开关约束）
   # 开始/结束是否全服广播（跨服经 ProxyMessenger 子通道，见 proxy.server-name）
   announce: true
