@@ -71,7 +71,7 @@ A Minecraft server plugin designed for the unmotivated — it forces you to lear
 | Command | Description |
 |---------|-------------|
 | `/lea reload` | Hot-reload all configs, word banks and sound cache |
-| `/lea reset <player>` | Reset a player's learning data |
+| `/lea reset <player>` | Reset a player's learning data (two-step confirm: run `/lea reset <player> confirm` to execute) |
 | `/lea info` | View plugin information |
 | `/lea export` | Export player data |
 | `/lea exportwordbank <difficulty>` | Export a word bank to YAML |
