@@ -126,6 +126,7 @@ public class ConfirmationGUI {
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
         inv.setItem(CONFIRM_SLOT, createItem(Material.EMERALD, itemName, itemLore));
         inv.setItem(CANCEL_SLOT, createItem(Material.BARRIER, cancelName, cancelLore));
+        GUIUtils.fillEmpty(inv); // R12-M3：空槽填灰玻璃（防拖纵深）
 
         player.openInventory(inv);
     }

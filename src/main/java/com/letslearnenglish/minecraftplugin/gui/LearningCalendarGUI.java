@@ -14,6 +14,8 @@ import org.bukkit.inventory.meta.ItemMeta;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 
 /**
@@ -63,6 +65,18 @@ public class LearningCalendarGUI {
     /** Legend slots — right side column (col 8, rows 1-4) */
     private static final int[] LEGEND_SLOTS = { 17, 26, 35, 44 };
 
+    /**
+     * R12-M2（E1）：openAsync in-flight 去重 token —— 跨实例单调序号（static，
+     * 本类无 per-player 实例概念、{@code new} 即用即弃）+ per-player 最新 token 记录。
+     * 主线程首部记 token、回主线程 render 前比对：不等 = 已有更新的打开请求，本次作废
+     *（连点/本人-他人日历交叉打开时只渲染最新一次，消闪变与双倍查库）。
+     *
+     * <p>openSeq 条目随每次 openAsync 覆写自身收敛（量级=历史玩家数条 Long），
+     * 不挂 quit 清理（同 E1 裁决）。
+     */
+    private static final AtomicLong SEQ = new AtomicLong();
+    private static final Map<UUID, Long> openSeq = new ConcurrentHashMap<>();
+
     private final LetsLearnEnglish plugin;
 
     public LearningCalendarGUI(LetsLearnEnglish plugin) {
@@ -70,32 +84,45 @@ public class LearningCalendarGUI {
     }
 
     /**
-     * C-7：兼容入口 —— 统一委托 {@link #openAsync(Player)}（主线程零查库，彻底断根）。
+     * C-7：兼容入口 —— 统一委托 {@link #openAsync(Player, UUID)}（主线程零查库，彻底断根）。
      */
     public void open(Player player) {
         openAsync(player);
     }
 
     /**
+     * 兼容入口：旧签名委托 —— 查看者自己的日历（target = viewer）。
+     */
+    public void openAsync(Player player) {
+        openAsync(player, player.getUniqueId());
+    }
+
+    /**
      * C-7：异步两段式打开入口。
      *
-     * <p>异步段仅查 {@code PlayerDataStore.getSessionDays}（DB 读 + logger，
-     * 无 Bukkit 世界 API）；主线程段渲染（{@link #openWithData}，零 DB 调用）。
+     * <p>R4-M2 增参：日历归属玩家 {@code targetId} —— 他人主页「过往学习」入口
+     * 传目标 UUID（展示对方的日历），旧签名委托本人。异步段仅查
+     * {@code PlayerDataStore.getSessionDays}（DB 读 + logger，无 Bukkit 世界
+     * API）；主线程段渲染（{@link #openWithData}，零 DB 调用）。
      *
      * <p>R-67：异步体开头与 runTask 前各查一次 {@code isEnabled()}；主线程段
      * {@code isOnline()} 复检（异步间隙玩家可能下线）。
      */
-    public void openAsync(Player player) {
+    public void openAsync(Player player, UUID targetId) {
         UUID playerId = player.getUniqueId();
+        // R12-M2（E1）：主线程首部登记本次打开 token（连点/交叉打开去重；
+        // 两个重载共用同一 per-player 条目，先发起者被后发起者取代）。
+        final long token = SEQ.incrementAndGet();
+        openSeq.put(playerId, token);
         try {
             Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
                 if (!plugin.isEnabled()) return;
                 Map<String, Integer> dayData;
                 try {
-                    dayData = plugin.getPlayerDataStore().getSessionDays(playerId, 35);
+                    dayData = plugin.getPlayerDataStore().getSessionDays(targetId, 35);
                 } catch (Exception e) {
                     plugin.getLogger().log(Level.WARNING,
-                            "Failed to preload learning calendar data for " + playerId, e);
+                            "Failed to preload learning calendar data for " + targetId, e);
                     // R11-M3：失败必有反馈 —— 异步段不得直调 Bukkit API，切主线程发提示+失败音。
                     try {
                         Bukkit.getScheduler().runTask(plugin, () -> {
@@ -113,7 +140,10 @@ public class LearningCalendarGUI {
                 try {
                     Bukkit.getScheduler().runTask(plugin, () -> {
                         if (!player.isOnline()) return;
-                        openWithData(player, dayData);
+                        // R12-M2（E1）：render 前比对 token——已有更新的打开请求则弃本次
+                        //（C1 的 catch 提示不受本门约束：失败要告知，语义正确）。
+                        if (openSeq.getOrDefault(playerId, -1L) != token) return;
+                        openWithData(player, targetId, dayData);
                     });
                 } catch (IllegalStateException ignored) {
                     // 关服竞态：调度器已关闭，放弃本次渲染
@@ -125,13 +155,22 @@ public class LearningCalendarGUI {
     }
 
     /**
-     * C-7：主线程渲染 —— 数据由 {@link #openAsync(Player)} 预取，本方法零 DB 调用。
+     * C-7：主线程渲染 —— 数据由 {@link #openAsync(Player, UUID)} 预取，本方法零 DB 调用。
+     * R4-M2：{@code targetId} 为日历归属玩家；本人用 calendar.title，他人用
+     * calendar.viewing-title（{player} = 目标名，主线程段取好——getPlayerName
+     * 的主线程名册回落只在主线程安全）。
      */
-    private void openWithData(Player player, Map<String, Integer> dayData) {
+    private void openWithData(Player player, UUID targetId, Map<String, Integer> dayData) {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration msg = plugin.getConfigManager().getMessageConfig(lang);
 
-        String title = msg.getString("calendar.title", "");
+        String titleKey = targetId.equals(player.getUniqueId())
+                ? "calendar.title" : "calendar.viewing-title";
+        String title = msg.getString(titleKey, "");
+        if (!targetId.equals(player.getUniqueId())) {
+            title = title.replace("{player}",
+                    plugin.getPlayerDataStore().getPlayerName(targetId));
+        }
         title = ChatColor.translateAlternateColorCodes('&', title);
         Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
 
@@ -236,12 +275,8 @@ public class LearningCalendarGUI {
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', backLore))));
 
         // ── Fill remaining empty slots with filler panes to prevent item dragging ──
-        ItemStack filler = createItem(Material.GRAY_STAINED_GLASS_PANE, " ", Collections.emptyList());
-        for (int i = 0; i < GUI_SIZE; i++) {
-            if (inv.getItem(i) == null) {
-                inv.setItem(i, filler);
-            }
-        }
+        // R12-M3：内联 filler 统一收敛到 GUIUtils.fillEmpty（逐字等价，全仓单一实现）。
+        GUIUtils.fillEmpty(inv);
 
         player.openInventory(inv);
     }

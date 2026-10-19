@@ -444,7 +444,8 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 default -> null; // 非法值忽略，开默认落点（plan-social §3.4）
             };
         }
-        new EnglishSquareGUI(plugin).open(player, 1, mode);
+        // R4-M1：走 SocialListener 登记快照的入口（直达窗口点头像不再现查库重建）
+        plugin.getSocialListener().openSquareWithSnapshot(player, mode);
     }
 
     private void handleLeaderboardCommand(Player player) {
@@ -594,6 +595,8 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 return;
             }
             java.time.LocalDate today = java.time.LocalDate.now();
+            // R13-M4：跨日惰性清扫（值仅当日有效；保留今日条目，不影响当日去重语义）。
+            celebrationShownDates.values().removeIf(d -> !today.equals(d));
             if (today.equals(celebrationShownDates.get(player.getUniqueId()))) {
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "daily-challenge.celebrate-shown-today"));

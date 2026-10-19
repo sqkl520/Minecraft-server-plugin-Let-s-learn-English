@@ -1241,6 +1241,17 @@ public class AIChatManager {
         pendingSummaries.remove(playerId);
     }
 
+    /**
+     * R13-M4 quit 清理钩：清玩家难度偏好条目（{@code playerDifficulties} 只增不删，
+     * 无 quit 清理则每曾进服玩家永久留条）。代价与语义：偏好为纯内存态，rejoin 后
+     * 首次读回落默认难度，直到玩家再次选择——R13-M4 立案裁决接受此收敛（内存卫生
+     * 优先，偏好属"会话级便捷值"）。独立方法命名语义单一，照 CheckInManager.unloadPlayer
+     * 先例；由 PlayerJoinListener.onPlayerQuit 调用。
+     */
+    public void unloadPlayer(UUID playerId) {
+        playerDifficulties.remove(playerId);
+    }
+
     /** §3.2：总结请求体 —— [system(总结指令), user(transcript + 收尾指令)]，temperature 0.3。 */
     private JsonObject buildSummaryRequestBody(Player player, SessionSummary summary, String lang) {
         boolean zh = "zh".equalsIgnoreCase(lang);

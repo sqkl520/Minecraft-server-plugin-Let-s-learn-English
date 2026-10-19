@@ -240,6 +240,9 @@ public class LeaderboardGUI {
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
                         MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
 
+        // R12-M3：空槽填灰玻璃（防拖纵深）——renderSeasonInfoBoard 与本方法共享同一
+        // inv；fillEmpty 放在全部 setItem 之后的最外层，晚者不覆盖信息牌（只填空槽）。
+        GUIUtils.fillEmpty(inv);
         player.openInventory(inv);
     }
 

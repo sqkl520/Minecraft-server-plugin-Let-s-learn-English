@@ -419,11 +419,31 @@ public class SocialListener implements Listener {
             // 标题解析不出目标时不猜（否则会把返回栈指向查看者自己的主页）
             UUID targetId = extractTargetIdFromTitle(player, title);
             if (targetId == null) return;
-            SoundManager.playSound(player, "menu-click");
             UUID finalTargetId = targetId;
+            // R4-M2 隐私门（三层，顺序照 fix-plan-c2 §C2-B/B2）：他人日历=学习结果
+            // 类数据，查看须过目标 showResults 门（与 FeedTextFormatter SESSION_DONE
+            // detail 降级同口径）。被拒路径不放行也不压返回帧（F4-04 纪律：压帧会让
+            // 笑话页/拒绝页的返回立刻重开刚被拦下的界面）。
+            if (!targetId.equals(player.getUniqueId())) {
+                PlayerDataStore store = plugin.getPlayerDataStore();
+                var ps = store.getProfileSettingsReadOnly(targetId);
+                if (!ps.isShowInSquare()) {
+                    // 隐身者 → 笑话页（纵深同款；陈旧主页入口窗口防绕过）
+                    new EnglishSquareGUI(plugin).openHidden(player, targetId);
+                    return;
+                }
+                if (!ps.isShowResults()) {
+                    // 人在广场可见、只是不公开学习结果 → 拒绝打开 + 提示
+                    SoundManager.playSound(player, "menu-click");
+                    player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                            "calendar.not-public"));
+                    return;
+                }
+            }
+            SoundManager.playSound(player, "menu-click");
             nav.pushBack(player.getUniqueId(),
                     () -> new ProfileGUI(plugin).open(player, finalTargetId));
-            new LearningCalendarGUI(plugin).openAsync(player);
+            new LearningCalendarGUI(plugin).openAsync(player, finalTargetId);
             return;
         }
         if (slot == PROFILE_BACK_SLOT) {
@@ -498,6 +518,17 @@ public class SocialListener implements Listener {
         LeaderboardGUI gui = new LeaderboardGUI(plugin);
         gui.open(player);
         leaderboardGuis.put(player.getUniqueId(), gui);
+    }
+
+    /**
+     * R4-M1：命令/主菜单直达入口 —— 打开广场 GUI 的同时登记 {@link #squareGuis}
+     * 快照（照 openLeaderboardWithSnapshot F3-01 先例；mode 可为 null=默认落点）。
+     * 登记后 SocialListener 点击侧信任快照，直达窗口期零重建。
+     */
+    public void openSquareWithSnapshot(Player player, RankingMode mode) {
+        EnglishSquareGUI gui = new EnglishSquareGUI(plugin);
+        gui.open(player, 1, mode);
+        squareGuis.put(player.getUniqueId(), gui);
     }
 
     private void handleLeaderboardGUI(Player player, int slot) {        GuiNavigationManager nav = plugin.getGuiNavigationManager();

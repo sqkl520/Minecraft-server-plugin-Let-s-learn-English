@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.core.manager;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.LeaderboardEntry;
 import com.letslearnenglish.minecraftplugin.core.season.SeasonManager;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordBank;
@@ -25,7 +26,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -637,7 +637,13 @@ public class AdminCommandHandler {
         String className = args[2];
         int maxLen = plugin.getConfigManager().getMainConfig()
                 .getInt("class-system.max-name-length", 32);
-        if (className.isBlank() || className.length() > maxLen || className.contains(" ")) {
+        // R7-M2：拒绝 &/§/换行——班名会进 ClassBoardGUI 标题并走
+        // translateAlternateColorCodes，染色注入面在写入点收口（全仓 create 是唯一
+        // 班名写入面，无 rename/setClassName 入口）。存量含 & 的班名不迁移（展示层
+        // 原样翻译，接受）。
+        if (className.isBlank() || className.length() > maxLen || className.contains(" ")
+                || className.contains("&") || className.contains("§")
+                || className.contains("\n") || className.contains("\r")) {
             sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                     "class.name-invalid", "max", String.valueOf(maxLen)));
             return;
@@ -781,11 +787,14 @@ public class AdminCommandHandler {
     }
 
     /**
-     * {@code /lea class list <班名>}：全量成员（管理路径，含隐身穿透——plan §1.5
-     * 明示不受 show_in_square 过滤）。分数列读赛季榜内存快照
-     * （{@link SeasonManager#getCurrentTopCached(int)}，零查库）反查成员分数，
-     * 榜外显示 0；SeasonManager 为 null 或赛季未启用时分数全 0 但列表照常。
-     * 行序按分数降序（同分按名字），与 4A-2 班级榜 GUI 的展示口径一致。
+     * {@code /lea class list <班名>}：成员列表 + 赛季窗口分数。R7-L5 起与 /le class
+     * 班级榜 GUI 同源——班级过滤聚合查询 {@code getRankedPlayersForPeriodFiltered}
+     * 按行返回真实分数，取代旧"赛季榜前 50 快照反查"：榜外/窗口内无会话成员不再
+     * 误显 0 分，而是不列入（对齐 GUI"只渲染查询返回者"口径；查询随带的
+     * show_in_square 过滤与 GUI 一致，旧快照路径的数据同为过滤后口径）。
+     * 查询在异步段执行（成员名单天然 ≤ max-members，有界）；season 未启用时保持
+     * 既有降级（{@code entries=null}，渲染侧全成员 0 分按名字序列出，命令侧不拒
+     * ——与 GUI 的 season.disabled 门不矛盾）。行序按赛季分降序（查询侧 ORDER BY）。
      */
     private void handleClassList(org.bukkit.command.CommandSender sender, String[] args) {
         if (args.length < 3) {
@@ -794,6 +803,15 @@ public class AdminCommandHandler {
         }
         String className = args[2];
         DatabaseManager db = plugin.getDatabaseManager();
+        // R7-L5：赛季窗口在主线程先算好（纯函数零 IO，读内存配置，照 LearnCommand
+        // /le class 先例）；未启用（null / season 休眠）→ window=null 走降级路径。
+        SeasonManager season = plugin.getSeasonManager();
+        final SeasonManager.SeasonWindow window;
+        if (season != null && season.isEnabled()) {
+            window = season.windowOf(season.currentSeasonId(java.time.LocalDate.now()));
+        } else {
+            window = null;
+        }
         runClassAsync(() -> {
             DatabaseManager.ClassRow classRow = db.getClassByName(className);
             if (classRow == null) {
@@ -801,36 +819,54 @@ public class AdminCommandHandler {
                 return;
             }
             List<DatabaseManager.ClassMemberRow> members = db.getClassMembers(classRow.classId());
-            runOnMain(() -> sendClassList(sender, classRow, members));
+            // R7-L5：分数查询移入异步段（不在主线程跑 DB）。
+            final List<LeaderboardEntry> entries;
+            if (window != null) {
+                List<UUID> memberIds = new ArrayList<>(members.size());
+                for (DatabaseManager.ClassMemberRow member : members) {
+                    memberIds.add(member.uuid());
+                }
+                entries = plugin.getPlayerDataStore().getRankedPlayersForPeriodFiltered(
+                        members.size(), window.start(), window.end(), memberIds);
+            } else {
+                entries = null; // 赛季未启用：渲染侧保留既有降级（全成员 0 分）
+            }
+            runOnMain(() -> sendClassList(sender, classRow, members, entries));
         });
     }
 
-    /** list 渲染（主线程）：赛季缓存反查分数 + 排序 + 逐行发送。 */
+    /**
+     * list 渲染（主线程零查库）：赛季启用时直接遍历异步段取回的班级过滤榜
+     * （分数随行返回、rank 为查询名次——与 GUI 同源同序）；窗口内无会话的成员
+     * 不被查询返回、不列出（对齐 GUI 口径）。{@code count} 为班级真实成员数
+     * （非展示行数）。赛季未启用降级（{@code entries == null}）：保留既有
+     * "空 scoreByUuid"行为——全成员列出、分数 0、按名排序。
+     */
     private void sendClassList(org.bukkit.command.CommandSender sender,
                                DatabaseManager.ClassRow classRow,
-                               List<DatabaseManager.ClassMemberRow> members) {
-        Map<UUID, Long> scoreByUuid = new HashMap<>();
-        SeasonManager season = plugin.getSeasonManager();
-        if (season != null && season.isEnabled()) {
-            for (SeasonManager.SeasonRankRow row : season.getCurrentTopCached(50)) {
-                scoreByUuid.put(row.uuid(), row.score());
-            }
-        }
-        List<DatabaseManager.ClassMemberRow> sorted = new ArrayList<>(members);
-        sorted.sort(Comparator
-                .comparingLong((DatabaseManager.ClassMemberRow m) ->
-                        scoreByUuid.getOrDefault(m.uuid(), 0L))
-                .reversed()
-                .thenComparing(DatabaseManager.ClassMemberRow::playerName,
-                        String.CASE_INSENSITIVE_ORDER));
+                               List<DatabaseManager.ClassMemberRow> members,
+                               List<LeaderboardEntry> entries) {
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "class.list-header",
-                "class", classRow.className(), "count", String.valueOf(sorted.size())));
+                "class", classRow.className(), "count", String.valueOf(members.size())));
+        if (entries != null) {
+            for (LeaderboardEntry entry : entries) {
+                sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "class.list-entry",
+                        "rank", String.valueOf(entry.rank),
+                        "player", entry.playerName,
+                        "score", String.valueOf(entry.score)));
+            }
+            return;
+        }
+        // 赛季未启用降级：既有"空 scoreByUuid"行为原样（队伍成员 0 分 + 名字序）
+        List<DatabaseManager.ClassMemberRow> sorted = new ArrayList<>(members);
+        sorted.sort(Comparator.comparing(DatabaseManager.ClassMemberRow::playerName,
+                String.CASE_INSENSITIVE_ORDER));
         int rank = 1;
         for (DatabaseManager.ClassMemberRow member : sorted) {
             sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "class.list-entry",
                     "rank", String.valueOf(rank++),
                     "player", member.playerName(),
-                    "score", String.valueOf(scoreByUuid.getOrDefault(member.uuid(), 0L))));
+                    "score", "0"));
         }
     }
 

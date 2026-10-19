@@ -15,6 +15,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 
 /**
@@ -41,6 +43,18 @@ public class DailyChallengeGUI {
      * 必须保持升序 —— 点击侧用 {@link java.util.Arrays#binarySearch} 查位。
      */
     public static final int[] CHALLENGE_SLOTS = {11, 13, 15, 17};
+
+    /**
+     * R12-M1（E1）：openAsync in-flight 去重 token —— 跨实例单调序号（static，
+     * 本类无 per-player 实例概念、{@code new} 即用即弃）+ per-player 最新 token 记录。
+     * 主线程首部记 token、回主线程 render 前比对：不等 = 已有更新的打开请求，本次作废
+     * （连点/交叉打开时只渲染最新一次，消闪变与双倍查库）。
+     *
+     * <p>openSeq 条目随每次 openAsync 覆写自身收敛（量级=历史玩家数条 Long），
+     * 不挂 quit 清理（与 openSeq 同族的 joinReminderSent 惰性清理裁决一致）。
+     */
+    private static final AtomicLong SEQ = new AtomicLong();
+    private static final Map<UUID, Long> openSeq = new ConcurrentHashMap<>();
 
     private final LetsLearnEnglish plugin;
 
@@ -69,6 +83,9 @@ public class DailyChallengeGUI {
      */
     public void openAsync(Player player) {
         UUID playerId = player.getUniqueId();
+        // R12-M1（E1）：主线程首部登记本次打开 token（连点/交叉打开去重）。
+        final long token = SEQ.incrementAndGet();
+        openSeq.put(playerId, token);
         try {
             Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
                 if (!plugin.isEnabled()) return;
@@ -97,6 +114,9 @@ public class DailyChallengeGUI {
                 try {
                     Bukkit.getScheduler().runTask(plugin, () -> {
                         if (!player.isOnline()) return;
+                        // R12-M1（E1）：render 前比对 token——已有更新的打开请求则弃本次
+                        //（C1 的 catch 提示不受本门约束：失败要告知，语义正确）。
+                        if (openSeq.getOrDefault(playerId, -1L) != token) return;
                         openWithData(player, challenges, wordProgress);
                     });
                 } catch (IllegalStateException ignored) {
@@ -194,6 +214,7 @@ public class DailyChallengeGUI {
                         MessageUtil.getGuiMsg(messages, "daily.word-title")),
                 wordLore));
 
+        GUIUtils.fillEmpty(inv); // R12-M3：空槽填灰玻璃（防拖纵深；全部 setItem 之后）
         player.openInventory(inv);
     }
 

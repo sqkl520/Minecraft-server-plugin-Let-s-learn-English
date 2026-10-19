@@ -22,8 +22,14 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.TimeZone;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Level;
 
 /**
  * AI Chat History GUI — browse past AI conversations.
@@ -40,14 +46,27 @@ import java.util.TimeZone;
  *   slot 51    下一页
  *
  * <p>已知越层（P2-27，属重构批次）：本类直调 DatabaseManager 读取会话数据
- *（{@code getChatHistoryCount}/{@code getChatSessions} 约 :131-139、
- * {@code getSessionPreview} 约 :163、{@code getChatSession} 约 :294），
- * 未经 Core 门面。收敛方向 = 抽 Core 门面（会话读侧统一入口，含批量预取）后
- * GUI 只依赖门面；接线属重构批次排期，本类暂维持现状。
+ *（{@code getChatHistoryCount}/{@code getChatSessions}/{@code getSessionPreview}、
+ * {@code getChatSession}），未经 Core 门面。收敛方向 = 抽 Core 门面（会话读侧统一
+ * 入口，含批量预取）后 GUI 只依赖门面；接线属重构批次排期，本类暂维持现状。
+ *
+ * <p>R13-M2（F2）：打开/翻页/详情页已两段式异步化（异步段查库 + 主线程渲染），
+ * 主线程零 DB 调用；{@code open(Player, int)}、{@code open(Player)} 与
+ * {@code openSession} 均为兼容入口，统一委托 {@code openAsync*}（既有调用点零改动）。
+ * P2-27 的 N+1（逐会话 getSessionPreview）保留但移出主线程，与裁决一致。
  */
 public class ChatHistoryGUI {
 
     private static final int GUI_SIZE = 54;
+
+    /**
+     * R13-M2/E1：openAsync 在途去重 token（per-GUI-class static 序列 + per-player 记录，
+     * 两类同式）。连点/交叉打开时旧请求回主线程 render 前比对失败即作废（闪变与双倍
+     * 查库消除）；每次 openAsync 覆写自身条目——量级=历史玩家数条 Long，惰性收口
+     * （不做 quit 清理，注释说明，照 E1 裁决）。
+     */
+    private static final AtomicLong OPEN_SEQ = new AtomicLong();
+    private static final Map<UUID, Long> OPEN_SEQ_BY_PLAYER = new ConcurrentHashMap<>();
 
     public static final int BACK_SLOT = 8;
     public static final int PREV_PAGE_SLOT = 47;
@@ -107,7 +126,84 @@ public class ChatHistoryGUI {
         open(player, 1);
     }
 
+    /**
+     * R13-M2（F2）：兼容入口 —— 统一委托 {@link #openAsync(Player, int)}。
+     * 既有调用点（LearnCommand / ChatHistoryListener 的翻页与返回）全部零改动，
+     * 行为语义与原同步 open 一致（仅改为两段式异步打开）。
+     */
     public void open(Player player, int page) {
+        openAsync(player, page);
+    }
+
+    /**
+     * R13-M2（F2）：异步两段式打开入口（照 C-3 DailyChallengeGUI.openAsync 同式）。
+     *
+     * <p>异步段（仅 DB/logger，无 Bukkit 世界 API）：1 次 count + 1 次 sessions +
+     * ≤N 次 preview（N+1 保留但移出主线程，与 F2 裁决"两段式优先，DB 批 API 非必需"
+     * 一致）；page clamp 基于真实 totalSessions 在异步段完成。主线程段只渲染
+     * （{@link #openWithData}，零 DB 调用）。
+     *
+     * <p>R-67：异步体开头与 runTask 前各查一次 {@code isEnabled()}；主线程段
+     * {@code isOnline()} 复检（异步间隙玩家可能下线）。E1 token：回主线程 render
+     * 前比对，连点/交叉打开时旧请求作废（后发起者胜）。
+     */
+    public void openAsync(Player player, int page) {
+        UUID playerId = player.getUniqueId();
+        final long token = OPEN_SEQ.incrementAndGet();
+        OPEN_SEQ_BY_PLAYER.put(playerId, token);
+        try {
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                if (!plugin.isEnabled()) return;
+                final int totalSessions;
+                final int effPage;
+                final List<ChatHistoryEntry> sessions;
+                final Map<String, String[]> previews;
+                try {
+                    totalSessions = plugin.getDatabaseManager().getChatHistoryCount(playerId);
+                    int totalPages = Math.max(1,
+                            (int) Math.ceil((double) totalSessions / SESSIONS_PER_PAGE));
+                    effPage = Math.max(1, Math.min(page, totalPages));
+                    sessions = plugin.getDatabaseManager()
+                            .getChatSessions(playerId, effPage, SESSIONS_PER_PAGE);
+                    Map<String, String[]> prev = new HashMap<>();
+                    // F2 裁决：N+1（逐会话 preview）保留但移出主线程；P2-27 的批量
+                    // 预取收敛方向不变（届时仅改此预取实现，渲染面不动）。
+                    for (ChatHistoryEntry session : sessions) {
+                        String sessionId = session.getSessionId();
+                        if (sessionId != null) {
+                            prev.put(sessionId, plugin.getDatabaseManager()
+                                    .getSessionPreview(playerId, sessionId));
+                        }
+                    }
+                    previews = prev;
+                } catch (Exception e) {
+                    plugin.getLogger().log(Level.WARNING,
+                            "Failed to preload chat history GUI for " + playerId, e);
+                    return;
+                }
+                if (!plugin.isEnabled()) return;
+                try {
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (!player.isOnline()) return;
+                        // E1 token：已有更新的打开请求（翻页/返回/详情），本次作废
+                        if (OPEN_SEQ_BY_PLAYER.getOrDefault(playerId, -1L) != token) return;
+                        openWithData(player, effPage, totalSessions, sessions, previews);
+                    });
+                } catch (IllegalStateException ignored) {
+                    // 关服竞态：调度器已关闭，放弃本次渲染
+                }
+            });
+        } catch (IllegalStateException ignored) {
+            // 插件停用窗口（调度器已关闭）：放弃本次打开
+        }
+    }
+
+    /**
+     * R13-M2（F2）：主线程渲染 —— 数据由 {@link #openAsync(Player, int)} 预取，
+     * 本方法零 DB 调用；渲染段与修复前逐行等价（物品/槽位/lore 全同）。
+     */
+    private void openWithData(Player player, int page, int totalSessions,
+                              List<ChatHistoryEntry> sessions, Map<String, String[]> previews) {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration msg = plugin.getConfigManager().getMessageConfig(lang);
 
@@ -131,16 +227,9 @@ public class ChatHistoryGUI {
         String backLore = MessageUtil.getGuiMsg(msg, "chat-history.back-lore");
         gui.setItem(BACK_SLOT, createItem(Material.RED_STAINED_GLASS_PANE, backLabel, backLore));
 
-        // Get sessions
-        int totalSessions = plugin.getDatabaseManager().getChatHistoryCount(player.getUniqueId());
+        // R13-M2（F2）：totalSessions / page clamp / sessions 均由 openAsync 异步段
+        // 预取并 clamp 完成，本处零 DB 调用。
         int totalPages = Math.max(1, (int) Math.ceil((double) totalSessions / SESSIONS_PER_PAGE));
-
-        // Clamp page
-        if (page < 1) page = 1;
-        if (page > totalPages) page = totalPages;
-
-        List<ChatHistoryEntry> sessions = plugin.getDatabaseManager()
-                .getChatSessions(player.getUniqueId(), page, SESSIONS_PER_PAGE);
 
         if (sessions.isEmpty()) {
             // Empty state
@@ -156,16 +245,12 @@ public class ChatHistoryGUI {
                 slotIndex++;
 
                 String sessionId = session.getSessionId();
-                // P2-27 关联项（dev-findings 已入账，待排期）：本循环逐会话调用
-                // getSessionPreview —— 打开一页 = 1 次 count + 1 次 sessions + ≤10 次
-                // preview 的同步查询。DatabaseManager 无批量 API（getChatHistoryForSessions
-                // 之类不存在，且不在本流白名单），循环前预取无从谈起；整页全量拉取再
-                // 内存分组会退化为无界查询，故作罢。收敛方向随 P2-27：Core 门面提供
-                // 批量预取（或参照 DailyChallengeGUI.openAsync 两段式异步化）。
-                String[] preview = plugin.getDatabaseManager()
-                        .getSessionPreview(player.getUniqueId(), sessionId);
-                String systemContent = preview[0];
-                String firstUserContent = preview[1];
+                // R13-M2（F2）：preview 由 openAsync 异步段逐会话预取（N+1 保留、移出
+                // 主线程）；P2-27 收敛方向不变——届时只改预取实现（DB 批 API），渲染不动。
+                // null sessionId 预取时未查库，回读 null 与旧同步查询（＝无行 [null,null]）等价。
+                String[] preview = previews.get(sessionId);
+                String systemContent = (preview != null) ? preview[0] : null;
+                String firstUserContent = (preview != null) ? preview[1] : null;
 
                 // P2-19：提取失败时数据层返回硬编码英文哨兵 "Unknown"（数据层不在本流
                 // 白名单，显示侧就地兜底；空串同样按失败处理）；lore 与物品名共用此变量，
@@ -253,7 +338,67 @@ public class ChatHistoryGUI {
     //  Expanded Conversation View
     // ============================================================
 
+    /**
+     * R13-M2（F2）：兼容入口 —— 统一委托 {@link #openSessionAsync(Player, String, int)}
+     * （详情页同为两段式异步，既有调用点零改动）。
+     */
     public void openSession(Player player, String sessionId, int returnPage) {
+        openSessionAsync(player, sessionId, returnPage);
+    }
+
+    /**
+     * R13-M2（F2）：详情页异步两段式入口（同列表页 openAsync 同式）。
+     * 异步段：{@code getChatSession} 单查 + 反馈行预取（总开关关闭时零查库）；
+     * 主线程段只渲染（{@link #openSessionWithData}，零 DB 调用）。E1 token 与
+     * 列表页共用（同类共享序列：最后发起的打开请求胜）。
+     */
+    public void openSessionAsync(Player player, String sessionId, int returnPage) {
+        UUID playerId = player.getUniqueId();
+        final long token = OPEN_SEQ.incrementAndGet();
+        OPEN_SEQ_BY_PLAYER.put(playerId, token);
+        try {
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                if (!plugin.isEnabled()) return;
+                final List<ChatHistoryEntry> messages;
+                final ChatFeedbackEntry feedback;
+                try {
+                    messages = plugin.getDatabaseManager().getChatSession(playerId, sessionId);
+                    // plan §3.4 "四处真接线"之三（GUI 物品）：总开关关闭时详情页零物品
+                    // 零查库（门在异步段点读，渲染面与旧版表现完全一致）。
+                    if (sessionId != null && !sessionId.isEmpty()
+                            && plugin.getConfigManager().getMainConfig()
+                                    .getBoolean("ai-chat.feedback.enabled", true)) {
+                        feedback = plugin.getChatFeedbackManager().getFeedback(playerId, sessionId);
+                    } else {
+                        feedback = null;
+                    }
+                } catch (Exception e) {
+                    plugin.getLogger().log(Level.WARNING,
+                            "Failed to preload chat session view for " + playerId, e);
+                    return;
+                }
+                if (!plugin.isEnabled()) return;
+                try {
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (!player.isOnline()) return;
+                        if (OPEN_SEQ_BY_PLAYER.getOrDefault(playerId, -1L) != token) return;
+                        openSessionWithData(player, sessionId, returnPage, messages, feedback);
+                    });
+                } catch (IllegalStateException ignored) {
+                    // 关服竞态：调度器已关闭，放弃本次渲染
+                }
+            });
+        } catch (IllegalStateException ignored) {
+            // 插件停用窗口（调度器已关闭）：放弃本次打开
+        }
+    }
+
+    /**
+     * R13-M2（F2）：详情页主线程渲染 —— 数据由 {@link #openSessionAsync} 预取，
+     * 本方法零 DB 调用；渲染段与修复前逐行等价（物品/槽位/lore 全同）。
+     */
+    private void openSessionWithData(Player player, String sessionId, int returnPage,
+                                     List<ChatHistoryEntry> messages, ChatFeedbackEntry feedback) {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration msg = plugin.getConfigManager().getMessageConfig(lang);
 
@@ -293,10 +438,7 @@ public class ChatHistoryGUI {
         }
         gui.setItem(RETURN_PAGE_SLOT, marker);
 
-        // Get all messages for this session
-        List<ChatHistoryEntry> messages = plugin.getDatabaseManager()
-                .getChatSession(player.getUniqueId(), sessionId);
-
+        // R13-M2（F2）：messages 由 openSessionAsync 异步段预取，本处零 DB 调用。
         int slot = 0;
         for (ChatHistoryEntry entry : messages) {
             if (slot >= PAGE_INDICATOR_SLOT) break; // 底行留给返回键标记与导航，不铺消息
@@ -355,7 +497,9 @@ public class ChatHistoryGUI {
 
         // US-FB（3B 集成，plan §3.6）：反馈槽 49 —— 会话有小结行时渲染只读反馈物品
         //（本地统计 + 有 AI 点评时展开 comment/纠错/推荐词）；无行则留背景玻璃。
-        renderFeedbackItem(player, gui, msg, sessionId);
+        // R13-M2（F2）：反馈行由 openSessionAsync 异步段预取（总开关门/空 sessionId
+        // 拦截均在异步段，本处零 DB 调用）。
+        renderFeedbackItem(player, gui, msg, feedback);
 
         // R-86 音效去重（S1 裁决）：menu-open 由 SoundManager 全局 InventoryOpen
         // 唯一播放，本处显式播放移除（原先双声）。
@@ -363,23 +507,13 @@ public class ChatHistoryGUI {
     }
 
     /**
-     * US-FB：详情页反馈物品（FEEDBACK_SLOT=49，底行导航区空位）。数据走
-     * ChatFeedbackManager 门面（有界索引查询，与既有详情页查询同姿态）。
-     * 行不存在（老会话/未达标）时整槽留背景，不出现空物。
+     * US-FB：详情页反馈物品（FEEDBACK_SLOT=49，底行导航区空位）。数据由
+     * {@link #openSessionAsync} 异步段经 ChatFeedbackManager 门面预取（有界索引
+     * 查询）；本方法只做渲染（零 DB 调用）。行不存在（老会话/未达标/总开关关闭）
+     * 时整槽留背景，不出现空物。
      */
     private void renderFeedbackItem(Player player, Inventory gui, FileConfiguration msg,
-                                    String sessionId) {
-        if (sessionId == null || sessionId.isEmpty()) {
-            return;
-        }
-        // plan §3.4 "四处真接线"之三（GUI 物品）：总开关关闭时详情页零物品零查库，
-        // 表现与旧版完全一致。
-        if (!plugin.getConfigManager().getMainConfig()
-                .getBoolean("ai-chat.feedback.enabled", true)) {
-            return;
-        }
-        ChatFeedbackEntry fb =
-                plugin.getChatFeedbackManager().getFeedback(player.getUniqueId(), sessionId);
+                                    ChatFeedbackEntry fb) {
         if (fb == null) {
             return;
         }

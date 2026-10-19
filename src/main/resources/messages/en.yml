@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 15
+config-version: 16
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -533,6 +533,8 @@ word-bank:
 
 calendar:
   title: "&a&lStudy History"
+  viewing-title: "&a&lStudy History - {player}"
+  not-public: "{prefix}&7This player hasn't shared their learning calendar."
   back: "Back"
   back-lore: "&7Return to source page"
   legend-no-activity: "No activity"
@@ -791,7 +793,7 @@ class:
   member-full: "{prefix}&cClass is full (max {max} members)"
   name-exists: "{prefix}&cA class with that name already exists"
   not-found: "{prefix}&cClass &e{name} &cnot found"
-  name-invalid: "{prefix}&cInvalid class name (1-{max} chars, no spaces)"
+  name-invalid: "{prefix}&cInvalid class name (1-{max} chars, no spaces or color codes)"
   player-not-found: "{prefix}&cPlayer not found"
   usage: "{prefix}&7Usage: /lea class create|delete|add|remove|list"
   list-header: "{prefix}&6===== Class {class} ({count} members) ====="

@@ -128,17 +128,18 @@ public class EnglishSquareGUI {
         } else if (mode == RankingMode.ALL_PLAYERS) {
             currentFeedItems = Collections.emptyList();
             // Original mode: show active players (include self if answered at least once).
-            // R-05 补漏：隐身玩家（show_in_square=false）不列出。
-            List<UUID> allPlayers = store.getActivePlayerIds();
-            currentPlayerIds = new ArrayList<>();
-            for (UUID id : allPlayers) {
-                if (!store.getProfileSettingsReadOnly(id).isShowInSquare()) continue;
-                PlayerDataStore.PlayerStats s = store.getPlayerStats(id);
-                if (s.getTotalCorrect() + s.getTotalIncorrect() > 0) {
-                    currentPlayerIds.add(id);
-                }
+            // F3（R13-M3）：聚合单查替换 N+1 装配 —— getActiveSquareEntries 单条 SQL
+            // 完成隐身过滤（COALESCE show_in_square）+ 答过题过滤（word_progress 聚合 >0）
+            // + correct/incorrect 求和；旧路径逐 cache-miss 玩家 getPlayerStats 查库。
+            // 顺序 = score DESC（确定性）；数据源 = DB 真值（自动保存窗口内的最新答题
+            // 延迟可见，见 PlayerDataStore.getActiveSquareEntries javadoc）。
+            // 渲染与点击共用本快照（currentPlayerIds 与 rankedEntries 同源同序契约）。
+            List<LeaderboardEntry> allEntries = store.getActiveSquareEntries(Integer.MAX_VALUE);
+            rankedEntries = allEntries;
+            currentPlayerIds = new ArrayList<>(allEntries.size());
+            for (LeaderboardEntry e : allEntries) {
+                currentPlayerIds.add(e.playerId);
             }
-            rankedEntries = Collections.emptyList();
         } else {
             currentFeedItems = Collections.emptyList();
             // Ranking mode: query leaderboard (include self if has activity)
@@ -254,13 +255,25 @@ public class EnglishSquareGUI {
         }
 
         // Viewer's own head — slot 0
-        PlayerDataStore.PlayerStats ownStats = store.getPlayerStats(viewer.getUniqueId());
         String ownInfo;
         if (mode == RankingMode.ALL_PLAYERS) {
+            // F3（R13-M3）：自己头像统计优先读聚合行（零额外查库）；聚合行不含自己
+            //（隐身/未答过题）时回落 getPlayerStats（单人次、通常缓存命中，展示与旧一致）。
+            LeaderboardEntry ownEntry = findEntry(rankedEntries, viewer.getUniqueId());
+            int ownCorrect;
+            int ownIncorrect;
+            if (ownEntry != null) {
+                ownCorrect = ownEntry.correct;
+                ownIncorrect = ownEntry.incorrect;
+            } else {
+                PlayerDataStore.PlayerStats ownStats = store.getPlayerStats(viewer.getUniqueId());
+                ownCorrect = ownStats.getTotalCorrect();
+                ownIncorrect = ownStats.getTotalIncorrect();
+            }
             ownInfo = ChatColor.translateAlternateColorCodes('&',
                     MessageUtil.getGuiMsg(messages, "square.player-info")
-                            .replace("{correct}", String.valueOf(ownStats.getTotalCorrect()))
-                            .replace("{incorrect}", String.valueOf(ownStats.getTotalIncorrect())));
+                            .replace("{correct}", String.valueOf(ownCorrect))
+                            .replace("{incorrect}", String.valueOf(ownIncorrect)));
         } else if (mode == RankingMode.FEED) {
             // 动态页上的自己头像只做入口提示（鼓励名单走自己条目左键，见 SocialListener）
             ownInfo = ChatColor.translateAlternateColorCodes('&',
@@ -288,6 +301,7 @@ public class EnglishSquareGUI {
         }
         inv.setItem(0, ownHead);
 
+        GUIUtils.fillEmpty(inv); // R12-M3：空槽填灰玻璃（防拖纵深；全部 setItem 之后）
         viewer.openInventory(inv);
     }
 
@@ -303,7 +317,17 @@ public class EnglishSquareGUI {
         for (int i = startIdx; i < endIdx; i++) {
             int slot = PLAYER_SLOTS[i - startIdx];
             UUID targetId = currentPlayerIds.get(i);
+            // F3（R13-M3）：全量模式的统计直接读聚合行（word_progress 聚合值随
+            // getActiveSquareEntries 单查一次带回）——旧实现逐人 getPlayerStats 查库
+            //（N+1 热源）。名字优先读行内 player_name（DB 真值），行值缺失（uuid 兜底）
+            // 时回落既有主线程名册路径（缓存→名册，非 DB 查询），展示不降级。
+            LeaderboardEntry rowEntry = mode == RankingMode.ALL_PLAYERS
+                    ? findEntry(rankedEntries, targetId) : null;
             String targetName = store.getPlayerName(targetId);
+            if (rowEntry != null && !rowEntry.playerName.isEmpty()
+                    && !rowEntry.playerName.equals(targetId.toString())) {
+                targetName = rowEntry.playerName;
+            }
             if (targetName == null) targetName = MessageUtil.getGuiMsg(messages, "profile.unknown-player");
 
             ItemStack head = new ItemStack(Material.PLAYER_HEAD);
@@ -313,11 +337,12 @@ public class EnglishSquareGUI {
                 List<String> lore = new ArrayList<>();
 
                 if (mode == RankingMode.ALL_PLAYERS) {
-                    PlayerDataStore.PlayerStats stats = store.getPlayerStats(targetId);
-                    lore.add(ChatColor.translateAlternateColorCodes('&',
-                            MessageUtil.getGuiMsg(messages, "square.player-info")
-                                    .replace("{correct}", String.valueOf(stats.getTotalCorrect()))
-                                    .replace("{incorrect}", String.valueOf(stats.getTotalIncorrect()))));
+                    if (rowEntry != null) {
+                        lore.add(ChatColor.translateAlternateColorCodes('&',
+                                MessageUtil.getGuiMsg(messages, "square.player-info")
+                                        .replace("{correct}", String.valueOf(rowEntry.correct))
+                                        .replace("{incorrect}", String.valueOf(rowEntry.incorrect))));
+                    }
                 } else {
                     // Find the entry for this player
                     LeaderboardEntry entry = findEntry(rankedEntries, targetId);
@@ -476,6 +501,7 @@ public class EnglishSquareGUI {
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
                         MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
 
+        GUIUtils.fillEmpty(inv); // R12-M3：空槽填灰玻璃（防拖纵深）
         viewer.openInventory(inv);
     }
 

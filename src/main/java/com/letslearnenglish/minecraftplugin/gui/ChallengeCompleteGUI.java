@@ -117,6 +117,9 @@ public class ChallengeCompleteGUI {
                         MessageUtil.getGuiMsg(messages, "gui.back-lore"))));
         inv.setItem(8, backBtn);
 
+        // R12-M3：空槽兜底填灰玻璃 —— 当前布局 27 格全有物品（本调用为 no-op），
+        // 作为未来布局改动漏格时的防拖纵深防线。
+        GUIUtils.fillEmpty(inv);
         SoundManager.playSound(player, "complete");
         player.openInventory(inv);
     }

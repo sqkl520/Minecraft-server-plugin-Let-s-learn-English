@@ -359,7 +359,9 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                         .map(Player::getName)
                         .filter(name -> name.toLowerCase().startsWith(prefix))
                         .forEach(completions::add);
-                if (prefix.length() >= 1) {
+                // R9-M4：前缀 <2 不查库（在线名分支已覆盖；2 字符起库内名补全，
+                // 防单字符前缀触发 player_data 全表扫）
+                if (prefix.length() >= 2) {
                     for (String name : plugin.getAdminCommandHandler()
                             .getKnownPlayerNames(args[1], 25)) {
                         if (!completions.contains(name)) {

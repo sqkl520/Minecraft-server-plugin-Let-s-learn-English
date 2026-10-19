@@ -21,7 +21,7 @@ import java.util.logging.Level;
  */
 public class ConfigManager {
 
-    private static final int MESSAGE_CONFIG_VERSION = 15;
+    private static final int MESSAGE_CONFIG_VERSION = 16;
 
     /**
      * Config keys the code actually relies on at runtime. Absence is logged as a WARNING on
@@ -216,8 +216,23 @@ public class ConfigManager {
             FileConfiguration existing = YamlConfiguration.loadConfiguration(file);
             int version = existing.getInt("config-version", 0);
             if (version < MESSAGE_CONFIG_VERSION) {
+                // R10-M2：升级覆盖前备份旧文件（单槽 .bak = "升级前最后一份"，与
+                // backupDatabase 的滚存策略区分；reload 抖动不存在——升级后 version
+                // 已新，后续 reload 不再进本分支）。REPLACE_EXISTING 保证"每次升级
+                // 覆盖旧 .bak"的单槽语义（裸 copy 在第二次升级会因目标已存在而
+                // 抛 FileAlreadyExistsException，留下过期首份）。备份失败不阻断
+                // 升级（仅告警，防新装环境权限问题卡启动）。
+                String backupSuffix = "";
+                try {
+                    java.nio.file.Files.copy(file.toPath(),
+                            java.nio.file.Path.of(file.getAbsolutePath() + ".bak"),
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    backupSuffix = " (old version backed up to " + path + ".bak)";
+                } catch (IOException e) {
+                    plugin.getLogger().warning("Failed to back up " + path + " before upgrade: " + e.getMessage());
+                }
                 plugin.getLogger().info("Updating " + path
-                        + " (v" + version + " -> v" + MESSAGE_CONFIG_VERSION + ")");
+                        + " (v" + version + " -> v" + MESSAGE_CONFIG_VERSION + ")" + backupSuffix);
                 plugin.saveResource(path, true);
             }
         }
