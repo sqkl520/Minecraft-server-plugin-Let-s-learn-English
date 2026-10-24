@@ -96,12 +96,10 @@ public class WrongBookGUI {
             inv.setItem(i, filler.clone());
         }
 
-        Map<String, DifficultWord> difficultWords = plugin.getPlayerDataStore()
-                .getDifficultWordsData(player.getUniqueId());
-        List<Map.Entry<String, DifficultWord>> wordList = new ArrayList<>(difficultWords.entrySet());
-
-        // Sort by wrong count descending
-        wordList.sort((a, b) -> Integer.compare(b.getValue().getWrongCount(), a.getValue().getWrongCount()));
+        // R9/P1-B：只展示"已收录"的词（wrong_count >= 3）——difficult_words 表在首次答错
+        // 即建行（兼作计数器），旧实现直接全量展示，与"错 3 次才进错题本"的提示自相矛盾。
+        List<Map.Entry<String, DifficultWord>> wordList = plugin.getPlayerDataStore()
+                .getWrongBookEntries(player.getUniqueId());
 
         int totalPages = Math.max(1, (int) Math.ceil((double) wordList.size() / ITEMS_PER_PAGE));
         if (page < 1) page = 1;

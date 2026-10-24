@@ -203,11 +203,14 @@ public class DatabaseManager {
                         "  show_answers BOOLEAN DEFAULT 0," +
                         "  show_results BOOLEAN DEFAULT 1," +
                         "  show_in_square BOOLEAN DEFAULT 1," +
-                        "  sounds_enabled BOOLEAN DEFAULT 1" +
+                        "  sounds_enabled BOOLEAN DEFAULT 1," +
+                        "  reminders_enabled BOOLEAN DEFAULT 1" +
                         ")"
         );
         // Phase 3 S-A：per-player 音效开关（默认开；plan-audio-feedback §3.1）
         addColumnIfMissing(tablePrefix + "player_profiles", "sounds_enabled", "BOOLEAN DEFAULT 1");
+        // R1/R4：per-player 提醒总开关（默认开 —— 保持既有玩家上线行为不变；老库零迁移补列）
+        addColumnIfMissing(tablePrefix + "player_profiles", "reminders_enabled", "BOOLEAN DEFAULT 1");
 
         executeUpdate(
                 "CREATE TABLE IF NOT EXISTS " + tablePrefix + "player_achievements (" +

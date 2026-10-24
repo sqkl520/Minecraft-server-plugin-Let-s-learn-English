@@ -130,6 +130,17 @@ public class MainMenuListener implements Listener {
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "module.disabled"));
                 return;
             }
+            // R1/R11 兜底：渲染侧已把"无 API Key"画成灰态，但仍可能出现渲染与点击不同步
+            //（管理员热改 ai_config 后菜单未重开、或旧版残留的僵尸界面）。这里显式拦一次并给
+            //玩家可读反馈，不再依赖 /le dialogue 命令路径里的预检 —— 否则玩家看到的是
+            //"点了按钮、结果什么也没发生"的观感。判 null 同渲染侧：管理器缺失即视为不可用。
+            var aiChatManager = plugin.getAIChatManager();
+            if (aiChatManager == null || !aiChatManager.isAvailable()) {
+                SoundManager.playSound(player, "menu-click");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "dialogue.ai-not-configured"));
+                return;
+            }
             SoundManager.playSound(player, "menu-click");
             player.performCommand("le dialogue");
         } else if (slot == cm.getGuiSlot("main-menu", "personal-profile", 15)) {

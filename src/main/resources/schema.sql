@@ -79,7 +79,8 @@ CREATE TABLE IF NOT EXISTS {prefix}player_profiles (
     show_answers BOOLEAN DEFAULT 0,
     show_results BOOLEAN DEFAULT 1,
     show_in_square BOOLEAN DEFAULT 1,
-    sounds_enabled BOOLEAN DEFAULT 1
+    sounds_enabled BOOLEAN DEFAULT 1,
+    reminders_enabled BOOLEAN DEFAULT 1
 );
 
 -- PF-SEA-03 索引（一致性审计 C-8 回写补录）：周/月/赛季/streak/日历大量按日期范围查

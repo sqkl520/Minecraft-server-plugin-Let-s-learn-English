@@ -132,7 +132,12 @@ public class OnboardingManager implements Listener {
         }
 
         if (step == STEP_IN_PROGRESS || step == STEP_SESSION_DONE) {
-            if (reminderOnJoinEnabled()) {
+            // P1-RT-5：玩家侧"提醒总开关"同样管辖引导提醒——否则在设置里关掉提醒的玩家
+            // 仍会在每次进服时收到"新手引导还没完成哦"，与开关语义相悖。
+            // 门放在 reminderSent 写入之前：关闭者不该占掉当日去重位。
+            boolean remindersAllowed = plugin.getPlayerDataStore()
+                    .getProfileSettingsReadOnly(playerId).isRemindersEnabled();
+            if (remindersAllowed && reminderOnJoinEnabled()) {
                 LocalDate today = LocalDate.now();
                 if (!today.equals(reminderSent.get(playerId))) {
                     reminderSent.put(playerId, today);

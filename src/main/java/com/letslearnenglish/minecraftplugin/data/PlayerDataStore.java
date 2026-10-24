@@ -37,6 +37,13 @@ import com.letslearnenglish.minecraftplugin.core.word.LearningSession;
  */
 public class PlayerDataStore {
 
+    /**
+     * R9/P1-B：错题本"收录阈值"——与 {@code WordLearningManager.trackWrongAnswer}
+     * 的"第 3 次答错才提示已加入错题本"文案保持单一真相。
+     * {@code difficult_words} 表在首次答错即建行（计数器用途），展示侧必须按此阈值过滤。
+     */
+    public static final int WRONG_BOOK_MIN_WRONG_COUNT = 3;
+
     private final LetsLearnEnglish plugin;
     private final DatabaseManager databaseManager;
 
@@ -490,6 +497,34 @@ public class PlayerDataStore {
     }
 
     /**
+     * R9/P1-B 收口：错题本的"收录阈值"视图（{@code wrong_count >= 3}）。
+     *
+     * <p>为什么需要它：{@link #incrementWrongCount} 是 UPSERT，<b>首次答错就会在
+     * {@code difficult_words} 建行</b>（wrong_count=1）——它同时承担"累计错次计数器"职责。
+     * 而 GUI 侧只该展示"够格进错题本"的词（与 {@code WordLearningManager.trackWrongAnswer}
+     * 的"第 3 次才提示已加入"文案一致）。旧实现直接展示全部行，导致只错 1 次的词也出现在
+     * 错题本里，与玩家被告知的规则自相矛盾。
+     *
+     * <p>本方法只做只读过滤，不改动缓存与 DB；{@link #incrementWrongCount} 的计数语义
+     * 与 {@code decrementWrongCount} 的 {@code wrong_count > 1} 边界保持不变。
+     *
+     * @return 已收录（错次 ≥ {@value #WRONG_BOOK_MIN_WRONG_COUNT}）的词，按错次降序
+     */
+    public List<Map.Entry<String, DifficultWord>> getWrongBookEntries(UUID playerId) {
+        Map<String, DifficultWord> all = getDifficultWordsData(playerId);
+        List<Map.Entry<String, DifficultWord>> entries = new ArrayList<>();
+        for (Map.Entry<String, DifficultWord> entry : all.entrySet()) {
+            DifficultWord dw = entry.getValue();
+            if (dw != null && dw.getWrongCount() >= WRONG_BOOK_MIN_WRONG_COUNT) {
+                entries.add(entry);
+            }
+        }
+        entries.sort((a, b) -> Integer.compare(
+                b.getValue().getWrongCount(), a.getValue().getWrongCount()));
+        return entries;
+    }
+
+    /**
      * Get all difficult words for a player from cache, loading from DB if needed.
      * Returns a map of word → DifficultWord data.
      */
@@ -852,6 +887,15 @@ public class PlayerDataStore {
 
         reviewTimes.put(wordLower, System.currentTimeMillis());
         reviewCounts.put(wordLower, 0);
+
+        // P1-RT-3：把词挂进 masteryMap 才能落库。savePlayerData 只遍历 wordMasteryCache
+        // （即"走过会话结算"的词），而 seedReview 的调用方包括 AI 纠错闭环
+        // （ChatFeedbackManager）——那条路径的词可能从未出现在 word_progress 里，
+        // 只写两个内存 map 会导致"本次在线可见、重启即消失"。
+        // putIfAbsent(0.0) 不改变已有词的掌握度（0 = 未掌握），只是补一行让 UPSERT 带上
+        // 刚写入的 lastReviewTime / reviewCount；真实掌握度仍由 updateWordProgress 维护。
+        wordMasteryCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>())
+                .putIfAbsent(wordLower, 0.0);
     }
 
     /**
@@ -998,6 +1042,10 @@ public class PlayerDataStore {
         private boolean showInSquare = true;
         // Phase 3 S-A：per-player 音效开关，默认开（fail-open，见 SoundManager 门）
         private boolean soundsEnabled = true;
+        // R1/R4 教育骚扰治理：玩家侧提醒总开关，默认开（不打扰既有玩家 —— 保持上线行为不变）。
+        // 关闭后不再收到每日学习提醒 / 进服提醒 / 复习提醒；服务器级 config
+        // （daily-reminder.* / word-system.review.*）仍是总闸，本开关只能再收紧不能越权放开。
+        private boolean remindersEnabled = true;
 
         /**
          * R-39 读侧校验：年龄 0 = 未设置（正常态，GUI 显示"未设置"）；
@@ -1019,6 +1067,9 @@ public class PlayerDataStore {
         // Phase 3 S-A：音效开关（SoundManager per-player 门读侧走 getProfileSettingsReadOnly）
         public boolean isSoundsEnabled() { return soundsEnabled; }
         public void setSoundsEnabled(boolean soundsEnabled) { this.soundsEnabled = soundsEnabled; }
+        // R1/R4：提醒总开关（发送侧读侧统一走 getProfileSettingsReadOnly，不建缓存条目）
+        public boolean isRemindersEnabled() { return remindersEnabled; }
+        public void setRemindersEnabled(boolean remindersEnabled) { this.remindersEnabled = remindersEnabled; }
     }
 
     public ProfileSettings getProfileSettings(UUID playerId) {
@@ -1044,8 +1095,8 @@ public class PlayerDataStore {
 
         String tablePrefix = databaseManager.getTablePrefix();
         String sql = databaseManager.isSQLite()
-                ? "INSERT OR REPLACE INTO " + tablePrefix + "player_profiles (uuid, age, show_answers, show_results, show_in_square, sounds_enabled) VALUES (?, ?, ?, ?, ?, ?)"
-                : "INSERT INTO " + tablePrefix + "player_profiles (uuid, age, show_answers, show_results, show_in_square, sounds_enabled) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE age=VALUES(age), show_answers=VALUES(show_answers), show_results=VALUES(show_results), show_in_square=VALUES(show_in_square), sounds_enabled=VALUES(sounds_enabled)";
+                ? "INSERT OR REPLACE INTO " + tablePrefix + "player_profiles (uuid, age, show_answers, show_results, show_in_square, sounds_enabled, reminders_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                : "INSERT INTO " + tablePrefix + "player_profiles (uuid, age, show_answers, show_results, show_in_square, sounds_enabled, reminders_enabled) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE age=VALUES(age), show_answers=VALUES(show_answers), show_results=VALUES(show_results), show_in_square=VALUES(show_in_square), sounds_enabled=VALUES(sounds_enabled), reminders_enabled=VALUES(reminders_enabled)";
 
         synchronized (databaseManager.getConnectionLock()) {
         Connection conn = databaseManager.getConnection();
@@ -1056,6 +1107,7 @@ public class PlayerDataStore {
             stmt.setBoolean(4, settings.isShowResults());
             stmt.setBoolean(5, settings.isShowInSquare());
             stmt.setBoolean(6, settings.isSoundsEnabled());
+            stmt.setBoolean(7, settings.isRemindersEnabled()); // R1/R4：提醒总开关
             stmt.executeUpdate();
         } catch (SQLException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to save profile settings: " + playerId, e);
@@ -1065,7 +1117,7 @@ public class PlayerDataStore {
 
     public void loadProfileSettings(UUID playerId) {
         String tablePrefix = databaseManager.getTablePrefix();
-        String sql = "SELECT age, show_answers, show_results, show_in_square, sounds_enabled FROM " + tablePrefix + "player_profiles WHERE uuid = ?";
+        String sql = "SELECT age, show_answers, show_results, show_in_square, sounds_enabled, reminders_enabled FROM " + tablePrefix + "player_profiles WHERE uuid = ?";
 
         synchronized (databaseManager.getConnectionLock()) {
         Connection conn = databaseManager.getConnection();
@@ -1079,6 +1131,7 @@ public class PlayerDataStore {
                     settings.setShowResults(rs.getBoolean("show_results"));
                     settings.setShowInSquare(rs.getBoolean("show_in_square"));
                     settings.setSoundsEnabled(rs.getBoolean("sounds_enabled")); // Phase 3 S-A
+                    settings.setRemindersEnabled(rs.getBoolean("reminders_enabled")); // R1/R4：提醒总开关
                     profileSettingsCache.put(playerId, settings);
                 } else {
                     profileSettingsCache.putIfAbsent(playerId, new ProfileSettings());

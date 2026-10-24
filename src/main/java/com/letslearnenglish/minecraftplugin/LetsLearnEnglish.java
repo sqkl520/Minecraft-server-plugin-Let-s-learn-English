@@ -455,6 +455,13 @@ public final class LetsLearnEnglish extends JavaPlugin {
                 // R-86p：逐玩家组装（{player}/{prefix} 全量替换），而非全员发同一份文本。
                 LocalDate today = LocalDate.now();
                 for (Player player : getServer().getOnlinePlayers()) {
+                    // R1/R4：玩家侧提醒总开关（服务器 config 仍是总闸，这里只能再收紧）。
+                    // 注意：关闭提醒者不写 joinReminderSent —— 否则会占掉"当日已提醒"位，
+                    // 玩家中途打开开关后当天也收不到，属状态污染。
+                    if (!playerDataStore.getProfileSettingsReadOnly(player.getUniqueId())
+                            .isRemindersEnabled()) {
+                        continue;
+                    }
                     player.sendMessage(buildDailyReminderMessage(player));
                     // R-86p：共享去重 map——定时提醒已覆盖的玩家，当日 join 不再重复发。
                     joinReminderSent.put(player.getUniqueId(), today);
@@ -483,6 +490,11 @@ public final class LetsLearnEnglish extends JavaPlugin {
             return;
         }
         if (!configManager.getMainConfig().getBoolean("daily-reminder.on-join", true)) {
+            return;
+        }
+        // R1/R4：玩家侧提醒总开关 —— 放在去重 map 写入之前，避免关闭提醒的玩家
+        // 占掉当日去重位（否则他当天打开开关也收不到第一条）。
+        if (!playerDataStore.getProfileSettingsReadOnly(player.getUniqueId()).isRemindersEnabled()) {
             return;
         }
         LocalDate today = LocalDate.now();

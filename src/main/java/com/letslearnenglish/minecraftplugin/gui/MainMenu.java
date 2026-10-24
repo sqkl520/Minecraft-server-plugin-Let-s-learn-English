@@ -12,8 +12,10 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 /**
  * Main Menu GUI
@@ -109,7 +111,26 @@ public class MainMenu {
             menu.setItem(menuSlots[0], createMenuItem(cm.getGuiMaterial("main-menu", "word-learning", Material.BOOK), wordName, wordLore));
         }
         if (cm.isAIChatEnabled()) {
-            menu.setItem(menuSlots[1], createMenuItem(cm.getGuiMaterial("main-menu", "dialogue-practice", Material.PAPER), dialogueName, dialogueLore));
+            // R1/R11 收口：AI 对话是主打功能，却只按 ai-chat.enabled 渲染 —— API Key 未配置时
+            // 按钮看起来完全可用，点进去只能靠命令侧预检补一句提示，玩家体验等同"静默失败"。
+            // 现改为两态渲染：Key 就绪 = 现状（管理员配置材质优先）；Key 缺失 = 灰态
+            //（GRAY_DYE + 状态 lore），让"不可用"在菜单里一眼可见。
+            // 注意：模块关闭（ai-chat.enabled=false）仍是整块隐藏，不进灰态——本分支只在
+            // "模块开着、但服务不可用"时生效。
+            if (isAIServiceUsable()) {
+                menu.setItem(menuSlots[1], createMenuItem(cm.getGuiMaterial("main-menu", "dialogue-practice", Material.PAPER), dialogueName, dialogueLore));
+            } else {
+                // 灰态强制 GRAY_DYE：gui-layout 的 material 是"正常态"的外观配置，若在故障态
+                // 继续沿用，管理员配了 PAPER/ENCHANTED_BOOK 的服上灰态就完全不可见（同一材质
+                // 无法同时表达"可用"与"坏掉"）。状态指示优先于外观配置；Key 补上后自动恢复。
+                List<String> unavailableLore = new ArrayList<>(2);
+                unavailableLore.add(dialogueLore);
+                // 复用既有 dialogue.api-not-configured（"API 状态: 未配置"）—— 短句、无 {prefix}，
+                // 本就是给物品 lore/状态行用的文案，可直接嵌入而不污染界面。
+                unavailableLore.add(ChatColor.translateAlternateColorCodes('&',
+                        MessageUtil.getGuiMsg(messages, "dialogue.api-not-configured")));
+                menu.setItem(menuSlots[1], createMenuItem(Material.GRAY_DYE, dialogueName, unavailableLore));
+            }
         }
         menu.setItem(menuSlots[2], createMenuItem(cm.getGuiMaterial("main-menu", "personal-profile", Material.DIAMOND), progressName, progressLore));
 
@@ -189,13 +210,41 @@ public class MainMenu {
         return false;
     }
 
+    /**
+     * AI 服务是否真的可用（渲染侧灰态判定的唯一来源）。
+     *
+     * <p>与点击侧 {@code MainMenuListener} 同判 {@code AIChatManager#isAvailable()}
+     * （apiKey 非空）。管理器为 null 时一律视为不可用：主菜单只在玩家在线时打开，
+     * 正常流程下 onEnable 早已完成、管理器必然就绪；判 null 仅防"热重载/异常初始化
+     * 次序"等边角路径抛 NPE，代价只是把按钮画成灰态，不会误伤正常路径。
+     */
+    private boolean isAIServiceUsable() {
+        var aiChatManager = plugin.getAIChatManager();
+        return aiChatManager != null && aiChatManager.isAvailable();
+    }
+
     private ItemStack createMenuItem(Material material, String name, String lore) {
+        return createMenuItem(material, name, Collections.singletonList(lore));
+    }
+
+    /**
+     * 多行 lore 版本（R1/R11 灰态追加状态行用）。行序即显示序；空白行按原样保留，
+     * 便于以后需要间隔行时直接传 ""。null 列表按空 lore 处理（不写入 lore）。
+     */
+    private ItemStack createMenuItem(Material material, String name, List<String> lore) {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', name));
-            meta.setLore(Collections.singletonList(
-                    ChatColor.translateAlternateColorCodes('&', lore)));
+            if (lore != null && !lore.isEmpty()) {
+                List<String> coloredLore = new ArrayList<>(lore.size());
+                for (String line : lore) {
+                    coloredLore.add(ChatColor.translateAlternateColorCodes('&', line == null ? "" : line));
+                }
+                meta.setLore(coloredLore);
+            } else {
+                meta.setLore(Collections.emptyList());
+            }
             item.setItemMeta(meta);
         }
         return item;

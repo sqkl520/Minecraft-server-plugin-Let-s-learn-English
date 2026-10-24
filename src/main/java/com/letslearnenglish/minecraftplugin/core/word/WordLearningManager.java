@@ -856,7 +856,7 @@ public class WordLearningManager implements Listener {
                 // 随后按"累计移出 ≥5 且当前错题本为空"判定错题清零成就。
                 int newTotal = store.incrementWrongBookCleared(playerId);
                 plugin.getAchievementManager().checkWrongBookCleared(
-                        playerId, newTotal, store.getDifficultWordsData(playerId).isEmpty());
+                        playerId, newTotal, store.getWrongBookEntries(playerId).isEmpty());
             } else {
                 String msg = ChatColor.translateAlternateColorCodes('&',
                         MessageUtil.getGuiMsg(messages, "wrong-book.practice-correct")
