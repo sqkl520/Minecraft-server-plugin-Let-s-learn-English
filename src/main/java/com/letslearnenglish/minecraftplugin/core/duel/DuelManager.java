@@ -6,8 +6,10 @@ import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
 import com.letslearnenglish.minecraftplugin.core.feedback.CountdownTier;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
+import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.gui.DuelGUI;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
+import com.letslearnenglish.minecraftplugin.util.SchedulerGuard;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.boss.BarColor;
@@ -735,6 +737,18 @@ public class DuelManager {
 
         UUID winnerId = room.getWinner();
         UUID loserId = room.getLoser();
+        // 空值守卫：endDuel 是 public，理论上只在 isFinished() 后调用（winner/loser
+        // 必非 null），但 getScore(null) 会 NPE —— 不为落库这一个副作用把既有结算
+        // 链的失败点前移，故此处按 0 兜底（recordDuelResultAsync 自身也会跳过 null）。
+        int winnerScore = winnerId == null ? 0 : room.getScore(winnerId);
+        int loserScore = loserId == null ? 0 : room.getScore(loserId);
+
+        // R10（战略锐评：决斗零持久化）：战绩落库 —— 一场一行追加进 duel_stats。
+        // 位置在判负/播报之前：此刻 winner/loser/分数已从 DuelRoom 快照取出，
+        // 后续 cleanup(room) 拆解状态不影响本次写入。若 recordDuelResult 内部
+        // 抛未预期异常也不该挡结算，故整段再包一层兜底（DB 层自身已吞 SQLException
+        // 只记 WARNING，这里防的是非 SQL 的 Runtime 异常，如连接重建失败）。
+        recordDuelResultAsync(winnerId, loserId, winnerScore, loserScore);
 
         // H9：对决首胜成就 —— 放在 winner 在线判断之外，赢家此刻掉线的极端
         // 窗口也允许落库（tryUnlock 对离线玩家静默跳过通知段）。只有正常打满
@@ -771,6 +785,47 @@ public class DuelManager {
         }
 
         cleanup(room);
+    }
+
+    /**
+     * R10：把一场战绩异步写入 {@code duel_stats}。
+     *
+     * <p><b>线程契约</b>：唯一调用点 {@link #endDuel(DuelRoom)} 在主线程
+     * （submitAnswer 由 ChatAnswerListener 的 {@code runTask} 回调驱动，超时路径
+     * 走 {@code runTaskTimer}，均在主线程）。{@code DatabaseManager.recordDuelResult}
+     * 是同步阻塞写且全程持 {@code connectionLock}（该锁同时被周期保存/其他异步
+     * 读共享），在主线程直接调会在磁盘慢/MySQL 抖动时卡 TPS —— 故一律派发到
+     * Bukkit 异步线程，与 {@code AchievementManager.checkHelpAchievement}、
+     * {@code ReportGenerator.runAsync} 的既有纪律同源。
+     *
+     * <p>参数在此刻已全部捕获为值（UUID/int），异步体不触碰 {@code DuelRoom} ——
+     * 主线程的 {@code cleanup(room)} 会拆解房间状态，跨线程读房间字段是数据竞争。
+     *
+     * <p>关服/停用窗口：经 {@link SchedulerGuard#runAsync} 派发（调度器已关闭时
+     * 静默放弃，不会抛 IllegalStateException 冒泡进结算路径）。此时仅丢这一条
+     * 历史战绩，胜负播报/成就/奖励均已先行完成。
+     */
+    private void recordDuelResultAsync(UUID winnerId, UUID loserId,
+                                       int winnerScore, int loserScore) {
+        if (winnerId == null || loserId == null) {
+            return; // 防御：endDuel 只在 isFinished() 后调用，理论上恒非 null
+        }
+        // 先在主线程把依赖夹具取成局部变量：异步体只闭包值，不再回头摸 plugin 的
+        // DI 字段（关服窗口字段可能已被置空）。
+        DatabaseManager db = plugin.getDatabaseManager();
+        if (db == null) {
+            return; // 极端初始化顺序（DB 未就位）：放弃落库，不挡结算
+        }
+        SchedulerGuard.runAsync(plugin, () -> {
+            try {
+                db.recordDuelResult(winnerId, loserId, winnerScore, loserScore);
+            } catch (RuntimeException e) {
+                // DB 层已把 SQLException 降级为 WARNING；这里兜非 SQL 异常
+                // （如重连失败的 RuntimeException），绝不让结算链受损。
+                plugin.getLogger().log(java.util.logging.Level.WARNING,
+                        "Unexpected error while persisting duel result", e);
+            }
+        });
     }
 
     /**

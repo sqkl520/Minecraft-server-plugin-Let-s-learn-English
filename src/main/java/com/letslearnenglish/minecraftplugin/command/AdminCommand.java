@@ -26,6 +26,7 @@ import java.io.File;
  * - /lea export     Export player learning data
  * - /lea reset      Reset a player's learning data
  * - /lea info       Show plugin information
+ * - /lea diagnose   Read-only health report: prints EFFECTIVE values (not config values)
  * - /lea duel cancel &lt;player&gt;  Force-dismiss an active word duel (GM adjudication)
  * - /lea report     Generate a learning report for a player or all active players
  */
@@ -34,8 +35,8 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
     private final LetsLearnEnglish plugin;
 
     private static final List<String> SUBCOMMANDS = Arrays.asList(
-            "reload", "export", "reset", "info", "help", "ignore-update", "broadcast",
-            "exportwordbank", "importwordbank", "duel", "report", "class"
+            "reload", "export", "reset", "info", "diagnose", "help", "ignore-update",
+            "broadcast", "exportwordbank", "importwordbank", "duel", "report", "class"
     );
 
     public AdminCommand(LetsLearnEnglish plugin) {
@@ -121,6 +122,11 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                 break;
             case "info":
                 sendPluginInfo(sender);
+                break;
+            case "diagnose":
+                // R11：只读诊断——打印"生效值"（伞开关 / 运行时依赖 / 重启快照键），
+                // 与 /lea info 的区别就在这里：info 报配置值，diagnose 报最终会不会真的工作。
+                DiagnoseCommand.send(plugin, sender);
                 break;
             case "help":
                 sendHelpMessage(sender);

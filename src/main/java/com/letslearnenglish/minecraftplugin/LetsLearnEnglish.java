@@ -252,6 +252,12 @@ public final class LetsLearnEnglish extends JavaPlugin {
         } else {
             getLogger().info("Update check disabled (general.check-updates=false).");
         }
+
+        // R11：开服自检 —— 打印**生效值**而非配置值（Vault 是否真的挂钩、AI key 在不在、
+        // MySQL 驱动是否随包、金币四道闸各自的解析结果、词库档数与词数、模块门）。
+        // 仅当存在 FAIL 时打 WARNING 块，全绿只打一行 INFO；内部 catch(Throwable)，
+        // 绝不中断 enable。玩家投诉"奖励没发"时，服主先看这里再看 /lea diagnose。
+        com.letslearnenglish.minecraftplugin.command.DiagnoseCommand.logStartupSummary(this);
     }
 
     @Override
@@ -607,6 +613,26 @@ public final class LetsLearnEnglish extends JavaPlugin {
                         getLogger().log(java.util.logging.Level.WARNING,
                                 "Midnight rollover async phase failed", e);
                     }
+                    // R7（战略锐评）长 uptime 缺口修复：原 cleanupOldChatHistory(30) 全库
+                    // 唯一调用点在 onEnable，不重启的服 ai_chat_history / ai_chat_feedback /
+                    // ai_round_counters 只增不清。现挂入本午夜异步段（每日一次）；启动期那次
+                    // 保留（首启立即清，不等到午夜）。keepDays 硬编码 30 与启动期一致，
+                    // 不新增 config 键（配置面已过大）。
+                    // 位置：在派发主线程段之前跑完。DatabaseManager 单连接以 connectionLock
+                    // 串行，若清理与下方主线程段的逐玩家查库并发，主线程会等锁数秒（F2-11
+                    // 同类问题）；先清完再派发 = 两者不重叠，主线程零等待。
+                    // 性能：全表扫删（timestamp / created_at / round_date 无索引），表很大时
+                    // 首次执行可能耗时数秒——本段在异步线程，不阻塞 tick，可接受。
+                    // 异常：cleanupOldChatHistory 内部已逐条 catch SQLException 并记 WARNING；
+                    // 此处再兜一层 RuntimeException，清理失败绝不中断后续 rollover 与自续链。
+                    if (isEnabled()) {
+                        try {
+                            databaseManager.cleanupOldChatHistory(30);
+                        } catch (Exception e) {
+                            getLogger().log(java.util.logging.Level.WARNING,
+                                    "Midnight AI chat history cleanup failed", e);
+                        }
+                    }
                     if (!isEnabled()) return;
                     try {
                         getServer().getScheduler().runTask(this, () -> {
@@ -754,6 +780,17 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     public DatabaseManager getDatabaseManager() {
         return databaseManager;
+    }
+
+    /**
+     * R-P2-1：诊断命令需要读"HTTP 服务是否真的在跑"，而不是配置里的 enabled。
+     * 绑定失败（端口被占）时 {@code start()} 会置 {@code running=false}，配置却仍是 true——
+     * 只报配置值会让服主看到绿灯却打不开面板。
+     *
+     * @return 统计服务实例；模块关闭时可能为 {@code null}
+     */
+    public StatisticsHttpServer getStatisticsHttpServer() {
+        return statisticsHttpServer;
     }
 
     public PlayerDataStore getPlayerDataStore() {
