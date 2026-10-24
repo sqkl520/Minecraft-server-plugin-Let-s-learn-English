@@ -156,6 +156,13 @@ public class ClassBoardGUI {
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
                         MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
 
+        // P0-5：空槽统一填灰玻璃（防 shift-click / 拖拽纵深；R12-M3 同款）。
+        // 放在全部 setItem 之后、openInventory 之前：成员头像（slot 9-53）、空态
+        // （slot 22）、返回键（slot 8）都已就位，fillEmpty 只兜剩余空槽，不会覆盖内容。
+        // 本方法无早退分支（entries 为 null 已在上方收敛为空列表），故这一处即覆盖
+        // 「满页 / 半页 / 空页」三种渲染形态。
+        GUIUtils.fillEmpty(inv);
+
         viewer.openInventory(inv);
     }
 

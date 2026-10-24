@@ -24,7 +24,7 @@
 - **学习统计 HTTP 仪表盘** —— 基于 ECharts 的 Web 管理面板，IP 白名单 + Basic Auth 防护
 - **AI 对话历史回顾** —— 持久化对话记录，分页浏览历史会话
 - **词库导入导出** —— 管理员可导入/导出 YAML 词库，含校验和去重
-- **单词发音辅助** —— 音标显示 + 发音提示音（VoiceRSS API 音频已下载缓存，客户端播放需资源包支持）
+- **单词发音辅助** —— 音标显示 + 提示音（当前版本不播放真实语音：点击发音按钮播放的是音符盒提示音；VoiceRSS 下载的 `.wav` 仅缓存在 `audio/` 目录，供未来资源包预留，插件不会播放它）
 - **自定义 AI 场景分享** —— Base64 编码分享自定义场景，导入为个人场景
 - **个人场景管理 GUI** —— 场景选择页管理入口，图形化查看/删除个人场景（行内二次确认，每人上限 30 个）
 - **英语广场学习动态流** —— 广场新增「动态」模式：完成会话 / 解锁成就 / 签到自动生成学习动态（同类当日合并，每人每日最多 3 条）；可左键鼓励、右键看主页，被鼓励者在线即时收到提醒、离线进服补发摘要
@@ -70,7 +70,7 @@
 
 | 命令 | 说明 |
 |------|------|
-| `/lea reload` | 热重载所有配置、词库、音效缓存 |
+| `/lea reload` | 热重载配置、AI 段（`ai_config.yml` / `ai-chat.*` / 场景）、词库、语言文件、音效缓存、统计服务（少数启动快照键需重启，见「配置」一节） |
 | `/lea reset <玩家名>` | 重置玩家学习数据（两段式确认：先提示，再执行 `/lea reset <玩家名> confirm` 生效） |
 | `/lea info` | 查看插件信息 |
 | `/lea export` | 导出玩家数据 |
@@ -90,7 +90,7 @@
 3. 重启服务器或使用 `/reload confirm`
 4. 编辑 `plugins/LetsLearnEnglish/config.yml` 进行配置
 5. （可选）如需 AI 对话与总结点评功能，在 `plugins/LetsLearnEnglish/ai_config.yml` 中填入 DeepSeek API 密钥（`api-key` 字段）
-6. 使用 `/lea reload` 热重载，无需重启
+6. 大部分配置改完用 `/lea reload` 热重载即可，无需重启（少数启动快照键仍需重启，见下方「配置」一节）
 
 ## 配置
 
@@ -116,27 +116,52 @@ daily-reminder:
   reminder-hours: [9, 14, 20]
 ```
 
-以上仅为节选。完整配置见 `config.yml` 内置的全中文注释（改完 `/lea reload` 即时生效），更多部署细节见 `DEPLOYMENT_WIKI.md`。主要配置段：
+以上仅为节选。完整配置见 `config.yml` 内置的全中文注释（改完多数键 `/lea reload` 即时生效，少数键需重启，见下），更多部署细节见 `DEPLOYMENT_WIKI.md`。主要配置段：
 
 `general` / `prefix` / `database`（SQLite / MySQL）/ `word-system`（含三模式开关 `modes`）/ `onboarding`（新手引导）/ `duel` / `ai-chat`（含会话小结 `feedback`）/ `scenario` / `money`（每日金币上限）/ `progress-system`（`leaderboard` / `achievements` / `rewards` 子开关）/ `gui` + `gui-layout`（界面与槽位）/ `feedback`（倒计时与连击反馈）/ `achievement-system` / `proxy`（跨服广播）/ `daily-reminder` / `daily-challenges` / `checkin` / `tts`（发音） / `statistics-server`（Web 仪表盘）/ `report`（家长报告）/ `social` + `english-square`（广场动态流）/ `season`（赛季）/ `class-system`（班级）
 
+**需要重启服务器的键**（这些键在启动时被快照或用于排定周期任务，`/lea reload` 不会重排）：
+
+- `general.auto-save-interval`
+- `general.backup.enabled` / `general.backup.interval` / `general.backup.max-backups`
+- `general.check-updates`（只在启动时决定是否联网检查）
+- `daily-reminder.reminder-hours`
+- `tts.enabled` / `tts.cache-days` / `tts.voicerss-api-key`
+- `progress-system.leaderboard.update-interval`
+
+其余键（含全部模块开关 `enabled`、`ai-chat.*`、语言文件、词库、`gui-layout`、成就开关、统计仪表盘）均支持 `/lea reload` 即时生效。
+
+> 例外：`word-system.review.intervals` 与 `mastered-review-interval-days`（复习间隔在 `ReviewScheduler` 构造时快照）、`database.*`（仅 onEnable 初始化）也需要重启。详见 `DEPLOYMENT_WIKI.md` 5.7.1。
+
+> 例外补充：`daily-reminder.enabled` 与 `word-system.review.enabled` 只能在启动时已排定任务的前提下用 reload 关闭；若启动时就是 `false`（任务未排程），再改回 `true` 需要重启。详见 `DEPLOYMENT_WIKI.md` 5.7.1。
+
 ## 依赖
 
-- Paper 1.21+（开发与测试基于 1.21.4）
+- Paper 1.21+（开发与测试基于 1.21.4；不保证 Spigot 兼容）
 - Java 21
 - 可选：Vault（金币奖励）、PlaceholderAPI（`%lle_*%` 占位符）
+
+> 为什么只保证 Paper：插件使用了 Paper 专属 API（Adventure `net.kyori` 组件、`Server#getMinecraftVersion`），这些在 Spigot 上不存在。
+
+> MySQL 驱动（`mysql-connector-j`）已通过 shade 随 JAR 内置，使用 MySQL 后端时无需额外放置驱动。若你使用自建 JAR 并报 `ClassNotFoundException: com.mysql.cj.jdbc.Driver`，请确认构建时 `maven-shade-plugin` 的 `shade-mysql-driver` execution 执行过（`mvn package` 产物应约 3MB，且 `unzip -l` 能看到 `com/mysql/`），或直接使用官方发布的 JAR。
 
 ## 构建
 
 ```bash
-mvn package -DskipTests
+mvn verify
 ```
+
+`mvn verify` 会编译、运行测试并通过 JaCoCo 覆盖率门禁，是验证改动的标准命令。
+
+> `mvn package -DskipTests` 仅用于快速本地打包，勿用于验证改动。
 
 JAR 文件将生成在 `target/` 目录。
 
 ## 许可证
 
-MIT License
+GNU General Public License v3.0 only（GPL-3.0-only），全文见仓库根目录 `LICENSE`。
+
+依赖与词库引用声明：打包进产物的第三方组件（MySQL Connector/J 等）见 `THIRD-PARTY-NOTICES.md`；词库选词来源见 `words/README.md`（源码位于 `src/main/resources/words/README.md`；NGSL 使用 CC BY-SA 4.0 许可，仅用于选词）。
 
 ## Star History
 

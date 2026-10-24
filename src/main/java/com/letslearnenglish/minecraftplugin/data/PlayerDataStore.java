@@ -121,6 +121,18 @@ public class PlayerDataStore {
             return count.get();
         }
 
+        /**
+         * P0-4 红队补丁（R-P1-1）：退还一次预扣（失败请求未产生上游计费）。
+         * 下限钳 0 —— 并发重复退还最坏是少退，不会出现负数导致"多送额度"。
+         */
+        int decrement() {
+            LocalDate today = LocalDate.now();
+            if (!today.equals(date)) {
+                return 0; // 跨日无当日计数可退
+            }
+            return count.updateAndGet(v -> v > 0 ? v - 1 : 0);
+        }
+
         /** Block C2（R2-M2）：当前计数归属的自然日；从未 seed/increment 时为 null。 */
         LocalDate date() {
             return date;
@@ -184,6 +196,33 @@ public class PlayerDataStore {
         try {
             plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () ->
                     databaseManager.incrementAiRound(playerId, todayStr)); // ③ 异步落库
+        } catch (IllegalStateException ignored) {
+            // 关服窗口调度器已关：静默弃（与 R2-H1 纪律一致）
+        }
+        return v;
+    }
+
+    /**
+     * P0-4 红队补丁（R-P1-1）：退还一次"发请求前预扣"的今日 AI 轮次。
+     *
+     * <p>只用于开场白在<b>确定到达上游之前</b>就失败的场景（超时 / 连接失败 / 5xx / 429）——
+     * 这类请求没有产生上游计费，必须退还，否则上游持续故障时玩家反复点场景会耗尽当天
+     * daily-round-limit（且重启/重登不可恢复）。4xx 客户端错误不退：上游已受理并计费。
+     *
+     * <p>内存与 DB 同步递减；DB 走异步（同 increment 纪律，绝不直调 JDBC）。
+     * 未 seed 过的玩家（date 为 null）直接忽略，避免凭空产生负计数。
+     */
+    public int decrementTodayAiRound(UUID playerId) {
+        LocalDate today = LocalDate.now();
+        TodayCounter counter = todayAiRoundCache.get(playerId);
+        if (counter == null || !today.equals(counter.date())) {
+            return 0; // 无当日计数可退
+        }
+        int v = counter.decrement();
+        String todayStr = today.toString();
+        try {
+            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () ->
+                    databaseManager.decrementAiRound(playerId, todayStr));
         } catch (IllegalStateException ignored) {
             // 关服窗口调度器已关：静默弃（与 R2-H1 纪律一致）
         }

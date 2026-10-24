@@ -2,12 +2,23 @@ package com.letslearnenglish.minecraftplugin.config;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import org.bukkit.Material;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 
@@ -22,6 +33,26 @@ import java.util.logging.Level;
 public class ConfigManager {
 
     private static final int MESSAGE_CONFIG_VERSION = 17;
+
+    /**
+     * P0-2：合并递归深度上限。语言文件实际只有 2~3 层，这里留足余量；上限只防
+     * 畸形/恶意深嵌套 YAML 在合并时栈溢出，命中即整支保留原样（不丢数据）。
+     */
+    private static final int MAX_MERGE_DEPTH = 64;
+
+    /** P0-2：一次合并的统计量，仅用于日志（不打进用户文件）。 */
+    private static final class MergeStats {
+        /** 两边都有叶子值 → 保留用户取值 */
+        int preserved;
+        /** 用户缺失 → 从新版补齐 */
+        int added;
+        /** 用户有、新版没有 → 原样保留的废弃键（按当前层级计数） */
+        int deprecated;
+        /** 结构冲突 → 采用新版结构（旧值在 .bak） */
+        int conflicts;
+        /** 超过深度上限、整支跳过的分支数 */
+        int truncated;
+    }
 
     /**
      * Config keys the code actually relies on at runtime. Absence is logged as a WARNING on
@@ -208,38 +239,334 @@ public class ConfigManager {
         return config;
     }
 
-    public FileConfiguration loadMessageConfig(String path) {
+    /**
+     * 加载（必要时升级）一份语言文件。
+     *
+     * <p><b>P0-2：升级 = 合并，绝不覆盖。</b>旧实现用 {@code saveResource(path, true)} 把
+     * JAR 内新版资源硬写进数据目录，服主改过的所有文案（颜色码、占位符、措辞）会被瞬间
+     * 冲掉。现在的语义是：</p>
+     * <ul>
+     *   <li>用户已有的键 → 保留用户取值（用户改过的文案永远优先）；</li>
+     *   <li>用户缺失的键 → 从 JAR 内新版补齐；</li>
+     *   <li>新版已删除的键 → 保留在用户文件里（不替服主做减法，只打 info 说明数量）；</li>
+     *   <li>类型冲突（用户是字符串、新版是 section 等）→ 以新版结构为准，旧值仍在
+     *       {@code .bak} 升级前快照里；</li>
+     *   <li>顶层 {@code config-version} 最后写成 {@link #MESSAGE_CONFIG_VERSION}。</li>
+     * </ul>
+     *
+     * <p>实现上先把 JAR 内资源读进内存（{@code getResource} + UTF-8 Reader，<b>不落盘</b>），
+     * 与磁盘上的用户文件做递归合并，再整份写回。写回前做单槽 {@code .bak} 快照；写回走
+     * "临时文件 + 原子替换"，避免进程中断留下半截 YAML。任何失败都降级为"保留旧文件 +
+     * 旧内容继续用"，绝不阻断启动。</p>
+     *
+     * <p>幂等：成功写回后 {@code config-version} 已是新值，再次调用直接跳过合并。
+     * {@code synchronized} 只为防止并发 reload 同时读写同一份文件。</p>
+     */
+    public synchronized FileConfiguration loadMessageConfig(String path) {
         File file = new File(plugin.getDataFolder(), path);
         if (!file.exists()) {
             plugin.saveResource(path, false);
-        } else {
-            FileConfiguration existing = YamlConfiguration.loadConfiguration(file);
-            int version = existing.getInt("config-version", 0);
-            if (version < MESSAGE_CONFIG_VERSION) {
-                // R10-M2：升级覆盖前备份旧文件（单槽 .bak = "升级前最后一份"，与
-                // backupDatabase 的滚存策略区分；reload 抖动不存在——升级后 version
-                // 已新，后续 reload 不再进本分支）。REPLACE_EXISTING 保证"每次升级
-                // 覆盖旧 .bak"的单槽语义（裸 copy 在第二次升级会因目标已存在而
-                // 抛 FileAlreadyExistsException，留下过期首份）。备份失败不阻断
-                // 升级（仅告警，防新装环境权限问题卡启动）。
-                String backupSuffix = "";
-                try {
-                    java.nio.file.Files.copy(file.toPath(),
-                            java.nio.file.Path.of(file.getAbsolutePath() + ".bak"),
-                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    backupSuffix = " (old version backed up to " + path + ".bak)";
-                } catch (IOException e) {
-                    plugin.getLogger().warning("Failed to back up " + path + " before upgrade: " + e.getMessage());
-                }
-                plugin.getLogger().info("Updating " + path
-                        + " (v" + version + " -> v" + MESSAGE_CONFIG_VERSION + ")" + backupSuffix);
-                plugin.saveResource(path, true);
-            }
+            return cacheMessageConfig(path, file);
         }
-        FileConfiguration config = YamlConfiguration.loadConfiguration(
-                new File(plugin.getDataFolder(), path));
+
+        FileConfiguration existing = YamlConfiguration.loadConfiguration(file);
+
+        // P0-2 护栏：文件里有真实内容、却一个键都解析不出来 = YAML 损坏（
+        // YamlConfiguration.loadConfiguration 会吞掉解析异常返回空配置）。此时若继续走
+        // "合并 + 写回"，等于拿默认值把坏文件覆盖掉——原文件只剩 .bak 一条命。所以这里
+        // 一字不动，内存里用 JAR 内默认值兜底，让服务器先跑起来，由服主自己修。
+        // 仅含注释的文件不算损坏（getKeys 为空但没有"内容行"），照常走合并。
+        if (existing.getKeys(false).isEmpty() && looksLikeBrokenYaml(file)) {
+            plugin.getLogger().severe("Failed to parse " + path
+                    + " (invalid YAML?). The file was left untouched; bundled defaults are used in memory "
+                    + "for this run. Fix the file and run /lea reload.");
+            FileConfiguration fallback = readBundledConfig(path);
+            if (fallback != null) {
+                configCache.put(path, fallback);
+                return fallback;
+            }
+            configCache.put(path, existing);
+            return existing;
+        }
+
+        int version = existing.getInt("config-version", 0);
+        if (version < MESSAGE_CONFIG_VERSION) {
+            FileConfiguration migrated = migrateMessageConfig(file, path, existing, version);
+            if (migrated != null) {
+                configCache.put(path, migrated);
+                return migrated;
+            }
+            // 迁移被降级（JAR 资源缺失 / 写回失败）：原文件未动，缓存继续用旧内容
+        }
+
+        return cacheMessageConfig(path, file);
+    }
+
+    /** 读盘并放入缓存（与旧实现的收尾行为一致）。 */
+    private FileConfiguration cacheMessageConfig(String path, File file) {
+        FileConfiguration config = YamlConfiguration.loadConfiguration(file);
         configCache.put(path, config);
         return config;
+    }
+
+    /**
+     * 判断"解析出 0 个键"的文件是真损坏，还是仅仅是注释/空行。
+     * 任何一行既非空、也非 {@code #} 注释 → 说明有真实内容却没被解析出来，按损坏处理。
+     */
+    private static boolean looksLikeBrokenYaml(File file) {
+        try {
+            for (String line : Files.readAllLines(file.toPath(), StandardCharsets.UTF_8)) {
+                String trimmed = line.trim();
+                if (!trimmed.isEmpty() && !trimmed.startsWith("#")) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (IOException | RuntimeException e) {
+            return true; // 读不了就当损坏：宁可走只读兜底，也不冒险覆盖
+        }
+    }
+
+    /**
+     * P0-2：把旧版语言文件就地合并到 {@link #MESSAGE_CONFIG_VERSION}。
+     *
+     * @return 写回后重新读盘的配置；{@code null} 表示已降级（原文件保持原样，调用方继续用旧配置）
+     */
+    private FileConfiguration migrateMessageConfig(File file, String path,
+                                                   FileConfiguration existing, int version) {
+        YamlConfiguration bundled = readBundledConfig(path);
+        if (bundled == null) {
+            plugin.getLogger().warning("Cannot upgrade " + path + " (v" + version + " -> v"
+                    + MESSAGE_CONFIG_VERSION + "): bundled resource missing or unreadable; file kept as is.");
+            return null;
+        }
+
+        Map<String, Object> userTree = toTree(existing);
+        Map<String, Object> bundledTree = toTree(bundled);
+        // 版本号是升级元数据，单独在最后写入，不参与"保留用户值"的统计与判断
+        bundledTree.remove("config-version");
+        if (bundledTree.isEmpty()) {
+            plugin.getLogger().warning("Bundled " + path
+                    + " yields no keys; skipping upgrade to avoid replacing the user's file with nothing.");
+            return null;
+        }
+
+        MergeStats stats = new MergeStats();
+        mergeMissing(userTree, bundledTree, "", 0, stats);
+        userTree.put("config-version", MESSAGE_CONFIG_VERSION);
+
+        // 写回前快照：单槽 .bak = "升级前最后一份"（与 backupDatabase 的滚存策略区分）。
+        // REPLACE_EXISTING 保证单槽语义——裸 copy 在第二次升级会因目标已存在而抛
+        // FileAlreadyExistsException，反而留下过期首份。备份失败不阻断升级（仅告警，
+        // 防新装环境权限问题卡启动），但会在日志里明说。
+        String backupSuffix = "";
+        try {
+            Files.copy(file.toPath(), Path.of(file.getAbsolutePath() + ".bak"),
+                    StandardCopyOption.REPLACE_EXISTING);
+            backupSuffix = " (pre-upgrade snapshot: " + path + ".bak)";
+        } catch (IOException e) {
+            plugin.getLogger().warning("Failed to back up " + path + " before merge-upgrade: " + e.getMessage());
+        }
+
+        YamlConfiguration merged = new YamlConfiguration();
+        writeTree(merged, userTree);
+        if (!writeAtomically(merged, file)) {
+            plugin.getLogger().severe("Failed to write merged " + path
+                    + "; keeping the original file and its old contents in memory.");
+            return null;
+        }
+
+        plugin.getLogger().info("Merged " + path + " (v" + version + " -> v" + MESSAGE_CONFIG_VERSION + "): "
+                + stats.preserved + " user value(s) kept, " + stats.added + " new key(s) added, "
+                + stats.deprecated + " obsolete key(s) kept, " + stats.conflicts + " type conflict(s) resolved"
+                + (stats.truncated > 0 ? ", " + stats.truncated + " over-deep branch(es) kept as-is" : "")
+                + backupSuffix);
+        return YamlConfiguration.loadConfiguration(file);
+    }
+
+    /** 从 JAR 读新版资源进内存（UTF-8，显式指定编码），绝不落盘。 */
+    private YamlConfiguration readBundledConfig(String path) {
+        try (InputStream in = plugin.getResource(path)) {
+            if (in == null) {
+                return null;
+            }
+            return YamlConfiguration.loadConfiguration(new InputStreamReader(in, StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            plugin.getLogger().warning("Failed to read bundled " + path + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 递归合并：{@code bundled} 中用户缺失的键补进 {@code user}，用户已有的键一律不动。
+     *
+     * <p>为什么保留用户值：语言文件是服主的"文案资产"，任何一次插件升级都不该让他们的
+     * 措辞、颜色码、占位符悄悄回退成默认值——用户显式改过的内容优先级高于 JAR 默认值。</p>
+     *
+     * <p>为什么保留"废弃键"：本方法只遍历 {@code bundled}，从不删除 {@code user} 里多出来的
+     * 键。插件不再读取的键对运行无害，但可能是服主自己加的备注/备用文案（甚至被其他插件
+     * PlaceholderAPI 引用），替用户做减法就是数据丢失。</p>
+     *
+     * @param prefix 当前路径前缀（仅用于日志定位）
+     * @param depth  当前递归深度（防御异常深或畸形的 YAML 结构导致栈溢出）
+     */
+    private void mergeMissing(Map<String, Object> user, Map<String, Object> bundled,
+                              String prefix, int depth, MergeStats stats) {
+        if (depth > MAX_MERGE_DEPTH) {
+            stats.truncated++;
+            return;
+        }
+        for (Map.Entry<String, Object> entry : bundled.entrySet()) {
+            String key = entry.getKey();
+            String childPath = prefix.isEmpty() ? key : prefix + "." + key;
+            Object bundledValue = entry.getValue();
+            Object userValue = user.get(key);
+            if (userValue == null) {
+                // 用户缺失（或显式留空）→ 用新版补齐
+                user.put(key, deepCopy(bundledValue));
+                stats.added++;
+                continue;
+            }
+            boolean userIsSection = userValue instanceof Map;
+            boolean bundledIsSection = bundledValue instanceof Map;
+            if (userIsSection && bundledIsSection) {
+                // toTree() 产出的 Map 键一定是 String，强转安全
+                @SuppressWarnings("unchecked")
+                Map<String, Object> userChild = (Map<String, Object>) userValue;
+                @SuppressWarnings("unchecked")
+                Map<String, Object> bundledChild = (Map<String, Object>) bundledValue;
+                mergeMissing(userChild, bundledChild, childPath, depth + 1, stats);
+            } else if (userIsSection != bundledIsSection) {
+                // 类型冲突（用户把 section 折叠成字符串，或把字符串展开成 section）：
+                // 以新版结构为准，否则后续 getString / getConfigurationSection 会错位；
+                // 用户旧值仍完整躺在升级前的 .bak 快照里，可人工找回。
+                plugin.getLogger().info("[Config Merge] Type conflict at '" + childPath
+                        + "': adopting bundled structure (your previous value is in the .bak snapshot).");
+                user.put(key, deepCopy(bundledValue));
+                stats.conflicts++;
+            } else {
+                // 两边都是叶子值 → 保留用户取值（含被改过的文案、& 颜色码、{占位符}）
+                stats.preserved++;
+            }
+        }
+        // 用户有、新版没有的键：保留（见方法注释），仅计数用于日志
+        for (String key : user.keySet()) {
+            if (!bundled.containsKey(key) && !"config-version".equals(key)) {
+                stats.deprecated++;
+            }
+        }
+    }
+
+    /**
+     * 把 ConfigurationSection 展开成纯 Map 树。
+     *
+     * <p>刻意用 {@code getKeys(false)} + {@code get(key)} 逐层递归，而不是
+     * {@code getValues(true)}：后者返回"扁平化的点号路径 → 值"（如
+     * {@code "general.no-permission" → "..."}），把这种扁平结果 set 回去时每一步都要靠
+     * {@code .} 路径拆分去重建结构，一旦某个键名本身含点号就会错位，而且 section 与叶子值
+     * 混在同一个扁平 Map 里很难区分。逐层版本拿到的结构与层级是准确的。</p>
+     */
+    private static Map<String, Object> toTree(ConfigurationSection section) {
+        Map<String, Object> tree = new LinkedHashMap<>();
+        for (String key : section.getKeys(false)) {
+            Object value = section.get(key);
+            tree.put(key, value instanceof ConfigurationSection child ? toTree(child) : value);
+        }
+        return tree;
+    }
+
+    /** 把 Map 树写进一份空配置；嵌套 Map 走 createSection，避免把 section 当成标量值写进去。 */
+    private void writeTree(ConfigurationSection target, Map<String, Object> tree) {
+        for (Map.Entry<String, Object> entry : tree.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            if (key == null || key.isEmpty() || value == null) {
+                // null 在 YamlConfiguration 里等价于"删键"，这里跳过而不是写出歧义结构
+                continue;
+            }
+            if (key.indexOf('.') >= 0) {
+                // Bukkit 的 set/createSection 把 '.' 当路径分隔符，没有字面量点号键的 API。
+                // 值不会丢（仍可用 a.b 路径读到），但 "a.b: x" 会落成嵌套结构——明确告警，
+                // 免得服主以为文件被写坏。内置语言文件不含这种键，正常情况不会触发。
+                plugin.getLogger().warning("[Config Merge] Key '" + key + "' contains a '.'; it will be "
+                        + "rewritten as a nested section because Bukkit has no literal dotted-key API.");
+            }
+            if (value instanceof Map<?, ?> rawMap) {
+                // toTree/deepCopy 产出的嵌套 Map 键一定是 String；此处统一按字符串键重铸，
+                // 否则 Map<?,?> 无法直接传给接受 Map<String,Object> 的递归调用。
+                Map<String, Object> map = new LinkedHashMap<>(rawMap.size());
+                for (Map.Entry<?, ?> e : rawMap.entrySet()) {
+                    map.put(String.valueOf(e.getKey()), e.getValue());
+                }
+                ConfigurationSection child = target.createSection(key);
+                writeTree(child, map);
+            } else {
+                target.set(key, value);
+            }
+        }
+    }
+
+    /** 深拷贝 JAR 侧的值，避免合并结果与 bundled 配置共享可变 List/Map。 */
+    private static Object deepCopy(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> copy = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                copy.put(String.valueOf(entry.getKey()), deepCopy(entry.getValue()));
+            }
+            return copy;
+        }
+        if (value instanceof List<?> list) {
+            List<Object> copy = new ArrayList<>(list.size());
+            for (Object item : list) {
+                copy.add(deepCopy(item));
+            }
+            return copy;
+        }
+        return value; // String / Number / Boolean 不可变，直接复用
+    }
+
+    /**
+     * P0-2：先写同目录临时文件再原子替换，避免进程中断/磁盘满时留下半截语言文件
+     * （半截 YAML 会让下次启动解析失败，那才是真正的数据灾难）。
+     *
+     * @return 是否写成功；失败时目标文件保持原样
+     */
+    private boolean writeAtomically(YamlConfiguration config, File target) {
+        Path tmp = Path.of(target.getAbsolutePath() + ".tmp");
+        try {
+            Files.writeString(tmp, config.saveToString(), StandardCharsets.UTF_8);
+        } catch (IOException | RuntimeException e) {
+            plugin.getLogger().log(Level.SEVERE, "Failed to write temporary merged config " + tmp, e);
+            deleteQuietly(tmp);
+            return false;
+        }
+        try {
+            Files.move(tmp, target.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            return true;
+        } catch (AtomicMoveNotSupportedException e) {
+            // 某些文件系统（网络盘 / 容器挂载）不支持原子 rename：退化为普通替换。
+            // 此时临时文件仍在，下面这一步才是真正的"移动"。
+            try {
+                Files.move(tmp, target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                return true;
+            } catch (IOException fallbackFailure) {
+                plugin.getLogger().log(Level.SEVERE, "Failed to replace " + target, fallbackFailure);
+                deleteQuietly(tmp);
+                return false;
+            }
+        } catch (IOException e) {
+            plugin.getLogger().log(Level.SEVERE, "Failed to replace " + target, e);
+            deleteQuietly(tmp);
+            return false;
+        }
+    }
+
+    private static void deleteQuietly(Path path) {
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException | RuntimeException ignored) {
+            // 临时文件残留不影响数据安全，下次升级会覆盖同名 .tmp
+        }
     }
 
     public void saveConfig(FileConfiguration config, String path) {
