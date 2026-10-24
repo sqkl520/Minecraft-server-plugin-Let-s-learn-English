@@ -138,6 +138,31 @@ CREATE TABLE IF NOT EXISTS {prefix}ai_round_counters (
     UNIQUE(player_uuid, round_date)
 );
 
+-- R10 战略锐评（决斗零持久化）：决斗战绩台账 —— 一场一行的追加式事实表。
+-- 原实现只有内存 DuelRoom：赢家只拿一个成就（DUEL_FIRST_WIN），无战绩/胜率/
+-- 连胜可查，也无"复仇"的对手关系可回溯。本表只追加，无 UPDATE/DELETE 业务路径。
+-- 保留期 365 天，由 cleanupOldChatHistory 按 created_at（epoch 毫秒）清理
+-- （阈值在 Java 侧算好直接绑 long —— created_at 为数值列，天然免两后端日期函数方言差）。
+-- MySQL 口径类型差异：id 为 BIGINT AUTO_INCREMENT PRIMARY KEY（SQLite 为
+-- INTEGER PRIMARY KEY AUTOINCREMENT），运行时按 isSQLite() 分支建表。
+CREATE TABLE IF NOT EXISTS {prefix}duel_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    winner_uuid VARCHAR(36) NOT NULL,
+    loser_uuid VARCHAR(36) NOT NULL,
+    winner_score INT NOT NULL,            -- 正常路径恒为 DuelRoom.WIN_SCORE（5）
+    loser_score INT NOT NULL,
+    duel_date VARCHAR(10) NOT NULL,       -- yyyy-MM-dd（LocalDate.now() 写入）
+    created_at BIGINT NOT NULL            -- epoch 毫秒（排序/保留期阈值键）
+);
+
+-- 战纪/胜率/连胜按"人 + 日期窗"查；玩家在两列中任一侧出现，故双侧各一复合索引。
+-- 运行时由 DatabaseManager.createIndexIfMissing 兼容建立（MySQL 8 不支持
+-- CREATE INDEX IF NOT EXISTS），此处为文档镜像。
+CREATE INDEX IF NOT EXISTS {prefix}idx_duel_winner_date ON {prefix}duel_stats(winner_uuid, duel_date);
+CREATE INDEX IF NOT EXISTS {prefix}idx_duel_loser_date ON {prefix}duel_stats(loser_uuid, duel_date);
+-- 连胜扫描（ORDER BY created_at DESC, id DESC）与保留期清理（WHERE created_at < ?）
+CREATE INDEX IF NOT EXISTS {prefix}idx_duel_created ON {prefix}duel_stats(created_at);
+
 -- AI chat history
 CREATE TABLE IF NOT EXISTS {prefix}ai_chat_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

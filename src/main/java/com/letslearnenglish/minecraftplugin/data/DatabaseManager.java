@@ -272,6 +272,37 @@ public class DatabaseManager {
                         ")"
         );
 
+        // R10 战略锐评（决斗零持久化）：决斗战绩台账 —— 一场一行的追加式事实表。
+        // 原实现只有内存 DuelRoom，赢家只拿一个成就、无战绩/胜率/连胜可查，
+        // 也无"复仇"的对手关系可回溯。本表只追加（无 UPDATE/DELETE 业务路径），
+        // 保留期 365 天（决斗数据量极小，见 cleanupOldChatHistory）。
+        // 双后端 DDL 分支：SQLite INTEGER PRIMARY KEY AUTOINCREMENT /
+        // MySQL BIGINT AUTO_INCREMENT PRIMARY KEY（同 word_progress 等表的 isSQLite 分支写法）。
+        // duel_date 存 yyyy-MM-dd 字符串（与 daily_word_reward_claims 的 DATE 列不同：
+        // 本表由 recordDuelResult 用 LocalDate.now() 显式写入，字符串在两后端可精确比较）。
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "duel_stats (" +
+                        "  id " + (isSQLite()
+                                ? "INTEGER PRIMARY KEY AUTOINCREMENT"
+                                : "BIGINT AUTO_INCREMENT PRIMARY KEY") + "," +
+                        "  winner_uuid VARCHAR(36) NOT NULL," +
+                        "  loser_uuid VARCHAR(36) NOT NULL," +
+                        "  winner_score INT NOT NULL," +
+                        "  loser_score INT NOT NULL," +
+                        "  duel_date VARCHAR(10) NOT NULL," +
+                        "  created_at BIGINT NOT NULL" +
+                        ")"
+        );
+        // 赢/输两侧各一条 (uuid, duel_date) 复合索引 —— 供"我的战绩/胜率/连胜"
+        // 按人 + 日期窗查询（含 OR 两列的战绩聚合走 index merge / 两次索引扫）。
+        // 经 createIndexIfMissing（PF-SEA-02：MySQL 不支持 CREATE INDEX IF NOT EXISTS）。
+        createIndexIfMissing("idx_duel_winner_date",
+                "duel_stats(winner_uuid, duel_date)");
+        createIndexIfMissing("idx_duel_loser_date",
+                "duel_stats(loser_uuid, duel_date)");
+        createIndexIfMissing("idx_duel_created",
+                "duel_stats(created_at)");
+
         executeUpdate(
                 "CREATE TABLE IF NOT EXISTS " + tablePrefix + "ai_chat_history (" +
                         "  id INTEGER PRIMARY KEY " + (isSQLite() ? "AUTOINCREMENT" : "AUTO_INCREMENT") + "," +
@@ -728,6 +759,11 @@ public class DatabaseManager {
                 : "DATE_SUB(CURDATE(), INTERVAL ? DAY)";
         String sql3 = "DELETE FROM " + tablePrefix + "ai_round_counters"
                 + " WHERE round_date < " + roundDateExpr;
+        // R10：决斗战绩台账保留期固定 365 天（不随调用方 daysToKeep 走——唯一调用点
+        // 传的是 AI 历史的 30 天）。created_at 是 epoch 毫秒，阈值在 Java 侧算好直接
+        // 绑 long，天然免去两后端日期函数的方言差异与库内时区偏移。
+        String sql4 = "DELETE FROM " + tablePrefix + "duel_stats WHERE created_at < ?";
+        long duelCutoff = System.currentTimeMillis() - DUEL_STATS_RETENTION_DAYS * 24L * 60L * 60L * 1000L;
         synchronized (connectionLock) {
             try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
                 bindKeepDays(stmt, daysToKeep);
@@ -761,6 +797,18 @@ public class DatabaseManager {
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING,
                         "Failed to clean up old AI round counters", e);
+            }
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql4)) {
+                stmt.setLong(1, duelCutoff);
+                int deletedDuels = stmt.executeUpdate();
+                if (deletedDuels > 0) {
+                    plugin.getLogger().info("Cleaned up " + deletedDuels
+                            + " old duel stats records (older than "
+                            + DUEL_STATS_RETENTION_DAYS + " days).");
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to clean up old duel stats", e);
             }
         }
     }
@@ -1260,6 +1308,169 @@ public class DatabaseManager {
             }
         }
         return 0;
+    }
+
+    // ============================================================
+    //  Duel Stats（R10 战略锐评：决斗战绩持久化）
+    // ============================================================
+
+    /**
+     * 决斗战绩保留天数。决斗数据量极小（一场一行，全服日均个位数到几十行），
+     * 一年足够支撑"胜率/连胜/复仇"类查询；更老的明细没有展示价值。
+     */
+    private static final int DUEL_STATS_RETENTION_DAYS = 365;
+
+    /** 连胜扫描窗口：最多回看最近多少场（有界查询，防重度玩家全表扫）。 */
+    private static final int DUEL_STREAK_SCAN_LIMIT = 50;
+
+    /**
+     * 一名玩家的决斗累计战绩（{@code duel_stats} 聚合投影）。
+     *
+     * @param wins   作为 winner_uuid 的行数
+     * @param losses 作为 loser_uuid 的行数
+     */
+    public static record DuelStats(int wins, int losses) {
+
+        /** 总场次。 */
+        public int total() {
+            return wins + losses;
+        }
+
+        /**
+         * 胜率（0.0~1.0）；总场次为 0 时返回 0.0（不返回 NaN，调用方免判空）。
+         */
+        public double winRate() {
+            int total = total();
+            return total == 0 ? 0.0 : (double) wins / total;
+        }
+    }
+
+    /**
+     * R10：落一场决斗战绩（追加写，一场一行）。
+     *
+     * <p>静默降级：SQLException 只记 WARNING（写失败最坏后果 = 少一条历史战绩，
+     * 玩家当场看到的胜负播报/成就/奖励均已先行完成，绝不因落库失败打断结算）。
+     *
+     * <p>线程契约：同步阻塞在调用线程；{@code DuelManager.endDuel} 在主线程结算，
+     * 因此调用方必须自带异步派发（见 DuelManager 的 runAsync 帮助方法），
+     * 与 {@code AchievementManager.checkHelpAchievement} 的"主线程调用方 + 内部
+     * 异步派发"纪律同源。
+     *
+     * @param winner     胜者 UUID
+     * @param loser      败者 UUID
+     * @param winnerScore 胜者得分（正常路径恒等于 {@code DuelRoom.WIN_SCORE}）
+     * @param loserScore  败者得分
+     */
+    public void recordDuelResult(UUID winner, UUID loser, int winnerScore, int loserScore) {
+        String sql = "INSERT INTO " + tablePrefix
+                + "duel_stats (winner_uuid, loser_uuid, winner_score, loser_score,"
+                + " duel_date, created_at) VALUES (?, ?, ?, ?, ?, ?)";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, winner.toString());
+                stmt.setString(2, loser.toString());
+                stmt.setInt(3, winnerScore);
+                stmt.setInt(4, loserScore);
+                // duel_date 与全仓既有日期口径一致（LocalDate.now() → yyyy-MM-dd）
+                stmt.setString(5, LocalDate.now().toString());
+                stmt.setLong(6, System.currentTimeMillis());
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to record duel result winner=" + winner
+                                + " loser=" + loser, e);
+            }
+        }
+    }
+
+    /**
+     * R10：玩家累计胜负场次（赢/输两列各一次 COUNT，同一连接内顺序执行）。
+     *
+     * <p>索引支撑：两个 COUNT 分别命中 {@code idx_duel_winner_date} /
+     * {@code idx_duel_loser_date} 的前导列，均为索引覆盖计数，非全表扫。
+     * 异常 → 空战绩（wins=0, losses=0）+ WARNING（降级：展示层显示"暂无战绩"，
+     * 不是"显示为全败"）。
+     *
+     * @param player the player
+     * @return 累计战绩（永不为 null）
+     */
+    public DuelStats getDuelStats(UUID player) {
+        String winSql = "SELECT COUNT(*) FROM " + tablePrefix
+                + "duel_stats WHERE winner_uuid = ?";
+        String lossSql = "SELECT COUNT(*) FROM " + tablePrefix
+                + "duel_stats WHERE loser_uuid = ?";
+        synchronized (connectionLock) {
+            try {
+                int wins = 0;
+                int losses = 0;
+                try (PreparedStatement stmt = getConnection().prepareStatement(winSql)) {
+                    stmt.setString(1, player.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            wins = rs.getInt(1);
+                        }
+                    }
+                }
+                try (PreparedStatement stmt = getConnection().prepareStatement(lossSql)) {
+                    stmt.setString(1, player.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            losses = rs.getInt(1);
+                        }
+                    }
+                }
+                return new DuelStats(wins, losses);
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to get duel stats for " + player, e);
+                return new DuelStats(0, 0);
+            }
+        }
+    }
+
+    /**
+     * R10：当前连胜场数（从最近一场往回数，直到遇到一场失败或扫描窗口用尽）。
+     *
+     * <p>实现说明：SQL 取该玩家参与（赢或输）的最近 {@value #DUEL_STREAK_SCAN_LIMIT}
+     * 行，按 {@code created_at DESC, id DESC} 排序后在 Java 里数前缀连胜。
+     * 为什么不在 SQL 里算：窗口函数（{@code ROW_NUMBER}）两后端语法/版本门槛不一致
+     * （MySQL 8 才有，SQLite 3.25+ 才有），而"最多 50 行"的扫描成本可忽略；
+     * {@code id DESC} 作次序键兜底同毫秒写入（自增主键单调，双后端均成立）。
+     *
+     * <p>语义边界：窗口内全胜且恰好用满 50 行时，返回值会是 50（可能低估真实连胜，
+     * 不虚报）；30 场以内完全精确。异常 → 0 + WARNING。
+     *
+     * <p>线程契约：同步阻塞读，禁止主线程调用（与 {@link #getDuelStats} 同）。
+     *
+     * @param player the player
+     * @return 当前连胜场数（0 = 无胜绩或最近一场为负）
+     */
+    public int getDuelWinStreak(UUID player) {
+        String sql = "SELECT winner_uuid FROM " + tablePrefix + "duel_stats"
+                + " WHERE winner_uuid = ? OR loser_uuid = ?"
+                + " ORDER BY created_at DESC, id DESC LIMIT ?";
+        String id = player.toString();
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, id);
+                stmt.setString(2, id);
+                stmt.setInt(3, DUEL_STREAK_SCAN_LIMIT);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    int streak = 0;
+                    while (rs.next()) {
+                        if (!id.equals(rs.getString("winner_uuid"))) {
+                            break; // 最近一场参与但没赢 → 连胜中断
+                        }
+                        streak++;
+                    }
+                    return streak;
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to get duel win streak for " + player, e);
+                return 0;
+            }
+        }
     }
 
     // ============================================================
@@ -2669,6 +2880,22 @@ public class DatabaseManager {
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING,
                         "Failed to delete social_feed rows of " + playerId, e);
+            }
+            // R10（决斗战绩）：duel_stats 的玩家列是**第四套**形态 —— 同一行里有
+            // winner_uuid / loser_uuid 两列都可能指向本人（本人可能是赢家或输家），
+            // 不能塞进上面任一数组（单列模板），故单列一条 OR 删除。
+            // 语义取舍：删的是"本人参与过的场次"，对手那侧的战绩记录随之一起消失
+            // （对方少算一场）——这是 /lea reset 的既有语义（删净本人痕迹优先于
+            // 对手统计完整性），与 social_cheers 的"删系他人的行"同款取舍。
+            try (PreparedStatement stmt = conn.prepareStatement(
+                    "DELETE FROM " + tablePrefix + "duel_stats"
+                            + " WHERE winner_uuid = ? OR loser_uuid = ?")) {
+                stmt.setString(1, id);
+                stmt.setString(2, id);
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to delete duel_stats rows of " + playerId, e);
             }
         }
     }

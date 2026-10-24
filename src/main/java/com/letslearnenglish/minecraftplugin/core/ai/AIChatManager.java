@@ -437,6 +437,13 @@ public class AIChatManager {
             } catch (IllegalArgumentException e) {
                 plugin.getLogger().warning("Could not save default ai_scenarios.yml from JAR.");
             }
+        } else {
+            // P2-D：内置场景语义升级（机场/酒店/医院 → 村庄交易/附魔台/下界/建筑）。
+            // 已部署服的数据文件只在"不存在"时生成，永远不会拿到新内容——旧服主会一直看到
+            // 出境游场景。这里用"版本戳"做一次性升级：若文件名内含内置场景 key 集合的旧版
+            // 标记且没有 scenarios-version，则备份旧文件为 .legacy.bak 后覆盖为内置新版。
+            // 管理员改过的文件（含自定义 key 或显式 scenarios-version）一律不碰。
+            maybeUpgradeScenariosFile(dataFile);
         }
 
         // 从插件数据文件夹加载（优先，支持用户修改）
@@ -546,24 +553,56 @@ public class AIChatManager {
         difficulties.clear();
 
         difficulties.put("easy", createDefaultDifficulty("easy", "Easy", "简单",
-                "Use very simple words and short sentences. Be very patient."));
+                "You are speaking to an English beginner. Use very simple words and short sentences "
+                        + "(under 10 words each). Be very patient and encouraging with mistakes. "
+                        + "Recast errors naturally: say the player's idea back correctly in your own reply. "
+                        + "Never say \"that is wrong\" and never explain grammar rules. Praise what they get right."));
         difficulties.put("medium", createDefaultDifficulty("medium", "Medium", "中等",
-                "Use everyday English at a normal pace. Correct mistakes politely."));
+                "You are speaking to an intermediate English learner. Use everyday English at a normal pace. "
+                        + "Recast errors naturally in your reply, and point out at most one grammar issue per reply "
+                        + "(one short sentence, then move on). Encourage the player to elaborate."));
         difficulties.put("hard", createDefaultDifficulty("hard", "Hard", "困难",
-                "Use natural, idiomatic English. Challenge the player."));
+                "You are speaking to an advanced English learner. Use natural, native-level English with "
+                        + "idiomatic expressions. Recast naturally when it does not break the flow, and only stop "
+                        + "for major mistakes; point out at most one issue per reply. Push the player to keep up."));
 
-        String[] scenarioKeys = {"airport", "restaurant", "shopping", "hotel", "hospital", "free_talk"};
-        String[] names = {"Airport Check-in", "Restaurant Ordering", "Shopping Mall", "Hotel Check-in", "Hospital Visit", "Free Talk"};
-        String[] namesZh = {"机场值机", "餐厅点餐", "购物中心", "酒店入住", "医院就诊", "自由对话"};
-        Material[] mats = {Material.ELYTRA, Material.COOKED_BEEF, Material.LEATHER_CHESTPLATE,
-                           Material.RED_BED, Material.ENCHANTED_BOOK, Material.BOOK};
+        // P2-D：内置兜底场景同步为 MC 语义（与 resources/ai_scenarios.yml 保持一致）。
+        // 仅在数据文件缺失/损坏/解析为空时才会走到这里；正常路径读 YAML。
+        String[] scenarioKeys = {"village_trade", "enchanting", "nether_trip", "building", "restaurant", "free_talk"};
+        String[] names = {"Village Trade", "Enchanting Table", "Nether Adventure", "Build a House",
+                          "Village Restaurant", "Free Talk"};
+        String[] namesZh = {"村庄交易", "附魔台", "下界探险", "建造小屋", "村庄餐厅", "自由对话"};
+        Material[] mats = {Material.EMERALD, Material.ENCHANTED_BOOK, Material.NETHERITE_SWORD,
+                           Material.BRICKS, Material.COOKED_BEEF, Material.BOOK};
         String[] prompts = {
-            "You are an airline check-in staff. Help the passenger with passport, luggage, seat, and gate.",
-            "You are a waiter. Guide the customer through greeting, menu, ordering, drinks, and dessert.",
-            "You are a shop assistant. Help the customer find clothes: ask needs, suggest sizes and colors.",
-            "You are a hotel receptionist. Help the guest: confirm reservation, ask preferences, give key.",
-            "You are a doctor. Ask about symptoms and duration, give advice, prescribe rest or medicine.",
-            "You are a friendly English tutor. Chat naturally, ask questions, suggest topics if stuck."
+            "You are a villager trader in a Minecraft village. Stay inside the game: talk only about items, "
+                    + "emeralds and trades, never the real world. Ask what the player wants to buy or sell, "
+                    + "name a price, react to their offer, close the trade. Practice numbers, item names and "
+                    + "polite bargaining. Ask one question at a time, keep replies to 1-3 short sentences, "
+                    + "and gently recast the player's mistakes rather than lecturing.",
+            "You are an enchanter at an enchanting table in a small library. Stay inside the game: only "
+                    + "enchantments, lapis lazuli, experience levels and bookshelves. Ask which item they want "
+                    + "to enchant, suggest enchantments, explain what each does, tell the level cost. Practice "
+                    + "imperatives, conditions and numbers. Ask one question at a time, keep replies to 1-3 short "
+                    + "sentences, and gently recast mistakes rather than lecturing.",
+            "You are an experienced adventurer planning a Nether trip with the player. Stay inside the game: "
+                    + "gear, portals, lava and mobs. Ask what gear they have, warn about creepers near the portal, "
+                    + "and plan supplies together. Practice future forms and advice. Ask one question at a time, "
+                    + "keep replies to 1-3 short sentences, and gently recast mistakes rather than lecturing.",
+            "You are a friendly builder helping the player design a house in Minecraft. Stay inside the game: "
+                    + "blocks, rooms and colors. Ask what they are building, how big it is, which materials and "
+                    + "colors they like, which rooms it needs. Give one simple building tip. Practice prepositions "
+                    + "of place, materials and describing words. Ask one question at a time, keep replies to 1-3 "
+                    + "short sentences, and gently recast mistakes rather than lecturing.",
+            "You are a waiter at a small restaurant in a Minecraft village. The menu is bread, cooked beef, "
+                    + "mushroom stew, baked potato and apple juice; payment is in emeralds. Greet them, present the "
+                    + "menu, take their order, ask about drinks, let them pay. Practice food words and polite "
+                    + "requests. Ask one question at a time, keep replies to 1-3 short sentences, and gently recast "
+                    + "mistakes rather than lecturing.",
+            "You are a friendly English tutor chatting with a student who plays Minecraft. Your favorite topics "
+                    + "are building, mining, farming, mobs, servers and school life. If the player seems stuck, "
+                    + "suggest a topic such as their favorite block or their best build. Ask one question at a "
+                    + "time, keep replies to 1-3 short sentences, and gently recast mistakes rather than lecturing."
         };
 
         for (int i = 0; i < scenarioKeys.length; i++) {
@@ -573,6 +612,52 @@ public class AIChatManager {
             sc.material = mats[i];
             sc.prompt = prompts[i];
             scenarios.put(scenarioKeys[i], sc);
+        }
+    }
+
+    /**
+     * P2-D：把"出厂旧场景表"一次性升级为当前的 MC 语义场景表。
+     *
+     * <p>判定为"出厂旧表"必须<b>同时</b>满足：
+     * <ul>
+     *   <li>文件里没有 {@code scenarios-version} 键（新版内置文件带此键；旧文件没有）；</li>
+     *   <li>场景 key 集合与旧内置集合完全一致（airport/restaurant/shopping/hotel/hospital/free_talk）
+     *       —— 只要管理员加过、删过、改过任何一个 key，就不算"未改动"，直接跳过。</li>
+     * </ul>
+     *
+     * <p>满足时：先把旧文件另存为 {@code ai_scenarios.yml.legacy.bak}（不覆盖已有备份），
+     * 再用 JAR 内新版覆盖。任何异常只告警，绝不阻断加载。
+     *
+     * <p><b>判据只有 key 集合，不看 prompt 内容</b>：仅改过 prompt 文本、但 key 未动的
+     * 旧出厂文件也会被覆盖（原文件在 {@code .legacy.bak}）。本意是"结构未变即视为未改造"，
+     * 因为判定内容是否被改动需要逐字段比对，且管理员改 prompt 恰恰是想保留的场景——
+     * 这是已知取舍，文档里如实写明而不是假装能识别。
+     */
+    private void maybeUpgradeScenariosFile(File dataFile) {
+        try {
+            YamlConfiguration existing = YamlConfiguration.loadConfiguration(dataFile);
+            if (existing.isSet("scenarios-version")) {
+                return; // 已是新版（或管理员显式声明），不动
+            }
+            ConfigurationSection section = existing.getConfigurationSection("scenarios");
+            if (section == null) {
+                return;
+            }
+            Set<String> keys = section.getKeys(false);
+            Set<String> legacyKeys = Set.of("airport", "restaurant", "shopping", "hotel", "hospital", "free_talk");
+            if (!keys.equals(legacyKeys)) {
+                return; // 管理员动过结构 —— 尊重其配置
+            }
+
+            File backup = new File(dataFile.getParentFile(), dataFile.getName() + ".legacy.bak");
+            if (!backup.exists()) {
+                java.nio.file.Files.copy(dataFile.toPath(), backup.toPath());
+            }
+            plugin.saveResource("ai_scenarios.yml", true); // 覆盖为内置新版
+            plugin.getLogger().info("Upgraded bundled AI scenarios to Minecraft-themed set "
+                    + "(old file saved as " + backup.getName() + ").");
+        } catch (Exception e) {
+            plugin.getLogger().warning("Could not upgrade ai_scenarios.yml: " + e.getMessage());
         }
     }
 

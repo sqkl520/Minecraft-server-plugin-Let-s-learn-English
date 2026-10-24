@@ -62,3 +62,14 @@ console.log('suspected concatenation keys (skipped):', suspectedConcat.length);
 if (suspectedConcat.length) console.log(suspectedConcat.sort().join('\n'));
 console.log('MISSING (referenced but not in yml):');
 console.log(missing.length ? missing.sort().join('\n') : '(none)');
+
+// CI 门禁：存在真实缺键（zh 或 en 任一侧缺失）时退出码 1，否则 0。
+// suspectedConcat（以 '-'/'.' 结尾的前缀拼接键）已在上面单独计数并跳过，不计入 missing。
+// 上面的输出格式保持不变，只补退出码 —— 本地 `node scripts/audit-i18n-keys.js; echo $?` 即可自查。
+//
+// 用 process.exitCode 而非 process.exit()：退出状态完全等价（0/1），但更安全。
+// Node 官方文档指出 process.exit() 会"尽快"退出，可能丢弃尚未完成的 stdout/stderr
+// 异步写 —— 在 Linux（CI runner）上 stdout 是管道，写是异步的，缺键清单较长时
+// 有丢尾风险；process.exitCode 则等事件循环自然排空后再按该码退出。本脚本无
+// 挂起定时器/未关闭句柄，自然退出即达，行为与 process.exit() 一致。
+process.exitCode = missing.length ? 1 : 0;
