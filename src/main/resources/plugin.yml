@@ -2,6 +2,9 @@ name: LetsLearnEnglish
 version: ${project.version}
 main: com.letslearnenglish.minecraftplugin.LetsLearnEnglish
 api-version: "1.21"
+# MySQL 驱动（mysql-connector-j 8.3.0）已由 maven-shade-plugin 随本包 shade 进
+# 插件 JAR，服主无需手动放置驱动 jar，也无需在 server 端安装。
+# 本文件参与 Maven 资源过滤，故此处只写普通注释文字。
 description: "Let's learn English! - A gamified English learning plugin for Minecraft (Velocity/BungeeCord compatible)"
 author: sqkl520
 website: https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English

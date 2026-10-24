@@ -81,12 +81,14 @@
 
 | 项目 | 最低要求 | 推荐配置 |
 |------|---------|---------|
-| **服务端核心** | Paper 1.21+ / Spigot 1.21+ | Paper 1.21.4（开发与测试版本） |
+| **服务端核心** | Paper 1.21+（不保证 Spigot 兼容） | Paper 1.21.4（开发与测试版本） |
 | **API 版本** | 1.21 | 1.21.4 |
 | **Java 版本** | Java 21 | Java 21 |
 | **操作系统** | Windows / Linux / macOS | Linux (推荐) |
 
-> `plugin.yml` 中 `api-version: "1.21"`；`VersionAdapter` 的运行期版本判定范围为 1.18.x–1.21.x（超出会提示不受支持）。
+> `plugin.yml` 中 `api-version: "1.21"`；`VersionAdapter` 的运行期版本判定范围为 1.18.x–1.21.x（超出会提示不受支持）。注意该判定只是版本号数字比较，不代表 1.18–1.20 真能运行——插件编译目标为 Paper 1.21.4 API。
+>
+> **为什么只保证 Paper**：代码直接使用了 Paper 专属 API——Adventure 的 `net.kyori.adventure.text.Component` / `Title` / `LegacyComponentSerializer`（`AchievementManager.java`、`OnboardingManager.java`、`VersionAdapter.java:58`）与 Paper 的 `Server#getMinecraftVersion()`（`LetsLearnEnglish.java:143`、`VersionAdapter.java:25`）。这些在 Spigot 上不存在，加载即 NoSuchMethodError / NoClassDefFoundError，因此不能用 Spigot 1.21 运行。
 
 ### 2.2 硬件资源占用
 
@@ -94,7 +96,7 @@
 |------|--------|
 | **内存占用** | ~15-30 MB |
 | **CPU 占用** | 极低（仅定时保存和复习通知有微量调度开销） |
-| **磁盘占用** | ~5 MB（插件 JAR 约 0.6 MB + 数据库 + 配置文件；词库扩充后随数据目录增长） |
+| **磁盘占用** | ~5 MB（插件 JAR 约 3 MB = 本体约 0.7 MB + 内置 MySQL JDBC 驱动约 2.5 MB + 数据库 + 配置文件；词库扩充后随数据目录增长） |
 
 > 插件所有定时任务（自动保存、复习通知、备份）均为异步执行，不会阻塞主线程影响服务器 TPS。
 
@@ -136,7 +138,7 @@ Plugins 目录加载顺序（由 Bukkit 自动处理）:
 
 从以下渠道获取最新版本的 JAR 文件：
 - GitHub Releases: `https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/releases`
-- 自行编译: `mvn clean package`（源码仓库中）
+- 自行编译: `mvn clean verify`（源码仓库中；含测试与 JaCoCo 覆盖率门禁。仅想快速打包可用 `mvn clean package -DskipTests`，但不要用它验证改动）
 
 文件名为: `Let's Learn English!-{版本号}.jar`（如 `Let's Learn English!-1.0.7-SNAPSHOT.jar`）
 
@@ -224,7 +226,7 @@ plugins/LetsLearnEnglish/
 │   └── <uuid>.yml
 ├── exports/                      ← 导出目录（管理员导出/报告落盘）
 │   └── reports/                  ← /lea report 生成的报告 TXT
-├── audio/                        ← TTS 发音音频缓存（目录总是创建；配置 VoiceRSS 密钥后存放 .wav）
+├── audio/                        ← TTS 音频缓存目录（总是创建；配 VoiceRSS 密钥后仅在后台缓存 .wav，当前版本不播放，见 5.8.13）
 └── backups/                      ← 数据库自动备份目录
     ├── playerdata.db.20260601-143022.bak
     └── ...
@@ -257,7 +259,7 @@ chmod 644 plugins/LetsLearnEnglish/*.db
 
 ### 5.1 主配置文件: `config.yml`
 
-配置文件使用 YAML 格式，修改后执行 `/lea reload` 即可热重载，无需重启服务器。
+配置文件使用 YAML 格式，修改后执行 `/lea reload` 即可热重载大部分键，无需重启服务器。**少数启动快照键例外**（见 5.7 节「需重启生效的键」清单）。
 
 #### 5.1.1 通用设置 (general)
 
@@ -315,7 +317,11 @@ database:
     table-prefix: "lle_"
 ```
 
-> **说明**: 出厂 config.yml 中可能保留 `pool-size: 10` 一行（历史遗留），它是**死键**——插件使用单连接 + synchronized 双检锁、无连接池，调整该项无实际效果。
+> **说明**: 出厂 config.yml 中 `pool-size` 一行已移除（历史遗留死键）——插件使用单连接 + synchronized 双检锁、无连接池，即使手工加回也无实际效果。
+>
+> **MySQL 驱动**: `mysql-connector-j` 已通过 maven-shade-plugin 打包进 JAR（`pom.xml` 的 `shade-mysql-driver` execution，仅打入该驱动，paper-api / VaultAPI / placeholderapi 仍是 provided），使用 MySQL 后端无需额外放置驱动。若你使用自行构建的 JAR 而报 `ClassNotFoundException: com.mysql.cj.jdbc.Driver`，请确认构建时该 execution 执行过（产物约 3MB，`unzip -l` 能看到 `com/mysql/`），或直接使用官方 JAR。
+>
+> **MySQL 连接失败的后果**: `DatabaseManager.initialize()` 捕获 `SQLException` 后先记一条 `SEVERE`（"Database initialization failed! Plugin may not function correctly."），随后 `throw new RuntimeException(...)`；该异常从 `onEnable` 抛出，Paper 会把插件标记为启用失败并禁用（控制台显示本插件报错，依赖其 API 的功能不可用）。排查后修正配置需**重启服务器**（`database.*` 不在 `/lea reload` 覆盖范围内）。
 >
 > **MySQL 前置条件**: 需先手动创建数据库:
 > ```sql
@@ -502,9 +508,16 @@ achievements:
 
 ### 5.4 语言文件: `messages/zh.yml` 和 `messages/en.yml`
 
-语言文件支持 PlaceholderAPI 变量和颜色代码。版本标识为 `config-version: 13`。
+语言文件支持 PlaceholderAPI 变量和颜色代码。版本标识为 `config-version: 17`。
 
-> 版本升级机制：启动时若检测到本地语言文件的 `config-version` 低于插件内置版本，会自动用 JAR 内置文件**覆盖**本地文件（`saveResource(path, true)`）。自定义过语言文件的服主请在升级前备份，语言版本落后时自定义内容会被官方文件替换。
+> 版本升级机制：启动时若检测到本地语言文件的 `config-version` 低于插件内置版本，会执行**合并式升级**（不会覆盖你的自定义内容）：
+> - 你已存在的键：**保留你的取值**（改过的措辞、颜色码、占位符都优先于官方默认值）；
+> - 官方新增的键：自动补进你的文件；
+> - 官方已废弃的键：**保留在文件里**（插件不再读取，但不替你删除，以免误删你自加的备注或其他插件的占位符引用）；
+> - 键的类型冲突（例如你把一个分组写成了单行字符串）：以官方结构为准，你的旧值完整保留在升级前的 `.bak` 快照里；
+> - 升级前会自动生成单槽备份 `messages/zh.yml.bak`（只保留最近一次升级前的版本，每次升级覆盖）。
+>
+> 注意：写回后会变成 Bukkit 的标准 YAML 序列化格式——**你手写的注释与键顺序不会保留**（原文在 `.bak` 里）。若你重度依赖注释，升级后可从 `.bak` 手工比对。合并只在版本落后时触发一次，版本已是最新的文件不会被改写。
 
 **新增英文翻译**（以 `en.yml` 为例）：
 
@@ -556,19 +569,42 @@ words:
 ### 5.7 `/lea reload` 热重载范围
 
 执行 `/lea reload` 会重新加载:
-- `config.yml`（全部配置段，含模块开关 `enabled` 键——均为点读式，reload 即时生效）
+- `config.yml`（大部分配置段，含模块开关 `enabled` 键——均为点读式，reload 即时生效）
+- `ai_config.yml` 的 `api-key`、`ai-chat.*`、`scenario.max-prompt-length` 与 `ai_scenarios.yml`（`HotReloadManager.reloadAll` 会调用 `AIChatManager.reload()`，改完 Key 无需重启）
 - `achievements-config.yml`（成就开关与时间窗口；reload 会清空成就缓存，下次判定时重新读盘）
-- `messages/zh.yml` 和 `messages/en.yml`（含语言版本落后时的自动升级覆盖）
+- `messages/zh.yml` 和 `messages/en.yml`（含语言版本落后时的**合并式**自动升级：保留自定义取值、补齐新键、保留废弃键、升级前生成 `.bak`）
 - `words/` 下所有词库文件
 - `gui-layout` 与 GUI 音效缓存（`gui.sounds.*`）
 - 玩家数据缓存（reload 前会先对在线玩家落盘，防止缓存丢失）与档案缓存
 - 每日金币累计缓存（`money.daily-cap` 计数清零重算）
+- 统计仪表盘服务（`statistics-server.*`：reload 时按新配置重启，端口/认证改动生效）
 
 > **不再重载/不再读取的部分**: `achievements.yml`（废弃文件，不参与运行）；`dialogues/*.yml`（幽灵目录，代码零加载点）。
 >
-> **AI 场景热加载**：`ai_scenarios.yml` 与个人场景的重新读取不在 `/lea reload` 中，而是走场景选择 GUI 的「刷新 API 密钥」按钮（权限与 `/le load_scenario` 对齐：`letslearnenglish.scenario.import`）——该按钮同时重载 API 密钥与场景文件。
+> **AI 场景热加载**：场景选择 GUI 的「刷新 API 密钥」按钮同样走 `AIChatManager.reload()`（权限与 `/le load_scenario` 对齐：`letslearnenglish.scenario.import`），与 `/lea reload` 效果一致。
 >
 > **赛季/社交/报告等新段**：无独立 reload 钩子，但均为点读式（每次使用时直读 `config.yml`），`/lea reload` 后改动立即生效（如 `season.enabled`、`social.feed.retention-days`、`report.period` 等）。
+
+#### 5.7.1 需重启服务器才生效的键（启动快照 / 周期任务）
+
+以下键在**启动时**被读取一次并用于创建周期任务或构造常驻对象，`/lea reload` **不会**重排任务或重建对象，改完必须重启服务器：
+
+| 配置键 | 代码依据 | 原因 |
+|--------|---------|------|
+| `general.auto-save-interval` | `LetsLearnEnglish.java:382`（`startScheduledTasks` 内 `runTaskTimer` 周期参数） | 保存任务的周期在排程时固定，reload 不重排 |
+| `general.backup.enabled` / `general.backup.interval` / `general.backup.max-backups` | `LetsLearnEnglish.java:412`、`:514`、`:520`（`scheduleDatabaseBackup`） | 备份任务由 `onEnable` 排程；三个键只在启动时读一次，`max-backups` 还被快照进任务体 |
+| `general.check-updates` | `LetsLearnEnglish.java:250`（`onEnable` 内唯一读取点） | 只在启动时决定是否发起联网检查，reload 不会再检查 |
+| `daily-reminder.reminder-hours` | `LetsLearnEnglish.java:433`（`scheduleDailyReminders` 内 `effectiveHours` 快照） | 小时集合在排程时固化为 `final Set`，reload 不重建 |
+| `tts.enabled` / `tts.cache-days` / `tts.voicerss-api-key` | `TtsManager.java:55-57`（构造函数读取） | `TtsManager` 只在 `onEnable` 构造一次（`LetsLearnEnglish.java:202`），reload 不重建 |
+| `progress-system.leaderboard.update-interval` | `LetsLearnEnglish.java:420-421`（`startScheduledTasks` 内 `runTaskTimerAsynchronously` 周期参数） | 榜单刷新任务的周期在排程时固定，reload 不重排 |
+| `word-system.review.intervals` / `word-system.review.mastered-review-interval-days` | `ReviewScheduler.java:33-43`（构造函数快照），实例在 `WordManagerImpl.java:49` 只构造一次 | 复习间隔数组在 `ReviewScheduler` 构造时固化；reload 只重载词库（`HotReloadManager.java:54`），不重建 scheduler |
+| `database.*`（`type` / `sqlite.*` / `mysql.*`） | `DatabaseManager.java:57-91`（`initialize()` 内读取），只在 `LetsLearnEnglish.java:161` 调用一次 | 连接在 onEnable 建立，reload 不重建连接池/后端 |
+
+> **"关得掉、开不回来"的任务类开关**：`daily-reminder.enabled`（`LetsLearnEnglish.java:405` 排程门 + `:444` 任务体内点读）与 `word-system.review.enabled`（`:399` 排程门 + `ReviewScheduler.java:51-53` 任务体内点读）在**启动时已排程**的前提下，改为 `false` 能经 reload 立即静默；但如果启动时就是 `false`（任务根本没排程），改回 `true` 必须重启。`general.backup.enabled` 更严格——只在 `:412` 读一次，reload 改 `false` 也不会停掉已排程的备份任务，必须重启。
+>
+> `tts.enabled` 是例外中的例外——它只被 `TtsManager` 构造函数读取，reload 完全不生效（两个方向都要重启）。
+>
+> **可 reload 生效的对照项**：`statistics-server.*`（reload 会重启 HTTP 服务，两个方向都生效）、`tts.pronounce-cooldown-seconds`（每次点击点读）、所有模块门 `enabled`（`ConfigManager` 点读门方法）、`ai-chat.*`（`AIChatManager.reload()`）。
 
 ### 5.8 Phase 3 新增配置段
 
@@ -586,7 +622,8 @@ ai-chat:
   rate-limit-seconds: 3       # 玩家发消息频率限制
   max-input-length: 200
   debug: false                # AI 请求/响应详情日志（排查问题用）
-  daily-round-limit: 30       # 每人每日 AI 有效轮次上限, 0 或负数 = 不限
+  daily-round-limit: 30       # 每人每日 AI 请求总上限（玩家消息 + 开场白都计入）, 0 或负数 = 不限
+  opening-daily-cap: 30       # 每人每日 AI 开场白次数上限（与上者同时生效）, 0 或负数 = 不限
   max-tokens: 128             # 单次回复最大 token
   count-min-rounds: 3         # 记一次"有效对话"所需的最少玩家消息数（成就/挑战计数用）
   feedback:                   # 对话小结 / AI 学习反馈（US-FB）
@@ -766,7 +803,8 @@ progress-system:
     enabled: true             # 排行榜门：false 时 /le leaderboard、榜单 GUI、广场三榜按钮隐藏；
                               # 内存榜继续更新作"热备"，重开无需重启即恢复排名
     display-count: 10         # 排行榜显示人数（英语广场榜单模式一次拉取的条数）
-    update-interval: 30       # （死键：刷新周期实际硬编码为 5 分钟，改动无效）
+    update-interval: 300      # 榜单刷新间隔（秒，钳位 [30, 3600]，默认 300=5 分钟）。
+                              # 已真接线；周期改动需重启生效（reload 不重排任务）
   achievements:
     enabled: true             # 成就门：false 时不再解锁新成就（无播报/音效/跨服广播）；
                               # 已解锁记录保留，重开后立即回归
@@ -775,10 +813,12 @@ progress-system:
 - **GUI 设置 (gui)**：`main-menu-title`（config.yml 中为死键，实际标题读语言文件同键 `gui.main-menu-title`）、`menu-size`（27/36/45/54，非法值回落 27）、`custom-textures`（历史键，无读取点）、`sounds.*`（含 `combo-milestone` / `countdown-tick` / `timeout`；配为 `none` 或空串表示该事件故意静音）。
 - **反馈层 (feedback)**：`countdown.urgent-seconds`（紧急档阈值，默认 5）、`countdown.tick-sound-seconds`（最后 N 秒 tick 音，0 = 不播）、`countdown.duel-bossbar`（对决 BossBar 倒计时条）、`combo.pitch-enabled` / `combo.pitch-step` / `combo.pitch-max`（连击音高）、`combo.milestone-enabled`（连击里程碑提示）。
 - **成就系统 (achievement-system)**：`unlock-sound`（解锁音效，留空/"none" 静音）。
-- **TTS 发音 (tts)**：`enabled`、`cache-days`（音频缓存保留天数）、`voicerss-api-key`（留空仅显示音标不下载音频）、`pronounce-cooldown-seconds`（发音按钮冷却）。音频缓存落 `audio/` 目录。
+- **TTS 发音 (tts)**：`enabled`、`cache-days`（音频缓存保留天数）、`voicerss-api-key`（留空仅显示音标不下载音频）、`pronounce-cooldown-seconds`（发音按钮冷却）。音频缓存落 `audio/` 目录。**`enabled` / `cache-days` / `voicerss-api-key` 为启动快照（`TtsManager` 构造函数读取），改动需重启**；`pronounce-cooldown-seconds` 每次点击点读，reload 即时生效。
 - **难度等级 (difficulty-settings)**：当前无读取点——难度列表由 `words/` 目录自动发现，显示名走语言文件 `word-bank.difficulty-*` 键，改动本段无实际效果。
 - **统计仪表盘 (statistics-server)**：`enabled`（默认 false）、`bind-address`、`port`（默认 8080）、`ip-whitelist`（支持 CIDR）、`auth.username` / `auth.password`（HTTP Basic Auth，默认 admin/changeme，务必修改）。
 - **数据库版本 (config-version)**：主 config 当前为 `2`；插件对缺失的新键采用「读取时回落默认值」策略，无需迁移。
+
+> **发音功能的真实行为**：仓库内没有 `sounds.json` / `pack.mcmeta`，也没有任何资源包；点击发音按钮实际播放的是 `BLOCK_NOTE_BLOCK_PLING`（回落 `ENTITY_EXPERIENCE_ORB_PICKUP`）音符盒提示音（`TtsManager.playPronunciationCue`，`TtsManager.java:210-220`），**不会播放下载的 `.wav` 语音**。配置 VoiceRSS 密钥后，插件只在后台把音频下载到 `audio/` 作缓存（为未来资源包预留），当前版本无任何播放路径；不配密钥时只显示音标。
 
 ---
 
@@ -797,13 +837,13 @@ progress-system:
    如果输出 `java version "1.8.0_xxx"` 或 `17.x`，你需要安装 **Java 21**。从 [Adoptium](https://adoptium.net/) 下载。
 
 2. **检查服务端版本**
-   服务端核心必须是 Paper 1.21+ 或 Spigot 1.21+。在控制台执行:
+   服务端核心必须是 Paper 1.21+（不保证 Spigot 兼容，原因见 2.1 节）。在控制台执行:
    ```
    version
    ```
 
 3. **检查 JAR 文件完整性**
-   确认 JAR 文件大小正常（约 0.6-0.7 MB，约 200 个文件），尝试重新下载。
+   确认 JAR 文件大小正常（带驱动 shade 的产物约 3 MB；未 shade 的旧版约 0.7 MB），尝试重新下载。
 
 4. **查看完整错误日志**
    检查 `logs/latest.log` 文件查找 `LetsLearnEnglish` 相关的错误堆栈。
@@ -816,7 +856,7 @@ progress-system:
 
 | 原因 | 解决方案 |
 |------|---------|
-| 使用了 1.20 及以下的服务端 | 本插件要求 Paper/Spigot 1.21+ 与 Java 21，请先升级服务端（见第 2 章） |
+| 使用了 1.20 及以下的服务端，或使用了 Spigot | 本插件要求 Paper 1.21+ 与 Java 21，请先升级服务端（见第 2 章）；代码使用 Adventure `net.kyori` 与 `Server#getMinecraftVersion` 等 Paper 专属 API，Spigot 上会直接加载失败 |
 | 存在 GUI 插件冲突 | 检查 `plugins/` 目录下是否有其他 GUI 管理插件（如 DeluxeMenus），尝试临时禁用排查 |
 | 玩家正在答题会话中 | 必须先完成或停止当前答题会话才能返回主菜单（模块/模式关闭提示为 `module.disabled` / `word.mode-disabled`） |
 | 物品被其他插件拦截 | 检查是否有反作弊/物品保护插件拦截了 GUI 交互 |
@@ -845,7 +885,9 @@ progress-system:
 
 ### 6.5 MySQL 连接失败
 
-**症状**: 控制台报 `CommunicationsException` 或 `Access denied for user`。
+**症状**: 控制台报 `CommunicationsException` / `Access denied for user`，或 `ClassNotFoundException: com.mysql.cj.jdbc.Driver`；随后插件被禁用。
+
+> `DatabaseManager.initialize()` 在 `SQLException` 时记 `SEVERE` 并 `throw new RuntimeException`，`onEnable` 不再继续，Paper 将本插件标记为启用失败（禁用）。修正配置后必须**重启服务器**——`database.*` 不属于 `/lea reload` 覆盖范围（`DatabaseManager` 只在 `onEnable` 初始化）。
 
 **解决**:
 
@@ -865,6 +907,7 @@ database:
 2. 确保用户名/密码正确
 3. 确保数据库 `letslearnenglish` 已手动创建
 4. 检查防火墙是否放行 3306 端口
+5. 若报 `ClassNotFoundException: com.mysql.cj.jdbc.Driver`：确认使用的是官方 JAR；自行构建时检查 `maven-shade-plugin` 的 `shade-mysql-driver` execution 是否执行（产物约 3MB，`unzip -l` 应含 `com/mysql/`）
 
 ### 6.6 数据库文件损坏
 
@@ -939,7 +982,7 @@ cp ~/downloads/"Let's Learn English!"-1.0.7-SNAPSHOT.jar plugins/
 
 #### 步骤 3: 检查配置文件
 
-每次更新后，检查 `config.yml` 中的 `config-version` 是否与新版兼容（当前为 `2`）。主 config 采用「读取时回落默认值」策略，新增键无需手动迁移；但语言文件（`messages/*.yml`）版本落后时会被 JAR 内置文件**自动覆盖**，请先备份自定义内容。另注意部分历史键的默认值发生过反转（如 `review-multiplier` / `review-penalty`），存量文件建议手动对齐新默认。
+每次更新后，检查 `config.yml` 中的 `config-version` 是否与新版兼容（当前为 `2`）。主 config 采用「读取时回落默认值」策略，新增键无需手动迁移；语言文件（`messages/*.yml`）版本落后时会执行**合并式升级**（保留你的取值、补齐新增键、保留废弃键、升级前生成 `.bak`），不会覆盖你的自定义内容——但仍建议升级前自行备份。另注意部分历史键的默认值发生过反转（如 `review-multiplier` / `review-penalty`），存量文件建议手动对齐新默认。
 
 #### 步骤 4: 重启服务器
 
@@ -1050,7 +1093,7 @@ stop
 
 | 命令 | 说明 | 权限 |
 |------|------|------|
-| `/lea reload` | 热重载所有配置、词库、音效缓存 | `letslearnenglish.admin` |
+| `/lea reload` | 热重载配置、AI 段（`ai_config.yml` / `ai-chat.*` / 场景）、词库、语言文件、音效缓存、统计服务（少数启动快照键需重启，见 5.7.1） | `letslearnenglish.admin` |
 | `/lea export` | 导出在线玩家学习数据为 CSV 文件（落 exports/ 目录） | `letslearnenglish.admin` |
 | `/lea reset <玩家名>` | 重置指定玩家的学习数据（两段式确认：首执行提示，再执行 `/lea reset <玩家名> confirm` 生效） | `letslearnenglish.admin` |
 | `/lea info` | 查看插件版本和运行状态信息 | `letslearnenglish.admin` |
@@ -1067,7 +1110,7 @@ stop
 
 **示例**:
 ```
-/lea reload                     # 修改配置后无需重启
+/lea reload                     # 修改配置后热重载（少数启动快照键需重启，见 5.7.1）
 /lea export                     # 导出 CSV 格式的在线玩家数据
 /lea reset Steve                # 重置玩家 Steve 的数据（首执行出确认提示）
 /lea reset Steve confirm        # 二次确认后真正执行重置
@@ -1246,7 +1289,7 @@ plugins/LetsLearnEnglish/
 │   └── reports/               ← 报告落盘目录 (keep-days 清理)
 │       ├── report_<玩家名>_<起>-<止>_<时刻>.txt   ← /lea report 单人报告
 │       └── report_all_<起>-<止>_<时刻>.txt        ← /lea report all 批量报告
-├── audio/                     ← TTS 发音音频缓存 (自动清理)
+├── audio/                     ← TTS 音频缓存 (仅缓存 .wav，当前版本不播放；启动时按 cache-days 清理过期文件)
 ├── backups/                   ← SQLite 自动备份
 │   └── playerdata.db.XXXXX.bak
 └── export_YYYYMMDD_HHmmss.csv ← /lea export 导出的玩家数据 CSV (exports/ 目录，P3-07)

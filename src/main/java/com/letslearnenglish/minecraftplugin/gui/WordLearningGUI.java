@@ -61,7 +61,12 @@ public class WordLearningGUI {
         WordLearningManager wlManager = plugin.getWordLearningManager();
         ConfigManager cm = plugin.getConfigManager();
         WordLearningManager.QuizState state = wlManager.getQuizState(player.getUniqueId());
-        if (state == null) return;
+        if (state == null) {
+            // P0-5：会话不存在时也要铺满空槽 —— 否则空界面里所有格子都是空气，
+            // 原版 shift-click / 拖拽都有落点，玩家能把背包物品塞进去且取不回来。
+            GUIUtils.fillEmpty(inv);
+            return;
+        }
 
         Word currentWord = state.session.getCurrentWord();
         int current = state.session.getCurrentIndex();
@@ -124,6 +129,11 @@ public class WordLearningGUI {
         String backLore = ChatColor.translateAlternateColorCodes('&', "&7" +
                 MessageUtil.getGuiMsg(messages, "gui.back-lore"));
         inv.setItem(cm.getGuiSlot("word-learning", "back-button", 8), createItem(cm.getGuiMaterial("word-learning", "back-button", Material.RED_STAINED_GLASS_PANE), backLabel, backLore));
+
+        // P0-5：空槽统一填灰玻璃（防 shift-click / 拖拽纵深；R12-M3 同款）。
+        // 必须放在本方法全部 setItem 之后 —— 这是唯一的内容渲染公共出口（spelling /
+        // choice / fill_blank 三个分支都汇到这里），fillEmpty 只兜空槽、不覆盖已渲染物品。
+        GUIUtils.fillEmpty(inv);
     }
 
     /**

@@ -82,6 +82,18 @@ public class DatabaseManager {
     }
 
     private void initializeMySQL(FileConfiguration config) throws SQLException {
+        // P0-1：驱动已随包 shade（pom 的 maven-shade-plugin），但 Bukkit/Paper 用独立的
+        // 插件 ClassLoader，JDBC 4 的服务自动发现依赖线程上下文类加载器，未必能看见
+        // META-INF/services/java.sql.Driver。显式加载一次可把失败点从晦涩的
+        // "No suitable driver found" 提前成一条可读的错误。
+        try {
+            Class.forName("com.mysql.cj.jdbc.Driver");
+        } catch (ClassNotFoundException e) {
+            throw new SQLException("MySQL JDBC driver (com.mysql.cj.jdbc.Driver) is not available. "
+                    + "It should be bundled in this plugin's jar; if you built the plugin yourself, "
+                    + "check that the maven-shade-plugin execution ran (see README 'Build').", e);
+        }
+
         String host = config.getString("database.mysql.host", "localhost");
         int port = config.getInt("database.mysql.port", 3306);
         String database = config.getString("database.mysql.database", "letslearnenglish");
@@ -1178,6 +1190,40 @@ public class DatabaseManager {
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING,
                         "Failed to increment AI round counter for " + playerId
+                                + " / " + date, e);
+            }
+        }
+    }
+
+    /**
+     * P0-4 红队补丁（R-P1-1）：今日 AI 轮次 -1 落库（退还预扣）。
+     *
+     * <p>用途单一：开场白在"发请求前"预扣轮次（堵 sameSession 绕过），但若请求在
+     * <b>确定已到达上游之前</b>就失败（超时 / 连接失败 / 5xx / 429），这次请求并没有
+     * 产生上游计费，应当退还——否则上游持续故障时，玩家反复点场景会把当天的
+     * daily-round-limit 与 opening-daily-cap 全部耗光，当天连正常聊天都被拒且
+     * 重启/重登都无法恢复（DB 已落库），属于可用性锁死。
+     *
+     * <p>{@code WHERE rounds > 0} 保证不会写出负值（并发下重复退还的最坏结果是
+     * 少退一次，上限仍由内存 TodayCounter 约束）。
+     *
+     * <p>静默降级：SQLException 只记 WARNING（退还失败最坏后果 = 玩家多耗一轮，
+     * 与不退还持平，不崩、不阻断主流程）。
+     *
+     * @param playerId the player
+     * @param date     the round date (yyyy-MM-dd)
+     */
+    public void decrementAiRound(UUID playerId, String date) {
+        String sql = "UPDATE " + tablePrefix + "ai_round_counters"
+                + " SET rounds = rounds - 1 WHERE player_uuid = ? AND round_date = ? AND rounds > 0";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to decrement AI round counter for " + playerId
                                 + " / " + date, e);
             }
         }

@@ -4,10 +4,17 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import org.bukkit.entity.Player;
 
+import java.util.logging.Level;
+
 /**
  * Hot Reload Manager
  *
  * Handles hot-reloading of all plugin configurations without server restart.
+ *
+ * <p>P0-3：除 config.yml / messages/*.yml / 词库 / 音效 / 统计服务外，AI 对话段也在此一并
+ * 重载——{@code ai_config.yml} 的 {@code api-key} 与 config.yml 的 {@code ai-chat.*} /
+ * {@code scenario.max-prompt-length} / {@code ai_scenarios.yml}。即改完 Key 执行
+ * {@code /lea reload} 即可生效，无需重启服务器。
  */
 public class HotReloadManager {
 
@@ -22,11 +29,29 @@ public class HotReloadManager {
     /**
      * Reload all plugin configurations and reinitialize dependent modules.
      *
+     * <p>顺序：配置 + 语言文件（{@code reloadAllConfigs}）→ AI 对话段（读刷新后的 mainConfig
+     * 与磁盘 ai_config.yml / ai_scenarios.yml）→ 词库 → 在线玩家落盘与缓存清理 →
+     * 奖励/成就/音效 → 统计服务。AI 段失败只打 WARNING，不阻断后续步骤。
+     *
      * H9：clearCache 前必须先对在线玩家落盘（savePlayerData + saveProfileSettings，
      * 与 onDisable 同一套公开方法），否则缓存里的单词掌握度/统计/隐私设置直接丢失。
      */
     public void reloadAll() {
         configManager.reloadAllConfigs();
+        // P0-3：AI 段依赖 reloadAllConfigs() 已刷新的 mainConfig（AIChatManager.loadConfig()
+        // 直接读 getMainConfig() 的 ai-chat.* / scenario.max-prompt-length，并重读磁盘
+        // ai_config.yml 的 api-key），故必须紧跟在配置重载之后。
+        // 异常自吞只告警：AI 段失败不能阻断后续词库/玩家数据/音效等 reload（同下方音效段风格）。
+        if (plugin.getAIChatManager() != null) {
+            try {
+                plugin.getAIChatManager().reload();
+            } catch (Exception e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to hot-reload AI chat config (ai_config.yml 'api-key' / ai-chat.*)"
+                                + " — AI settings may be left partially applied; check the file then"
+                                + " run /lea reload again.", e);
+            }
+        }
         reloadWordBanks();
         flushOnlinePlayerData();
         plugin.getPlayerDataStore().clearCache();

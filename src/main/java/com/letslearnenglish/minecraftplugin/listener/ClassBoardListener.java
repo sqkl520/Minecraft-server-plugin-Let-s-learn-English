@@ -46,6 +46,19 @@ public class ClassBoardListener implements Listener {
         if (event.getClickedInventory() == null) return;
         int topSize = event.getView().getTopInventory().getSize();
         int rawSlot = event.getRawSlot();
+
+        // P0-5 纵深：下半区 shift-click（MOVE_TO_OTHER_INVENTORY）与双击收集
+        //（COLLECT_TO_CURSOR）补 cancel —— 铺满后原版已无落点，此处防未来布局改动回归。
+        // COLLECT_TO_CURSOR 同 WordLearningListener（R-P3-1 红队）。其余下半区点击不 cancel
+        //（玩家整理背包不受影响，R-01 语义保持）。必须放在下面的 rawSlot 越界
+        // return 之前：这两类 action 的 rawSlot 落在下半区，会先被那个 return 吞掉。
+        if ((event.getAction() == org.bukkit.event.inventory.InventoryAction.MOVE_TO_OTHER_INVENTORY
+                || event.getAction() == org.bukkit.event.inventory.InventoryAction.COLLECT_TO_CURSOR)
+                && rawSlot >= topSize) {
+            event.setCancelled(true);
+            return;
+        }
+
         if (rawSlot < 0 || rawSlot >= topSize) return;
 
         event.setCancelled(true);

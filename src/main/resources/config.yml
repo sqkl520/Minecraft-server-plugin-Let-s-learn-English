@@ -197,7 +197,15 @@ ai-chat:
   # 次日（服务器时区自然日）自动清零；默认 30
   # 0 或负数 = 不限（与 word-system.daily-limit、money.daily-cap 同口径，F1-19 终案）
   # 想禁用 AI 对话请用 ai-chat.enabled: false（语义清晰），不要用 0（那是不限）
+  # 注意：开场白同样计入此轮次（对话与开场白请求都算一轮；达标会话的 AI 总结走独立通道、另计）
   daily-round-limit: 30
+  # 每个玩家每天可触发的 AI 开场白次数上限（打开场景时 AI 主动说的第一句）
+  # 与上面 daily-round-limit 相互独立、同时生效：开场白既要过 daily-round-limit，
+  # 又受本上限单独约束（先查总轮次，再查开场白次数）
+  # 次日（服务器时区自然日）惰性清零；默认 30
+  # 0 或负数 = 不限（同 daily-round-limit 口径）
+  # 该计数为内存态（重启清零，退服重进不清零）；总花费上限仍由落库的 daily-round-limit 兜底
+  opening-daily-cap: 30
   # 单次 AI 回复的最大 token 数（传给 API 的 max_tokens 参数）
   # 值越小回复越短、API 费用越低；默认 128
   max-tokens: 128
@@ -564,7 +572,9 @@ onboarding:
 # ============================================================
 #  TTS 语音设置 (Text-to-Speech Settings)
 # ============================================================
-#  单词发音辅助功能：在 GUI 中显示音标符号，并支持 TTS 音频发音
+#  单词发音辅助功能：在 GUI 中显示音标符号，并播放音符盒提示音
+#  当前版本不播放真实语音：点击发音按钮只会响一声提示音（BLOCK_NOTE_BLOCK_PLING）；
+#  VoiceRSS 下载的 .wav 仅缓存到 audio/ 目录，供未来资源包集成预留，插件不会播放它。
 #  音标显示为主要功能；音频下载需要 VoiceRSS API 密钥（免费注册）
 #  R10-M5：enabled / cache-days / voicerss-api-key 为启动快照（TtsManager 构造读取），
 #  改动需重启生效（reload 不重建）；pronounce-cooldown-seconds 为点读，reload 即时生效。
@@ -573,7 +583,7 @@ tts:
   enabled: true
   # 音频缓存保留天数，过期后自动清理
   cache-days: 7
-  # VoiceRSS API 密钥（留空则不下载音频，仅显示音标）
+  # VoiceRSS API 密钥（留空则不下载 .wav 音频，仅显示音标与提示音）
   # 免费注册: https://www.voicerss.org/registration.aspx
   voicerss-api-key: ""
   # 发音按钮冷却（秒）：同一玩家两次点击发音按钮的最小间隔，防连点刷 API

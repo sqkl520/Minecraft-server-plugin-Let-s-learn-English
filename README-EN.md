@@ -24,7 +24,7 @@ A Minecraft server plugin designed for the unmotivated — it forces you to lear
 - **Learning Stats HTTP Dashboard** —— ECharts-based web admin panel with IP whitelist + Basic Auth
 - **AI Chat History** —— Persistent conversation records, paginated history browser
 - **Word Bank Import/Export** —— Admin YAML import/export with validation and deduplication
-- **Word Pronunciation Helper** —— Phonetic display + pronunciation cue (VoiceRSS audio is downloaded and cached; client-side playback requires a resource pack)
+- **Word Pronunciation Helper** —— Phonetic display + a cue sound (no real speech is played in the current version: clicking the pronunciation button plays a note-block cue; VoiceRSS `.wav` files are only cached under `audio/` for a possible future resource pack, and the plugin never plays them)
 - **Custom AI Scene Sharing** —— Base64-encoded custom scene sharing, imported as personal scenarios
 - **Personal Scenario Manager GUI** —— A manage entry on the scenario select page to view/delete personal scenarios (in-line click-twice confirm, limit 30 per player)
 - **English Square Activity Feed** —— The square gains a "Feed" mode: sessions / achievements / check-ins generate activity posts automatically (same-type posts merged per day, max 3 posts per player per day); left-click to cheer, right-click for profile — cheered players are notified instantly when online or via a join summary when offline
@@ -70,7 +70,7 @@ A Minecraft server plugin designed for the unmotivated — it forces you to lear
 
 | Command | Description |
 |---------|-------------|
-| `/lea reload` | Hot-reload all configs, word banks and sound cache |
+| `/lea reload` | Hot-reload configs, the AI section (`ai_config.yml` / `ai-chat.*` / scenarios), word banks, language files, sound cache and the stats server (a few startup-snapshot keys still need a restart — see Configuration) |
 | `/lea reset <player>` | Reset a player's learning data (two-step confirm: run `/lea reset <player> confirm` to execute) |
 | `/lea info` | View plugin information |
 | `/lea export` | Export player data |
@@ -90,7 +90,7 @@ A Minecraft server plugin designed for the unmotivated — it forces you to lear
 3. Restart the server or use `/reload confirm`
 4. Edit `plugins/LetsLearnEnglish/config.yml` to configure
 5. (Optional) For AI chat and session feedback, put your DeepSeek API key into `plugins/LetsLearnEnglish/ai_config.yml` (the `api-key` field)
-6. Use `/lea reload` to hot-reload without restarting
+6. Use `/lea reload` to hot-reload most changes without restarting (a few startup-snapshot keys still require a restart — see the Configuration section below)
 
 ## Configuration
 
@@ -116,27 +116,52 @@ daily-reminder:
   reminder-hours: [9, 14, 20]
 ```
 
-The excerpt above is only a sample. The full configuration is documented with inline comments in `config.yml` (changes take effect immediately on `/lea reload`); see `DEPLOYMENT_WIKI.md` for more deployment details. Main config sections:
+The excerpt above is only a sample. The full configuration is documented with inline comments in `config.yml` (most keys take effect immediately on `/lea reload`; a few require a restart — see below); see `DEPLOYMENT_WIKI.md` for more deployment details. Main config sections:
 
 `general` / `prefix` / `database` (SQLite / MySQL) / `word-system` (incl. per-mode switches under `modes`) / `onboarding` (starter guide) / `duel` / `ai-chat` (incl. session feedback under `feedback`) / `scenario` / `money` (daily coin cap) / `progress-system` (with `leaderboard` / `achievements` / `rewards` sub-switches) / `gui` + `gui-layout` (interfaces and slots) / `feedback` (countdown and combo feedback) / `achievement-system` / `proxy` (cross-server broadcast) / `daily-reminder` / `daily-challenges` / `checkin` / `tts` (pronunciation)  / `statistics-server` (web dashboard) / `report` (parent report) / `social` + `english-square` (square feed) / `season` / `class-system`
 
+**Keys that require a server restart** (they are snapshotted at startup or used to schedule periodic tasks; `/lea reload` does not reschedule them):
+
+- `general.auto-save-interval`
+- `general.backup.enabled` / `general.backup.interval` / `general.backup.max-backups`
+- `general.check-updates` (only decides at startup whether to run the online check)
+- `daily-reminder.reminder-hours`
+- `tts.enabled` / `tts.cache-days` / `tts.voicerss-api-key`
+- `progress-system.leaderboard.update-interval`
+
+Everything else (including all module `enabled` switches, `ai-chat.*`, language files, word banks, `gui-layout`, achievement switches and the stats dashboard) takes effect immediately on `/lea reload`.
+
+> Exceptions: `word-system.review.intervals` and `mastered-review-interval-days` (the review intervals are snapshotted when `ReviewScheduler` is constructed) and `database.*` (initialised only in `onEnable`) also require a restart. See `DEPLOYMENT_WIKI.md` §5.7.1.
+
+> One caveat: `daily-reminder.enabled` and `word-system.review.enabled` can only be turned **off** via reload if the task was scheduled at startup; if they were `false` at startup (task never scheduled), switching them back to `true` requires a restart. See `DEPLOYMENT_WIKI.md` §5.7.1.
+
 ## Requirements
 
-- Paper 1.21+ (developed and tested on 1.21.4)
+- Paper 1.21+ (developed and tested on 1.21.4; Spigot compatibility is not guaranteed)
 - Java 21
 - Optional: Vault (coin rewards), PlaceholderAPI (`%lle_*%` placeholders)
+
+> Why Paper only: the plugin uses Paper-exclusive APIs (Adventure `net.kyori` components, `Server#getMinecraftVersion`), which do not exist on Spigot.
+
+> The MySQL driver (`mysql-connector-j`) is bundled into the JAR via shade, so no extra driver is needed for the MySQL backend. If you build your own JAR and see `ClassNotFoundException: com.mysql.cj.jdbc.Driver`, check that the `shade-mysql-driver` execution of `maven-shade-plugin` ran (the `mvn package` artifact should be ~3MB and `unzip -l` should list `com/mysql/`), or use the official release JAR.
 
 ## Build
 
 ```bash
-mvn package -DskipTests
+mvn verify
 ```
+
+`mvn verify` compiles, runs the tests and enforces the JaCoCo coverage gate — it is the standard command for validating a change.
+
+> `mvn package -DskipTests` is for quick local packaging only; do not use it to validate changes.
 
 The JAR will be generated in the `target/` directory.
 
 ## License
 
-MIT License
+GNU General Public License v3.0 only (GPL-3.0-only); the full text is in the repository root `LICENSE`.
+
+Attribution notes: third-party components bundled into the JAR (e.g. MySQL Connector/J) are listed in `THIRD-PARTY-NOTICES.md`; word-list sources are documented in `words/README.md` (source at `src/main/resources/words/README.md`; the NGSL is used under CC BY-SA 4.0 for word selection only).
 
 ## Star History
 
