@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 17
+config-version: 18
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -595,6 +595,9 @@ profile:
   settings-sounds: "音效反馈"
   settings-sounds-on: "&a当前: 开启"
   settings-sounds-off: "&7当前: 关闭"
+  settings-reminders: "学习提醒"
+  settings-reminders-on: "&a当前: 接收"
+  settings-reminders-off: "&7当前: 不接收"
   settings-toggle-hint: "&7点击切换"
   hidden: "{prefix}&7对方开启了隐身，暂时无法查看其主页。"
   stats-hidden-value: "&7已隐藏"

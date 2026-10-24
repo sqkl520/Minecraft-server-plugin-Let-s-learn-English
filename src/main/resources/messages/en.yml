@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 17
+config-version: 18
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -595,6 +595,9 @@ profile:
   settings-sounds: "Sound feedback"
   settings-sounds-on: "&aCurrent: On"
   settings-sounds-off: "&7Current: Off"
+  settings-reminders: "Study reminders"
+  settings-reminders-on: "&aCurrent: On"
+  settings-reminders-off: "&7Current: Off"
   settings-toggle-hint: "&7Click to toggle"
   hidden: "{prefix}&7That player is hidden and their profile cannot be viewed right now."
   stats-hidden-value: "&7Hidden"

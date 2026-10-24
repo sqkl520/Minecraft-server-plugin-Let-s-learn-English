@@ -2,12 +2,22 @@ package com.letslearnenglish.minecraftplugin.core.ai;
 
 import com.google.gson.Gson;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
 import com.letslearnenglish.minecraftplugin.data.ChatFeedbackEntry;
+import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 /**
  * Chat Feedback Manager — AI 会话小结与点评的显示编排 + 持久化（Phase 3 · US-FB 1b，plan-ai-feedback §3.5）。
@@ -29,6 +39,20 @@ public class ChatFeedbackManager {
 
     /** Gson 无状态可复用（与 AIChatManager 同姿态；arch tester 6① 收口——避免每单 new）。 */
     private static final Gson GSON = new Gson();
+
+    /**
+     * R9"纠错闭环"：单词级纠错判定 —— 单个英文词、字母开头、至少 2 个字母、无空格；
+     * 允许词内连字符/撇号（{@code don't} / {@code well-known}），不允许首尾标点。
+     * 句子级纠错（含空格/中文/数字开头）不进错题本（错题本是单词库，收句子只会产生脏数据）。
+     */
+    private static final Pattern WORD_LEVEL_PATTERN =
+            Pattern.compile("[A-Za-z](?:[A-Za-z]|['’-][A-Za-z])+");
+
+    /** 目标词长度上限（与 ConversationFeedback 的单词上限对齐，防异常长 token）。 */
+    private static final int MAX_FOCUS_WORD_CHARS = 40;
+
+    /** 每玩家"下一场建议目标词"（最近一次 AI 点评产出；去重保插入序）。 */
+    private final Map<UUID, List<String>> suggestedFocusWords = new ConcurrentHashMap<>();
 
     private final LetsLearnEnglish plugin;
     private final AIChatManager aiChatManager;
@@ -156,6 +180,9 @@ public class ChatFeedbackManager {
         // 会话必然是新的（sessionId 必不同），等价实现"比对不匹配静默丢弃"。
         if (aiChatManager.hasActiveConversation(player)) {
             if (errorKey == null && feedback != null) {
+                // R9：点评虽不显示（防串台），AI 花钱买来的纠错仍要回接学习闭环；
+                // notify=false —— 玩家已在新对话里，不再弹"已加入错题本"提示。
+                applyToLearningLoop(player, feedback, false);
                 persistAfter(player.getUniqueId(), summary, localWrite,
                         "ai", GSON.toJson(feedback));
             }
@@ -195,6 +222,11 @@ public class ChatFeedbackManager {
                     "dialogue.feedback.ai-words",
                     "words", String.join(", ", feedback.words())));
         }
+
+        // R9：点评已完整显示后，再把 corrections / 推荐词接回学习闭环
+        // （落库/入本失败绝不影响上面的玩家可见点评——内部整体 try/catch）。
+        applyToLearningLoop(player, feedback, true);
+
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                 "dialogue.feedback.hint"));
 
@@ -202,6 +234,166 @@ public class ChatFeedbackManager {
         // 自 2.10 起支持——项目依赖版本已满足）。经 localWrite future 串行化。
         persistAfter(player.getUniqueId(), summary, localWrite,
                 "ai", GSON.toJson(feedback));
+    }
+
+    // ============================================================
+    //  R9：AI 纠错回接学习闭环（corrections → 错题本 / 复习种子 / 下一场目标词）
+    // ============================================================
+
+    /**
+     * 把一次 AI 点评的 {@code corrections} 与推荐词接回学习闭环。
+     *
+     * <p>语义（与 {@code WordLearningManager.trackWrongAnswer} 完全同款，不另立阈值）：
+     * <ul>
+     *   <li>corrections：仅"单词级"（单英文词、字母开头、≥2 字符、无空格）且存在于已加载
+     *       词库的 {@code original} 才计数；{@code incrementWrongCount} 返回值 == 3 时
+     *       {@code addDifficultWord}（错题本）；同场同词只计一次（Set 去重，防 AI 重复
+     *       输出把一个词直接刷进错题本）；随后 {@code seedReview} 排入 1h 后复习。</li>
+     *   <li>推荐词（{@code feedback.words()}）：存在于词库的才 {@code seedReview}
+     *       （进复习/待学排程），<b>不</b>进错题本（推荐词不是错词）。</li>
+     *   <li>两者合并为"下一场建议目标词"，存入本类内存 map 供
+     *       {@link #getSuggestedFocusWords(UUID)} 消费。</li>
+     * </ul>
+     *
+     * <p>线程：由 {@link #handleSummaryResult} 调用，AIChatManager 已保证主线程
+     * （见其 {@code thenAcceptAsync(..., runnable -> scheduler.runTask(...))}），
+     * 故此处 {@code player.sendMessage} 与 Bukkit API 均安全；PlayerDataStore 的缓存
+     * 均为 ConcurrentHashMap，且 incrementWrongCount 内部自行把 DB 写切异步。
+     *
+     * <p>异常：整体 try/catch —— 落库/入本失败绝不阻断玩家可见的点评（主功能）。
+     *
+     * @param notify 是否向玩家补发"已加入错题本"提示（防串台分支静默落库时为 false）
+     */
+    private void applyToLearningLoop(Player player, ConversationFeedback feedback, boolean notify) {
+        if (player == null || feedback == null) {
+            return;
+        }
+        if (!player.isOnline()) {
+            // 点评回调晚于 quit（deliverEnd 在途时玩家下线）：PlayerDataStore 已 unload，
+            // 此时写回会重建"只增不删"的缓存条目且无人可见 → 整段跳过
+            // （该场统计的本地行已由 quit 路径落库，不丢）。
+            return;
+        }
+        try {
+            UUID playerId = player.getUniqueId();
+            PlayerDataStore store = plugin.getPlayerDataStore();
+            WordManagerImpl wordManager = plugin.getWordManager();
+            if (store == null || wordManager == null) {
+                return; // 防御：DI 未完成（理论上不会）
+            }
+            if (!plugin.getConfigManager().isWordSystemEnabled()) {
+                return; // 单词系统整体关闭：错题本/复习队列都不该被写入
+            }
+
+            // 下一场目标词（保序去重；只收词库内词，避免脏数据进 prompt）
+            LinkedHashSet<String> focusWords = new LinkedHashSet<>();
+            // 本场已计过错的词（同场去重：AI 重复输出同一条 correction 只算一次）
+            Set<String> countedThisSession = new HashSet<>();
+            boolean addedToWrongBook = false;
+
+            List<ConversationFeedback.Correction> corrections = feedback.corrections() != null
+                    ? feedback.corrections() : List.<ConversationFeedback.Correction>of();
+            List<String> recommended = feedback.words() != null
+                    ? feedback.words() : List.<String>of();
+
+            for (ConversationFeedback.Correction correction : corrections) {
+                if (correction == null) {
+                    continue;
+                }
+                String original = normalizeFocusCandidate(correction.original());
+                if (original == null) {
+                    continue; // 非单词级（句子/短语/带标点）→ 不进单词错题本
+                }
+                if (!existsInWordBank(wordManager, original)) {
+                    continue; // 错题本只收词库里的词
+                }
+                focusWords.add(original);
+                if (!countedThisSession.add(original)) {
+                    continue; // 同场重复 correction 只计一次
+                }
+                int wrongCount = store.incrementWrongCount(playerId, original);
+                // 与 trackWrongAnswer 完全同款：恰好第 3 次才进错题本
+                if (wrongCount == 3) {
+                    store.addDifficultWord(playerId, original);
+                    addedToWrongBook = true;
+                }
+                seedReview(playerId, original);
+            }
+
+            for (String rawWord : recommended) {
+                String word = normalizeFocusCandidate(rawWord);
+                if (word == null || !existsInWordBank(wordManager, word)) {
+                    continue;
+                }
+                focusWords.add(word);
+                seedReview(playerId, word); // 推荐词只排复习，不进错题本
+            }
+
+            if (!focusWords.isEmpty()) {
+                // 不可变快照：消费方（未来 AIChatManager 注入点）不会与后续写入竞争
+                suggestedFocusWords.put(playerId, List.copyOf(focusWords));
+            }
+
+            if (addedToWrongBook && notify) {
+                // 复用既有键（不新增 i18n）：语义与 WordLearningManager 的"已加入错题本"一致
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "wrong-book.auto-add"));
+            }
+        } catch (Exception e) {
+            // 静默降级：点评是玩家可见主功能，本段失败只记日志
+            plugin.getLogger().warning("Failed to apply AI corrections to learning loop: "
+                    + e.getMessage());
+        }
+    }
+
+    /**
+     * 复习种子（含 ReviewScheduler 的 30s due 缓存失效）——走 WordManager 侧入口，
+     * 只调 PlayerDataStore.seedReview 会让复习提醒延迟至多 30s 才看到新种子。
+     */
+    private void seedReview(UUID playerId, String word) {
+        WordManagerImpl wordManager = plugin.getWordManager();
+        if (wordManager == null || wordManager.getReviewScheduler() == null) {
+            plugin.getPlayerDataStore().seedReview(playerId, word);
+            return;
+        }
+        wordManager.getReviewScheduler().seedReview(playerId, word);
+    }
+
+    /** 词库存在性（globalWordIndex 小写索引，getWord 内部已 toLowerCase）。 */
+    private boolean existsInWordBank(WordManagerImpl wordManager, String word) {
+        return wordManager.getWord(word) != null;
+    }
+
+    /**
+     * 单词级候选归一化：字母开头、长度 ≥2、无空格、全英文（允许词内连字符/撇号），
+     * 统一小写；不合格返回 {@code null}。句子级纠错（含空格/中文/标点/数字开头）返回 null。
+     */
+    private String normalizeFocusCandidate(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty() || trimmed.length() > MAX_FOCUS_WORD_CHARS
+                || !WORD_LEVEL_PATTERN.matcher(trimmed).matches()) {
+            return null;
+        }
+        return trimmed.toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * R9：最近一次 AI 点评产出的"下一场建议目标词"（corrections 的 original 词 +
+     * AI 推荐词，均已过滤到词库内、保序去重、小写）。
+     *
+     * <p>当前 AIChatManager 尚无"下一场目标词注入"API（无 focus/target 概念），
+     * 本方法只完成数据准备，供未来接线（会话 system prompt 注入）。
+     * 返回不可变快照，永不为 null；无数据时返回空列表。
+     */
+    public List<String> getSuggestedFocusWords(UUID playerId) {
+        if (playerId == null) {
+            return List.of();
+        }
+        List<String> words = suggestedFocusWords.get(playerId);
+        return words != null ? words : List.of();
     }
 
     // ============================================================
@@ -268,11 +460,15 @@ public class ChatFeedbackManager {
     }
 
     /**
-     * quit 生命周期钩（当前无自持 map——预留与 clearPendingSummary 同编排点对齐）。
-     * 经死代码审计豁免（D2-3）：空实现系编排点形状保留，非遗漏。
+     * quit 生命周期钩（清本类自持的 per-player 状态：R9 的"下一场建议目标词"）。
+     * 由 {@code PlayerJoinListener.onPlayerQuit} 调用；卡在点评回调前下线时条目自然丢弃
+     * （玩家已离线，下一场注入也无意义）。
      */
     public void unloadPlayer(UUID playerId) {
-        // 本类当前无 per-player 状态；保留方法维持 quit 编排点形状一致（未来扩展点）。
+        if (playerId == null) {
+            return;
+        }
+        suggestedFocusWords.remove(playerId);
     }
 
     // ============================================================

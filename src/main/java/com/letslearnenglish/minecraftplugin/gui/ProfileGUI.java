@@ -319,6 +319,24 @@ public class ProfileGUI {
                                 MessageUtil.getGuiMsg(messages, "profile.settings-toggle-hint"))
                 )));
 
+        // Reminders toggle — slot 14（R1/R4 教育骚扰治理：玩家侧提醒总开关 UI 入口。
+        // 语义：关闭后不再收到每日学习提醒 / 进服提醒 / 复习提醒；服务器 config 仍是总闸。
+        // 槽位：开关行（9-17，9/17 为边框）中 11/13/15/16 已被四个既有开关占用，
+        // 剩余空位为 10/12/14；选 14 —— 使 13/14/15/16 连成一段无空洞的四连开关，
+        // 10/12 反而会把 11 与 13 之间留出空档。返回键 8 与边框 0-7/9/17-26 不动。
+        boolean remindersOn = ps.isRemindersEnabled();
+        inv.setItem(14, createItem(
+                remindersOn ? Material.LIME_DYE : Material.GRAY_DYE,
+                ChatColor.translateAlternateColorCodes('&', "&e" +
+                        MessageUtil.getGuiMsg(messages, "profile.settings-reminders")),
+                Arrays.asList(
+                        ChatColor.translateAlternateColorCodes('&', remindersOn
+                                ? MessageUtil.getGuiMsg(messages, "profile.settings-reminders-on")
+                                : MessageUtil.getGuiMsg(messages, "profile.settings-reminders-off")),
+                        ChatColor.translateAlternateColorCodes('&',
+                                MessageUtil.getGuiMsg(messages, "profile.settings-toggle-hint"))
+                )));
+
         // Back button — slot 8
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE,
                 ChatColor.translateAlternateColorCodes('&', "&e" +

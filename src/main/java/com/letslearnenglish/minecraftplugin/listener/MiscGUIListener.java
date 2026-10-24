@@ -138,13 +138,15 @@ public class MiscGUIListener implements Listener {
             Runnable backAction = nav.popBack(player.getUniqueId(),
                     () -> new ProfileGUI(plugin).open(player, player.getUniqueId()));
             backAction.run();
-        } else if (slot == 11 || slot == 13 || slot == 15 || slot == 16) {
+        } else if (slot == 11 || slot == 13 || slot == 14 || slot == 15 || slot == 16) {
             SoundManager.playSound(player, "menu-click");
             PlayerDataStore store = plugin.getPlayerDataStore();
             PlayerDataStore.ProfileSettings ps = store.getProfileSettings(player.getUniqueId());
             switch (slot) {
                 case 11 -> ps.setShowAnswers(!ps.isShowAnswers());
                 case 13 -> ps.setShowResults(!ps.isShowResults());
+                // R1/R4：提醒总开关（发送侧门由编排者接线：LetsLearnEnglish 三处 + ReviewScheduler）
+                case 14 -> ps.setRemindersEnabled(!ps.isRemindersEnabled());
                 case 15 -> ps.setShowInSquare(!ps.isShowInSquare());
                 // Wave 1 3A-4 补建：per-player 音效开关（SoundManager.isPlayerSoundEnabled 门已接线）
                 case 16 -> ps.setSoundsEnabled(!ps.isSoundsEnabled());
