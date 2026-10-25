@@ -4,6 +4,8 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.achievement.AchievementManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -65,7 +67,17 @@ public class ProfileGUI {
                             .replace("{name}", targetName));
         }
 
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-4：挂结构身份 holder。payload.Target 记录「这张主页属于谁」——
+        // 迁移前点击侧只能用 extractTargetIdFromTitle 拿玩家名去缓存里做「最长子串」
+        // 反查（名字互为前缀时还会挑错），昵称含空格/特殊符号/改名窗口都能让它
+        // 静默失败。holder 化后归属是打开时写死的 UUID，与文案无关。
+        // 注意：本人与他人主页共用同一个 key（PROFILE），归属只由 payload 区分。
+        // targetId 为 null 属调用方违约（全仓调用点都传非 null UUID）：Target 构造
+        // 会立即抛 NPE，比「一张归属不明的主页被打开、点击侧再靠标题猜人」更安全。
+        Inventory inv = Bukkit.createInventory(
+                PluginGuiHolder.of(GuiViewKey.PROFILE,
+                        new PluginGuiHolder.GuiPayload.Target(targetId)),
+                GUI_SIZE, title);
         PlayerDataStore.PlayerStats stats = store.getPlayerStats(targetId);
         // L-05：展示路径走只读版，缓存缺失不建条目。
         PlayerDataStore.ProfileSettings ps = store.getProfileSettingsReadOnly(targetId);
@@ -242,7 +254,11 @@ public class ProfileGUI {
                 .getMessageConfig(plugin.getPlayerLanguage(viewer));
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "profile.settings-title"));
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-4：设置页与主页同属 ProfileGUI（同尺寸 27 格），标题文案不同但同样可被
+        // 管理员改；holder key 让点击侧（SocialListener / MiscGUIListener 的隐私开关）
+        // 不必再靠标题等值比对就能认出「这是设置页而不是主页」。
+        Inventory inv = Bukkit.createInventory(
+                PluginGuiHolder.of(GuiViewKey.PROFILE_SETTINGS), GUI_SIZE, title);
 
         UUID playerId = viewer.getUniqueId();
         PlayerDataStore.ProfileSettings ps = plugin.getPlayerDataStore().getProfileSettings(playerId);
@@ -343,6 +359,15 @@ public class ProfileGUI {
                         MessageUtil.getGuiMsg(messages, "gui.back-button")),
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
                         MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
+
+        // R5-7：空槽统一填灰玻璃（照 WordLearningGUI / ClassBoardGUI 的 R12-M3 用法）。
+        // 为什么必须补：本页 27 格里 borderSlots 与各开关（4/8/11/13/14/15/16）之外，
+        // slot 10 与 12 <b>从未被填充</b>。原版 shift-click / 双击会在整个 view 里找落点，
+        // 把玩家物品塞进 10/12；而点击侧（MiscGUIListener）对上半区一律 cancel，物品
+        // 既取不回也放不下，关界面即丢。fillEmpty 放在全部 setItem 之后、openInventory
+        // 之前 —— 只填空槽、不覆盖已渲染开关，且未来布局再漏格也会被自动兜住（比把
+        // 10/12 补进 borderSlots 更稳：后者每加一个开关就要记得同步一张槽位表）。
+        GUIUtils.fillEmpty(inv);
 
         viewer.openInventory(inv);
     }

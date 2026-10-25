@@ -3,6 +3,9 @@ package com.letslearnenglish.minecraftplugin.gui;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.duel.DuelRoom;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiIdentity;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -10,6 +13,7 @@ import org.bukkit.Material;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
@@ -33,6 +37,9 @@ public class DuelGUI {
     /** 打开界面时会把标题截断到这个长度（Minecraft 标题上限）；标题匹配侧做同样的截断，两处必须一致。 */
     private static final int MAX_TITLE_LENGTH = 32;
 
+    /** 界面尺寸（open 的唯一来源，避免魔法数字）。 */
+    private static final int GUI_SIZE = 27;
+
     private final LetsLearnEnglish plugin;
 
     public DuelGUI(LetsLearnEnglish plugin) {
@@ -46,7 +53,15 @@ public class DuelGUI {
         String title = truncateTitleSafe(
                 MessageUtil.getGuiMsg(messages, "duel.gui-title"));
 
-        Inventory inv = Bukkit.createInventory(null, 27, title);
+        // R5-6：挂结构身份 holder（NoPayload —— 对手身份已由 DuelChallengeGUI 的 PDC 承担，
+        // 本界面无 per-view 上下文）。与下方 isViewingDuelGUI 的闸门是【同一批】改动：
+        // 只挂 holder 不改闸门 → 行为不变（闸门仍走标题）；只改闸门不挂 holder →
+        // DuelManager.refreshBothGUIs 判定恒 false，双方界面每回合都不刷新（冻结比分）。
+        //
+        // 收益点：本界面标题被 truncateTitleSafe 截到 32 个可见字符，配置标题较长时
+        // "Word Duel"/"单词对决" 可能整段被截掉，标题 fallback 认不回自己；
+        // holder 不受文案/截断影响，是对决刷新闸门唯一可靠的判定。
+        Inventory inv = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.DUEL), GUI_SIZE, title);
         buildInventory(inv, room, messages);
         player.openInventory(inv);
     }
@@ -61,6 +76,10 @@ public class DuelGUI {
      * <p>界面识别侧（本类的 matchesTitle，DuelGUIListener 委托到
      * {@link #isDuelGUITitle}）已同步改用同一截断口径，长标题下 open 后仍能认回自己；
      * 短标题（当前默认配置）下与旧口径输出恒一致。
+     *
+     * <p><b>R5-6 起判定主路径已改为 holder</b>（见 {@link #isViewingDuelGUI} 与
+     * DuelGUIListener），标题匹配只剩迁移期兜底 —— 本方法保留纯属显示逻辑（客户端
+     * 标题上限），不因 holder 迁移而删除。
      *
      * @param rawTitle duel.gui-title 原始值（可含 & 颜色码；缺键时为 [?key] 占位）
      * @return translate 后的最终标题，绝不劈开颜色码
@@ -97,15 +116,35 @@ public class DuelGUI {
     }
 
     /**
-     * R-23: 玩家当前是否正看着对决 GUI。
+     * R-23 / R5-6: 玩家当前是否正看着对决 GUI。
      *
      * <p>供 DuelManager.refreshBothGUIs 调用：只刷新仍在看界面的玩家，
      * ESC 关掉界面的玩家不再被每题强制弹回，靠 /le duel gui 手动回来。
      * 必须在主线程调用（读 openInventory）。
+     *
+     * <p><b>R5-6 判定切换</b>：holder 优先（{@link #open} 已挂 {@link PluginGuiHolder}，
+     * 同为 R5-6 同批改动）、标题兜底。holder 是这里唯一可靠的判定：本界面标题会被
+     * {@link #truncateTitleSafe} 截到 32 个可见字符，配置标题较长时 "Word Duel"/"单词对决"
+     * 可能整段被截掉，{@link GuiIdentity#resolveByTitle(String)} 会返回 null —— 而本方法
+     * 正是「每回合刷新双方界面」的唯一闸门，一旦误判 false，玩家会看着冻结的比分打完整局。
+     *
+     * <p>holder 命中即以 holder 为准（即使它答出的是别的界面，也不再拿标题翻案）；
+     * 只有 holder 未命中（{@code null}，迁移期旧界面/异常路径）才回落到
+     * {@link GuiIdentity#resolveByTitle(String)} 的 contains 白名单，语义与迁移前
+     * 「非对决界面不刷新」一致。{@code plugin} 参数保留是为了不动
+     * {@code DuelManager:1381/1384} 的调用签名（本流只改判定实现，不改调用点）。
+     *
+     * <p><b>注意</b>：标题兜底在长标题下会失效（{@code resolveByTitle} 也是
+     * {@code contains}，截断后关键词可能没了）—— 这正是 holder 改造的收益点，
+     * 不是本次要保留的行为。
      */
     public static boolean isViewingDuelGUI(LetsLearnEnglish plugin, Player player) {
         if (plugin == null || player == null) return false;
-        return isDuelGUITitle(plugin, player, player.getOpenInventory().getTitle());
+        InventoryView view = player.getOpenInventory();
+        if (view == null) return false;
+        // R5-6：holder 优先、标题兜底（GuiIdentity.resolve(view, title) 的语义）。
+        // holder 非 null 时直接以 holder 为准（哪怕是别的界面），不用标题翻案。
+        return GuiIdentity.resolve(view, view.getTitle()) == GuiViewKey.DUEL;
     }
 
     /**

@@ -2,6 +2,8 @@ package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.LeaderboardEntry;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -27,17 +29,18 @@ import java.util.List;
  * 方法。数据由调用方（/le class 的异步链）拉好传入 {@link #open}；打开后不再重查
  * （快照语义）。渲染面任何一点触发的"主线程查库"都是回归，测试关注点。
  *
- * <b>身份判定</b>：见 {@link #isClassBoardGUI}——标题含运行时班级名，无法整串等值
+ * <b>身份判定</b>：R5-5 起 {@link #open} 为 inventory 挂 {@link PluginGuiHolder}
+ * （{@link GuiViewKey#CLASS_BOARD}），listener 以 holder 为准；标题判定
+ * {@link #isClassBoardGUI} 保留作迁移期兜底 —— 标题含运行时班级名，无法整串等值
  * 比对，采用「锚定前缀」方案（从 i18n 模式截取 {class} 前固定前缀，双语言比对）。
  *
- * <b>音效白名单</b>：SoundManager 的打开/点击音效依赖 {@link GUIUtils#isPluginGUI}
- * 识别标题；本 GUI 标题（class.board-title = 「班级榜 / Class Board」）需由编排者
- * fan-in 同步加入该白名单，否则本界面静默无打开音效（本类不自行修改 GUIUtils，
- * 按 Wave 4 白名单纪律）。
+ * <b>音效</b>：SoundManager 的打开音效经 {@code GUIUtils.isPluginGUI(InventoryView)}
+ * 判定，R5-0 起该重载<b>先看 holder</b>（本类 R5-5 已挂 {@link PluginGuiHolder}），
+ * 故标题改动不再影响音效；标题白名单（{@code isPluginGUI(String)}）只作迁移期兜底。
  */
 public class ClassBoardGUI {
 
-    /** 54 格（监听器用其做身份双重确认：标题前缀 + 尺寸）。 */
+    /** 54 格（监听器在标题兜底分支里用其做尺寸确认；holder 分支不依赖尺寸）。 */
     public static final int GUI_SIZE = 54;
 
     /** 返回主菜单按钮 —— 与其余 GUI 统一在右上角 slot 8。 */
@@ -116,7 +119,8 @@ public class ClassBoardGUI {
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "class.board-title")
                         .replace("{class}", className == null ? "" : className));
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        Inventory inv = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.CLASS_BOARD),
+                GUI_SIZE, title);
 
         List<LeaderboardEntry> safeEntries = (entries == null) ? Collections.emptyList() : entries;
 

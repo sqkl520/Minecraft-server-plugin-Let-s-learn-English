@@ -15,6 +15,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 
 /**
@@ -59,6 +61,10 @@ public class ConfirmationGUI {
      * open 侧不截断标题（标题短，本类也不像 DuelGUI 那样预截断），故用等值而非前缀；
      * 配置缺键时两侧同为 {@code getGuiMsg} 的 {@code [?key]} 占位符，比对仍然一致 ——
      * 不会把本类自己生成的标题排除掉。
+     *
+     * <p>R5-2 起 {@code MainMenuListener} 的主判定已换成 holder（{@link GuiViewKey#CONFIRMATION}），
+     * 本方法<b>保留</b>作迁移期兜底，并仍被 {@code GUIUtils.isPluginGUI(String)} 的白名单引用 ——
+     * 不要随 holder 落地一起删除。
      */
     public static boolean isConfirmGUI(String title) {
         if (title == null || title.isEmpty()) return false;
@@ -123,7 +129,11 @@ public class ConfirmationGUI {
         // applySwitch 只认这里存的语言，不认实例字段。
         confirmStages.put(player.getUniqueId(), new ConfirmState(stage, targetLang));
 
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-2：挂 holder。两个确认阶段共用同一个标题（language.confirm-title），
+        // 阶段状态不在 holder 里，而在上面的 confirmStages（getStage/getTargetLang 管理）——
+        // 所以 holder 只需 CONFIRMATION 身份、不带 GuiPayload。27 格固定尺寸。
+        Inventory inv = Bukkit.createInventory(
+                PluginGuiHolder.of(GuiViewKey.CONFIRMATION), GUI_SIZE, title);
         inv.setItem(CONFIRM_SLOT, createItem(Material.EMERALD, itemName, itemLore));
         inv.setItem(CANCEL_SLOT, createItem(Material.BARRIER, cancelName, cancelLore));
         GUIUtils.fillEmpty(inv); // R12-M3：空槽填灰玻璃（防拖纵深）

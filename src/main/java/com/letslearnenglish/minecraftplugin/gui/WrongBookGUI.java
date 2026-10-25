@@ -3,6 +3,8 @@ package com.letslearnenglish.minecraftplugin.gui;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.data.DifficultWord;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -83,11 +85,29 @@ public class WrongBookGUI {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
+        // R9/P1-B：只展示"已收录"的词（wrong_count >= 3）——difficult_words 表在首次答错
+        // 即建行（兼作计数器），旧实现直接全量展示，与"错 3 次才进错题本"的提示自相矛盾。
+        List<Map.Entry<String, DifficultWord>> wordList = plugin.getPlayerDataStore()
+                .getWrongBookEntries(player.getUniqueId());
+
+        // 页码 clamp 必须在建界面之前：R5-1 起页码要写进 holder 的载荷
+        // （GuiPayload.Page 的构造器拒绝 page < 1，越界会直接抛异常而不是静默回落）。
+        // 同时保证「标题里的页码」与「holder 载荷里的页码」逐字一致。
+        int totalPages = Math.max(1, (int) Math.ceil((double) wordList.size() / ITEMS_PER_PAGE));
+        if (page < 1) page = 1;
+        if (page > totalPages) page = totalPages;
+
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "wrong-book.title-page")
                         .replace("{page}", String.valueOf(page)));
 
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-1：挂结构身份 holder + 页码载荷 —— 页码此前只活在标题里，翻页/删除后重开
+        // 全靠 listener 用正则反解标题（两份口径不一致的私有实现）。现在页码是结构性事实，
+        // listener 直接读 payload；取不到时才回退标题解析（双轨期）。
+        Inventory inv = Bukkit.createInventory(
+                PluginGuiHolder.of(GuiViewKey.WRONG_BOOK,
+                        new PluginGuiHolder.GuiPayload.Page(page)),
+                GUI_SIZE, title);
 
         // 先用灰色玻璃板铺满全部槽位，防止玩家把物品拖进空槽
         // （单词与导航键随后覆盖，填充顺序：占位 -> 单词 -> 导航键）
@@ -95,15 +115,6 @@ public class WrongBookGUI {
         for (int i = 0; i < GUI_SIZE; i++) {
             inv.setItem(i, filler.clone());
         }
-
-        // R9/P1-B：只展示"已收录"的词（wrong_count >= 3）——difficult_words 表在首次答错
-        // 即建行（兼作计数器），旧实现直接全量展示，与"错 3 次才进错题本"的提示自相矛盾。
-        List<Map.Entry<String, DifficultWord>> wordList = plugin.getPlayerDataStore()
-                .getWrongBookEntries(player.getUniqueId());
-
-        int totalPages = Math.max(1, (int) Math.ceil((double) wordList.size() / ITEMS_PER_PAGE));
-        if (page < 1) page = 1;
-        if (page > totalPages) page = totalPages;
 
         int startIndex = (page - 1) * ITEMS_PER_PAGE;
         int endIndex = Math.min(startIndex + ITEMS_PER_PAGE, wordList.size());

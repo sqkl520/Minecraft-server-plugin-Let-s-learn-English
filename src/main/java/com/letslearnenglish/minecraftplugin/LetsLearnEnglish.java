@@ -46,10 +46,6 @@ import org.bukkit.plugin.RegisteredServiceProvider;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
@@ -397,7 +393,12 @@ public final class LetsLearnEnglish extends JavaPlugin {
                     .map(Player::getUniqueId)
                     .toList();
             getServer().getScheduler().runTaskAsynchronously(this, () -> {
-                onlinePlayerIds.forEach(playerId -> playerDataStore.savePlayerData(playerId));
+                // R7-C（P1-1）：周期保存走增量 saveDirty —— 只 UPSERT 脏词 + player_data 行，
+                // 空闲玩家零 SQL（R7-A 的 saveDirty 此前已写好但无调用点，"写放大"实际没降）。
+                // 三处"确保落盘"的窗口（onDisable / unloadPlayerData / reload flush）仍用全量
+                // savePlayerData，这是 R7-A 的既定语义（见 PlayerDataStore:savePlayerData javadoc）。
+                // 顺序上必须先于本接线修掉 P1-3（快照在锁外取），否则会激活旧值覆盖竞态。
+                onlinePlayerIds.forEach(playerId -> playerDataStore.saveDirty(playerId));
                 onlinePlayerIds.forEach(playerId -> playerDataStore.saveProfileSettings(playerId));
             });
         }, saveInterval * 1200L, saveInterval * 1200L);
@@ -720,15 +721,10 @@ public final class LetsLearnEnglish extends JavaPlugin {
             // VACUUM INTO：SQLite 3.27+ 原子一致快照（替代"wal_checkpoint(TRUNCATE)
             // + Files.copy"——原 PRAGMA 对非 WAL 库是空操作、拷贝在锁外可撕裂；
             // R3-H1）。路径为内部构造（数据目录+时间戳），单引号转义防御。
-            synchronized (databaseManager.getConnectionLock()) {
-                String target = backupFile.getAbsolutePath().replace("'", "''");
-                try (PreparedStatement stmt = databaseManager.getConnection()
-                        .prepareStatement("VACUUM INTO '" + target + "'")) {
-                    stmt.execute();
-                }
-            }
+            // R6-D：加锁/取连接/转义整体上收到 DatabaseManager.backupTo（逻辑逐字保留）。
+            databaseManager.backupTo(backupFile.getAbsolutePath());
             // 独立只读连接校验产物（原实现查的是活连接=查错对象，R3-H1 第二修）
-            boolean ok = checkBackupIntegrity(backupFile);
+            boolean ok = databaseManager.checkBackupIntegrity(backupFile);
             if (!ok) {
                 Files.deleteIfExists(backupFile.toPath());
                 getLogger().warning("Database backup rejected: backup quick_check failed.");
@@ -758,17 +754,9 @@ public final class LetsLearnEnglish extends JavaPlugin {
         }
     }
 
-    private boolean checkBackupIntegrity(File backupFile) {
-        String url = "jdbc:sqlite:" + backupFile.getAbsolutePath();
-        try (Connection conn = java.sql.DriverManager.getConnection(url);
-             PreparedStatement stmt = conn.prepareStatement("PRAGMA quick_check");
-             ResultSet rs = stmt.executeQuery()) {
-            return rs.next() && "ok".equalsIgnoreCase(rs.getString(1));
-        } catch (SQLException e) {
-            getLogger().warning("Backup integrity check failed to run: " + e.getMessage());
-            return false;
-        }
-    }
+    // R6-D：原 private checkBackupIntegrity(File) 已上收为
+    // DatabaseManager.checkBackupIntegrity(File)（新增显式 Class.forName("org.sqlite.JDBC")），
+    // 本类不再保留副本，避免两处 quick_check 逻辑漂移。
 
     public static LetsLearnEnglish getInstance() {
         return instance;

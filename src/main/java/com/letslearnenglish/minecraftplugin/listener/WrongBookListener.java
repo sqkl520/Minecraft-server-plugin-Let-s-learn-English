@@ -2,8 +2,12 @@ package com.letslearnenglish.minecraftplugin.listener;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.gui.GUIUtils;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.WrongBookGUI;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiIdentity;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder.GuiPayload;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -14,6 +18,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.Arrays;
@@ -38,14 +43,26 @@ public class WrongBookListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        String title = event.getView().getTitle();
-
-        if (!title.contains("Wrong Book") && !title.contains("错题本") && !title.contains("Difficult Words")) {
+        // R5-7：改走 resolveOwnedView（holder 优先、标题兜底）。原判纯 holder —— /reload
+        //（PlugMan 等）后旧 ClassLoader 的 PluginGuiHolder 过不了新 ClassLoader 的
+        // instanceof，resolve 恒返回 null，本处理器整体失效：点击不处理也不 cancel，
+        // 错题本的 PAPER 条目/导航箭头可被直接拿走。
+        if (resolveOwnedView(event.getView()) != GuiViewKey.WRONG_BOOK) {
             return;
         }
 
+        // R5-8：影子比对从「归属判定之前」挪到「命中之后」。原位置让任意界面（含别的
+        // 插件 GUI / 原版箱子）的每次点击都白跑一遍 resolveByTitle 全表比对。权衡：
+        // 判定不命中的漂移不再被记录 —— 但那类漂移会以功能症状暴露，不需要影子日志；
+        // 本插桩要查的是「holder 已命中后标题说法是否仍对得上」。Wave 3 随标题兜底删除。
+        GuiIdentity.logMismatch(plugin, event.getView());
+
         // R-01 补漏：只处理上半区（Top 容器）点击。玩家背包（下半区）直接 return
         // 且不 cancel，玩家开着 GUI 也能正常整理背包。
+        //
+        // R5-1 红线：身份判定只证明「上半区是错题本」，不证明「点的是上半区」——
+        // getView().getTopInventory() 恒为上半区，点自己背包时 holder 一样命中。
+        // 顺序：认 view → 判窗外 → 判下半区 → 最后才 cancel。
         if (event.getClickedInventory() == null) return;
         int topSize = event.getView().getTopInventory().getSize();
         int rawSlot = event.getRawSlot();
@@ -75,7 +92,11 @@ public class WrongBookListener implements Listener {
         }
 
         // Navigation
-        int currentPage = extractPageFromTitle(title);
+        // R5-1：页码优先读 holder 载荷（GUI 打开时写入，结构性事实）；取不到才回退
+        // 标题解析（双轨期：覆盖 holder 未挂的历史界面 / 其它插件伪造的旧标题界面）。
+        // 回退统一走 GUIUtils.extractPageFromTitle —— 本类曾有一份私有重写版，与新标题
+        // 格式口径不一致，已删除（避免"翻页永远回第 1 页 / 跳错页"的静默漂移）。
+        int currentPage = resolvePage(event);
         if (currentPage < 1) currentPage = 1;
 
         if (slot == WrongBookGUI.PREV_SLOT && event.getCurrentItem().getType() == Material.ARROW) {
@@ -114,18 +135,21 @@ public class WrongBookListener implements Listener {
      *
      * 拖拽是独立事件，点击的 setCancelled(true) 拦不住它 —— 不拦的话
      * 错题本的单词条目（PAPER）/导航箭头可被拖进玩家背包。
-     * 标题判定与 {@link #onInventoryClick} 入口一致；只在拖拽触及界面
-     * 上半部分时取消，玩家整理自己背包不受影响。
+     * 身份判定与 {@link #onInventoryClick} 入口一致（R5-1：holder 优先、标题兜底）；
+     * 只在拖拽触及界面上半部分时取消，玩家整理自己背包不受影响。
      */
     @EventHandler
     public void onInventoryDrag(InventoryDragEvent event) {
-        String title = event.getView().getTitle();
-        if (title == null) return;
-
-        if (!title.contains("Wrong Book") && !title.contains("错题本") && !title.contains("Difficult Words")) {
+        // R5-7：同 onInventoryClick，改走 resolveOwnedView（原判纯 holder 时 /reload 后
+        // 失效 —— 条目/箭头可被拖走）。
+        if (resolveOwnedView(event.getView()) != GuiViewKey.WRONG_BOOK) {
             return;
         }
 
+        // R5-8：影子比对挪到归属命中之后（否则任意界面拖拽都要跑一遍标题全表比对）。
+        GuiIdentity.logMismatch(plugin, event.getView());
+
+        // 同上：身份判定不蕴含「拖的是上半区」，rawSlot < topSize 的判断必须保留。
         int topSize = event.getView().getTopInventory().getSize();
         for (int rawSlot : event.getRawSlots()) {
             if (rawSlot < topSize) {
@@ -208,39 +232,64 @@ public class WrongBookListener implements Listener {
     }
 
     /**
-     * Extract the page number from the GUI title.
-     * Title format varies by language:
-     *   EN: "...Wrong Book | Page N"
-     *   ZH: "...错题本 / Wrong Book | 第 N 页"
+     * R5-7：解析「本监听器负责的界面」—— holder 优先、标题兜底。
+     *
+     * <p>为什么必须补标题兜底：{@link GuiIdentity#resolve(InventoryView)} 是<b>纯 holder</b>
+     * 判定。{@code /reload}（PlugMan 等）之后，旧 ClassLoader 载入的 {@code PluginGuiHolder}
+     * 过不了新 ClassLoader 的 {@code instanceof}，{@code resolve} 恒返回 {@code null} ——
+     * 本类的 click / drag 两处会同时失效（点击不处理也不 cancel，条目可被拿走/拖走）。
+     *
+     * <p><b>裁决：走方案 A</b>（{@code GuiIdentity.resolve(view, title)}）。理由与
+     * {@code WordLearningListener#resolveOwnedView} 相同：白名单只保留在
+     * {@link GuiIdentity#resolveByTitle(String)} 一处，避免两份判定日后漂移；
+     * {@code resolve(view, title)} 内部就是「holder 命中即返回 holder 结果，未命中才回落
+     * 标题」，且 holder 非 null 时<b>不读标题</b> —— 正好满足「holder 明确说是别的屏幕时
+     * 不许用标题翻案」的红线。
+     *
+     * <p>与 HEAD 版的口径差异（有意）：HEAD 版是
+     * {@code contains("Wrong Book") || contains("错题本") || contains("Difficult Words")}。
+     * 现代码走 GuiIdentity 后不再含 {@code "Difficult Words"} —— 该关键词已在 MC-7 终局
+     * 清理中从 {@code GUIUtils.isPluginGUI(String)} 删除（注释明写：现行标题恒含
+     * "Wrong Book"，"Difficult Words" 是历史死启发式），重新加回等于复活一个覆盖率为零的
+     * 分支并制造第二份白名单。若将来真有只含 "Difficult Words" 的旧界面，必须先回到
+     * {@code GuiIdentity.resolveByTitle} 补映射（单一真相源），而不是在本类里补 contains。
+     *
+     * <p>注意：本方法与 {@link #resolvePage(InventoryClickEvent)} 职责不同 —— 后者只解析
+     * <b>页码</b>（holder 载荷 → 标题正则），不承担界面归属判定，二者不可互相替代。
+     *
+     * @param view 事件界面，可为 null
+     * @return {@link GuiViewKey#WRONG_BOOK} 或 null（不归本类管）
      */
-    private int extractPageFromTitle(String title) {
-        // Try English format first
-        int idx = title.lastIndexOf("Page ");
-        if (idx >= 0) {
-            try {
-                String afterPage = title.substring(idx + 5).trim();
-                // If there's a trailing char (e.g., "页"), strip it
-                if (!afterPage.isEmpty() && !Character.isDigit(afterPage.charAt(afterPage.length() - 1))) {
-                    afterPage = afterPage.substring(0, afterPage.length() - 1).trim();
-                }
-                return Integer.parseInt(afterPage);
-            } catch (NumberFormatException e) {
-                // ignore
-            }
+    private GuiViewKey resolveOwnedView(InventoryView view) {
+        if (view == null) return null;
+        // holder 优先、未命中才回落标题（两者都在 GuiIdentity 内部完成）。
+        GuiViewKey key = GuiIdentity.resolve(view, view.getTitle());
+        return key == GuiViewKey.WRONG_BOOK ? key : null;
+    }
+
+    /**
+     * 解析当前错题本界面的页码（R5-1）。
+     *
+     * <p>优先级：
+     * <ol>
+     *   <li>{@link GuiIdentity#payloadOf(org.bukkit.inventory.InventoryView)} 的
+     *       {@link GuiPayload.Page} —— GUI 打开时随 holder 写入的页码，结构性事实，
+     *       不受标题文案/本地化/管理员改名影响；</li>
+     *   <li>取不到（holder 未挂 / payload 非 Page / 非插件界面）时回退
+     *       {@link GUIUtils#extractPageFromTitle(String)} —— 双轨期兜底，语义与迁移前
+     *       的标题正则口径统一（本类原有的私有重写版口径不同，已删除）。</li>
+     * </ol>
+     * 无论走哪条路，返回值都 &lt; 1 时由调用方 clamp 到 1（GUIUtils 本身恒返回 &gt;= 1）。
+     *
+     * @param event 点击事件（读其 view 的 holder 载荷与标题）
+     * @return 1 起的页码；都无法解析时为 1
+     */
+    private int resolvePage(InventoryClickEvent event) {
+        var payload = GuiIdentity.payloadOf(event.getView());
+        if (payload instanceof GuiPayload.Page pagePayload) {
+            return pagePayload.page();
         }
-        // Try Chinese format: "第 N 页"
-        idx = title.indexOf("第 ");
-        if (idx >= 0) {
-            int endIdx = title.indexOf(" 页", idx);
-            if (endIdx > idx) {
-                try {
-                    return Integer.parseInt(title.substring(idx + 2, endIdx).trim());
-                } catch (NumberFormatException e) {
-                    // ignore
-                }
-            }
-        }
-        return 1;
+        return GUIUtils.extractPageFromTitle(event.getView().getTitle());
     }
 
     /**

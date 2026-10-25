@@ -4,6 +4,8 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.achievement.AchievementManager;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -26,9 +28,10 @@ import java.util.*;
  * 22 个成就按 5 个类别稳定排序（enum ordinal 分组），类别名作为每个条目
  * lore 第一行——不用 header 格（22+5=27 贴顶且脆弱，见规划 §2.1 裁决）。
  *
- * 标题附带计数"成就墙 (n/22)"：{@code SocialListener}（L110/L133/L159）与
- * {@code GUIUtils.isPluginGUI} 对标题的判定都是 contains("成就墙"/"Achievement Wall")，
- * 追加计数后缀不断匹配（改标题词元前必须先反向核对这两处，见 R-86 标题契约）。
+ * 标题附带计数"成就墙 (n/22)"。R5-4 起 {@code SocialListener} 的身份判定走
+ * {@code PluginGuiHolder}（{@link GuiViewKey#ACHIEVEMENT_WALL}），不再解析标题，
+ * 计数后缀因此彻底退出判定路径；标题文案本身仍保持「成就墙 / Achievement Wall」
+ * 词元（迁移期的标题兜底与 {@code GUIUtils.isPluginGUI} 白名单仍需它）。
  */
 public class AchievementWallGUI {
 
@@ -81,11 +84,16 @@ public class AchievementWallGUI {
         }
 
         // 标题计数为可选增强（规划 §2.1）：统计口径 = 墙内可见成就（管理员禁用的不计入，
-        // 与渲染集一致）；后缀不影响 SocialListener/GUIUtils 的 contains 判定契约。
+        // 与渲染集一致）。R5-4 起点击侧判定走 holder，后缀只是展示；仍保留
+        // 「成就墙 / Achievement Wall」词元供迁移期标题兜底与 GUIUtils 白名单使用。
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "achievement-wall.title"))
                 + " (" + unlockedAmongVisible + "/" + visible.size() + ")";
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-4：挂结构身份 holder。payload 用 NoPayload —— 标题里的 "(n/m)" 计数
+        // 只是展示（点击侧只认 slot 8 返回键），holder 化后这类动态后缀彻底退出
+        // 判定路径（此前靠 contains("成就墙") 才能容忍后缀）。
+        Inventory inv = Bukkit.createInventory(
+                PluginGuiHolder.of(GuiViewKey.ACHIEVEMENT_WALL), GUI_SIZE, title);
 
         ConfigManager cm = plugin.getConfigManager();
 

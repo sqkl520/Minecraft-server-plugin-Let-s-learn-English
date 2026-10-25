@@ -2,6 +2,8 @@ package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -172,7 +174,10 @@ public class LearningCalendarGUI {
                     plugin.getPlayerDataStore().getPlayerName(targetId));
         }
         title = ChatColor.translateAlternateColorCodes('&', title);
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-3：挂结构身份（holder），标题降为迁移期兜底。
+        // {player} 只用于标题显示（本人/他人变体），身份不依赖它 → 无 payload。
+        Inventory inv = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.LEARNING_CALENDAR),
+                GUI_SIZE, title);
 
         // ── Day-of-week labels (row 0, slots 1-7) ──
         Material labelMat = Material.WHITE_STAINED_GLASS_PANE;

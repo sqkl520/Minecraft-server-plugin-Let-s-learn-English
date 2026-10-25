@@ -23,6 +23,8 @@ import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.RankingMod
 import com.letslearnenglish.minecraftplugin.core.social.FeedTextFormatter;
 import com.letslearnenglish.minecraftplugin.core.social.SocialManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 
 /**
@@ -88,6 +90,27 @@ public class EnglishSquareGUI {
         String raw = plugin.getConfigManager().getMainConfig()
                 .getString("english-square.default-mode", "feed");
         return "all".equalsIgnoreCase(raw) ? RankingMode.ALL_PLAYERS : RankingMode.FEED;
+    }
+
+    /**
+     * R5-4：{@link RankingMode} → holder payload 的模式键。
+     *
+     * <p>契约见 {@link PluginGuiHolder.GuiPayload.SquarePage}：只认
+     * {@code "weekly"}/{@code "monthly"}/{@code "alltime"}/{@code "all"}/{@code "feed"}
+     * 五个小写串（gui.identity 包刻意不依赖 {@code core.progress.RankingMode}）。
+     * 调用点只有一个（{@link #open(Player, int, RankingMode)}），且 mode 此时已走完全部
+     * 回落（null → 默认落点、榜单门/social 门 → ALL_PLAYERS），所以这里拿到的是
+     * <b>真正渲染的模式</b> —— 点击侧读 payload 得到的模式必然与屏幕一致，不会再
+     * 出现「标题说 A、列表是 B」。
+     */
+    private static String modeKeyOf(RankingMode mode) {
+        return switch (mode) {
+            case WEEKLY -> "weekly";
+            case MONTHLY -> "monthly";
+            case ALL_TIME_COINS -> "alltime";
+            case FEED -> "feed";
+            default -> "all";
+        };
     }
 
     public void open(Player viewer, int page, RankingMode mode) {
@@ -156,7 +179,8 @@ public class EnglishSquareGUI {
         if (page < 1) page = 1;
         if (page > totalPages) page = totalPages;
 
-        // Title always contains "English Square" / "英语广场" so listener always matches
+        // R5-4：标题只做展示（仍保留「英语广场 / English Square」与模式后缀，玩家可读）；
+        // 点击侧的身份与状态（页码/模式）已改由下方 holder + payload 提供，不再依赖文案。
         String baseTitle = MessageUtil.getGuiMsg(messages, "square.title");
         String modeLabel = switch (mode) {
             case WEEKLY -> MessageUtil.getGuiMsg(messages, "leaderboard.mode-weekly");
@@ -169,7 +193,16 @@ public class EnglishSquareGUI {
                 (modeLabel.isEmpty() ? baseTitle : baseTitle + " | " + modeLabel)
                         .replace("{page}", currentPlayerIds.isEmpty() && currentFeedItems.isEmpty()
                                 ? "1/1" : page + "/" + totalPages));
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-4：挂结构身份 holder —— key 区分 54 格主页（SQUARE）；payload 携带
+        // 「页码 + 模式」两件点击侧必须知道的事实。此前两者都只能从标题反解：
+        // 页码靠 GUIUtils.extractPageFromTitle 抓标题里第一个整数（模式名/玩家名里
+        // 出现数字就会抓错），模式靠 detectModeFromTitle 逐条子串匹配模式标签文案
+        //（管理员改文案即静默失效）。holder 化后二者都对事件端 O(1) 可见。
+        // page 已在上面 clamp 到 [1, totalPages]，SquarePage 的构造校验不会抛。
+        Inventory inv = Bukkit.createInventory(
+                PluginGuiHolder.of(GuiViewKey.SQUARE,
+                        new PluginGuiHolder.GuiPayload.SquarePage(page, modeKeyOf(mode))),
+                GUI_SIZE, title);
 
         // ---- Mode toggle buttons (slots 2-5) ----
         // MC-2（S-H）：leaderboard.enabled=false 时周/月/总三榜按钮回落灰色玻璃占位
@@ -477,10 +510,14 @@ public class EnglishSquareGUI {
         FileConfiguration messages = cm.getMessageConfig(plugin.getPlayerLanguage(viewer));
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "square.title")
-                        // R11-L1：补 {page} 替换（照 open() :168 写法；笑话页无分页语义，
+                        // R11-L1：补 {page} 替换（照 open() 的标题构造；笑话页无分页语义，
                         // 取 open() 空列表同款的 "1/1" —— 标题残留 {page} 视觉破绽）。
                         .replace("{page}", "1/1"));
-        Inventory inv = Bukkit.createInventory(null, 27, title);
+        // R5-4：笑话页与 54 格主页共用 square.title（{page} 都填 "1/1"），标题逐字相同
+        // —— holder key 是唯一能区分两者的结构事实。点击侧因此不再靠
+        // 「top size <= 27」猜这是不是笑话页。
+        Inventory inv = Bukkit.createInventory(
+                PluginGuiHolder.of(GuiViewKey.SQUARE_HIDDEN), 27, title);
 
         String jokeName = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "square.hidden-title"));

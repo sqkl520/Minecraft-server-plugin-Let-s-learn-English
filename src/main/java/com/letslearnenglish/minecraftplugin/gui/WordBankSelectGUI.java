@@ -1,6 +1,8 @@
 package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -38,7 +40,8 @@ public class WordBankSelectGUI {
 
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "word-bank.title"));
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-3：挂结构身份（holder），标题降为迁移期兜底。
+        Inventory inv = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.WORD_BANK), GUI_SIZE, title);
 
         String clickHint = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "word-bank.click-hint"));

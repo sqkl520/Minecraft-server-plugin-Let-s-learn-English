@@ -2,6 +2,8 @@ package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -52,7 +54,9 @@ public class ChallengeCompleteGUI {
 
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "daily-challenge.complete-title"));
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-3：挂结构身份（holder），标题降为迁移期兜底。
+        Inventory inv = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.CHALLENGE_COMPLETE),
+                GUI_SIZE, title);
 
         // Fill with decorative glass
         ItemStack glass = createItem(Material.YELLOW_STAINED_GLASS_PANE, " ", Collections.emptyList());

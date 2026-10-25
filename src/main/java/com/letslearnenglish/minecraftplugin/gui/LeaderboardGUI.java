@@ -4,6 +4,8 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.LeaderboardEntry;
 import com.letslearnenglish.minecraftplugin.core.season.SeasonManager;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -157,7 +159,11 @@ public class LeaderboardGUI {
                             .replace("{hours}", String.valueOf(seasonHoursLeft(season))));
             title += " | " + ChatColor.stripColor(remainingLine);
         }
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-4：挂结构身份 holder。payload 用 NoPayload —— tab 由点击侧按槽位
+        // 反查（{@link #TAB_COINS_SLOT} 等），不依赖标题也不依赖 payload；
+        // 标题里的 tab 名 + 赛季剩余行只是展示，永不参与判定。
+        Inventory inv = Bukkit.createInventory(
+                PluginGuiHolder.of(GuiViewKey.LEADERBOARD), GUI_SIZE, title);
 
         // ---- Tab buttons (slots 0, 1, 2, 3) ----
         addTabButton(inv, cm, messages, TAB_COINS_SLOT, 0, "tab-coins",

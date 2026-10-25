@@ -5,6 +5,8 @@ import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.duel.DuelManager;
 import com.letslearnenglish.minecraftplugin.gui.DuelChallengeGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiIdentity;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -12,6 +14,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataContainer;
@@ -27,10 +30,10 @@ import java.util.UUID;
  * 在线名单在界面打开后变化也不会「点 A 挑战 B」，因此本类无 per-player 状态、
  * 无需 quit 清理。
  *
- * <p>标题判定：{@link DuelChallengeGUI#isDuelChallengeTitle}（zh/en 两份配置的
- * <b>完整标题等值</b>，照 ConfirmationGUI.isConfirmGUI 模式）+ 尺寸 54 双重确认 ——
- * 绝不用 "对决" 这类宽子串，防与 DuelGUI 的「单词对决」标题互相误伤
- * （plan §2.1 标题避碰红线）。
+ * <p>判定（R5-6）：{@link DuelChallengeGUI#open} 已挂 {@link GuiViewKey#DUEL_CHALLENGE}
+ * holder，本类按 holder 识别界面；holder 未命中时才回落到「标题与 zh/en 配置
+ * <b>完整等值</b> + 尺寸 54」的迁移期兜底（原双重确认保留在 {@link #isDuelChallengeGUI}）。
+ * 绝不用 "对决" 这类宽子串，防与 DuelGUI 的「单词对决」标题互相误伤（plan §2.1 标题避碰红线）。
  */
 public class DuelChallengeListener implements Listener {
 
@@ -42,8 +45,9 @@ public class DuelChallengeListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        int topSize = event.getView().getTopInventory().getSize();
-        if (!isDuelChallengeGUI(event.getView().getTitle(), topSize)) return;
+        InventoryView view = event.getView();
+        if (!isDuelChallengeGUI(view)) return;
+        int topSize = view.getTopInventory().getSize();
 
         // R-01/R-22: 只处理上半区（Top 容器）点击。玩家背包（下半区）直接 return
         // 且不 cancel，玩家开着 GUI 也能正常整理背包。
@@ -98,14 +102,15 @@ public class DuelChallengeListener implements Listener {
      * 拖拽是独立事件，点击的 setCancelled(true) 拦不住它 —— 不拦的话
      * 头像/说明物/返回键可被拖进玩家背包。
      *
-     * 标题判定与 {@link #onInventoryClick} 入口同源（等值 + 尺寸双重确认）；
+     * 界面判定与 {@link #onInventoryClick} 入口同源（holder 优先、标题+尺寸兜底）；
      * 只在拖拽触及界面上半部分时取消，玩家整理自己背包不受影响。
      */
     @EventHandler
     public void onInventoryDrag(InventoryDragEvent event) {
-        int topSize = event.getView().getTopInventory().getSize();
-        if (!isDuelChallengeGUI(event.getView().getTitle(), topSize)) return;
+        InventoryView view = event.getView();
+        if (!isDuelChallengeGUI(view)) return;
 
+        int topSize = view.getTopInventory().getSize();
         for (int rawSlot : event.getRawSlots()) {
             if (rawSlot < topSize) {
                 event.setCancelled(true);
@@ -115,13 +120,28 @@ public class DuelChallengeListener implements Listener {
     }
 
     /**
-     * 本选择器界面判定：标题与配置完全等值（zh/en 两份）且尺寸为 54。
-     * 尺寸是标题等值之外的独立第二条件（双重确认），两个条件都来自
-     * {@link DuelChallengeGUI} 的同一套常量/方法，不重复魔法数字。
+     * R5-6：本选择器界面判定 —— holder 优先，标题 + 尺寸兜底。
+     *
+     * <p>holder（{@link GuiViewKey#DUEL_CHALLENGE}）是结构身份，命中即「是我」，不再要求
+     * 标题等值/尺寸 54；holder 明确答出别的 key 时直接放弃（结构身份压倒文案）。
+     * 只有 holder 未命中（迁移期旧界面/异常路径）时才走原「标题与配置完全等值（zh/en
+     * 两份）且尺寸为 54」的双重确认 —— 这两个条件都来自 {@link DuelChallengeGUI} 的
+     * 同一套常量/方法，不重复魔法数字。
+     *
+     * <p>注意：本方法只回答「这个 view 属于谁」，<b>不</b>回答「这一下点击落在哪」。
+     * 上半区/下半区/窗外守卫必须留在调用方、且在 {@code setCancelled(true)} 之前。
+     *
+     * @param view 事件界面，可为 null
      */
-    private boolean isDuelChallengeGUI(String title, int topSize) {
-        return DuelChallengeGUI.isDuelChallengeTitle(title)
-                && topSize == DuelChallengeGUI.GUI_SIZE;
+    private boolean isDuelChallengeGUI(InventoryView view) {
+        GuiViewKey key = GuiIdentity.resolve(view);
+        if (key == GuiViewKey.DUEL_CHALLENGE) return true;
+        if (key != null) return false; // holder 明确说是别的屏幕 —— 不归本类管
+
+        // ── 以下为迁移期兜底（holder 未命中）──
+        if (view == null) return false;
+        return DuelChallengeGUI.isDuelChallengeTitle(view.getTitle())
+                && view.getTopInventory().getSize() == DuelChallengeGUI.GUI_SIZE;
     }
 
     /** 从头像物品的 PersistentDataContainer 取出目标玩家 UUID；无键/坏值时返回 null。 */
