@@ -38,6 +38,7 @@ import com.letslearnenglish.minecraftplugin.listener.ScenarioSelectListener;
 import com.letslearnenglish.minecraftplugin.listener.SocialListener;
 import com.letslearnenglish.minecraftplugin.listener.WordLearningListener;
 import com.letslearnenglish.minecraftplugin.expansion.LLEPapiExpansion;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiIdentity;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import com.letslearnenglish.minecraftplugin.util.VersionAdapter;
 import com.letslearnenglish.minecraftplugin.core.UpdateChecker;
@@ -258,7 +259,10 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        getLogger().info("Saving player data...");
+        // R5-15：这句是**整段停用流程**的入口标记（清会话 → 决斗收尾 → GUI 清扫 → 落盘
+        // → 关库），不是"落盘马上开始"。真正的落盘完成另有 "Saved data for N player(s)."
+        // 一行，两者不重复：前者标停用开始，后者报实际落盘人数（0 人时不打印）。
+        getLogger().info("Disabling plugin - clearing sessions and saving player data...");
 
         // R-75：自递归午夜任务在停用时取消（下次 enable 会重新排程）。
         if (midnightTask != null) {
@@ -266,9 +270,31 @@ public final class LetsLearnEnglish extends JavaPlugin {
             midnightTask = null;
         }
 
+        // R5-15：会话清理必须自带 try/catch —— 它是 onDisable 里第一个会碰 DB 的步骤。
+        // 故障链：clearAllSessions() → endSession → PlayerDataStore.updateWordProgress /
+        // getPlayerStats，缓存缺失时会走 loadPlayerData → DatabaseManager.getConnection()，
+        // 而后者在取连接失败时 throw new RuntimeException("Failed to get database
+        // connection", e)。没有这层兜底时，整段 onDisable 会就此中断，后面四件事全部跳过：
+        //   1. duelManager.shutdown()（决斗房间/任务/记分板清理）
+        //   2. GUI 清扫（closeIfPluginGui）—— 它是「holder 跨 ClassLoader 失效」这条裂缝的
+        //      唯一堵漏手段，跳过就等于裂缝重新敞开，且是在热重载/重启这种最需要它的时刻
+        //   3. savePlayerLanguages() 与 playerDataStore 全量落盘（玩家进度丢失）
+        //   4. databaseManager.shutdown()（连接未正常关闭）
+        // R5-15 补充：上面这四件事要**真的**都能跑到，只靠本处的 try/catch 不够 —— 每一步
+        // 自己也得扛得住异常。所以落盘段另做了逐玩家 try/catch（见下方），否则本处注释就
+        // 变成空头支票：会话清理兜住了，紧接着的落盘一抛，第 2、3、4 件照样跑不到。
+        // 用 Throwable 而不是 Exception，照下面 duelManager.shutdown() 的既有先例：
+        // 清理路径上真正要防的是"任何"异常，包括 LinkageError / NoClassDefFoundError 这类
+        // 换 ClassLoader 或依赖缺失才会冒出来的 Error；catch(Exception) 漏掉它们的话，
+        // 停用流程照样会被截断，兜底就名不副实。异常只记 WARNING、不重抛 —— onDisable
+        // 没有上层可以补救，继续往下走（至少把 GUI 关掉、把数据落盘）才是最优解。
         if (wordLearningManager != null) {
-            wordLearningManager.clearAllSessions();
-            getLogger().info("Cleared all active word learning sessions.");
+            try {
+                wordLearningManager.clearAllSessions();
+                getLogger().info("Cleared all active word learning sessions.");
+            } catch (Throwable t) {
+                getLogger().warning("Failed to clear word learning sessions: " + t.getMessage());
+            }
         }
 
         // R-72：决斗房间清理（清任务/记分板/map，shutdown() 幂等）。
@@ -282,13 +308,92 @@ public final class LetsLearnEnglish extends JavaPlugin {
             }
         }
 
+        // R5-9：关闭所有在线玩家身上残留的本插件 GUI —— 堵死「holder 跨 ClassLoader 失效」。
+        //
+        // 为什么必须有这一步：GUI 归属判定已迁到 holder（PluginGuiHolder）。holder 判定唯一
+        // 的死穴是 ClassLoader 换代 —— PlugMan 之类热重载卸载本插件时会新建 ClassLoader，旧
+        // 实例留在玩家客户端上的界面在新 ClassLoader 下 instanceof 恒为 false，holder 判定
+        // 集体失效（R5-16 起标题层已整体删除，没有任何 fallback 可以兜住）。这类操作必然
+        // 先调 onDisable()，所以在这里把界面关掉，就不存在「陈旧界面存活到新 ClassLoader」的
+        // 窗口。注意 /lea reload 不换 ClassLoader（只是重载配置 + clearCache），因此 reload
+        // 路径不关 GUI。
+        //
+        // 位置裁决（三处顺序都是刻意的）：
+        //   1. 在 wordLearningManager.clearAllSessions() **之后** —— WordLearningListener
+        //      .onInventoryClose 在 hasActiveQuiz=true && !isAnswering 时会调
+        //      startAnswerForCurrentWord()（发答题提示 + startAnswerTimer）。会话已清空后
+        //      该判定为 false，关闭事件 early return，不会在停用途中凭空起一个倒计时任务，
+        //      也不会给即将断线的玩家推答题提示。反过来放前面则必触发。
+        //   2. 在 duelManager.shutdown() **之后** —— 决斗收尾本身会 closeInventory() 并
+        //      清 activeDuels；先让它按自己的顺序收尾（清任务/记分板/状态），我们这步只做
+        //      兜底清扫，覆盖决斗界面之外的所有插件界面。若反过来，shutdown 里的
+        //      removeScoreboard/closeInventory 会作用在已被关闭的界面上（虽幂等，但语义更乱）。
+        //   3. 在 savePlayerLanguages()/savePlayerData **之前** —— 关闭界面会同步触发
+        //      InventoryCloseEvent；当前唯一处理它的是 WordLearningListener（已被上一条约束
+        //      挡成 no-op），其余 listener 不监听该事件。仍放在落盘之前，是为了让「关界面可能
+        //      引发的任何内存态变化」都发生在全量保存之前，而不是落在落盘之后丢失。
+        // 整段 try/catch(Throwable) 兜底，照 duelManager.shutdown() 的先例：一个玩家关闭失败
+        // 不能拖垮后续的落盘与关库。
+        try {
+            int closedPluginGuis = 0;
+            for (Player online : getServer().getOnlinePlayers()) {
+                try {
+                    if (GuiIdentity.closeIfPluginGui(online)) {
+                        closedPluginGuis++;
+                    }
+                } catch (Throwable t) {
+                    getLogger().warning("Failed to close plugin GUI for " + online.getName()
+                            + " during shutdown: " + t.getMessage());
+                }
+            }
+            if (closedPluginGuis > 0) {
+                getLogger().info("Closed " + closedPluginGuis
+                        + " lingering plugin GUI(s) before shutdown.");
+            }
+        } catch (Throwable t) {
+            getLogger().warning("Failed to sweep plugin GUIs during shutdown: " + t.getMessage());
+        }
+
         savePlayerLanguages();
 
+        // R5-15：落盘必须**逐玩家**独立 try/catch，形状照上面的 GUI 清扫段。
+        //
+        // 为什么不用整段 try、也不沿用原来的 forEach lambda（原来连一层 try 都没有）：
+        //   a) 原实现是 forEach + lambda，任何一条抛异常都会中断**剩余所有玩家**的保存 ——
+        //      第一个玩家失败，后面 N-1 个玩家的进度全部丢失。逐玩家 catch 才能把损失
+        //      限制在失败的那一个玩家身上（与上面的 GUI 清扫段同一形状、同一语义）。
+        //   b) 更不能让异常冲出本段：本段之后还有 achievementManager.clearCache()、
+        //      proxyMessenger.unregister()、aiChatManager.shutdown()、
+        //      statisticsHttpServer.stop()、databaseManager.shutdown() —— 尤其
+        //      databaseManager.shutdown()，跳过它就是连接不关、SQLite 可能留下锁。
+        //
+        // 真实故障点（不是假想）：DatabaseManager.getConnection() 在取连接失败时
+        // throw new RuntimeException("Failed to get database connection", e)；而
+        // PlayerDataStore.savePlayerDataInternal 的 catch(SQLException) 在 SQL 阶段，
+        // **晚于**它取连接那一行（PlayerDataStore.java:918），所以该异常会一路冒到调用方。
+        // saveProfileSettings 同样在 try 之外取连接（PlayerDataStore.java:1626）。
+        // 即：DB 不可用时，这里的异常是**必然**发生的，不是理论风险。
+        //
+        // 用 Throwable 而非 Exception，理由与 clearAllSessions / duelManager.shutdown
+        // 一致：停用路径要防的正是 LinkageError / NoClassDefFoundError 这类换 ClassLoader
+        // 或依赖缺失才会出现的 Error；catch(Exception) 会让它们照旧截断停用流程。
+        // 单体失败只记 WARNING、不重抛 —— onDisable 没有上层可补救，继续往下走
+        // （把后面的清理和关库做完）才是最优解。
         if (playerDataStore != null) {
-            getServer().getOnlinePlayers().forEach(p -> {
-                playerDataStore.savePlayerData(p.getUniqueId());
-                playerDataStore.saveProfileSettings(p.getUniqueId());
-            });
+            int savedPlayers = 0;
+            for (Player p : getServer().getOnlinePlayers()) {
+                try {
+                    playerDataStore.savePlayerData(p.getUniqueId());
+                    playerDataStore.saveProfileSettings(p.getUniqueId());
+                    savedPlayers++;
+                } catch (Throwable t) {
+                    getLogger().warning("Failed to save data for " + p.getName()
+                            + " during shutdown: " + t.getMessage());
+                }
+            }
+            if (savedPlayers > 0) {
+                getLogger().info("Saved data for " + savedPlayers + " player(s).");
+            }
         }
 
         if (achievementManager != null) {
@@ -307,8 +412,24 @@ public final class LetsLearnEnglish extends JavaPlugin {
             aiChatManager.shutdown();
         }
 
+        // R5-15：这里只包 statisticsHttpServer.stop() **一个**，不是漏了上面那四个 ——
+        //   * achievementManager.clearCache() / aiChatManager.shutdown() 是纯内存 clear，
+        //     不碰 DB / IO，也没有会抛的调用；
+        //   * proxyMessenger.unregister() 内部已有 catch(Exception ignored)；
+        //   * ttsManager.shutdown() 是空方法。
+        // 而 stop() 是 JDK 的 com.sun.net.httpserver.HttpServer.stop(0)，对
+        // IllegalStateException / SecurityException 这类非受检异常没有任何承诺；更关键的是
+        // 它**紧邻** databaseManager.shutdown() —— 一旦抛，关库直接被跳过（连接不关、
+        // SQLite 可能留下 -wal/-shm 与锁），这是五个裸奔点里唯一有实害的。
+        // 其余四个即使抛也只截断"更靠后的空操作"，收益远小于给停用流程堆 try 的噪音成本，
+        // 故有意保持原样。
         if (statisticsHttpServer != null && statisticsHttpServer.isRunning()) {
-            statisticsHttpServer.stop();
+            try {
+                statisticsHttpServer.stop();
+            } catch (Throwable t) {
+                getLogger().warning("Failed to stop statistics HTTP server during shutdown: "
+                        + t.getMessage());
+            }
         }
 
         if (databaseManager != null) {
@@ -347,8 +468,8 @@ public final class LetsLearnEnglish extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new MainMenuListener(this), this);
         getServer().getPluginManager().registerEvents(new WordLearningListener(this), this);
         getServer().getPluginManager().registerEvents(new ScenarioSelectListener(this), this);
-        // Phase 3 · MC-4：个人场景管理页（标题等值 + 尺寸双重确认，独立于
-        // ScenarioSelectListener 的 contains 判定）
+        // Phase 3 · MC-4：个人场景管理页（纯 holder 判定，GuiViewKey.PERSONAL_SCENARIO；
+        // 与 ScenarioSelectListener 各自按 holder key 分派，互不影响）
         getServer().getPluginManager().registerEvents(
                 new com.letslearnenglish.minecraftplugin.listener.PersonalScenarioListener(this), this);
         this.socialListener = new SocialListener(this);
@@ -361,7 +482,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new DuelChallengeListener(this), this);
         getServer().getPluginManager().registerEvents(new DuelListener(this), this);
         getServer().getPluginManager().registerEvents(new com.letslearnenglish.minecraftplugin.listener.WrongBookListener(this), this);
-        // Wave 4 · US-CLS-2：班级榜（标题锚定前缀 + 尺寸双重确认）
+        // Wave 4 · US-CLS-2：班级榜（纯 holder 判定，GuiViewKey.CLASS_BOARD）
         getServer().getPluginManager().registerEvents(new com.letslearnenglish.minecraftplugin.listener.ClassBoardListener(this), this);
         getServer().getPluginManager().registerEvents(soundManager, this);
     }

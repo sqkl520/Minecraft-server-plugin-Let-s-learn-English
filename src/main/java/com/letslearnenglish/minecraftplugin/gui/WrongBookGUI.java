@@ -101,9 +101,9 @@ public class WrongBookGUI {
                 MessageUtil.getGuiMsg(messages, "wrong-book.title-page")
                         .replace("{page}", String.valueOf(page)));
 
-        // R5-1：挂结构身份 holder + 页码载荷 —— 页码此前只活在标题里，翻页/删除后重开
+        // R5-1/R5-16：挂结构身份 holder + 页码载荷 —— 页码此前只活在标题里，翻页/删除后重开
         // 全靠 listener 用正则反解标题（两份口径不一致的私有实现）。现在页码是结构性事实，
-        // listener 直接读 payload；取不到时才回退标题解析（双轨期）。
+        // listener 直接读 payload；payload 取不到时返回第 1 页，不再回退标题解析。
         Inventory inv = Bukkit.createInventory(
                 PluginGuiHolder.of(GuiViewKey.WRONG_BOOK,
                         new PluginGuiHolder.GuiPayload.Page(page)),

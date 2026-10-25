@@ -30,17 +30,17 @@ import java.util.List;
  * （快照语义）。渲染面任何一点触发的"主线程查库"都是回归，测试关注点。
  *
  * <b>身份判定</b>：R5-5 起 {@link #open} 为 inventory 挂 {@link PluginGuiHolder}
- * （{@link GuiViewKey#CLASS_BOARD}），listener 以 holder 为准；标题判定
- * {@link #isClassBoardGUI} 保留作迁移期兜底 —— 标题含运行时班级名，无法整串等值
- * 比对，采用「锚定前缀」方案（从 i18n 模式截取 {class} 前固定前缀，双语言比对）。
+ * （{@link GuiViewKey#CLASS_BOARD}），listener <b>只认 holder</b>。R5-14 起原标题判定
+ * （锚定前缀比对的迁移期兜底）已随标题兜底一并删除 —— 标题含运行时班级名，本就无法
+ * 整串等值比对，而 holder 已成唯一真相源，文案改动与语言切换都不再影响识别。
  *
  * <b>音效</b>：SoundManager 的打开音效经 {@code GUIUtils.isPluginGUI(InventoryView)}
  * 判定，R5-0 起该重载<b>先看 holder</b>（本类 R5-5 已挂 {@link PluginGuiHolder}），
- * 故标题改动不再影响音效；标题白名单（{@code isPluginGUI(String)}）只作迁移期兜底。
+ * 故标题改动不再影响音效。
  */
 public class ClassBoardGUI {
 
-    /** 54 格（监听器在标题兜底分支里用其做尺寸确认；holder 分支不依赖尺寸）。 */
+    /** 54 格（{@link #open} 建 inventory 的尺寸；holder 判定不依赖尺寸）。 */
     public static final int GUI_SIZE = 54;
 
     /** 返回主菜单按钮 —— 与其余 GUI 统一在右上角 slot 8。 */
@@ -65,44 +65,6 @@ public class ClassBoardGUI {
 
     public ClassBoardGUI(LetsLearnEnglish plugin) {
         this.plugin = plugin;
-    }
-
-    /**
-     * 标题判定 —— 点击/拖拽路由的唯一真相源（监听器与渲染端共用）。
-     *
-     * <p>F6-02 教训（禁裸子串匹配）：但本界面标题含运行时班级名，无法像
-     * PersonScenarioListener 那样做整串等值比对。采用的折中：<b>锚定前缀比对</b>
-     * ——从 {@code class.board-title} 的 i18n 模式串截取 {@code {class}} 之前的
-     * 固定前缀（zh/en 双语言各验一次），渲染后要求标题以该前缀开头（startsWith，
-     * 非 contains）。
-     *
-     * <p>前缀唯一性论证：zh「班级榜 - 」/ en「Class Board - 」是标题首段。其余所有
-     * GUI 标题（见 GUIUtils.isPluginGUI 白名单）无一以此开头——最接近的同类名
-     * （玩家班级摘要页若将来落地，「我的班级 / My Class」）不含「班级榜」子串且
-     * 不以之开头。判定与渲染读同一 i18n 键：config 篡改时两侧同步失效，不会产生
-     * "渲染是 A、判定是 B"的错配。
-     *
-     * @param plugin 插件实例（读语言各自的 messages 配置）
-     * @param title  事件里的 {@code view.getTitle()}
-     */
-    public static boolean isClassBoardGUI(LetsLearnEnglish plugin, String title) {
-        if (plugin == null || title == null || title.isEmpty()) {
-            return false;
-        }
-        for (String lang : new String[] {"zh", "en"}) {
-            FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
-            String pattern = MessageUtil.getGuiMsg(messages, "class.board-title");
-            int idx = pattern.indexOf("{class}");
-            String fixedRaw = (idx >= 0) ? pattern.substring(0, idx) : pattern;
-            if (fixedRaw.isEmpty()) {
-                continue;
-            }
-            String fixed = ChatColor.translateAlternateColorCodes('&', fixedRaw);
-            if (title.startsWith(fixed)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**

@@ -12,9 +12,6 @@ import com.letslearnenglish.minecraftplugin.gui.WordBankSelectGUI;
 import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
 import com.letslearnenglish.minecraftplugin.gui.identity.GuiIdentity;
 import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
-import com.letslearnenglish.minecraftplugin.util.MessageUtil;
-import org.bukkit.ChatColor;
-import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -33,16 +30,6 @@ import java.util.UUID;
 public class MiscGUIListener implements Listener {
 
     private final LetsLearnEnglish plugin;
-
-    /** R8-L4：本监听器辖下 5 类 GUI 的标题配置键（判定与渲染同源）。 */
-    private static final String[] PRIVACY_TITLE_KEYS = { "profile.settings-title" };
-    private static final String[] WORD_BANK_TITLE_KEYS = { "word-bank.title" };
-    /** 日历有两个标题（本人 / 查看他人）——viewing 变体含 {player} 占位符。 */
-    private static final String[] CALENDAR_TITLE_KEYS = { "calendar.title", "calendar.viewing-title" };
-    private static final String[] DAILY_TITLE_KEYS = { "daily.title" };
-    private static final String[] COMPLETE_TITLE_KEYS = { "daily-challenge.complete-title" };
-    /** 占位符模板做前缀锚定时的可见长度下限（防"占位符在开头"的退化配置过宽误配）。 */
-    private static final int MIN_ANCHOR_MATCH = 4;
 
     /**
      * R-02: behavioral-claim stripe locks. A fixed array of 32 monitors —
@@ -98,12 +85,9 @@ public class MiscGUIListener implements Listener {
         //    玩家开着 GUI 仍能正常整理背包。
         if (rawSlot < 0 || rawSlot >= topSize) return;
 
-        // 3) 然后才做身份判定：holder 优先（结构身份），未命中才回落标题（迁移期兜底）。
+        // 3) 然后才做身份判定：只认 holder（结构身份）。
         GuiViewKey key = resolveOwnedView(event.getView());
         if (key == null) return;
-
-        // R5-3 切换点插桩：holder 与标题说法不一致时暴露漂移（去重 WARNING），不改变行为。
-        GuiIdentity.logMismatch(plugin, event.getView());
 
         // 4) 只有「本类辖管界面的上半区点击」才 cancel —— 绝不允许只判 holder 就 cancel
         //    （event.getInventory() 恒为上半区，与玩家实际点击的位置无关）。
@@ -126,73 +110,40 @@ public class MiscGUIListener implements Listener {
     }
 
     /**
-     * R5-3：解析「本监听器负责的界面」的<b>点击</b>归属 —— holder 优先、标题兜底。
+     * R5-11：解析「本监听器负责的界面」的<b>点击</b>归属 —— <b>只认 holder</b>。
      *
-     * <p><b>关于 PROFILE_SETTINGS 的让路（重要，实机核查后的裁决）</b>：
-     * 本类<b>继续</b>处理隐私设置页，<b>不</b>在 holder 命中
-     * {@link GuiViewKey#PROFILE_SETTINGS} 时让路。理由是可核实的事实链：
-     * <ol>
-     *   <li>{@code ProfileGUI#openSettings} 已经挂上 {@code PROFILE_SETTINGS} holder
-     *       （R5-4 流已完成 GUI 侧接线）；</li>
-     *   <li>但 {@code SocialListener#resolveSocialKey} 把 {@code PROFILE_SETTINGS}
-     *       显式排除在外（{@code default -> null}），其 switch 也没有该分支；</li>
-     *   <li>全仓再<b>没有第三个</b> listener 处理该页点击。</li>
-     * </ol>
-     * 也就是说：此刻若「holder 命中 PROFILE_SETTINGS 就 return」，隐私设置页的
-     * 五个开关与返回键会<b>全部变成死键</b>（点击被 cancel、却无人处理）。
-     * 因此让路被判定为<b>不可实施</b>，本类保留属主。
-     *
-     * <p><b>R5-4 移交清单</b>（届时由 R5-4 流一次性完成，不可只做一半）：
-     * 在 {@code SocialListener} 加上 {@code case PROFILE_SETTINGS} 并接管
-     * {@link #handlePrivacySettings} 的槽位语义；<b>同时</b>从本方法的
-     * {@link #isTrackedKey} 与 switch 中删除 PROFILE_SETTINGS。两件事必须同一个提交，
-     * 否则要么死键（只删本类）、要么双触发（只加对方，开关是 toggle 会点一次切两次）。
-     * 本处保留标题兜底 {@link #resolveByTitleKey}（{@code profile.settings-title}
-     * 等值命中），因此即使 GUI 侧 holder 存在，判定也照样稳定。
+     * <p><b>PROFILE_SETTINGS 的属主纪律（保持）</b>：本类<b>继续</b>是隐私设置页的唯一
+     * 属主，{@code SocialListener#resolveSocialKey} 的 switch 里没有该分支且显式排除它。
+     * R5-11 删掉标题兜底后这条纪律更重要了 —— 判定已经是纯 holder，只要 holder 命中
+     * {@code PROFILE_SETTINGS}，本类就必须接住，否则五个开关与返回键会全部变成死键。
+     * 移交前提仍是「SocialListener 加 case + 本类删 key」同一提交，不可只做一半。
      *
      * @param view 事件界面，可为 null
      * @return 本类辖管的 key；不归本类管时返回 null
      */
     private GuiViewKey resolveOwnedView(InventoryView view) {
         GuiViewKey byHolder = GuiIdentity.resolve(view);
-        if (byHolder != null) {
-            // 结构身份压倒文案：holder 说了算，不再用标题翻案。
-            return isTrackedKey(byHolder) ? byHolder : null;
-        }
-        // ── 迁移期兜底（holder 未命中：尚未挂 holder 的旧界面）──
-        return resolveByTitleKey(view);
+        // 结构身份压倒文案：holder 说了算（null 就是「不是本类界面」）。
+        return isTrackedKey(byHolder) ? byHolder : null;
     }
 
     /**
-     * R5-3：解析「本监听器负责的界面」的<b>拖拽</b>归属 —— holder 优先、标题兜底。
-     *
-     * <p>与 {@link #resolveOwnedView(InventoryView)} 判定口径<b>完全一致</b>（同一个
+     * R5-11：解析「本监听器负责的界面」的<b>拖拽</b>归属 —— 与
+     * {@link #resolveOwnedView(InventoryView)} 判定口径<b>完全一致</b>（同一个
      * {@link #isTrackedKey}），区别只在返回值形态：拖拽守卫只需 boolean。
-     *
-     * <p>标题兜底直接复用 {@link #matchesTrackedTitle}（旧布尔并集，原样保留），
-     * 保证拖拽路径在迁移期与改造前逐字等价。
      *
      * @param view 事件界面，可为 null
      * @return true 表示本类应守卫该界面
      */
     private boolean isTrackedView(InventoryView view) {
-        GuiViewKey byHolder = GuiIdentity.resolve(view);
-        if (byHolder != null) {
-            return isTrackedKey(byHolder);
-        }
-        // ── 迁移期兜底（holder 未命中）──
-        String title = view == null ? null : view.getTitle();
-        return title != null && matchesTrackedTitle(title);
+        return isTrackedKey(GuiIdentity.resolve(view));
     }
 
     /**
-     * R5-3：本监听器辖下的五类屏幕。
+     * R5-11：本监听器辖下的五类屏幕（null 安全：{@code null} 不是其中任何一类）。
      *
-     * <p>四类本轮已挂 holder（{@link GuiViewKey#WORD_BANK} /
-     * {@link GuiViewKey#LEARNING_CALENDAR} / {@link GuiViewKey#DAILY_CHALLENGE} /
-     * {@link GuiViewKey#CHALLENGE_COMPLETE}）；{@link GuiViewKey#PROFILE_SETTINGS}
-     * 虽已由 {@code ProfileGUI} 挂上 holder，但点击仍归本类处理 —— 移交条件与
-     * 顺序要求见 {@link #resolveOwnedView(InventoryView)} 的 Javadoc。
+     * <p>{@link GuiViewKey#PROFILE_SETTINGS} 的属主裁决见
+     * {@link #resolveOwnedView(InventoryView)} 的 Javadoc。
      */
     private static boolean isTrackedKey(GuiViewKey key) {
         return key == GuiViewKey.PROFILE_SETTINGS
@@ -200,64 +151,6 @@ public class MiscGUIListener implements Listener {
                 || key == GuiViewKey.LEARNING_CALENDAR
                 || key == GuiViewKey.DAILY_CHALLENGE
                 || key == GuiViewKey.CHALLENGE_COMPLETE;
-    }
-
-    /**
-     * R5-3：标题兜底 —— 把标题映射回身份键，优先级与本方法改造前的 if/else 链
-     * <b>逐字一致</b>（privacy &gt; wordBank &gt; calendar &gt; daily &gt; complete），
-     * 保证迁移期行为不变。
-     *
-     * <p>底层仍走 {@link #matchesAnyTitle}（i18n 键等值 + 占位符前缀锚定），本方法
-     * 只负责把「命中哪一类」翻译成 key；两个旧方法原样保留到 Wave 3 收尾。
-     *
-     * @param view 事件界面，可为 null
-     * @return 命中的 key；未命中时返回 null
-     */
-    private GuiViewKey resolveByTitleKey(InventoryView view) {
-        String title = view == null ? null : view.getTitle();
-        if (title == null) return null;
-        // 与改造前 onInventoryClick 的布尔链同序：隐私页最先，庆祝页最后。
-        if (matchesAnyTitle(title, PRIVACY_TITLE_KEYS)) return GuiViewKey.PROFILE_SETTINGS;
-        if (matchesAnyTitle(title, WORD_BANK_TITLE_KEYS)) return GuiViewKey.WORD_BANK;
-        if (matchesAnyTitle(title, CALENDAR_TITLE_KEYS)) return GuiViewKey.LEARNING_CALENDAR;
-        if (matchesAnyTitle(title, DAILY_TITLE_KEYS)) return GuiViewKey.DAILY_CHALLENGE;
-        if (matchesAnyTitle(title, COMPLETE_TITLE_KEYS)) return GuiViewKey.CHALLENGE_COMPLETE;
-        return null;
-    }
-
-    /**
-     * R8-L4：标题归属判定 —— 与各 GUI 开菜单侧同源：按 zh/en 读标题配置键，经与
-     * 渲染侧相同的 {@code &} 颜色码转换后做等值比对（照 {@code ConfirmationGUI.isConfirmGUI}
-     * 先例），替代原裸子串白名单（过宽：任何未来标题含这些词都会被本监听器吞掉点击）。
-     *
-     * <p>开菜单侧截断核查（逐类读 createInventory 的标题构造）：
-     * profile.settings-title / word-bank.title / daily.title / daily-challenge.complete-title
-     * 均为「纯 translate → createInventory」，无截断无占位符 → 等值安全；
-     * calendar.viewing-title（他人日历）含 {@code {player}} 占位符，替换后标题与模板
-     * 不等（等值必不中）→ 对该类按「占位符前的字面前缀」锚定（照 MainMenuListener:90-104
-     * 的截断宽松比对先例），锚（剥色后）至少 {@link #MIN_ANCHOR_MATCH} 个可见字符
-     * 防退化配置过宽误配。
-     */
-    private boolean matchesAnyTitle(String title, String... keys) {
-        if (title == null || title.isEmpty()) return false;
-        for (String lang : new String[] { "zh", "en" }) {
-            FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
-            for (String key : keys) {
-                String raw = MessageUtil.getGuiMsg(messages, key);
-                String expected = ChatColor.translateAlternateColorCodes('&', raw);
-                if (title.equals(expected)) return true;
-                int placeholderAt = raw.indexOf('{');
-                if (placeholderAt > 0) {
-                    String anchor = ChatColor.translateAlternateColorCodes('&',
-                            raw.substring(0, placeholderAt));
-                    if (ChatColor.stripColor(anchor).length() >= MIN_ANCHOR_MATCH
-                            && title.startsWith(anchor)) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
     }
 
     private void handlePrivacySettings(Player player, int slot) {
@@ -530,14 +423,13 @@ public class MiscGUIListener implements Listener {
      * 本监听器辖下各 GUI（隐私设置/词库选择/过往学习/每日挑战/庆祝页）
      * 的展示物品可被拖进玩家背包。
      *
-     * R5-3：入口判定改为 holder 优先（{@link #isTrackedView}），标题兜底保留。
+     * R5-11：入口判定<b>只认 holder</b>（{@link #isTrackedView}），标题兜底已删除。
      */
     @EventHandler
     public void onInventoryDrag(org.bukkit.event.inventory.InventoryDragEvent event) {
         if (event.getView() == null) return;
 
-        // R5-3：与 onInventoryClick 同一套 holder 优先判定（共用 isTrackedKey）。
-        // 标题兜底保留（matchesTrackedTitle），迁移期行为不变。
+        // R5-11：与 onInventoryClick 同一套纯 holder 判定（共用 isTrackedKey）。
         if (!isTrackedView(event.getView())) return;
 
         int topSize = event.getView().getTopInventory().getSize();
@@ -547,19 +439,5 @@ public class MiscGUIListener implements Listener {
                 return;
             }
         }
-    }
-
-    /**
-     * R8-L4：任意一类被本监听器辖管的 GUI 标题（拖拽守卫用，布尔并集）。
-     *
-     * <p>R5-3：保留为<b>迁移期 fallback</b>（{@link #isTrackedView} 在 holder 未命中时
-     * 调用），Wave 3 收尾时才与 {@link #matchesAnyTitle} 同批删除。
-     */
-    private boolean matchesTrackedTitle(String title) {
-        return matchesAnyTitle(title, PRIVACY_TITLE_KEYS)
-                || matchesAnyTitle(title, WORD_BANK_TITLE_KEYS)
-                || matchesAnyTitle(title, CALENDAR_TITLE_KEYS)
-                || matchesAnyTitle(title, DAILY_TITLE_KEYS)
-                || matchesAnyTitle(title, COMPLETE_TITLE_KEYS);
     }
 }

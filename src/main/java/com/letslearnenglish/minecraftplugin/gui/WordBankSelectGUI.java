@@ -40,7 +40,7 @@ public class WordBankSelectGUI {
 
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "word-bank.title"));
-        // R5-3：挂结构身份（holder），标题降为迁移期兜底。
+        // R5-3/R5-16：挂结构身份（holder），holder 是唯一身份，标题仅作显示。
         Inventory inv = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.WORD_BANK), GUI_SIZE, title);
 
         String clickHint = ChatColor.translateAlternateColorCodes('&',

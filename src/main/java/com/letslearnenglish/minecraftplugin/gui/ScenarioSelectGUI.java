@@ -62,7 +62,7 @@ public class ScenarioSelectGUI {
         title = ChatColor.translateAlternateColorCodes('&', title);
 
         // R5-7：挂结构身份 holder（无 payload —— 本页只回答"是谁"，无分页/模式上下文）。
-        // 与 ScenarioSelectListener 的 holder 优先判定必须同批：只改一侧会退化为标题兜底。
+        // 与 ScenarioSelectListener 的 holder 判定必须同批：只改一侧该页会失去身份（holder 是唯一判定依据）。
         Inventory gui = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.SCENARIO_SELECT),
                 GUI_SIZE, title);
 

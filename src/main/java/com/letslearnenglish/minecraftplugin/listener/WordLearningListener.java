@@ -64,22 +64,12 @@ public class WordLearningListener implements Listener {
 
     @EventHandler
     public void onInventoryClose(InventoryCloseEvent event) {
-        // R5-7：改走 resolveOwnedView（holder 优先、标题兜底）。原判纯 holder —— /reload
-        // （PlugMan 等）后旧 ClassLoader 的 PluginGuiHolder 过不了新 ClassLoader 的
-        // instanceof，resolve 恒返回 null，本处理器整体失效：关闭界面不再启动倒计时，
-        // 玩家卡在「有会话、无计时、点不动」的死局。
+        // R5-11：纯 holder 判定。原「/reload 后旧 holder 失效」的顾虑已由
+        // onDisable() 关闭全部在线玩家 GUI 消解 —— PlugMan/重启必先 onDisable，
+        // 不存在跨 ClassLoader 的陈旧界面（/lea reload 不换 ClassLoader）。
         if (resolveOwnedView(event.getView()) != GuiViewKey.WORD_LEARNING) {
             return;
         }
-
-        // R5-8：影子比对从「归属判定之前」挪到「命中之后」（本批 5 处同改）。原位置让
-        // 任意界面（含别的插件 GUI / 原版箱子）的每次交互都白跑一遍 resolveByTitle 全表
-        // （39 条 contains，其中确认标题还要 2 次 getMessageConfig + 颜色码翻译），
-        // 10+ 个 listener 叠加约 400 次/点击。权衡：判定不命中的漂移从此不再被记录 ——
-        // 但那类漂移会以功能症状（点击无反应/界面不被认领）暴露，不需要影子日志；
-        // 本插桩要发现的是「holder 已命中、标题说法是否仍对得上」，所以必须在命中之后。
-        // Wave 3 收尾随标题兜底一起删除。
-        GuiIdentity.logMismatch(plugin, event.getView());
 
         if (!(event.getPlayer() instanceof Player player)) {
             return;
@@ -100,15 +90,10 @@ public class WordLearningListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        // R5-7：同 onInventoryClose，改走 resolveOwnedView。原判纯 holder 时 /reload 后
-        // 恒返回 null —— 点击既不处理也不 cancel（cancel 在下方），玩家能把展示用的
-        // BOOK/PAPER/玻璃 pane 拿走。
+        // R5-11：纯 holder 判定（不再回落标题）。
         if (resolveOwnedView(event.getView()) != GuiViewKey.WORD_LEARNING) {
             return;
         }
-
-        // R5-8：影子比对挪到归属命中之后（否则任意界面点击都要跑一遍标题全表比对）。
-        GuiIdentity.logMismatch(plugin, event.getView());
 
         // R-01 补漏：只处理上半区（Top 容器）点击。玩家背包（下半区）直接 return
         // 且不 cancel，玩家开着 GUI 也能正常整理背包。
@@ -154,21 +139,17 @@ public class WordLearningListener implements Listener {
      *
      * 拖拽是独立事件，点击的 setCancelled(true) 拦不住它 —— 不拦的话
      * 单词学习 GUI 的展示物品（发音按钮/停止/返回等）可被拖进玩家背包。
-     * 身份判定与 {@link #onInventoryClick} 入口一致（R5-1：holder 优先、标题兜底）；
+     * 身份判定与 {@link #onInventoryClick} 入口一致（R5-11：只认 holder）；
      * 只在拖拽触及界面上半部分时取消，玩家整理自己背包不受影响。
      */
     @EventHandler
     public void onInventoryDrag(InventoryDragEvent event) {
-        // R5-7：同 onInventoryClick，改走 resolveOwnedView（原判纯 holder 时 /reload 后
-        // 失效 —— 展示物可被拖走）。
+        // R5-11：纯 holder 判定。
         if (resolveOwnedView(event.getView()) != GuiViewKey.WORD_LEARNING) {
             return;
         }
 
-        // R5-8：影子比对挪到归属命中之后（否则任意界面拖拽都要跑一遍标题全表比对）。
-        GuiIdentity.logMismatch(plugin, event.getView());
-
-        // 同上：身份判定不蕴含「拖的是上半区」，rawSlot < topSize 的判断必须保留。
+        // 身份判定不蕴含「拖的是上半区」，rawSlot < topSize 的判断必须保留。
         int topSize = event.getView().getTopInventory().getSize();
         for (int rawSlot : event.getRawSlots()) {
             if (rawSlot < topSize) {
@@ -179,37 +160,17 @@ public class WordLearningListener implements Listener {
     }
 
     /**
-     * R5-7：解析「本监听器负责的界面」—— holder 优先、标题兜底。
+     * R5-11：解析「本监听器负责的界面」—— <b>只认 holder</b>。
      *
-     * <p>为什么必须补标题兜底：{@link GuiIdentity#resolve(InventoryView)} 是<b>纯 holder</b>
-     * 判定。{@code /reload}（PlugMan 等）之后，旧 ClassLoader 载入的 {@code PluginGuiHolder}
-     * 过不了新 ClassLoader 的 {@code instanceof}，{@code resolve} 恒返回 {@code null} ——
-     * 本类的 close / click / drag 三处会同时失效（不 cancel 可拿展示物、关闭不启动倒计时、
-     * 展示物可被拖走），属于硬约束「身份判定不能只依赖 ClassLoader 同一性」的直接违反。
-     *
-     * <p><b>裁决：走方案 A</b>（{@code GuiIdentity.resolve(view, title)}，不自己写
-     * {@code title.contains(...)}）。理由：
-     * <ol>
-     *   <li>单一真相源 —— 标题白名单只保留在 {@link GuiIdentity#resolveByTitle(String)}
-     *       一处；本类自写 contains 会与它成为两份判定，日后再改文案/新增 key 必然漂移。</li>
-     *   <li>{@code resolve(view, title)} 的语义正好是「holder 命中即返回 holder 结果，
-     *       未命中才回落标题」（见 {@code GuiIdentity:128-136}），与本方法要的优先级一致。</li>
-     *   <li>它已含 {@code "Word Learning"} / {@code "单词学习"} 两条映射，与 HEAD 版
-     *       {@code onInventoryClick} / {@code onInventoryClose} / {@code onInventoryDrag}
-     *       的判定逐字等价。</li>
-     * </ol>
-     *
-     * <p>关键点：holder 命中别的 key 时<b>直接返回 null，绝不继续走标题</b> —— holder 已经
-     * 明确说了这是别的屏幕（比如玩家名含关键词导致标题碰撞），再用标题翻案会误判。
-     * 方案 A 天然满足：holder 非 null 时 {@code resolve} 不读标题。
+     * <p>原 R5-7 的「{@code resolve(view, title)} 标题兜底」已删除：跨 ClassLoader
+     * 的陈旧 holder 场景由 {@code onDisable()} 统一关闭在线玩家 GUI 消解，
+     * 标题不再需要作为救生索。
      *
      * @param view 事件界面，可为 null
      * @return {@link GuiViewKey#WORD_LEARNING} 或 null（不归本类管）
      */
     private GuiViewKey resolveOwnedView(InventoryView view) {
-        if (view == null) return null;
-        // holder 优先、未命中才回落标题（两者都在 GuiIdentity 内部完成）。
-        GuiViewKey key = GuiIdentity.resolve(view, view.getTitle());
+        GuiViewKey key = GuiIdentity.resolve(view);
         return key == GuiViewKey.WORD_LEARNING ? key : null;
     }
 

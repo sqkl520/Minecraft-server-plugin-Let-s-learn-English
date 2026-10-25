@@ -137,7 +137,8 @@ public class WordLearningGUI {
         String title = buildTitle(player, difficulty);
 
         // R5-1：挂结构身份 holder（无 payload —— 难度只活在标题里，无人读取）。
-        // 与下方 refresh() 的闸门必须同批改动：只改一侧会让选择题点选后界面永不刷新。
+        // R5-13 起它是身份判定的唯一依据：refresh() 的闸门与 WordLearningListener 均只认
+        // holder，标题层已整体删除。open 不挂 holder → 界面永不刷新。
         Inventory inv = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.WORD_LEARNING),
                 MENU_SIZE, title);
         buildInventory(inv, player);
@@ -148,16 +149,20 @@ public class WordLearningGUI {
      * 就地重画"当前已打开"的单词学习界面（choice 点选作答后连续出下一题用，不关界面）。
      *
      * <p>闸门：玩家在线 / 会话仍在 / 顶栏尺寸是本菜单的 27 格 / <b>身份</b>是单词学习界面
-     * （{@link GuiIdentity#resolve(org.bukkit.inventory.InventoryView, String)}：holder 优先、标题兜底，与
-     * {@code WordLearningListener} 的点击归属判定同一条规则）—— 任一不满足就什么都不做，
-     * 避免把玩家正开着的别的界面（主菜单、结算页等）当成单词学习界面重画。
-     * 重画不触发 {@code InventoryCloseEvent}，所以不会顺带启动倒计时
+     * （{@link GuiIdentity#resolve(org.bukkit.inventory.InventoryView)}，纯 holder 判定）——
+     * 任一不满足就什么都不做，避免把玩家正开着的别的界面（主菜单、结算页等）当成单词学习
+     * 界面重画。重画不触发 {@code InventoryCloseEvent}，所以不会顺带启动倒计时
      * （倒计时仍只由"关界面 / 点开始"按既有设计触发）。
      *
-     * <p><b>R5-1 迁移红线</b>：本闸门与 {@link #open} 里的 holder 挂载是<b>同一批</b>
-     * 改动。只把这里换成 holder 而 {@code open} 仍传 null → 界面永不刷新，玩家点选项
-     * 后被跨题校验丢弃，表现为"选择题点了没反应"；只改 {@code open} 不改这里 → 标题
-     * 兜底仍能工作，属于安全的一侧。故两处必须一起改、一起回滚。
+     * <p><b>R5-13：纯 holder，无标题兜底</b>。标题兜底原本只为「旧界面 / holder 未挂」而设，
+     * 而 holder 跨 ClassLoader 失效这条唯一裂缝已由 {@code LetsLearnEnglish.onDisable()}
+     * 调用 {@link GuiIdentity#closeIfPluginGui(org.bukkit.entity.Player)} 堵上：换 ClassLoader
+     * 必然先 disable，界面在那之前已关闭，不存在陈旧界面活到新 ClassLoader。因此这里不再
+     * 需要标题保底。尺寸检查保留 —— 那是防御性检查，不是身份判定。
+     *
+     * <p><b>R5-1 迁移红线</b>：本闸门与 {@link #open} 里的 holder 挂载必须<b>同批</b>存在。
+     * {@code open} 不挂 holder → 界面永不刷新，玩家点选项后被跨题校验丢弃，表现为
+     * "选择题点了没反应"。
      *
      * @param player 目标玩家（必须在主线程调用）
      */
@@ -175,9 +180,9 @@ public class WordLearningGUI {
         if (top == null || top.getSize() != MENU_SIZE) {
             return;
         }
-        // 身份闸（R5-1）：holder 优先、标题兜底。只重画本菜单，绝不碰玩家开着的别的
-        // 27 格界面；标题兜底保证「旧界面 / holder 未挂」时行为与迁移前逐字一致。
-        GuiViewKey key = GuiIdentity.resolve(view, view.getTitle());
+        // 身份闸（R5-13）：纯 holder。只重画本菜单，绝不碰玩家开着的别的 27 格界面；
+        // 标题层已删除 —— onDisable 已堵住 ClassLoader 换代裂缝，不需要标题保底。
+        GuiViewKey key = GuiIdentity.resolve(view);
         if (key != GuiViewKey.WORD_LEARNING) {
             return;
         }

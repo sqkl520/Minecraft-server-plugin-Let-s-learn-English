@@ -611,6 +611,18 @@ public class ChatHistoryGUI {
      * 解读，{@link Timestamp#toString()} 在合法范围内原样回显库内数字（3.47 驱动实测），
      * 故把这些数字按 UTC 重解析得到真实时刻，再按系统时区渲染；MySQL 的 TIMESTAMP 列
      * 按会话时区自洽，原样渲染；解析失败防御性回落原样渲染。
+     *
+     * <p><b>为何此处 {@code isSQLite()} 不构成越层（R6-F 裁决，保留调用不动）</b>：
+     * {@link com.letslearnenglish.minecraftplugin.data.DatabaseManager#isSQLite()} 是
+     * data 层公开的<b>方言查询</b>，不是 JDBC 句柄泄漏——本方法只问"这批数字该按 UTC
+     * 还是按会话时区解读"，问完仍在纯 Java 侧用 {@code SimpleDateFormat} 渲染，
+     * 没有取连接、没有拼 SQL、不持任何锁。同一判定的另两处消费者
+     * （{@code ReportGenerator:364} 的"本地日 → UTC 区间"、{@code DiagnoseCommand:156}
+     * 的诊断输出）同样是"渲染/诊断需要知道方言"，属合法用途。
+     * 把它当越界会让 data 层被迫承担一个与持久化无关的展示格式化方法
+     *（{@code DatabaseManager} 已有 92 个 public 方法，再增无益），故本批
+     * <b>不</b>下沉换算逻辑，只在此注明边界：越界与否看"是否碰连接/语句"，
+     * 不看"是否读了后端类型"。
      */
     private String formatHistoryTimestamp(Timestamp raw, String pattern) {
         if (raw == null) {
@@ -668,21 +680,5 @@ public class ChatHistoryGUI {
             item.setItemMeta(meta);
         }
         return item;
-    }
-
-    /**
-     * Check if an inventory title is a ChatHistoryGUI.
-     *
-     * <p>R5-5：本方法已降级为<b>迁移期标题兜底</b>—— 两个屏幕（列表 / 详情）现在各自
-     * 挂了 {@code PluginGuiHolder}（{@code CHAT_HISTORY_LIST} / {@code CHAT_HISTORY_SESSION}），
-     * listener 以 holder 为准，只有 holder 认不出时才调用本方法。方法本身保留原样
-     * （宽认领：四个关键词任一命中都算本类 GUI），具体是哪一屏由调用方再按标题细分。
-     */
-    public static boolean isChatHistoryGUI(String title) {
-        if (title == null) return false;
-        return title.contains("AI Chat History")
-                || title.contains("AI 对话历史")
-                || title.contains("Conversation Details")
-                || title.contains("对话详情");
     }
 }

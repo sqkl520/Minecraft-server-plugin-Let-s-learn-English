@@ -9,6 +9,7 @@ import com.letslearnenglish.minecraftplugin.core.word.WordBankValidator;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import com.letslearnenglish.minecraftplugin.data.repository.ClassRepository;
 import com.letslearnenglish.minecraftplugin.data.repository.PlayerDirectoryRepository;
 
 import org.bukkit.Bukkit;
@@ -37,6 +38,9 @@ public class AdminCommandHandler {
     /** R6-A：player_data 目录查询（名字↔UUID、前缀补全名源）仓储。 */
     private final PlayerDirectoryRepository playerDirectory;
 
+    /** R6-F：班级成员原子编排（换班 = 查当前班 + 判满员 + 退旧班 + 进新班）。 */
+    private final ClassRepository classRepository;
+
     /**
      * R6-A：tab 补全名源短 TTL 缓存 —— 按前缀缓存 30 秒，上限 64 条（简单整体
      * clear 防无界增长）。补全在主线程每次按键都会触发，缓存把"每次按键一次主
@@ -62,6 +66,7 @@ public class AdminCommandHandler {
         this.plugin = plugin;
         this.playerDirectory = new PlayerDirectoryRepository(plugin.getDatabaseManager(),
                 plugin.getLogger());
+        this.classRepository = new ClassRepository(plugin.getDatabaseManager(), plugin.getLogger());
     }
 
     /**
@@ -689,50 +694,37 @@ public class AdminCommandHandler {
 
     /**
      * 成员行变更（异步线程执行）：一人一班编排 —— 已在本班幂等回 member-added；
-     * 换班先判新班满员（满则拒绝，防丢班）再退旧班进新班；Data 层只做单班成员行。
+     * 换班先判新班满员（满则拒绝，防丢班）再退旧班进新班。
+     *
+     * <p>R6-F：四条语句的原子段（查当前班 → 判同班 → 判满员 → 退旧班 + 进新班）
+     * 已整体下沉到 {@link ClassRepository#addMemberAtomic}，本方法<b>不再持有</b>
+     * {@code connectionLock} —— {@code data/} 之外对连接锁的引用归零。这里只做
+     * "按结果投递消息"，且投递仍在锁外（R9-L5：锁内零消息投递）。
      */
     private void applyClassAdd(org.bukkit.command.CommandSender sender,
                                DatabaseManager.ClassRow classRow, UUID playerId,
                                String playerName, int maxMembers) {
-        DatabaseManager db = plugin.getDatabaseManager();
-        boolean alreadyMember = false;
-        boolean reassigned = false;
-        boolean full = false;
-        // 满员判定 + 换班（退旧进新）整段持 connectionLock（可重入，内层 DB 方法
-        // 同锁嵌套安全）——防两笔并发 add 抢最后一个名额时本地超额加入。
-        // R9-L5：锁内零消息投递——幂等分支只置标志，sendOnMain 统一移到锁外
-        //（调度器投递不占 DB 锁，缩短持锁区间）。
-        synchronized (db.getConnectionLock()) {
-            Integer currentClassId = db.getPlayerClassId(playerId);
-            if (currentClassId != null && currentClassId == classRow.classId()) {
-                // 已在本班：幂等提示（冻结键无"重复加入"专键，复用 member-added）
-                alreadyMember = true;
-            } else {
-                full = db.getClassMemberCount(classRow.classId()) >= maxMembers;
-                reassigned = currentClassId != null;
-                if (!full) {
-                    if (reassigned) {
-                        db.removeClassMember(currentClassId, playerId);
-                    }
-                    db.addClassMember(classRow.classId(), playerId, System.currentTimeMillis());
-                }
-            }
-        }
-        if (alreadyMember) {
-            sendOnMain(sender, "class.member-added",
-                    "player", playerName, "class", classRow.className());
-            return;
-        }
-        if (full) {
-            sendOnMain(sender, "class.member-full", "max", String.valueOf(maxMembers));
-            return;
-        }
-        if (reassigned) {
-            sendOnMain(sender, "class.reassigned",
-                    "player", playerName, "class", classRow.className());
-        } else {
-            sendOnMain(sender, "class.member-added",
-                    "player", playerName, "class", classRow.className());
+        ClassRepository.AddResult result = classRepository.addMemberAtomic(
+                classRow.classId(), playerId, System.currentTimeMillis(), maxMembers);
+        switch (result) {
+            case ALREADY_MEMBER:
+            case ADDED:
+                // 幂等提示与首次加入共用 member-added（冻结键无"重复加入"专键）
+                sendOnMain(sender, "class.member-added",
+                        "player", playerName, "class", classRow.className());
+                break;
+            case FULL:
+                sendOnMain(sender, "class.member-full", "max", String.valueOf(maxMembers));
+                break;
+            case REASSIGNED:
+                sendOnMain(sender, "class.reassigned",
+                        "player", playerName, "class", classRow.className());
+                break;
+            default:
+                // 枚举封闭，不可达；防御性兜底走 member-added（与旧行为同义）
+                sendOnMain(sender, "class.member-added",
+                        "player", playerName, "class", classRow.className());
+                break;
         }
     }
 

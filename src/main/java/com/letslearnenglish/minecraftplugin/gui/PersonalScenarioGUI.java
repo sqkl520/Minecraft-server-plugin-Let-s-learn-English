@@ -44,7 +44,7 @@ import java.util.List;
  */
 public class PersonalScenarioGUI {
 
-    /** 界面尺寸（Listener 的尺寸双重确认共用）。 */
+    /** 界面尺寸（{@link #open} 建 inventory 用；holder 判定不依赖尺寸）。 */
     public static final int GUI_SIZE = 54;
 
     /** 场景计数物槽位（写死 = 唯一真相，监听器引用本常量）。 */
@@ -200,25 +200,6 @@ public class PersonalScenarioGUI {
             }
         }
         return result;
-    }
-
-    /**
-     * 本页标题判定：标题与配置完全等值（zh/en 两份，照 DuelChallengeGUI.isDuelChallengeTitle
-     * 模式）。等值而非宽子串 —— 与场景选择页（"场景选择"/"Scenario Select" 是 contains 判定）
-     * 互不命中，活配置下不可能串页。
-     */
-    public static boolean isPersonalScenarioTitle(String title) {
-        if (title == null || title.isEmpty()) return false;
-        LetsLearnEnglish plugin = LetsLearnEnglish.getInstance();
-        if (plugin == null || plugin.getConfigManager() == null) return false;
-        for (String lang : new String[] { "zh", "en" }) {
-            String expected = ChatColor.translateAlternateColorCodes('&',
-                    MessageUtil.getGuiMsg(
-                            plugin.getConfigManager().getMessageConfig(lang),
-                            "scenario.manage-title"));
-            if (title.equals(expected)) return true;
-        }
-        return false;
     }
 
     /**

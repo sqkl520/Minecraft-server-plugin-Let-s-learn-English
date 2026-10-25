@@ -6,8 +6,8 @@ package com.letslearnenglish.minecraftplugin.gui.identity;
  * <p>为什么需要这个枚举：迁移前插件靠 {@code title.contains(...)} 白名单认界面
  * （{@code GUIUtils.isPluginGUI(String)}），标题是本地化文案，管理员可改、语言可切、
  * 收纳了占位符与后缀，任何一处文案改动都会让判定静默失效。R5-0 的目标是让「这个
- * inventory 是谁开的」由 {@code InventoryHolder} 直接回答（结构身份），标题只作为
- * 迁移期的 fallback。
+ * inventory 是谁开的」由 {@code InventoryHolder} 直接回答（结构身份），标题不参与判定
+ * （R5-13 起标题层已整体删除；R5-16 注释对账）。
  *
  * <p>粒度约定：本枚举与全仓 21 处 {@code Bukkit.createInventory(...)} 一一对应，
  * 而不是与 18 个 GUI 类一一对应 —— 同一个类里「同标题、不同屏幕」的两页必须拆成
@@ -20,15 +20,16 @@ package com.letslearnenglish.minecraftplugin.gui.identity;
  * </ul>
  *
  * <p>禁止事项：不要在枚举里塞行为（点击分发、槽位表、i18n 键）。这里只回答
- * 「是哪个屏幕」，行为由各 Wave 2 流按 key 分派。新增屏幕时同时补
- * {@link GuiIdentity#resolveByTitle(String)} 的标题映射，否则迁移期影子比对会报
- * mismatch。
+ * 「是哪个屏幕」，行为由各 Wave 2 流按 key 分派。新增屏幕时只需在
+ * {@code createInventory(...)} 处挂 {@link PluginGuiHolder#of(GuiViewKey)}，
+ * <b>不需要</b>同步任何标题映射 —— R5-13 起标题层已整体删除，holder 是唯一身份。
  */
 public enum GuiViewKey {
 
     /**
      * 主菜单 —— {@code gui.MainMenu}。
-     * 尺寸可变：{@code gui.menu-size} 可配 27/36/45/54（非法回落 27），故 {@link #size()} 为 -1。
+     * 尺寸可变：{@code gui.menu-size} 可配 27/36/45/54（非法回落 27），故构造值取 -1
+     * 表示「非固定」。holder 只回答「是本菜单」，尺寸由 MainMenu 自行核对。
      */
     MAIN_MENU(-1),
 
@@ -155,28 +156,19 @@ public enum GuiViewKey {
      */
     CONFIRMATION(27);
 
-    /** 该屏幕的固定 inventory 尺寸；-1 表示「非固定」（目前只有主菜单，随配置变化）。 */
+    /**
+     * 该屏幕的固定 inventory 尺寸；-1 表示「非固定」（目前只有主菜单，随配置变化）。
+     *
+     * <p>R5-12：只作为<b>源码内文档</b>保留 —— 枚举声明处的 {@code WORD_LEARNING(27)}
+     * 本身就表达了「这一页 27 格」，读者无需调用任何方法。原先配套的
+     * {@code size()} / {@code hasFixedSize()} 两个 public 访问器在全仓（含测试）
+     * 零调用点，留着只会让下次审计再按死代码报一遍，故一并删除；
+     * 字段不删，因为它承载的信息（尺寸事实）仍要写在源码里。
+     * 将来若诊断侧需要遍历尺寸，再按需加回一个访问器即可。
+     */
     private final int size;
 
     GuiViewKey(int size) {
         this.size = size;
-    }
-
-    /**
-     * 该屏幕的固定 inventory 尺寸。
-     *
-     * @return 27/54 等固定值；-1 表示尺寸由配置决定，不可用于判定
-     */
-    public int size() {
-        return size;
-    }
-
-    /**
-     * 尺寸是否固定（可用于「标题 + 尺寸」双重确认）。
-     *
-     * @return {@code size() >= 0} 时为 true
-     */
-    public boolean hasFixedSize() {
-        return size >= 0;
     }
 }

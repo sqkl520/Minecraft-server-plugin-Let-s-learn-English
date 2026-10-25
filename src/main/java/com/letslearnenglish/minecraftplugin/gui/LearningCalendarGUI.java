@@ -174,7 +174,7 @@ public class LearningCalendarGUI {
                     plugin.getPlayerDataStore().getPlayerName(targetId));
         }
         title = ChatColor.translateAlternateColorCodes('&', title);
-        // R5-3：挂结构身份（holder），标题降为迁移期兜底。
+        // R5-3/R5-16：挂结构身份（holder），holder 是唯一身份，标题仅作显示。
         // {player} 只用于标题显示（本人/他人变体），身份不依赖它 → 无 payload。
         Inventory inv = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.LEARNING_CALENDAR),
                 GUI_SIZE, title);
