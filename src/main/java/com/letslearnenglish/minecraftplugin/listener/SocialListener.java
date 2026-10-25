@@ -9,7 +9,6 @@ import com.letslearnenglish.minecraftplugin.core.social.SocialManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.gui.AchievementWallGUI;
 import com.letslearnenglish.minecraftplugin.gui.EnglishSquareGUI;
-import com.letslearnenglish.minecraftplugin.gui.GUIUtils;
 import com.letslearnenglish.minecraftplugin.gui.LeaderboardGUI;
 import com.letslearnenglish.minecraftplugin.gui.LearningCalendarGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
@@ -19,9 +18,6 @@ import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
 import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder.GuiPayload;
 import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder.GuiPayload.SquarePage;
 import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder.GuiPayload.Target;
-import com.letslearnenglish.minecraftplugin.util.MessageUtil;
-import org.bukkit.ChatColor;
-import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -33,7 +29,6 @@ import org.bukkit.inventory.InventoryView;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -96,12 +91,6 @@ public class SocialListener implements Listener {
 
     /** 广场里「查看者自己的头像」槽位（EnglishSquareGUI 写死 slot 0，无配置项）。 */
     private static final int SQUARE_OWN_HEAD_SLOT = 0;
-    /**
-     * R-09d 笑话页识别（迁移期兜底）：openHidden 建 27 格小箱子，open 建 54 格大箱子，
-     * 标题却完全相同。主路径已改为 holder key（{@link GuiViewKey#SQUARE_HIDDEN}）；
-     * 只有未挂 holder 的旧界面才回落到这里的尺寸猜测。Wave 3 随标题兜底删除。
-     */
-    private static final int HIDDEN_JOKE_GUI_SIZE = 27;
     /** 笑话页药水槽位（openHidden 写死 slot 13，无配置项）。 */
     private static final int HIDDEN_JOKE_POTION_SLOT = 13;
     /** ProfileGUI 的其余固定槽位（GUI 写死，无配置项）。 */
@@ -129,25 +118,21 @@ public class SocialListener implements Listener {
      * Wave 2 域 4：动态页打开瞬间冻结其渲染列表（见 {@link #renderedFeedPages}
      * 说明）。只登记 FEED 页；笑话页与其它模式不受影响。
      *
-     * <p>R5-4：判定从「标题 contains 英语广场 + 尺寸 > 27 + detectModeFromTitle」
-     * 换成 holder 优先（{@link GuiViewKey#SQUARE} 才登记，{@link GuiViewKey#SQUARE_HIDDEN}
-     * 直接排除，不再靠尺寸猜），标题解析保留为未挂 holder 的旧界面 fallback。
+     * <p>R5-11：判定为纯 holder（{@link GuiViewKey#SQUARE} 才登记，
+     * {@link GuiViewKey#SQUARE_HIDDEN} 直接排除）—— 原「标题 contains 英语广场 +
+     * 尺寸 &gt; 27 + detectModeFromTitle」的标题/尺寸兜底已删除。
      */
     @EventHandler
     public void onInventoryOpen(InventoryOpenEvent event) {
         if (!(event.getPlayer() instanceof Player player)) return;
         InventoryView view = event.getView();
-        // 与点击侧同一个解析入口：holder 优先，未挂 holder 的旧界面走标题 + 尺寸兜底。
+        // 与点击侧同一个解析入口：纯 holder。
         GuiViewKey key = resolveSocialKey(view);
         if (key != GuiViewKey.SQUARE && key != GuiViewKey.SQUARE_HIDDEN) return;
 
-        // 切换点插桩：SQUARE_HIDDEN 与 SQUARE 同标题，属于已登记的「标题不可区分」
-        // key 对，不会产生噪声告警；只有真正的文案/映射漂移才会打 WARNING。
-        GuiIdentity.logMismatch(plugin, view);
-
         // 笑话页不登记动态快照（它没有分页/条目语义）。
         if (key == GuiViewKey.SQUARE_HIDDEN) return;
-        if (resolveSquareMode(player, view) != RankingMode.FEED) return;
+        if (resolveSquareMode(view) != RankingMode.FEED) return;
         SocialManager sm = plugin.getSocialManager();
         renderedFeedPages.put(player.getUniqueId(),
                 (sm != null && sm.isEnabled())
@@ -167,16 +152,7 @@ public class SocialListener implements Listener {
         if (rawSlot < 0 || rawSlot >= topSize) return;
 
         GuiViewKey key = resolveSocialKey(view);
-        if (key == null) {
-            // 迁移前语义保全：命中 15 字面量白名单、但不在四路分派链里的旧标题
-            //（如仅含「周榜/Weekly Ranking」的历史标题）也会被 cancel（档位只吞
-            // 不动作）。holder 存在时绝不走这条 —— 那表示界面属于别的 listener。
-            if (isLegacySocialClaim(view)) event.setCancelled(true);
-            return;
-        }
-
-        // 切换点插桩（R5-0 的影子比对）：holder 与标题说法不一致时打一条去重 WARNING。
-        GuiIdentity.logMismatch(plugin, view);
+        if (key == null) return;
 
         event.setCancelled(true);
         if (event.getCurrentItem() == null) return;
@@ -201,19 +177,15 @@ public class SocialListener implements Listener {
      * 拖拽是独立事件，点击的 setCancelled(true) 拦不住它 —— 不拦的话
      * 广场/排行榜/主页/成就墙的展示物品（玻璃板/头像）可被拖进玩家背包。
      *
-     * R5-4：判定与 onInventoryClick 共用 {@link #resolveSocialKey}（holder 优先、
-     * 标题白名单兜底）；只在拖拽触及界面上半部分时取消。
+     * R5-11：判定与 onInventoryClick 共用 {@link #resolveSocialKey}（纯 holder）；
+     * 只在拖拽触及界面上半部分时取消。
      */
     @EventHandler
     public void onInventoryDrag(org.bukkit.event.inventory.InventoryDragEvent event) {
         InventoryView view = event.getView();
         GuiViewKey key = resolveSocialKey(view);
-        // 与点击侧同一条迁移期语义：recognized 或「旧白名单命中但无分派」都守卫。
-        if (key == null && !isLegacySocialClaim(view)) return;
-
-        if (key != null) {
-            GuiIdentity.logMismatch(plugin, view);
-        }
+        // 纯 holder 判定：认不出就不守卫。
+        if (key == null) return;
 
         int topSize = view.getTopInventory().getSize();
         for (int rawSlot : event.getRawSlots()) {
@@ -225,122 +197,48 @@ public class SocialListener implements Listener {
     }
 
     /**
-     * R5-4：解析「本流负责的五个屏幕」的身份键。
+     * R5-11：解析「本流负责的五个屏幕」的身份键 —— <b>只认 holder</b>。
      *
-     * <p>holder 优先：holder 给出的 key 是权威答案（{@link GuiViewKey#SQUARE_HIDDEN}
-     * 与 {@link GuiViewKey#SQUARE} 同标题，只有 holder 能区分）；holder 存在但不是
-     * 本流屏幕（如主菜单、隐私设置页）时<b>直接返回 null</b> —— 不再回落标题，
-     * 否则「holder 说不是、标题说像」会造成误认领。
+     * <p>holder 给出的 key 是唯一权威答案（{@link GuiViewKey#SQUARE_HIDDEN}
+     * 与 {@link GuiViewKey#SQUARE} 同标题，只有 holder 能区分）；holder 不是
+     * 本流屏幕（如主菜单、隐私设置页）或为 {@code null} 时一律返回 null。
      *
-     * <p>holder 缺失（旧界面 / 未挂 holder）时才走 {@link #legacyKeyFromTitle}：
-     * 它是迁移前 onInventoryClick 的 15 个字面量大 AND 门 + 9 个字面量分派链的
-     * 逐字保留，Wave 2 收尾随标题兜底一起删除。
-     *
-     * @param view 事件界面（非 null）
+     * @param view 事件界面（可为 null）
      * @return 本流屏幕键；不属于本流时返回 null
      */
     private static GuiViewKey resolveSocialKey(InventoryView view) {
-        if (view == null) return null;
         GuiViewKey key = GuiIdentity.resolve(view);
-        if (key != null) {
-            return switch (key) {
-                case LEADERBOARD, SQUARE, SQUARE_HIDDEN, PROFILE, ACHIEVEMENT_WALL -> key;
-                default -> null;
-            };
-        }
-        return legacyKeyFromTitle(view);
+        if (key == null) return null;
+        return switch (key) {
+            case LEADERBOARD, SQUARE, SQUARE_HIDDEN, PROFILE, ACHIEVEMENT_WALL -> key;
+            default -> null;
+        };
     }
 
     /**
-     * 迁移期标题兜底：holder 缺失时按原 15 字面量白名单 + 原分派链认屏幕。
+     * R5-11：广场当前页码 —— <b>payload 优先，缺失时回默认第 1 页</b>。
      *
-     * <p>与迁移前逐字等价（顺序、字面量都不动），包含 6 个由 MC-7 清理后已无人产出的
-     * 历史字面量（周榜/月榜/总榜/Weekly Ranking/Monthly Ranking/All-Time Ranking）——
-     * 保留它们是为了「旧界面仍按旧行为处理」，不是新契约。
-     *
-     * <p>唯一一处「比迁移前多做一点」：广场分支额外按尺寸把 27 格页识别为
-     * {@link GuiViewKey#SQUARE_HIDDEN}（迁移前这一步在 handleEnglishSquareGUI 里做，
-     * 效果相同，只是提前到这里，让点击分派与笑话页判定共用同一个 key）。
-     *
-     * <p>Wave 3 删除本方法及其调用点。
-     *
-     * @param view 事件界面（非 null）
-     * @return 本流屏幕键；不属于本流时返回 null
-     */
-    private static GuiViewKey legacyKeyFromTitle(InventoryView view) {
-        String title = view.getTitle();
-        if (!isSocialTitle(title)) return null;
-        if (title.contains("Leaderboard") || title.contains("排行榜")) {
-            return GuiViewKey.LEADERBOARD;
-        }
-        if (title.contains("English Square") || title.contains("英语广场")) {
-            return view.getTopInventory().getSize() <= HIDDEN_JOKE_GUI_SIZE
-                    ? GuiViewKey.SQUARE_HIDDEN : GuiViewKey.SQUARE;
-        }
-        if (title.contains("'s Profile") || title.contains("的主页")
-                || title.contains("个人主页")) {
-            return GuiViewKey.PROFILE;
-        }
-        if (title.contains("Achievement Wall") || title.contains("成就墙")) {
-            return GuiViewKey.ACHIEVEMENT_WALL;
-        }
-        // 只命中周榜/月榜/总榜等历史模式词（无广场/排行榜/主页/成就墙词）：迁移前
-        // 这条会先 cancel 点击再掉出四路分派（即「吞掉但什么也不做」），这里返回
-        // null 表示「本流不认领」。差异只在「是否 cancel」——而 MC-7 清理后已没有任何
-        // GUI 会产出这类标题（这些键只作为广场标题的模式后缀出现，且标题必含
-        // 英语广场 / English Square，前面那个分支先命中），故不可达。
-        return null;
-    }
-
-    /**
-     * 迁移前的 15 字面量社交界面白名单（holder 缺失时的兜底）。Wave 3 删除。
-     */
-    private static boolean isSocialTitle(String title) {
-        if (title == null) return false;
-        return title.contains("English Square") || title.contains("英语广场")
-                || title.contains("周榜") || title.contains("月榜") || title.contains("总榜")
-                || title.contains("Weekly Ranking") || title.contains("Monthly Ranking")
-                || title.contains("All-Time Ranking")
-                || title.contains("Leaderboard") || title.contains("排行榜")
-                || title.contains("'s Profile") || title.contains("的主页")
-                || title.contains("个人主页")
-                || title.contains("Achievement Wall") || title.contains("成就墙");
-    }
-
-    /**
-     * 迁移期兜底：无 holder 且标题落在旧白名单里，但解析不出四路分派 key 时，
-     * 迁移前会「cancel 但不动作」。保留这一 cancel 语义（Wave 3 删除）。
-     *
-     * <p>有 holder 的界面永不走这里 —— holder 说「不是本流屏幕」就是不是。
-     */
-    private static boolean isLegacySocialClaim(InventoryView view) {
-        return view != null && GuiIdentity.resolve(view) == null
-                && isSocialTitle(view.getTitle());
-    }
-
-    /**
-     * R5-4：广场当前页码 —— payload 优先（{@link SquarePage#page()}），
-     * payload 缺失/类型不符时回退迁移前的标题解析
-     * （{@link GUIUtils#extractPageFromTitle}）。
+     * <p>三级降级里的「标题」这一级已删除（payload → <s>标题</s> → 默认值）。
+     * payload（{@link SquarePage#page()}）是 GUI 打开时写死的结构性事实，标题正则
+     * 释义会随本地化/管理员改名漂移 —— R5-4 的核心成果就是不用它。
      */
     private static int resolveSquarePage(InventoryView view) {
         SquarePage payload = squarePageOf(view);
-        if (payload != null) return payload.page();
-        return GUIUtils.extractPageFromTitle(view.getTitle());
+        return payload != null ? payload.page() : 1;
     }
 
     /**
-     * R5-4：广场当前模式 —— payload 优先（{@link SquarePage#modeKey()}），
-     * payload 缺失/未知 modeKey 时回退迁移前的标题后缀识别
-     * （{@link #detectModeFromTitle}）。
+     * R5-11：广场当前模式 —— <b>payload 优先</b>；payload 缺失/未知 modeKey 时回
+     * 「无模式后缀」的 {@link RankingMode#ALL_PLAYERS}（迁移前标题后缀识别在识别不出
+     * 时的同一个默认值）。标题这一级已删除。
      */
-    private RankingMode resolveSquareMode(Player viewer, InventoryView view) {
+    private RankingMode resolveSquareMode(InventoryView view) {
         SquarePage payload = squarePageOf(view);
         if (payload != null) {
             RankingMode fromPayload = modeFromKey(payload.modeKey());
             if (fromPayload != null) return fromPayload;
         }
-        return detectModeFromTitle(viewer, view.getTitle());
+        return RankingMode.ALL_PLAYERS;
     }
 
     /** holder payload 是 SQUARE 的 {@link SquarePage} 时返回它，否则 null。 */
@@ -349,7 +247,7 @@ public class SocialListener implements Listener {
         return (payload instanceof SquarePage page) ? page : null;
     }
 
-    /** payload 模式键 → {@link RankingMode}；未知键返回 null（交调用方回退标题）。 */
+    /** payload 模式键 → {@link RankingMode}；未知键返回 null（调用方落 ALL_PLAYERS）。 */
     private static RankingMode modeFromKey(String modeKey) {
         if (modeKey == null) return null;
         return switch (modeKey) {
@@ -363,24 +261,24 @@ public class SocialListener implements Listener {
     }
 
     /**
-     * R5-4：主页归属 —— payload 优先（{@link Target#targetId()}），
-     * payload 缺失时回退迁移前的「最长玩家名子串」反查
-     * （{@link #extractTargetIdFromTitle}）。
+     * R5-11：主页归属 —— <b>payload 优先</b>（{@link Target#targetId()}）。
+     *
+     * <p>payload 缺失时返回 {@code null}（调用方显式处理）；原标题「最长玩家名子串」
+     * 反查这一级已删除。这也是安全收益：解析不出归属时绝不回落成「查看者本人」，
+     * 否则查看别人主页时的设置/日历点击会作用在自己身上。
      */
-    private UUID resolveTargetId(Player viewer, InventoryView view) {
+    private UUID resolveTargetId(InventoryView view) {
         GuiPayload payload = GuiIdentity.payloadOf(view);
         if (payload instanceof Target target) return target.targetId();
-        return extractTargetIdFromTitle(viewer, view.getTitle());
+        return null;
     }
 
     private void handleEnglishSquareGUI(Player player, int slot, InventoryView view,
                                         GuiViewKey key, ClickType clickType) {
         ConfigManager cm = plugin.getConfigManager();
 
-        // R-09d / R5-4: 笑话页与广场主页同标题 —— 分流完全由 key 决定：
-        // holder 命中 SQUARE_HIDDEN 即是笑话页；旧界面（无 holder）由
-        // legacyKeyFromTitle 按「27 格」提前折算成 SQUARE_HIDDEN。本方法内不再
-        // 二次猜尺寸（尺寸猜测只在 legacyKeyFromTitle 的那一处保留）。
+        // R-09d / R5-11: 笑话页与广场主页同标题 —— 分流完全由 holder key 决定：
+        // holder 命中 SQUARE_HIDDEN 即是笑话页（标题/尺寸猜测已全部删除）。
         // 笑话页只有返回键 + 中央药水：药水只发一行提示，绝不打开任何玩家主页。
         if (key == GuiViewKey.SQUARE_HIDDEN) {
             int jokeBackSlot = cm.getGuiSlot("english-square", "back-button", 8);
@@ -430,10 +328,10 @@ public class SocialListener implements Listener {
         //   ① FEED 页一律以打开瞬间冻结的渲染列表为准（renderedFeedPages，
         //      见其字段说明——与屏幕严格一致，杜绝"打开→点击"窗口内缓存刷新
         //      导致的条目漂移；鼓励无撤销手段，错位不可接受）；
-        //   ② 其余模式按 holder payload 的 modeKey 识别（payload 缺失才回退
-        //      detectModeFromTitle 标题后缀）：与快照一致时信任快照（零重建），
+        //   ② 其余模式按 holder payload 的 modeKey 识别（R5-11：标题后缀识别已删除，
+        //      payload 缺失/未知时落 ALL_PLAYERS）：与快照一致时信任快照（零重建），
         //      不一致/无快照时按显示的模式重建。
-        RankingMode currentMode = resolveSquareMode(player, view);
+        RankingMode currentMode = resolveSquareMode(view);
         List<UUID> playerIds;
         List<SocialManager.FeedItem> feedItems;
         EnglishSquareGUI myGui = squareGuis.get(player.getUniqueId());
@@ -482,8 +380,8 @@ public class SocialListener implements Listener {
                 }
             }
         }
-        // R5-4：页码来源由标题第一个整数改为 holder payload（SquarePage.page），
-        // 取不到才回退 GUIUtils.extractPageFromTitle。后续 P1-D 的
+        // R5-4/R5-11：页码来源是 holder payload（SquarePage.page），标题正则兜底已删除，
+        // payload 缺失时落第 1 页。后续 P1-D 的
         // globalIndex = (page-1)*28 + slotIdx 公式<b>逐字不变</b> —— 只换了 page 的来源。
         int page = resolveSquarePage(view);
 
@@ -588,8 +486,8 @@ public class SocialListener implements Listener {
 
         if (slot == PROFILE_CALENDAR_SLOT) {
             // 过往学习按钮：需要知道主页归属才能正确「返回」。
-            // R5-4：归属改由 holder payload（Target）提供；旧界面才回退标题反查。
-            UUID targetId = resolveTargetId(player, view);
+            // R5-11：归属只由 holder payload（Target）提供；标题反查这一级已删除。
+            UUID targetId = resolveTargetId(view);
             if (targetId == null) return;
             UUID finalTargetId = targetId;
             // R4-M2 隐私门（三层，顺序照 fix-plan-c2 §C2-B/B2）：他人日历=学习结果
@@ -633,7 +531,7 @@ public class SocialListener implements Listener {
                 return;
             }
             SoundManager.playSound(player, "menu-click");
-            UUID targetId = resolveTargetId(player, view);
+            UUID targetId = resolveTargetId(view);
             if (targetId != null) {
                 // F4-04 纵深：主页入口已有 showInSquare 守卫（广场/榜单/动态/命令），
                 // 但"打开主页时可见 → 查看期间主人改隐身"的陈旧界面窗口可绕过——
@@ -657,7 +555,7 @@ public class SocialListener implements Listener {
         } else if (slot == PROFILE_SETTINGS_SLOT) {
             // 设置只能改自己的：主页归属解析不出、或不是本人时，忽略这次点击
             // （别人主页的 slot 26 是「设置已锁定」灰色玻璃板）
-            UUID targetId = resolveTargetId(player, view);
+            UUID targetId = resolveTargetId(view);
             if (targetId != null && targetId.equals(player.getUniqueId())) {
                 SoundManager.playSound(player, "menu-click");
                 // R-86b：进设置前把「本人主页」帧压入返回栈 —— 设置页返回时弹回本人主页，
@@ -813,51 +711,6 @@ public class SocialListener implements Listener {
     }
 
     /**
-     * 从广场标题的 " | 模式后缀" 识别当前显示的模式。
-     *
-     * <p><b>R5-4 起本方法降级为 fallback</b>：主路径是 holder payload 的 modeKey
-     * （{@link #resolveSquareMode}）。只有「未挂 holder 的旧界面」才会走到这里。
-     * Wave 3 随标题兜底一起删除。
-     *
-     * <p>EnglishSquareGUI 渲染的五种模式中四种带后缀（周榜/月榜/总榜/动态，见其
-     * open() 的标题 switch）；"广场"全量模式无后缀——识别不出时返回
-     * {@link RankingMode#ALL_PLAYERS}。
-     *
-     * <p>为什么需要它：/le square [mode]（含默认落点 FEED）与主菜单广场按钮
-     * 直达 {@code EnglishSquareGUI.open()}，不经本监听器登记快照；快照还会陈旧
-     * （ESC 关界面不清、下次直达重开不换）。三类列表（全量玩家/榜单/动态条目）
-     * 共用同一套 28 槽布局，用错列表路由 = 点击"看到的是 A、作用到 B"。标题
-     * 后缀是显示的真相，据此选择信任快照还是重建。
-     *
-     * <p>匹配口径：标签经与渲染侧相同的颜色码转换后子串匹配；messages 缺键时
-     * 两侧取到同一个 "[?key]" 占位（getGuiMsg），判定仍自洽（W2-B 同款窗口）。
-     * 注意不可检测 "广场" 标签——它是基础标题"英语广场"的子串，永远命中。
-     */
-    private RankingMode detectModeFromTitle(Player viewer, String title) {
-        String lang = plugin.getPlayerLanguage(viewer);
-        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
-        if (titleMatchesLabel(title, messages, "square.feed.mode-label")) {
-            return RankingMode.FEED;
-        }
-        if (titleMatchesLabel(title, messages, "leaderboard.mode-weekly")) {
-            return RankingMode.WEEKLY;
-        }
-        if (titleMatchesLabel(title, messages, "leaderboard.mode-monthly")) {
-            return RankingMode.MONTHLY;
-        }
-        if (titleMatchesLabel(title, messages, "leaderboard.mode-alltime")) {
-            return RankingMode.ALL_TIME_COINS;
-        }
-        return RankingMode.ALL_PLAYERS;
-    }
-
-    private boolean titleMatchesLabel(String title, FileConfiguration messages, String key) {
-        if (title == null) return false;
-        String label = MessageUtil.getGuiMsg(messages, key);
-        return title.contains(ChatColor.translateAlternateColorCodes('&', label));
-    }
-
-    /**
      * 动态条目区（FEED 模式 28 槽）的点击分流（plan-social §3.3）。
      *
      * <p>左键：别人的条目 = 鼓励（成功回调里重开当前页实现"lore 即时更新"
@@ -946,7 +799,7 @@ public class SocialListener implements Listener {
             // 成功回调（主线程）：当前 FEED 页重开——缓存 cheer_count 已乐观 +1，
             // 重渲染即见"lore 即时更新"（plan §2.2 GUI 即时性）。页号取当前界面的
             // holder payload（窗口内玩家可能已翻页，拽回旧页反而是倒退）；payload
-            // 缺失（旧界面）才回退标题解析。重开同时登记快照。
+            // 缺失时落第 1 页（R5-11：标题兜底已删除）。重开同时登记快照。
             int currentPage = resolveSquarePage(player.getOpenInventory());
             EnglishSquareGUI refreshed = new EnglishSquareGUI(plugin);
             refreshed.open(player, currentPage, RankingMode.FEED);
@@ -957,78 +810,19 @@ public class SocialListener implements Listener {
     /**
      * 玩家当前打开的界面是否仍停在动态页（cheer 异步回调的"未被拽走"守卫）。
      *
-     * <p>R5-4：与点击侧共用 {@link #resolveSocialKey}（holder 优先、标题 + 尺寸兜底），
+     * <p>R5-11：与点击侧共用 {@link #resolveSocialKey}（<b>纯 holder</b>），
      * 只认 {@link GuiViewKey#SQUARE} + payload modeKey=="feed"。笑话页
      * （{@link GuiViewKey#SQUARE_HIDDEN}）、其它插件界面与玩家背包一律 false。
-     * 迁移前这里是「尺寸 > 27 + 标题含广场 + 标题后缀说 FEED」三段判定，等价语义
-     * 已全部收进 resolveSocialKey + resolveSquareMode 的兜底分支。
      */
     private boolean isViewingFeedPage(Player player) {
         InventoryView view = player.getOpenInventory();
         if (resolveSocialKey(view) != GuiViewKey.SQUARE) {
             return false;
         }
-        return resolveSquareMode(player, view) == RankingMode.FEED;
+        return resolveSquareMode(view) == RankingMode.FEED;
     }
 
     private int getPlayersPerPageOnSquare() {
         return SQUARE_PLAYER_SLOTS.length;
-    }
-
-    /**
-     * 从主页标题反查主页归属玩家。
-     *
-     * <p><b>R5-4 起本方法降级为 fallback</b>：主路径是 holder payload 的
-     * {@link Target#targetId()}（{@link #resolveTargetId}）。只有「未挂
-     * holder 的旧界面」才会走到这里。Wave 3 随标题兜底一起删除。
-     *
-     * 标题形如 {@code xxx的主页} / {@code xxx的个人主页} / {@code xxx's Profile}，
-     * 需要从缓存里反查出 UUID。
-     *
-     * 规则：
-     * 1. 取**最长的匹配名字** —— 昵称互为前缀时（如 Bob / Bobby），
-     *    短名会命中长名的主页标题，只取第一个命中就会把操作作用到错误的玩家身上。
-     * 2. 候选集合 = PlayerDataStore 的 profile 缓存 + 查看者自己快照里展示过的玩家 ——
-     *    （R-09b：只补自己的快照，别人的展示列表与这张主页无关）
-     *    玩家在你看他主页的期间退出（QuitEvent 会 unloadProfileSettings 把对方从缓存摘掉）时，
-     *    补上展示列表仍能反查出正确的人，而不是解析失败。
-     * 3. 解析不出来时返回 {@code null}（而不是静默回落到查看者自己）——
-     *    回落会让「查看别人主页」时点击返回/设置等操作**作用在查看者本人身上**，
-     *    可能误改自己的隐私设置。调用方必须显式处理 null。
-     *
-     * @return 匹配到的玩家 UUID；标题里没有任何已知玩家名时返回 null
-     */
-    private UUID extractTargetIdFromTitle(Player viewer, String title) {
-        PlayerDataStore store = plugin.getPlayerDataStore();
-
-        // 候选集合：profile 缓存里的玩家优先，再补上查看者自己快照里的玩家
-        LinkedHashSet<UUID> candidates = new LinkedHashSet<>(store.getActivePlayerIds());
-        LeaderboardGUI myBoard = leaderboardGuis.get(viewer.getUniqueId());
-        if (myBoard != null) {
-            candidates.addAll(myBoard.getDisplayedPlayerIds());
-        }
-        EnglishSquareGUI mySquare = squareGuis.get(viewer.getUniqueId());
-        if (mySquare != null) {
-            candidates.addAll(mySquare.getCurrentPlayerIds());
-        }
-
-        UUID bestMatch = null;
-        int bestLength = 0;
-        for (UUID id : candidates) {
-            String name = store.getPlayerName(id);
-            if (name == null || name.isEmpty()) continue;
-            if (title.contains(name) && name.length() > bestLength) {
-                bestMatch = id;
-                bestLength = name.length();
-            }
-        }
-
-        if (bestMatch == null) {
-            // 标题里的玩家一个候选都没匹配上 —— 不猜，交给调用方处理
-            plugin.getLogger().warning("无法从 GUI 标题解析主页归属玩家: \"" + title
-                    + "\" (viewer=" + viewer.getName() + ")");
-            return null;
-        }
-        return bestMatch;
     }
 }

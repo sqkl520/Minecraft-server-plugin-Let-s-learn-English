@@ -194,10 +194,10 @@ public class EnglishSquareGUI {
                         .replace("{page}", currentPlayerIds.isEmpty() && currentFeedItems.isEmpty()
                                 ? "1/1" : page + "/" + totalPages));
         // R5-4：挂结构身份 holder —— key 区分 54 格主页（SQUARE）；payload 携带
-        // 「页码 + 模式」两件点击侧必须知道的事实。此前两者都只能从标题反解：
-        // 页码靠 GUIUtils.extractPageFromTitle 抓标题里第一个整数（模式名/玩家名里
-        // 出现数字就会抓错），模式靠 detectModeFromTitle 逐条子串匹配模式标签文案
-        //（管理员改文案即静默失效）。holder 化后二者都对事件端 O(1) 可见。
+        // 「页码 + 模式」两件点击侧必须知道的事实。标题时代的做法是二者都从标题反解
+        // （页码靠抓标题里第一个整数，模式名/玩家名里出现数字就会抓错；模式靠逐条
+        // 子串匹配模式标签文案，管理员改文案即静默失效）——R5-11/14 已把标题层整体
+        // 删除，payload 是唯一来源。
         // page 已在上面 clamp 到 [1, totalPages]，SquarePage 的构造校验不会抛。
         Inventory inv = Bukkit.createInventory(
                 PluginGuiHolder.of(GuiViewKey.SQUARE,

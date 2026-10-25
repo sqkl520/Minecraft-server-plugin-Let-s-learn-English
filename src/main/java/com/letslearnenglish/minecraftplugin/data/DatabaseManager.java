@@ -3394,16 +3394,15 @@ public class DatabaseManager {
     /**
      * Expose the serialization monitor that guards the single shared Connection.
      *
-     * <p>M16 band-aid: every method in this class that touches the shared
-     * connection now runs inside {@code synchronized (connectionLock)}, so all
-     * access routed through DatabaseManager is serialized. However, several
-     * classes still obtain the raw connection via {@link #getConnection()} and
-     * run their own SQL off this lock (PlayerDataStore, DailyChallengeManager,
+     * <p>M16 band-aid（<b>历史说明</b>）: every method in this class that touches
+     * the shared connection runs inside {@code synchronized (connectionLock)}, so
+     * all access routed through DatabaseManager is serialized. At M16 several
+     * classes still obtained the raw connection via {@link #getConnection()} and
+     * ran their own SQL off this lock (PlayerDataStore, DailyChallengeManager,
      * AchievementManager, AdminCommandHandler, ProgressManagerImpl,
-     * LLEPapiExpansion). Until those are migrated (Phase 1+), they MUST wrap
-     * their statement execution in
-     * {@code synchronized (databaseManager.getConnectionLock()) { ... }} on this
-     * same monitor to fully guarantee single-threaded connection use.
+     * LLEPapiExpansion); those call sites had to wrap their statement execution
+     * in {@code synchronized (databaseManager.getConnectionLock()) { ... }} on
+     * this same monitor. <b>That era is over</b> — see the R6-F paragraph below.
      *
      * <p>Phase 1 流 E（F0-01/F0-02）曾登记"外部裸用点已收编完毕，共 25 处"。
      * <b>该账本已过期</b>。2026-10-25（R6-D）逐文件实测的开工基线为：
@@ -3418,9 +3417,19 @@ public class DatabaseManager {
      * 仓储内部同样持本锁，约定不变），因此数字会实时变动——本注释记录的是
      * R6-D 开工基线而非终值。迁移完成后请重新统计并更新本段。
      *
-     * <p>在此之前，任何直接取 {@link #getConnection()} 的新代码仍必须包在
-     * {@code synchronized (databaseManager.getConnectionLock()) { ... }} 内；
-     * 也可选用新增的 {@link #withConnection(SqlFunction)} 减少样板（两者语义等价）。
+     * <p><b>R6-F 进展</b>：{@code AdminCommandHandler} 的最后一处（{@code applyClassAdd}
+     * 的"查班 → 判满员 → 退旧班 → 进新班"原子段）已下沉到
+     * {@code data/repository/ClassRepository#addMemberAtomic}，该类的裸用点归零。
+     * 至此 {@code data/} 之外（{@code core/}、{@code gui/}、{@code listener/}、
+     * {@code command/}、{@code api/}、{@code expansion/}、入口类）对本锁与
+     * {@link #getConnection()} 的引用<b>全部为零</b>；剩余引用只在 {@code data/} 之内
+     * （{@code PlayerDataStore} 的 12 处 + 各 {@code data/repository/*} 仓储）。
+     * 复核命令：{@code grep -rn "getConnectionLock()" src/main/java}，所有命中都应落在
+     * {@code data/} 下（含 javadoc 提及）。
+     *
+     * <p>因此"新代码仍必须包在 synchronized 内"的要求只对 <b>data 层内部</b>生效；
+     * 层外新代码请改用 {@link #withConnection(SqlFunction)} 或走现成仓储方法，
+     * 不要直接取连接或取锁。
      */
     public Object getConnectionLock() {
         return connectionLock;

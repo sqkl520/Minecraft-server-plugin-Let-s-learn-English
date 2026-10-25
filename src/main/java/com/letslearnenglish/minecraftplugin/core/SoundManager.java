@@ -209,10 +209,10 @@ public class SoundManager implements Listener {
      * R-86 去重后 menu-open 的唯一播放点：插件自有 GUI 每次打开全局播一次。各 GUI 类
      * 不要再自行显式播放 menu-open，否则双声。
      *
-     * <p>R5-0：判定改用 {@link GUIUtils#isPluginGUI(org.bukkit.inventory.InventoryView)} ——
-     * 先看 top inventory 的 {@code PluginGuiHolder}（holder 优先），认不出才回落标题白名单。
+     * <p>R5-0/R5-16：判定改用 {@link GUIUtils#isPluginGUI(org.bukkit.inventory.InventoryView)} ——
+     * <b>纯 holder 判定</b>：只看 top inventory 的 {@code PluginGuiHolder}，标题文案完全不参与。
      * {@code InventoryOpenEvent} 对玩家自己背包/工作台同样触发，但它们的 holder 是
-     * {@code Player}/{@code Inventory} 而非本插件的 holder，因此 holder 分支不会误命中。
+     * {@code Player}/{@code Inventory} 而非本插件的 holder，因此不会误命中。
      */
     @EventHandler
     public void onInventoryOpen(InventoryOpenEvent event) {

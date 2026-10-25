@@ -29,13 +29,12 @@ import java.util.List;
  *
  * <p><b>标题避碰红线（plan §2.1）</b>：标题取自 {@code duel.challenge-title}
  * （「选择对决对手」/ "Pick a Duel Opponent"），<b>绝不含</b> "单词对决"/"Word Duel"
- * 子串 —— {@link DuelGUI#isDuelGUITitle} 做前缀比对 + 关键词兜底，含子串的标题会被
- * DuelGUIListener 误判为对决界面（点 slot 22 会被当成退出对决）。
+ * 子串 —— 旧 DuelGUI 标题判定（前缀比对 + 关键词兜底）会把含子串的标题误判为
+ * 对决界面（点 slot 22 会被当成退出对决），故本标题刻意避开该子串。
  * <b>R5-6 起该红线不再依赖文案：</b>本界面挂 {@link PluginGuiHolder}
  * （{@link GuiViewKey#DUEL_CHALLENGE}），识别侧（
- * {@link com.letslearnenglish.minecraftplugin.listener.DuelChallengeListener}）改由 holder
- * 判定，标题等值 + 尺寸 54 的双重确认降级为「holder 未命中」时的迁移期兜底
- * （原等值比对见 {@link #isDuelChallengeTitle}）。
+ * {@link com.letslearnenglish.minecraftplugin.listener.DuelChallengeListener}）<b>只认 holder</b>；
+ * R5-14 起原标题等值 + 尺寸 54 的双重确认兜底已删除，文案改动与语言切换都不再影响识别。
  *
  * <p>布局（54 格）：
  * <pre>
@@ -54,7 +53,7 @@ import java.util.List;
  */
 public class DuelChallengeGUI {
 
-    /** 界面尺寸（Listener 的尺寸双重确认共用）。 */
+    /** 界面尺寸（{@link #open} 建 inventory 用；holder 判定不依赖尺寸）。 */
     public static final int GUI_SIZE = 54;
 
     /** 返回主菜单槽位（写死 = 唯一真相，监听器引用本常量）。 */
@@ -171,8 +170,8 @@ public class DuelChallengeGUI {
             }
         }
 
-        // R-86：menu-open 不在此显式播放 —— SoundManager.onInventoryOpen 会对所有
-        // 插件 GUI（GUIUtils.isPluginGUI 白名单含本 GUI 标题）全局播一次，此处保留会双声。
+        // R-86：menu-open 不在此显式播放 —— SoundManager.onInventoryOpen 对本界面
+        //（holder = GuiViewKey.DUEL_CHALLENGE，GUIUtils.isPluginGUI 纯 holder 判定）全局播一次，此处保留会双声。
         player.openInventory(inv);
     }
 
@@ -203,33 +202,5 @@ public class DuelChallengeGUI {
             item.setItemMeta(meta);
         }
         return item;
-    }
-
-    /**
-     * 判定标题是否为本选择器界面（F6-02 模式，照 {@link ConfirmationGUI#isConfirmGUI}）。
-     *
-     * <p>与 {@link #open} 的标题生成完全同源：按 zh/en 两份配置读
-     * {@code duel.challenge-title}，经相同的 {@code &} 颜色码转换后做<b>完整等值</b>比对
-     * （不用 "对决" 这类宽子串 —— 会与 DuelGUI 的「单词对决」标题互相误伤）。
-     * 配置缺键时两侧同为 {@code getGuiMsg} 的 {@code [?key]} 占位符，比对仍然一致。
-     *
-     * <p><b>R5-6 起仅作迁移期兜底</b>：{@link #open} 已挂 {@link PluginGuiHolder}
-     * （{@link GuiViewKey#DUEL_CHALLENGE}），
-     * {@link com.letslearnenglish.minecraftplugin.listener.DuelChallengeListener} 优先用
-     * holder 判定；本方法只在 holder 未命中（旧界面/异常路径）时被调用，语义保持不变。
-     * holder 生效后「完整标题等值」不再是正确性的必要条件；Wave 2 收尾统一清理迁移期兜底
-     * 时，本方法与 listener 侧的尺寸 54 双重确认可一并删除（本流保留，不做提前删除）。
-     */
-    public static boolean isDuelChallengeTitle(String title) {
-        if (title == null || title.isEmpty()) return false;
-        LetsLearnEnglish plugin = LetsLearnEnglish.getInstance();
-        if (plugin == null || plugin.getConfigManager() == null) return false;
-        for (String lang : new String[] { "zh", "en" }) {
-            String expected = ChatColor.translateAlternateColorCodes('&',
-                    MessageUtil.getGuiMsg(
-                            plugin.getConfigManager().getMessageConfig(lang), "duel.challenge-title"));
-            if (title.equals(expected)) return true;
-        }
-        return false;
     }
 }

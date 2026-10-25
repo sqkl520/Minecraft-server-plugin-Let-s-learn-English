@@ -139,7 +139,7 @@ public class DailyChallengeGUI {
 
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "daily.title"));
-        // R5-3：挂结构身份（holder），标题降为迁移期兜底。
+        // R5-3/R5-16：挂结构身份（holder），holder 是唯一身份，标题仅作显示。
         Inventory inv = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.DAILY_CHALLENGE),
                 GUI_SIZE, title);
 

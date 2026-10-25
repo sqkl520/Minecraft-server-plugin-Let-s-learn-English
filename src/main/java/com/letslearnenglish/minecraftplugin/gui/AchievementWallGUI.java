@@ -30,8 +30,9 @@ import java.util.*;
  *
  * 标题附带计数"成就墙 (n/22)"。R5-4 起 {@code SocialListener} 的身份判定走
  * {@code PluginGuiHolder}（{@link GuiViewKey#ACHIEVEMENT_WALL}），不再解析标题，
- * 计数后缀因此彻底退出判定路径；标题文案本身仍保持「成就墙 / Achievement Wall」
- * 词元（迁移期的标题兜底与 {@code GUIUtils.isPluginGUI} 白名单仍需它）。
+ * 计数后缀因此彻底退出判定路径；R5-14/R5-16 起标题层（标题兜底与
+ * {@code GUIUtils.isPluginGUI} 白名单）已整体删除，标题中保留「成就墙 / Achievement Wall」
+ * 词元仅为文案可读性，不承担任何身份职责。
  */
 public class AchievementWallGUI {
 
@@ -84,8 +85,9 @@ public class AchievementWallGUI {
         }
 
         // 标题计数为可选增强（规划 §2.1）：统计口径 = 墙内可见成就（管理员禁用的不计入，
-        // 与渲染集一致）。R5-4 起点击侧判定走 holder，后缀只是展示；仍保留
-        // 「成就墙 / Achievement Wall」词元供迁移期标题兜底与 GUIUtils 白名单使用。
+        // 与渲染集一致）。R5-4 起点击侧判定走 holder，后缀只是展示；R5-14/R5-16 起标题层
+        // （标题兜底与 GUIUtils 白名单）已整体删除，标题里的「成就墙 / Achievement Wall」
+        // 词元仅为文案可读性，不承担身份职责。
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "achievement-wall.title"))
                 + " (" + unlockedAmongVisible + "/" + visible.size() + ")";
