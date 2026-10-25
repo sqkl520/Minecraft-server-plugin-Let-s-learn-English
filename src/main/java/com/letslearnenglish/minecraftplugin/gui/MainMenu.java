@@ -2,6 +2,8 @@ package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -83,7 +85,11 @@ public class MainMenu {
                     + Arrays.toString(menuSlots) + " — buttons may overlap.");
         }
 
-        Inventory menu = Bukkit.createInventory(null, size, title);
+        // R5-2：挂 holder —— 主菜单尺寸随 gui.menu-size 变化（27/36/45/54），
+        // 故 MAIN_MENU 的 GuiViewKey.size() 为 -1（不参与尺寸判定）；holder 只回答
+        // 「是本菜单」，点击侧 MainMenuListener 再自行核对上半区 + rawSlot 范围。
+        Inventory menu = Bukkit.createInventory(
+                PluginGuiHolder.of(GuiViewKey.MAIN_MENU), size, title);
 
         for (int i = 0; i < size; i++) {
             menu.setItem(i, createMenuItem(Material.GRAY_STAINED_GLASS_PANE, " ", ""));

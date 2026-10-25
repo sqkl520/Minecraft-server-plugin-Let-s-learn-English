@@ -6,6 +6,9 @@ import com.letslearnenglish.minecraftplugin.core.word.AnswerChecker;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordLearningManager;
 import com.letslearnenglish.minecraftplugin.core.word.WordModes;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiIdentity;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -133,7 +136,10 @@ public class WordLearningGUI {
     public void open(Player player, String difficulty, String mode) {
         String title = buildTitle(player, difficulty);
 
-        Inventory inv = Bukkit.createInventory(null, MENU_SIZE, title);
+        // R5-1：挂结构身份 holder（无 payload —— 难度只活在标题里，无人读取）。
+        // 与下方 refresh() 的闸门必须同批改动：只改一侧会让选择题点选后界面永不刷新。
+        Inventory inv = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.WORD_LEARNING),
+                MENU_SIZE, title);
         buildInventory(inv, player);
         player.openInventory(inv);
     }
@@ -141,11 +147,17 @@ public class WordLearningGUI {
     /**
      * 就地重画"当前已打开"的单词学习界面（choice 点选作答后连续出下一题用，不关界面）。
      *
-     * <p>闸门：玩家在线 / 会话仍在 / 顶栏尺寸是本菜单的 27 格 / 标题是单词学习标题
-     * （与点击归属判定同一条 contains 规则）—— 任一不满足就什么都不做，避免把
-     * 玩家正开着的别的界面（主菜单、结算页等）当成单词学习界面重画。
+     * <p>闸门：玩家在线 / 会话仍在 / 顶栏尺寸是本菜单的 27 格 / <b>身份</b>是单词学习界面
+     * （{@link GuiIdentity#resolve(org.bukkit.inventory.InventoryView, String)}：holder 优先、标题兜底，与
+     * {@code WordLearningListener} 的点击归属判定同一条规则）—— 任一不满足就什么都不做，
+     * 避免把玩家正开着的别的界面（主菜单、结算页等）当成单词学习界面重画。
      * 重画不触发 {@code InventoryCloseEvent}，所以不会顺带启动倒计时
      * （倒计时仍只由"关界面 / 点开始"按既有设计触发）。
+     *
+     * <p><b>R5-1 迁移红线</b>：本闸门与 {@link #open} 里的 holder 挂载是<b>同一批</b>
+     * 改动。只把这里换成 holder 而 {@code open} 仍传 null → 界面永不刷新，玩家点选项
+     * 后被跨题校验丢弃，表现为"选择题点了没反应"；只改 {@code open} 不改这里 → 标题
+     * 兜底仍能工作，属于安全的一侧。故两处必须一起改、一起回滚。
      *
      * @param player 目标玩家（必须在主线程调用）
      */
@@ -163,11 +175,10 @@ public class WordLearningGUI {
         if (top == null || top.getSize() != MENU_SIZE) {
             return;
         }
-        // 标题闸：与 WordLearningListener 判定点击归属用的是同一条 contains 规则
-        // （标题由本类 createInventory 写入，中英各一条 —— 已由点击路径长期验证）。
-        // 只重画本菜单，绝不碰玩家开着的别的 27 格界面。
-        String title = view.getTitle();
-        if (title == null || (!title.contains("Word Learning") && !title.contains("单词学习"))) {
+        // 身份闸（R5-1）：holder 优先、标题兜底。只重画本菜单，绝不碰玩家开着的别的
+        // 27 格界面；标题兜底保证「旧界面 / holder 未挂」时行为与迁移前逐字一致。
+        GuiViewKey key = GuiIdentity.resolve(view, view.getTitle());
+        if (key != GuiViewKey.WORD_LEARNING) {
             return;
         }
         buildInventory(top, player);

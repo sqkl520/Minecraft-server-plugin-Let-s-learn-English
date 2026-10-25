@@ -4,6 +4,7 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.social.SocialManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import com.letslearnenglish.minecraftplugin.data.repository.AchievementRepository;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.title.Title;
@@ -14,15 +15,10 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 
 import java.io.File;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.logging.Level;
 
 /**
  * Achievement Manager
@@ -38,6 +34,8 @@ public class AchievementManager {
 
     private final LetsLearnEnglish plugin;
     private final PlayerDataStore playerDataStore;
+    /** 成就表持久化（原 4 处裸 JDBC 已搬入；本类保留缓存、判定与通知）。 */
+    private final AchievementRepository achievementRepository;
     private final Map<UUID, Set<String>> unlockedCache;
     /**
      * PF-ACH-09：并行"解锁时间"缓存（achievement_id → unlocked_at 毫秒）。
@@ -53,6 +51,8 @@ public class AchievementManager {
     public AchievementManager(LetsLearnEnglish plugin, PlayerDataStore playerDataStore) {
         this.plugin = plugin;
         this.playerDataStore = playerDataStore;
+        this.achievementRepository = new AchievementRepository(
+                plugin.getDatabaseManager(), plugin.getLogger());
         this.unlockedCache = new ConcurrentHashMap<>();
         this.unlockedAtCache = new ConcurrentHashMap<>();
     }
@@ -76,23 +76,11 @@ public class AchievementManager {
         // PF-ACH-09：追加 unlocked_at 列——写入并行缓存 unlockedAtCache（不改
         // unlockedCache 的类型与语义，三个消费点零改动）。
         Map<String, Long> unlockedAt = new ConcurrentHashMap<>();
-        String sql = "SELECT achievement_id, unlocked_at FROM "
-                + plugin.getDatabaseManager().getTablePrefix() + "achievements WHERE uuid = ?";
-        Connection conn = plugin.getDatabaseManager().getConnection();
-        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    String id = rs.getString("achievement_id");
-                    unlocked.add(id);
-                    unlockedAt.put(id, rs.getLong("unlocked_at"));
-                }
-            }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to load achievements for " + playerId, e);
-        }
+        // 持久化细节（SQL / 表前缀 / 连接锁 / 失败降级）已搬入 AchievementRepository；
+        // 读失败时返回空 Map（非 null），与搬迁前"空 Set + 空 Map"等价。
+        for (Map.Entry<String, Long> e : achievementRepository.findUnlocked(playerId).entrySet()) {
+            unlocked.add(e.getKey());
+            unlockedAt.put(e.getKey(), e.getValue());
         }
         unlockedCache.put(playerId, unlocked);
         unlockedAtCache.put(playerId, unlockedAt);
@@ -208,27 +196,9 @@ public class AchievementManager {
         unlockedAtCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>())
                 .put(achievement.getId(), unlockedAt);
 
-        String sql = "INSERT OR REPLACE INTO "
-                + plugin.getDatabaseManager().getTablePrefix()
-                + "achievements (uuid, achievement_id, unlocked_at) VALUES (?, ?, ?)";
-        if (!plugin.getDatabaseManager().isSQLite()) {
-            sql = "INSERT INTO " + plugin.getDatabaseManager().getTablePrefix()
-                    + "achievements (uuid, achievement_id, unlocked_at) VALUES (?, ?, ?) "
-                    + "ON DUPLICATE KEY UPDATE unlocked_at=VALUES(unlocked_at)";
-        }
-
-        Connection conn = plugin.getDatabaseManager().getConnection();
-        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            stmt.setString(2, achievement.getId());
-            stmt.setLong(3, unlockedAt);
-            stmt.executeUpdate();
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to save achievement " + achievement.getId() + " for " + playerId, e);
-        }
-        }
+        // 写库（方言分叉 / 表前缀 / 连接锁 / 失败只记 WARNING）已搬入 AchievementRepository：
+        // 写失败不抛出，内存态保留，解锁链与通知照常继续（与搬迁前一致）。
+        achievementRepository.upsertUnlock(playerId, achievement.getId(), unlockedAt);
 
         // Wave 2 域 4（广场社交，plan-social §3.6）：新解锁 → 产生/合并一条
         // ACHIEVEMENT 动态。已解锁重复调用与不合格解锁均在上方短路，到不了这里；
@@ -505,12 +475,11 @@ public class AchievementManager {
     /**
      * 取玩家最近 40 天的会话日列表（R-79：LIMIT 40 = 判定窗口 30 天 + 10 天裕量，
      * 值为最新行倒序；UNIQUE(uuid, session_date) 保证一天至多一行）。
-     * SQL 异常返回空集（连续计数为 0，与旧 checkDailyStreak 的静默 return 等价）。
+     * SQL 异常时返回"已读到的部分"（首次失败即空集，连续计数为 0，与旧
+     * checkDailyStreak 的静默 return 等价）；降级与告警在仓储内完成。
      */
     private Set<String> fetchSessionDays(UUID playerId) {
-        return fetchDaySet(playerId,
-                "SELECT session_date FROM " + plugin.getDatabaseManager().getTablePrefix()
-                        + "player_sessions WHERE uuid = ? ORDER BY session_date DESC LIMIT 40");
+        return fetchDaySet(playerId, achievementRepository.sessionDaysSql());
     }
 
     /**
@@ -518,28 +487,13 @@ public class AchievementManager {
      * （review_words 列由 S-A 流落盘：recordSession 当 mode=review 时累加 correctCount）。
      */
     private Set<String> fetchReviewDays(UUID playerId) {
-        return fetchDaySet(playerId,
-                "SELECT session_date FROM " + plugin.getDatabaseManager().getTablePrefix()
-                        + "player_sessions WHERE uuid = ? AND review_words > 0 "
-                        + "ORDER BY session_date DESC LIMIT 40");
+        return fetchDaySet(playerId, achievementRepository.reviewDaysSql());
     }
 
     private Set<String> fetchDaySet(UUID playerId, String daySql) {
-        Set<String> days = new LinkedHashSet<>();
-        Connection conn = plugin.getDatabaseManager().getConnection();
-        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
-        try (PreparedStatement stmt = conn.prepareStatement(daySql)) {
-            stmt.setString(1, playerId.toString());
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    days.add(rs.getString("session_date"));
-                }
-            }
-        } catch (SQLException e) {
-            return days;
-        }
-        }
-        return days;
+        // 顺序集语义（LinkedHashSet，SQL 的 DESC 序）在调用方保持；仓储只返回 List。
+        // 读失败时仓储返回"已读到的部分"（可能为空），与原"静默返回半截数据"等价。
+        return new LinkedHashSet<>(achievementRepository.findRecentDays(playerId, daySql));
     }
 
     /**
@@ -560,22 +514,9 @@ public class AchievementManager {
         return consecutive;
     }
 
-    /** Phase 3 N6：不同学习日总数（SQL 异常返回 0）。 */
+    /** Phase 3 N6：不同学习日总数（SQL 异常返回 0；失败降级在仓储内）。 */
     private int countDistinctStudyDays(UUID playerId) {
-        String sql = "SELECT COUNT(DISTINCT session_date) FROM "
-                + plugin.getDatabaseManager().getTablePrefix()
-                + "player_sessions WHERE uuid = ?";
-        Connection conn = plugin.getDatabaseManager().getConnection();
-        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next() ? rs.getInt(1) : 0;
-            }
-        } catch (SQLException e) {
-            return 0;
-        }
-        }
+        return achievementRepository.countDistinctStudyDays(playerId);
     }
 
     /**

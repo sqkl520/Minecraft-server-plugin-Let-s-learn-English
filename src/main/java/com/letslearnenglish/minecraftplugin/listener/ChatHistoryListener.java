@@ -4,12 +4,15 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.gui.ChatHistoryGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiIdentity;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataContainer;
@@ -33,24 +36,30 @@ public class ChatHistoryListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        String title = event.getView().getTitle();
-
-        if (!ChatHistoryGUI.isChatHistoryGUI(title)) {
-            return;
-        }
-
-        // R-01 补漏：只处理上半区（Top 容器）点击。玩家背包（下半区）直接 return
-        // 且不 cancel，玩家开着 GUI 也能正常整理背包。
+        // ── R5-5 判定顺序（四条铁律，顺序不可调整）────────────────────────────
+        // 1) 先判窗外：getClickedInventory() 只在点到界面之外时为 null。
         if (event.getClickedInventory() == null) return;
+
+        // 2) 再判下半区（玩家背包）：rawSlot 落在 top 之外一律不处理、也不 cancel，
+        //    玩家开着 GUI 仍能正常整理背包。
         int topSize = event.getView().getTopInventory().getSize();
         int rawSlot = event.getRawSlot();
         if (rawSlot < 0 || rawSlot >= topSize) return;
 
+        // 3) 然后才做身份判定：holder 优先（结构身份），未命中才回落标题（迁移期兜底）。
+        GuiViewKey key = resolveOwnedView(event.getView());
+        if (key == null) return;
+
+        // R5-5 切换点插桩：holder 与标题说法不一致时暴露漂移（去重 WARNING），不改变行为。
+        GuiIdentity.logMismatch(plugin, event.getView());
+
+        // 4) 只有「本类辖管界面的上半区点击」才 cancel —— 绝不允许只判 holder 就 cancel
+        //    （event.getInventory() 恒为上半区，与玩家实际点击的位置无关）。
         event.setCancelled(true);
         if (event.getCurrentItem() == null) return;
         if (!(event.getWhoClicked() instanceof Player player)) return;
 
-        handleClick(player, event.getSlot(), event.getCurrentItem(), title);
+        handleClick(player, key, event.getSlot(), event.getCurrentItem());
     }
 
     /**
@@ -58,16 +67,12 @@ public class ChatHistoryListener implements Listener {
      *
      * 拖拽是独立事件，点击的 setCancelled(true) 拦不住它 —— 不拦的话
      * AI 对话历史/会话详情页的会话条目（BOOK）/导航箭头/页码标记可被拖进玩家背包。
-     * 标题判定与 {@link #onInventoryClick} 入口同源（ChatHistoryGUI.isChatHistoryGUI）；
+     * 身份判定与 {@link #onInventoryClick} 入口同源（{@link #resolveOwnedView}）；
      * 只在拖拽触及界面上半部分时取消，玩家整理自己背包不受影响。
      */
     @EventHandler
     public void onInventoryDrag(InventoryDragEvent event) {
-        String title = event.getView().getTitle();
-
-        if (!ChatHistoryGUI.isChatHistoryGUI(title)) {
-            return;
-        }
+        if (resolveOwnedView(event.getView()) == null) return;
 
         int topSize = event.getView().getTopInventory().getSize();
         for (int rawSlot : event.getRawSlots()) {
@@ -78,15 +83,47 @@ public class ChatHistoryListener implements Listener {
         }
     }
 
-    private void handleClick(Player player, int slot, ItemStack item, String title) {
-        boolean isSessionView = title.contains("Conversation Details")
-                || title.contains("对话详情");
-        boolean isListView = title.contains("AI Chat History")
-                || title.contains("AI 对话历史");
+    /**
+     * R5-5：解析「本监听器负责的界面」—— holder 优先，标题兜底。
+     *
+     * <p>两个屏幕同为 54 格、标题相近（"AI 对话历史" / "对话详情"），
+     * holder 给出的是 {@link GuiViewKey#CHAT_HISTORY_LIST} 或
+     * {@link GuiViewKey#CHAT_HISTORY_SESSION}；holder 未命中（迁移期旧 inventory、
+     * 或 mock 环境）才回落 {@link ChatHistoryGUI#isChatHistoryGUI(String)}，
+     * 并按与改造前 if/else 链同序（先详情、后列表）把标题翻译成 key。
+     *
+     * @param view 事件界面，可为 null
+     * @return 本类辖管的 key；不归本类管时返回 null
+     */
+    private GuiViewKey resolveOwnedView(InventoryView view) {
+        GuiViewKey byHolder = GuiIdentity.resolve(view);
+        if (byHolder == GuiViewKey.CHAT_HISTORY_LIST
+                || byHolder == GuiViewKey.CHAT_HISTORY_SESSION) {
+            return byHolder;
+        }
+        // holder 明确说是别的屏幕 —— 不归本类管；null 才进入标题兜底。
+        if (byHolder != null) return null;
 
-        if (isSessionView) {
+        // ── 以下为迁移期兜底（holder 未命中）──
+        String title = view == null ? null : view.getTitle();
+        if (title == null) return null;
+        if (!ChatHistoryGUI.isChatHistoryGUI(title)) return null;
+        // 与改造前 handleClick 的两个布尔量逐字同序：先详情、再列表。
+        // isChatHistoryGUI 的四个关键词正好是两个屏幕关键词的并集，故两条 contains
+        // 必有一条命中；末尾的 return null 只是防御（映射表若被改动时不误分派）。
+        if (title.contains("Conversation Details") || title.contains("对话详情")) {
+            return GuiViewKey.CHAT_HISTORY_SESSION;
+        }
+        if (title.contains("AI Chat History") || title.contains("AI 对话历史")) {
+            return GuiViewKey.CHAT_HISTORY_LIST;
+        }
+        return null;
+    }
+
+    private void handleClick(Player player, GuiViewKey key, int slot, ItemStack item) {
+        if (key == GuiViewKey.CHAT_HISTORY_SESSION) {
             handleSessionViewClick(player, slot);
-        } else if (isListView) {
+        } else if (key == GuiViewKey.CHAT_HISTORY_LIST) {
             handleListViewClick(player, slot, item);
         }
     }

@@ -1,6 +1,8 @@
 package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -29,9 +31,11 @@ import java.util.List;
  * （「选择对决对手」/ "Pick a Duel Opponent"），<b>绝不含</b> "单词对决"/"Word Duel"
  * 子串 —— {@link DuelGUI#isDuelGUITitle} 做前缀比对 + 关键词兜底，含子串的标题会被
  * DuelGUIListener 误判为对决界面（点 slot 22 会被当成退出对决）。
- * 识别侧（{@link com.letslearnenglish.minecraftplugin.listener.DuelChallengeListener}）
- * 用 <b>完整标题等值</b>比对（{@link #isDuelChallengeTitle}，照
- * {@link ConfirmationGUI#isConfirmGUI} 的等值模式）+ 尺寸 54 双重确认。
+ * <b>R5-6 起该红线不再依赖文案：</b>本界面挂 {@link PluginGuiHolder}
+ * （{@link GuiViewKey#DUEL_CHALLENGE}），识别侧（
+ * {@link com.letslearnenglish.minecraftplugin.listener.DuelChallengeListener}）改由 holder
+ * 判定，标题等值 + 尺寸 54 的双重确认降级为「holder 未命中」时的迁移期兜底
+ * （原等值比对见 {@link #isDuelChallengeTitle}）。
  *
  * <p>布局（54 格）：
  * <pre>
@@ -110,7 +114,8 @@ public class DuelChallengeGUI {
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "duel.challenge-title"));
 
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        Inventory inv = Bukkit.createInventory(
+                PluginGuiHolder.of(GuiViewKey.DUEL_CHALLENGE), GUI_SIZE, title);
 
         // 先用灰色玻璃板铺满全部槽位，防止玩家把物品拖进空槽
         // （头像/说明物/返回键随后覆盖，填充顺序：占位 -> 说明物/返回键 -> 头像）
@@ -207,6 +212,13 @@ public class DuelChallengeGUI {
      * {@code duel.challenge-title}，经相同的 {@code &} 颜色码转换后做<b>完整等值</b>比对
      * （不用 "对决" 这类宽子串 —— 会与 DuelGUI 的「单词对决」标题互相误伤）。
      * 配置缺键时两侧同为 {@code getGuiMsg} 的 {@code [?key]} 占位符，比对仍然一致。
+     *
+     * <p><b>R5-6 起仅作迁移期兜底</b>：{@link #open} 已挂 {@link PluginGuiHolder}
+     * （{@link GuiViewKey#DUEL_CHALLENGE}），
+     * {@link com.letslearnenglish.minecraftplugin.listener.DuelChallengeListener} 优先用
+     * holder 判定；本方法只在 holder 未命中（旧界面/异常路径）时被调用，语义保持不变。
+     * holder 生效后「完整标题等值」不再是正确性的必要条件；Wave 2 收尾统一清理迁移期兜底
+     * 时，本方法与 listener 侧的尺寸 54 双重确认可一并删除（本流保留，不做提前删除）。
      */
     public static boolean isDuelChallengeTitle(String title) {
         if (title == null || title.isEmpty()) return false;

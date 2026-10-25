@@ -1,7 +1,9 @@
 package com.letslearnenglish.minecraftplugin.gui;
 
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiIdentity;
 import org.bukkit.Material;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
@@ -10,6 +12,20 @@ import java.util.regex.Pattern;
 
 /**
  * GUI Utility methods shared across listener classes.
+ *
+ * <p>R5-0 起「这个界面是不是插件自有 GUI」有两个入口，调用约定如下：
+ * <ul>
+ *   <li>{@link #isPluginGUI(InventoryView)} —— <b>新代码一律用这个</b>：先看
+ *       {@code InventoryHolder} 的结构身份（{@link GuiIdentity#resolve(InventoryView)}），
+ *       只有 holder 认不出时才回落标题白名单。</li>
+ *   <li>{@link #isPluginGUI(String)} —— <b>仅作 Wave 2 收尾前的兜底</b>：纯标题白名单，
+ *       保留原样只为了「尚未挂 {@code PluginGuiHolder} 的 GUI 仍能被认领」。
+ *       Wave 2 全部 GUI 挂上 holder、所有 listener 切换判定后，本方法连同白名单一起删除。</li>
+ * </ul>
+ *
+ * <p>注意：本类的 {@code String} 重载与 {@code GuiIdentity.resolveByTitle} 是<b>两份</b>
+ * 判定（前者返回 boolean、后者返回 key），R5-0 刻意不合并 —— 合并等于改变命中语义，
+ * 属于行为变更。迁移期两者若出现分歧，{@code GuiIdentity.logMismatch} 会告警。
  */
 public class GUIUtils {
 
@@ -71,9 +87,35 @@ public class GUIUtils {
     }
 
     /**
+     * R5-0：判断给定界面是否属于插件自有 GUI —— <b>holder 优先、标题兜底</b>。
+     *
+     * <p>先读 top inventory 的 {@code InventoryHolder}：只有它 {@code instanceof}
+     * {@code PluginGuiHolder} 才算命中（玩家自己的背包 holder 是 {@code Player}、
+     * 原版容器的 holder 也不是本插件的，所以不会误命中）。holder 认不出时才回落
+     * {@link #isPluginGUI(String)} 的标题白名单，保证「已挂 holder 的界面」不再依赖文案、
+     * 「尚未挂 holder 的界面」行为与迁移前逐字一致。
+     *
+     * <p>为什么用 {@code instanceof} 而不是 {@code getHolder() != null}：Bukkit 里所有
+     * 容器/玩家背包都有非 null holder，判 null 会把玩家背包也当成插件 GUI。
+     *
+     * @param view 事件或玩家当前界面，可为 null（null 返回 false）
+     * @return true 表示插件自有 GUI
+     */
+    @SuppressWarnings("deprecation") // 兜底调用本类的旧 String 重载（与其同批删除）
+    public static boolean isPluginGUI(InventoryView view) {
+        if (view == null) return false;
+        if (GuiIdentity.resolve(view) != null) return true;
+        return isPluginGUI(view.getTitle());
+    }
+
+    /**
      * Check if the given inventory title belongs to a plugin GUI.
      * Used by SoundManager and event listeners to identify plugin-owned inventories.
+     *
+     * @deprecated R5-0：新代码请用 {@link #isPluginGUI(InventoryView)}（holder 优先）。
+     *             本重载仅作 Wave 2 收尾前的标题兜底，届时连同白名单一起删除。
      */
+    @Deprecated
     public static boolean isPluginGUI(String title) {
         if (title == null) return false;
         // 每条都必须与 messages/zh.yml + messages/en.yml 里实际的 GUI 标题对得上。

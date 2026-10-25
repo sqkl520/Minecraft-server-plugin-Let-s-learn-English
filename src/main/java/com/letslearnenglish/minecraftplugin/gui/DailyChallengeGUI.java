@@ -4,6 +4,8 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager.ChallengeProgress;
 import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager.ChallengeType;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -137,7 +139,9 @@ public class DailyChallengeGUI {
 
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "daily.title"));
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-3：挂结构身份（holder），标题降为迁移期兜底。
+        Inventory inv = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.DAILY_CHALLENGE),
+                GUI_SIZE, title);
 
         // MC-5：取前 N 个（N ≤ 4 = CHALLENGE_SLOTS.length，分配侧已按配置/可用数封顶）。
         for (int i = 0; i < Math.min(challenges.size(), CHALLENGE_SLOTS.length); i++) {

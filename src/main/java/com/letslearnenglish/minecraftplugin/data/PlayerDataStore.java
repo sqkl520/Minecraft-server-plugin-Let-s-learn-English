@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 
 import com.letslearnenglish.minecraftplugin.data.DifficultWord;
@@ -78,6 +79,86 @@ public class PlayerDataStore {
     // （绝对值 UPSERT，同 R-28 pattern），让 WRONG_BOOK_CLEARED 成就计数跨重启不丢。
     private final Map<UUID, Integer> wrongBookClearedCache;
 
+    // ===== R7-A：脏标记（增量落库）=====
+    // 语义：dirtyPlayers / dirtyWords 只记录"自上次成功落盘后有哪些玩家、哪些词被改过"，
+    // 用来把周期全量保存（遍历整个 wordMasteryCache，7 列全写）降成"只写变过的词"。
+    //
+    // 不变式（违反即数据丢失且无报错）：
+    //   ① 任何写入 word_progress 相关 5 个 map（mastery / correct / incorrect /
+    //      lastReviewTime / reviewCount）或 player_data 统计的公开方法都必须调用
+    //      markDirty / markWordDirty 之一；
+    //   ② 标记只在 commit 成功之后清理，失败保留标记供下轮重试；
+    //   ③ 全量路径（savePlayerData / unloadPlayerData / onDisable）是兜底，永远保留。
+    private final Set<UUID> dirtyPlayers = ConcurrentHashMap.newKeySet();
+    /** 只记"哪些词脏"；值为上限型集合（ConcurrentHashMap.newKeySet）。 */
+    private final Map<UUID, Set<String>> dirtyWords = new ConcurrentHashMap<>();
+
+    /**
+     * 全量兜底周期：同一玩家每 12 次增量保存后强制走一次全量。
+     *
+     * <p>为什么用计数器而不是"每小时"：本类没有常驻时钟源，按时间需要再存一个
+     * per-player 时间戳并在每次 saveDirty 里比较 {@code System.currentTimeMillis()}
+     * ——多一个可变字段、且"服务器空闲一小时"时会白跑全量。计数器无状态、可复现，
+     * 且在默认 5 分钟保存间隔下 = 约 1 小时一次全量，与时间方案等价但更简单。
+     *
+     * <p>为什么计数<b>按玩家</b>而非全局 {@code AtomicInteger}：全局计数器时
+     * 每 12 次调用只有 1 个玩家走全量，在线人数越多、单个玩家轮到全量的间隔越长
+     * （100 人时约 8 小时），兜底强度随人数稀释；按玩家计数则恒定 ≈ 1 小时/人。
+     *
+     * <p>兜底的意义：即便某个写入点漏标 markDirty（本流最高风险），最坏也只丢
+     * {@value #FULL_SAVE_EVERY_N_DIRTY_SAVES}× 保存间隔（默认约 1 小时）内的这部分数据，
+     * 而不是"永不落库"。
+     *
+     * <p><b>R7-C（P1-2）注意</b>：本常量只管"有写入的轮次"。只对活跃轮次计数的兜底对
+     * 漏标玩家结构性不可达（漏标 = 没有标记 = 与空闲不可区分），因此另设
+     * {@link #IDLE_FULL_SAVE_EVERY_N_ROUNDS} 覆盖空转轮次。
+     */
+    private static final int FULL_SAVE_EVERY_N_DIRTY_SAVES = 12;
+
+    /**
+     * R7-C（P1-2）：空闲兜底周期 —— 同一玩家连续 36 个保存轮次<b>没有任何脏标记</b>
+     * 时，强制走一次全量。
+     *
+     * <p>为什么必须有这一档：漏标玩家（某个写入点忘记 markDirty）在类内看起来就是
+     * "完全空闲的玩家"——两者的可观察状态一模一样。任何只在"有写入的轮次"计数的兜底，
+     * 对漏标玩家都<b>永不触发</b>，这正是 R7-A 兜底的原始缺陷（计数器在第一道
+     * {@code if (!hasWords && !hasStats) return;} 门后，漏标玩家永远过不了那道门）。
+     *
+     * <p>为什么是 36 而不是 12：如果空转轮也按 12 计，完全空闲的玩家会被每小时
+     * 全量重写一遍，本流"空闲玩家不再被全量重写"的收益就退化成"11/12 轮零 SQL"
+     * （相对改造前仍省约 92%，但把最能省的场景吃掉了）。取 36 = 12 的 3 倍：
+     * <ul>
+     *   <li>空转玩家 36 轮里 35 轮零 SQL（≈ 97% 的轮次不产生任何写）；</li>
+     *   <li>漏标数据的最坏滞后从"永不纠正"收敛到 36 × 保存间隔（默认 5 分钟 → 约 3 小时）。</li>
+     * </ul>
+     * 取值依据："漏标"与"真空闲"不可区分时只能给上界；3 小时对 total_score 这类
+     * 绝对值覆写的统计可接受，且 quit / onDisable / reload 的三处全量仍会兜住下线玩家。
+     * 之所以不再加"疑似漏标"探测：那要求每个写入口自证"我写过但没标脏"，
+     * 等于把兜底建在漏标者身上——逻辑上不成立。
+     */
+    private static final int IDLE_FULL_SAVE_EVERY_N_ROUNDS = 36;
+
+    /** 每个玩家"有写入"的增量保存次数（触发 {@link #FULL_SAVE_EVERY_N_DIRTY_SAVES}）；随 unload/clearCache 清理。 */
+    private final Map<UUID, Integer> dirtySaveCount = new ConcurrentHashMap<>();
+
+    /**
+     * R7-C（P1-2）：每个玩家"连续空转"的保存轮次（触发 {@link #IDLE_FULL_SAVE_EVERY_N_ROUNDS}）。
+     * 有写入的轮次会把它清零，因此它衡量的是"连续空闲了多久"，不是"总共空闲了多少轮"。
+     * 随 unload/clearCache 清理。
+     */
+    private final Map<UUID, Integer> idleSaveCount = new ConcurrentHashMap<>();
+
+    /**
+     * 每次 {@link #markDirty}/{@link #markWordDirty} 递增的写入序号（按玩家）。
+     *
+     * <p>为什么需要它：保存线程在循环里逐词读值，主线程可能在"读完某词"与"commit"之间
+     * 又改同一个词。此时 {@code dirtyWords} 里的 add 是 no-op（词已在集合里），commit 后
+     * 若照常清标记，那次更新的值就丢了 —— 而且要等到 12 轮后的全量兜底才会被纠正。
+     * 因此：保存开始时记下序号，commit 后只有当序号<b>没有变化</b>才清标记；
+     * 有变化就整批保留，下一轮重写（冗余写一次，绝不多丢一次）。
+     */
+    private final Map<UUID, AtomicLong> playerWriteSeq = new ConcurrentHashMap<>();
+
     public PlayerDataStore(LetsLearnEnglish plugin, DatabaseManager databaseManager) {
         this.plugin = plugin;
         this.databaseManager = databaseManager;
@@ -97,6 +178,70 @@ public class PlayerDataStore {
         this.todayAiRoundCache = new ConcurrentHashMap<>();
         this.conversationCountCache = new ConcurrentHashMap<>();
         this.wrongBookClearedCache = new ConcurrentHashMap<>();
+    }
+
+    // ===== R7-A：脏标记写入辅助 =====
+
+    /**
+     * 标记"该玩家的 player_data 行（统计/玩家名）需要落盘"。
+     *
+     * <p>必须在修改 {@code playerStatsCache} / {@code playerNameCache} 之后调用。
+     * 幂等、无锁、O(1)：{@code ConcurrentHashMap.newKeySet()} 的 add 是线程安全的。
+     *
+     * <p>R7-C（P2-2）：顺序同 {@link #markWordDirty} —— 先 add 再 bump 序号，
+     * 建立"看到新序号 ⇒ 必然已看到标记"的不变式，防止保存线程按"无新写入"误清标记。
+     */
+    private void markDirty(UUID playerId) {
+        if (playerId != null) {
+            dirtyPlayers.add(playerId);
+            bumpWriteSeq(playerId); // R7-C（P2-2）：必须最后
+        }
+    }
+
+    /**
+     * 标记"该玩家的某个词需要落盘"（word_progress 行），同时标记该玩家的 player_data 行。
+     *
+     * <p>必须在修改 mastery / correct / incorrect / lastReviewTime / reviewCount
+     * 任一 map 的该词条目之后调用。词统一走 {@code toLowerCase()} 归一 —— 与
+     * {@link #saveDirty} 的写入键同源（缓存里的键本身都已小写）。
+     *
+     * <p>为什么要同时 markDirty：增量保存若只写 word_progress 而漏写 player_data，
+     * total_words_learned / total_sessions / total_score 就永远不会更新。
+     *
+     * <p><b>R7-C（P2-2）：标记顺序必须是"先 add、最后 bump 序号"</b>。
+     * 目的是让"序号前进"成为"标记已就位"的充分条件：任何在取 seq 时看到新序号的保存线程，
+     * 必然也已经能看到这次的标记。若反过来先 bump 再 add，保存线程可能读到已递增的序号、
+     * 却读到尚未包含该词的集合，于是按"窗口内无新写入"清掉整包标记，而那条写入从未落库
+     * （要等下次全量或 quit 才补上）。先 add 后 bump 消除了这个方向。
+     *
+     * <p>但顺序本身<b>不足以</b>封死全部窗口：同一个缺陷还有一半出在保存侧 —— 若增量路径
+     * 在参数求值时就把 {@code dirtyWords} 拷贝成 ArrayList，那么"拷贝完成 → 取 seq"之间
+     * 新增的词仍然会落在拷贝之外，却因 seq 已包含它们而被误判成已保存。那一半在
+     * {@link #saveDirty} 改传活引用后封死，详见 {@link #savePlayerDataInternal}。
+     *
+     * <p>残余窗口：orphan add（add 落进已被 clearDirty 摘掉的集合）仍是纳秒级，由空闲兜底
+     * （{@link #IDLE_FULL_SAVE_EVERY_N_ROUNDS}）与 quit 全量覆盖；这类窗口只造成
+     * "多保留一轮"，不丢数据。
+     */
+    private void markWordDirty(UUID playerId, String word) {
+        if (playerId == null || word == null) {
+            return;
+        }
+        dirtyPlayers.add(playerId);
+        dirtyWords.computeIfAbsent(playerId, k -> ConcurrentHashMap.newKeySet())
+                .add(word.toLowerCase());
+        bumpWriteSeq(playerId); // R7-C（P2-2）：必须最后 —— 让"序号前进"蕴含"标记已就位"
+    }
+
+    /** 写入序号 +1；{@link #clearDirty} 用"保存前后序号是否相同"判断保存窗口内是否有新写入。 */
+    private void bumpWriteSeq(UUID playerId) {
+        playerWriteSeq.computeIfAbsent(playerId, k -> new AtomicLong()).incrementAndGet();
+    }
+
+    /** 读取当前写入序号（0 = 从未写过）。 */
+    private long currentWriteSeq(UUID playerId) {
+        AtomicLong seq = playerWriteSeq.get(playerId);
+        return seq != null ? seq.get() : 0L;
     }
 
     /**
@@ -389,8 +534,17 @@ public class PlayerDataStore {
 
     /**
      * Load a player's data from the database into cache.
+     *
+     * <p>R7-A 防御：本方法会<b>无条件覆盖</b> 5 个 word_progress map 与 playerStatsCache。
+     * 若该玩家此刻还有未落盘的脏数据，覆盖就等于把内存里的最新值直接丢掉
+     * （而脏标记随后会被下一次保存"兑现"成 DB 的旧值 —— 静默丢数据）。
+     * 因此进入覆盖前，若发现有脏标记，先全量落盘一次，保证"读回来的不旧于内存"。
+     * 正常路径（join 首次加载 / reload 清空后重载）此时没有脏标记，不会多一次写。
      */
     public void loadPlayerData(UUID playerId) {
+        if (dirtyPlayers.contains(playerId) || dirtyWords.containsKey(playerId)) {
+            savePlayerData(playerId);
+        }
         String tablePrefix = databaseManager.getTablePrefix();
         String sql = "SELECT word, mastery, correct_count, incorrect_count, last_review_time, review_count FROM "
                 + tablePrefix + "word_progress WHERE uuid = ?";
@@ -471,6 +625,9 @@ public class PlayerDataStore {
             plugin.getLogger().log(Level.WARNING, "Failed to load player stats: " + playerId, e);
         }
         }
+        // R7-A：先挂脏标记钩子再入缓存 —— 入缓存后任何线程都可能立刻拿到引用去改，
+        // 钩子必须已就位（挂接本身不标脏，"从 DB 读入"不需要落盘）。
+        stats.setDirtyHook(() -> markDirty(playerId));
         playerStatsCache.put(playerId, stats);
         conversationCountCache.put(playerId, conversationCount); // R-28
         wrongBookClearedCache.put(playerId, wrongBookCleared); // Phase 3 S-A（H11）
@@ -642,58 +799,221 @@ public class PlayerDataStore {
     }
 
     /**
-     * Save a player's data from cache to the database.
-     * Uses UPSERT (INSERT OR REPLACE for SQLite, INSERT...ON DUPLICATE KEY UPDATE for MySQL)
+     * 全量保存：把该玩家在缓存里的<b>全部</b>词（{@code wordMasteryCache}）7 列 UPSERT
+     * 进 {@code word_progress}，再全量写 {@code player_data} 行。
+     *
+     * <p>Uses UPSERT (INSERT OR REPLACE for SQLite, INSERT...ON DUPLICATE KEY UPDATE for MySQL)
      * in a single transaction to eliminate the DELETE+INSERT double-operation.
      *
      * <p>F0-02: 整个事务收进 {@code synchronized (connectionLock)}——setAutoCommit(false)
      * 会改变共享连接的状态，不持锁就会污染其他线程的读写。
+     *
+     * <p><b>R7-A 语义裁定（刻意保持"全量"）</b>：本方法<b>不</b>改成增量。四个既有调用点
+     * 的语义都是"确保落盘"——{@code LetsLearnEnglish:onDisable}（关服）、
+     * {@code HotReloadManager.flushOnlinePlayerData}（reload 前）、
+     * {@link #unloadPlayerData}（quit）——这些窗口之后缓存就被清空/进程就退出，
+     * 任何"只写脏词"的乐观优化一旦漏标（本流最高风险）就永久丢数据。因此：
+     * <ul>
+     *   <li>{@code savePlayerData} = 全量兜底（语义与 R7-A 之前逐字节一致）；</li>
+     *   <li>{@link #saveDirty} = 增量，供<b>周期保存任务</b>使用。</li>
+     * </ul>
+     * 两者共用同一段写库实现（{@link #savePlayerDataInternal}），SQL 字符串由同一个
+     * {@link #buildUpsertSql} / {@link #buildPlayerDataUpsertSql} 生成 —— 不存在
+     * "增量写与全量写两套语义"的分叉。
+     *
+     * <p>提交成功后会清掉该玩家的脏标记（标记已兑现）；失败则<b>保留</b>标记供下轮重试。
      */
     public void savePlayerData(UUID playerId) {
-        Map<String, Double> masteryMap = wordMasteryCache.get(playerId);
-        if (masteryMap == null) {
+        savePlayerDataInternal(playerId, null);
+    }
+
+    /**
+     * R7-A：增量保存 —— 只写 {@link #dirtyWords} 里登记过的词 + {@code player_data} 行。
+     *
+     * <p>供<b>周期保存任务</b>使用（R7-C 已接线：{@code LetsLearnEnglish.startScheduledTasks}
+     * 的 auto-save 定时器调用本方法）。
+     * 不被 {@link #unloadPlayerData} / {@code onDisable} / reload 使用 —— 那三处必须全量。
+     *
+     * <p>行为：
+     * <ol>
+     *   <li>玩家有脏标记 → 计一次"活跃轮次"；每第 {@value #FULL_SAVE_EVERY_N_DIRTY_SAVES}
+     *       次成功增量保存 → 该玩家走一次全量（见 {@link #FULL_SAVE_EVERY_N_DIRTY_SAVES}）；</li>
+     *   <li>玩家完全没有脏标记 → 计一次"空转轮次"，连续 {@value #IDLE_FULL_SAVE_EVERY_N_ROUNDS}
+     *       轮才走一次全量（见 {@link #IDLE_FULL_SAVE_EVERY_N_ROUNDS}）；其余轮次<b>零 SQL</b>；</li>
+     *   <li>否则只 UPSERT 脏词。</li>
+     * </ol>
+     *
+     * <p>R7-C（P1-2）：原实现把"无标记"直接 {@code return}，兜底计数器只在有标记时递增 ——
+     * 但"漏标"的玩家恰恰没有标记，永远走不到计数器，兜底对其结构性不可达。现在空转
+     * 轮次也有独立计数（更长的周期），兜底强度从"永不"恢复到"最多滞后 36 轮"。
+     *
+     * <p>写库失败时不清标记：下一轮周期保存会重试同样的词（幂等 UPSERT），不会丢数据。
+     */
+    public void saveDirty(UUID playerId) {
+        Set<String> words = dirtyWords.get(playerId);
+        boolean hasWords = words != null && !words.isEmpty();
+        boolean hasStats = dirtyPlayers.contains(playerId);
+        if (!hasWords && !hasStats) {
+            // R7-C（P1-2）：空转轮次计数 —— 有写入的轮次会把它清零，所以它衡量的是
+            // "连续空闲了多久"。漏标玩家在这里与真空闲玩家不可区分，只能靠这一档兜底。
+            int idle = idleSaveCount.merge(playerId, 1, Integer::sum);
+            if (idle >= IDLE_FULL_SAVE_EVERY_N_ROUNDS) {
+                idleSaveCount.put(playerId, 0);
+                savePlayerDataInternal(playerId, null);
+            }
             return;
         }
+        idleSaveCount.remove(playerId); // R7-C（P1-2）：本轮回暖，重置空转计数
+        // 按玩家计数（见 FULL_SAVE_EVERY_N_DIRTY_SAVES 的说明）
+        int n = dirtySaveCount.merge(playerId, 1, Integer::sum);
+        if (n % FULL_SAVE_EVERY_N_DIRTY_SAVES == 0) {
+            // 漏标兜底：该玩家全量重写一次
+            savePlayerDataInternal(playerId, null);
+        } else {
+            // hasWords=false（只有 player_data 脏）时传空集合：只写 player_data 行。
+            // R7-C 追补（P2-2）：这里必须传<b>活引用</b> {@code words}，绝不能
+            // {@code new ArrayList<>(words)} —— 参数求值发生在方法体之前，而
+            // {@code seqAtSnapshot} 在方法体第一行才读，拷贝会把"拷贝完成 → 序号采集"
+            // 之间新增的词挡在本次写入之外（详见 savePlayerDataInternal 的窗口说明）。
+            // 活引用由该方法在 seq 采集<b>之后</b>才开始迭代，且 newKeySet() 的迭代是
+            // 弱一致的（不会 CME），因此不需要先拷贝成快照。
+            savePlayerDataInternal(playerId, hasWords ? words : Collections.<String>emptyList());
+        }
+    }
+
+    /**
+     * 保存实现（全量 / 增量共用）。
+     *
+     * @param wordFilter {@code null} = 全量（遍历整个 masteryMap 的 key）；
+     *                   非 null = 只写这些词（增量）。增量路径传的是 {@code dirtyWords}
+     *                   的<b>活引用</b>（弱一致集合），本方法在 {@code seqAtSnapshot}
+     *                   采集<b>之后</b>才第一次迭代它 —— 这是封死 P2-2 窗口的前提，
+     *                   见下方注释，不要改回"外层先拷贝成 ArrayList"。
+     *                   player_data 快照在 {@code connectionLock} 内取（R7-C/P1-3）。
+     */
+    private void savePlayerDataInternal(UUID playerId, Collection<String> wordFilter) {
+        // R7-C（P1-3）：写入序号必须<b>先于</b>任何取值采集。保存线程用"保存前后序号是否
+        // 相同"判断窗口内有没有新写入（见 clearDirty）；若先取值再记序号，取值之后、
+        // 记序号之前的那次写入会被误判成"已包含在快照里"，commit 后标记被清而新值丢失。
+        //
+        // R7-C 追补（P2-2）：本行与下面"第一次迭代 wordFilter"的先后顺序是正确性前提。
+        // 反例（改传活引用之前的真实窗口）：saveDirty 在<b>参数求值</b>时先执行
+        // {@code new ArrayList<>(words)}（t0），随后主线程 markWordDirty(W) 完成 add+bump
+        // 序号 4→5（t1），本方法才读 seqAtSnapshot 得到 <b>5</b>（t2）—— 序号已经包含
+        // 那次写入，但拷贝里没有 W，本次只写下旧词（t3）；commit 后 clearDirty 比较
+        // currentWriteSeq()==5 == seqAtSnapshot==5，判定"窗口内无新写入"而整包清空（t4）。
+        // 结果是 W 的标记被清、数据也从未落库，只能等 12 个活跃轮次 / 36 个空闲轮次的
+        // 全量，或玩家 quit 的 unloadPlayerData 才补上。注意这不是"多保留一轮"，
+        // 而是<b>标记丢失 + 数据滞后</b>。
+        //
+        // 封死方式：增量路径传 newKeySet() 的活引用，本方法在 seq 采集<b>之后</b>才开始
+        // 迭代（弱一致，不会 CME）。于是 seq 之后发生的写入要么被本次迭代看到并写入，
+        // 要么没被看到但序号已变、clearDirty 整包保留 —— 两种分支都不会"清标记却没写值"。
+        final long seqAtSnapshot = currentWriteSeq(playerId);
 
         String tablePrefix = databaseManager.getTablePrefix();
         String upsertSql = buildUpsertSql(tablePrefix);
 
         synchronized (databaseManager.getConnectionLock()) {
         Connection conn = databaseManager.getConnection();
+        // R7-C（P1-3）：<b>所有取值都必须在这里、持锁之后做</b>。
+        // 原实现把 masteryMap 与 player_data 快照都在锁外读，等于在"取值"与"抢锁写库"
+        // 之间留了一个任意长的排队窗口：
+        //   ① player_data 路径：异步保存取完旧快照后排队 → 玩家结算一局并 quit，
+        //      主线程的 savePlayerData 抢到锁先写入新值并清缓存 → 本线程获锁后用旧快照
+        //      覆盖，total_score / total_sessions 永久少一局。这两个值只存在于 player_data，
+        //      下次 join 不会从 word_progress 重建 —— 不可自愈的数据损坏（本次回归）。
+        //   ② word_progress 路径：锁外读到非 null 的 masteryMap（旧引用仍带着词表），
+        //      但 quit 已清空 correct/incorrect/review 四个 map → 循环里 getIntValue 回落 0，
+        //      用"正确 mastery + 全 0 计数"覆盖刚由 quit 全量写好的行。
+        // 进锁后取值的额外好处：masteryMap == null && snap == null 的早退判断（清已下线
+        // 玩家的 dirty 残留）看到的是"清缓存之后"的真实状态，而不是排队前的旧状态。
+        final Map<String, Double> masteryMap = wordMasteryCache.get(playerId);
+        final PlayerDataSnapshot snap = snapshotPlayerData(playerId);
+        if (masteryMap == null && snap == null) {
+            // 缓存已彻底清空（quit/reload 后）：内存里没有任何可落盘的东西。
+            // 清掉标记，避免 dirty 集合为已下线玩家无限积累。
+            dirtyPlayers.remove(playerId);
+            dirtyWords.remove(playerId);
+            return;
+        }
+        // 写库用的词集合（全量 = 整个 masteryMap 的 key；增量 = 调用方传入的脏词集合）。
+        // 增量路径这里是 dirtyWords 的<b>活引用</b>，迭代发生在下方 for 循环 —— 即 seq
+        // 采集之后，正是 R7-C 追补要的顺序。newKeySet() 迭代弱一致，遍历期间新增的词
+        // 可能被看到也可能不被看到，两种结果都安全（见方法头注释）。
+        // masteryMap 为 null（只剩统计/玩家名可写）时按"无词可写"处理 —— 仍要落
+        // player_data 行，否则 total_score 这类只由 PlayerStats 承载的数据会永远滞后。
+        final Collection<String> writtenWords;
+        if (wordFilter != null) {
+            writtenWords = wordFilter;
+        } else if (masteryMap != null) {
+            // 全量路径必须拷贝 keySet：迭代期间 masteryMap 仍可能被主线程写入，
+            // 而全量的语义是"一个确定的时刻"，不能把并发新增的词算进这一轮。
+            writtenWords = new ArrayList<>(masteryMap.keySet());
+        } else {
+            writtenWords = Collections.emptyList();
+        }
         try {
             conn.setAutoCommit(false);
 
             try (PreparedStatement upsertStmt = conn.prepareStatement(upsertSql)) {
 
-                for (Map.Entry<String, Double> entry : masteryMap.entrySet()) {
-                    String word = entry.getKey();
+                int staged = 0;
+                for (String word : writtenWords) {
+                    if (masteryMap == null) {
+                        break; // 无词可写（只剩 player_data 行）
+                    }
+                    Double mastery = masteryMap.get(word);
+                    if (mastery == null) {
+                        // 全量路径不会出现（keySet 来自同一 map）；增量路径可能是
+                        // "只有 recordReview / resetReview 标记、但该词从未进过 masteryMap"的
+                        // 词 —— 没有 mastery 就没有可写的行（该列是行的主体），跳过；
+                        // 绝不拿 0.0 覆盖 DB 真值。
+                        //
+                        // R7-C（P2-1）：这里<b>不</b>把词重新加回 dirtyWords。理由：
+                        // 重新加回只会让它永远满足 hasWords，每轮周期保存都白起一次事务
+                        // （只能写 player_data 行），却仍然写不出这个词，直到 updateWordProgress
+                        // 建出 mastery —— 而那一步本身就会 markWordDirty。也就是说"重新加回"
+                        // 既不加速落盘，也不比"等 updateWordProgress 再标"多保住任何数据，
+                        // 只会把"11/12 轮零 SQL"的收益持续吃掉。故：丢弃标记 + 留痕。
+                        // 正常调用方（ReviewScheduler / WordLearningManager）都先走
+                        // updateWordProgress，此分支只在未来新调用方误用时出现。
+                        plugin.getLogger().log(Level.FINE,
+                                "Skip persisting review state for word without mastery "
+                                        + "(will be written once updateWordProgress creates it): "
+                                        + playerId + " / " + word);
+                        continue;
+                    }
 
                     upsertStmt.setString(1, playerId.toString());
                     upsertStmt.setString(2, word);
-                    upsertStmt.setDouble(3, entry.getValue());
+                    upsertStmt.setDouble(3, mastery);
                     upsertStmt.setInt(4, getIntValue(correctCountCache.get(playerId), word));
                     upsertStmt.setInt(5, getIntValue(incorrectCountCache.get(playerId), word));
                     upsertStmt.setLong(6, getLongValue(lastReviewTimeCache.get(playerId), word));
                     upsertStmt.setInt(7, getIntValue(reviewCountCache.get(playerId), word));
 
                     upsertStmt.addBatch();
+                    staged++;
                 }
 
-                upsertStmt.executeBatch();
+                // 空 batch 不调 executeBatch：部分驱动对空 batch 的行为未定义；
+                // "只有 player_data 脏"的增量保存会走到这里（staged == 0）。
+                if (staged > 0) {
+                    upsertStmt.executeBatch();
+                }
 
                 // 保存玩家统计数据到 player_data 表
-                PlayerStats stats = playerStatsCache.get(playerId);
-                if (stats != null) {
-                    // H10：UPSERT 携带 player_name；COALESCE 保证缓存缺失（null）时不覆盖已有名字
-                    String statsSql = databaseManager.isSQLite()
-                            ? "INSERT INTO " + tablePrefix + "player_data (uuid, player_name, total_words_learned, total_sessions, total_score, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(uuid) DO UPDATE SET player_name=COALESCE(excluded.player_name, player_name), total_words_learned=excluded.total_words_learned, total_sessions=excluded.total_sessions, total_score=excluded.total_score, updated_at=excluded.updated_at"
-                            : "INSERT INTO " + tablePrefix + "player_data (uuid, player_name, total_words_learned, total_sessions, total_score, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE player_name=COALESCE(VALUES(player_name), player_name), total_words_learned=VALUES(total_words_learned), total_sessions=VALUES(total_sessions), total_score=VALUES(total_score), updated_at=VALUES(updated_at)";
+                // R7-A：全量与增量都写这一行（只有一行，增量写它没有任何额外代价；
+                // 不写就会让 total_words_learned / total_sessions / total_score 永久滞后）。
+                if (snap != null) {
+                    String statsSql = buildPlayerDataUpsertSql(tablePrefix);
                     try (PreparedStatement statsStmt = conn.prepareStatement(statsSql)) {
                         statsStmt.setString(1, playerId.toString());
-                        statsStmt.setString(2, playerNameCache.get(playerId));
-                        statsStmt.setInt(3, stats.getTotalWords());
-                        statsStmt.setInt(4, stats.getTotalSessions());
-                        statsStmt.setLong(5, stats.getTotalScore());
+                        statsStmt.setString(2, snap.name);
+                        statsStmt.setInt(3, snap.words);
+                        statsStmt.setInt(4, snap.sessions);
+                        statsStmt.setLong(5, snap.score);
                         statsStmt.setLong(6, System.currentTimeMillis());
                         statsStmt.executeUpdate();
                     }
@@ -707,8 +1027,86 @@ public class PlayerDataStore {
                 conn.setAutoCommit(true);
             }
         } catch (SQLException e) {
+            // 失败：不清标记 —— 下一轮 saveDirty 会用同样的词重试（UPSERT 幂等）。
             plugin.getLogger().log(Level.WARNING, "Failed to save player data: " + playerId, e);
+            return;
         }
+        }
+
+        // 只有 commit 成功才会走到这里。
+        clearDirty(playerId, seqAtSnapshot);
+    }
+
+    /** R7-A：取 player_data 行的写库快照；{@code playerStatsCache} 无该玩家时返回 null（不写行）。 */
+    private PlayerDataSnapshot snapshotPlayerData(UUID playerId) {
+        PlayerStats stats = playerStatsCache.get(playerId);
+        if (stats == null) {
+            return null;
+        }
+        return new PlayerDataSnapshot(playerNameCache.get(playerId),
+                stats.getTotalWords(), stats.getTotalSessions(), stats.getTotalScore());
+    }
+
+    /**
+     * commit 成功之后清脏标记。**全有或全无**：只有当保存窗口内没有任何新写入时才清。
+     *
+     * <p>为什么不做"按词精细清理"（只移除本次写过的词）：那样会漏掉一种情况 ——
+     * 保存线程读到 {@code apple=0.4} 后、commit 前，主线程把它改成 0.6。此时
+     * "apple" 本来就在 dirty 集合里，主线程的 add 是 no-op，但这是<b>一次新写入</b>；
+     * 若 commit 后按词移除 apple，0.6 就只存在于内存里，直到 12 轮后的全量兜底才落盘。
+     *
+     * <p>所以判断依据是 {@link #playerWriteSeq} 的序号，而不是"哪些词被写过"：
+     * 序号没变 = 保存的这些值仍然是最新值 = 可以整批清；序号变了 = 一律保留，
+     * 下一轮重写（重复写几个词只是几次幂等 UPSERT，代价远小于丢一次更新）。
+     *
+     * <p><b>R7-C 追补（P2-2）：本方法的判断只在"seq 采集之后才开始读数据"时才成立。</b>
+     * 它把"序号没变"当作"本次写出的值已覆盖所有写入"的证明，而这个证明要求：seq 采集
+     * 点之后发生的任何写入，要么被本次读到，要么让序号改变。若增量路径在 seq 采集<b>之前</b>
+     * 就把词集合拷贝走（{@code new ArrayList<>(words)} 在参数求值时执行），这个前提被打破：
+     * 拷贝之后、seq 采集之前新增的词两头落空 —— 不在拷贝里，序号却已计入它 ——
+     * {@code clearDirty} 于是清掉了它的标记，而它从未落库。修复在 {@link #saveDirty}
+     * （传活引用）：本方法无需改动，但它的正确性依赖那一点，勿单独回退。
+     *
+     * @param playerId     玩家
+     * @param seqAtSnapshot 采集写入序号那一刻（方法体第一行，先于任何取值/迭代）
+     */
+    private void clearDirty(UUID playerId, long seqAtSnapshot) {
+        if (currentWriteSeq(playerId) != seqAtSnapshot) {
+            // 保存窗口内有新写入：整批保留，下轮重写
+            return;
+        }
+        dirtyWords.remove(playerId);
+        dirtyPlayers.remove(playerId);
+    }
+
+    /**
+     * R7-A：写 {@code player_data} 行时使用的不可变快照。
+     *
+     * <p>为什么需要它（同时也是 {@link PlayerStats} 并发修复的第二道保险）：
+     * {@link PlayerStats} 有 4 个字段，保存线程若逐个 {@code get} 读取，主线程可能在
+     * 两次读之间完成一次结算，写出"新 total_words + 旧 total_sessions"这种跨字段
+     * 不一致的行。这里一次取全，配合字段的 {@code volatile}，保证这一行写出去的
+     * 4 个值来自同一个观察点（逐字段可见性由 volatile 保证；4 个字段之间仍然不是原子的，
+     * 但那只是"某次结算的部分统计晚一轮落库"，下轮全量/增量保存会以绝对值覆盖，
+     * 不会累积错误）。
+     *
+     * <p><b>R7-C（P1-3）：取快照的位置必须在 {@code synchronized (connectionLock)} 之内。</b>
+     * 锁外取会把"取快照"与"抢锁写库"之间隔开一个任意长的排队窗口，异步保存任务可能
+     * 拿着排在锁外的旧值覆盖掉主线程（quit 全量）刚写进去的新值；进锁后取快照则
+     * 保证"读到的值"与"写出的值"之间没有任何其他落盘路径插入。注意这不改变本类
+     * "快照一次取全"的初衷，只是把观察点挪进临界区。
+     */
+    private static final class PlayerDataSnapshot {
+        final String name;
+        final int words;
+        final int sessions;
+        final long score;
+
+        PlayerDataSnapshot(String name, int words, int sessions, long score) {
+            this.name = name;
+            this.words = words;
+            this.sessions = sessions;
+            this.score = score;
         }
     }
 
@@ -725,6 +1123,17 @@ public class PlayerDataStore {
                     + "incorrect_count=VALUES(incorrect_count), last_review_time=VALUES(last_review_time), "
                     + "review_count=VALUES(review_count)";
         }
+    }
+
+    /**
+     * R7-A：{@code player_data} 行 UPSERT SQL —— 从原 {@code savePlayerData} 内联串
+     * 原样抽出，全量路径与增量路径共用同一字符串（避免两套语义分叉）。
+     * H10：UPSERT 携带 player_name；COALESCE 保证缓存缺失（null）时不覆盖已有名字。
+     */
+    private String buildPlayerDataUpsertSql(String tablePrefix) {
+        return databaseManager.isSQLite()
+                ? "INSERT INTO " + tablePrefix + "player_data (uuid, player_name, total_words_learned, total_sessions, total_score, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(uuid) DO UPDATE SET player_name=COALESCE(excluded.player_name, player_name), total_words_learned=excluded.total_words_learned, total_sessions=excluded.total_sessions, total_score=excluded.total_score, updated_at=excluded.updated_at"
+                : "INSERT INTO " + tablePrefix + "player_data (uuid, player_name, total_words_learned, total_sessions, total_score, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE player_name=COALESCE(VALUES(player_name), player_name), total_words_learned=VALUES(total_words_learned), total_sessions=VALUES(total_sessions), total_score=VALUES(total_score), updated_at=VALUES(updated_at)";
     }
 
     private int getIntValue(Map<String, Integer> map, String key) {
@@ -816,6 +1225,14 @@ public class PlayerDataStore {
             }
 
             masteryMap.put(word, newMastery);
+            // R7-A markWordDirty 点 1/7 + 2/7（同一处覆盖两个写入点）：
+            //   1/7 = masteryMap.put(word, newMastery)（掌握度）
+            //   2/7 = correctMap.merge / incorrectMap.merge（正确/错误计数）
+            // 三个 map 的同一词一次标记即可（dirtyWords 是词级粒度，不区分 map）。
+            // 必须放在三个 map 的写入<b>之后</b>：标记会推进写入序号，保存线程据此判断
+            // "窗口内是否有新写入"；先标后写会让"读到旧值 + 序号未变 → 误清标记"成立。
+            // 不按"是否答过"过滤 —— 未作答的词 mastery 也可能被写，凡进循环即标。
+            markWordDirty(playerId, word);
         }
 
         masteredWordsCache.remove(playerId);
@@ -830,24 +1247,57 @@ public class PlayerDataStore {
      * 成就判定（AchievementManager 按 total_sessions 涨幅）以本口径为准，属既定语义。
      */
     private void updatePlayerStats(UUID playerId, int correct, int incorrect) {
-        PlayerStats stats = playerStatsCache.computeIfAbsent(playerId, k -> new PlayerStats());
+        PlayerStats stats = statsFor(playerId);
         stats.addCorrect(correct);
         stats.addIncorrect(incorrect);
         stats.incrementSessions();
+        // R7-A markDirty 点 3/7：player_data 行（total_words_learned / total_sessions）。
+        // addXxx / incrementXxx 的 dirtyHook 已标记过一次；这里显式再标一次是为了让
+        // "本方法的写入点"在代码里可见（幂等，无额外代价）。
+        markDirty(playerId);
+    }
+
+    /**
+     * R7-A：取（必要时创建）玩家统计实例，并保证它挂着脏标记钩子。
+     *
+     * <p>{@link PlayerStats} 的变更方法会回调 {@code markDirty}，所以任何外部调用方
+     * （如 {@code WordManagerImpl} 的 {@code getPlayerStats(id).addScore(...)}）都自动标脏，
+     * 不依赖"枚举所有写入点"。
+     */
+    private PlayerStats statsFor(UUID playerId) {
+        return playerStatsCache.computeIfAbsent(playerId, k -> {
+            PlayerStats s = new PlayerStats();
+            s.setDirtyHook(() -> markDirty(k));
+            return s;
+        });
     }
 
     /**
      * Get last review times for a player's words.
+     *
+     * <p><b>R7-C（P2-3）：返回不可修改视图</b>。原实现直接返回缓存内部的活引用，
+     * 任何调用方都能绕过 {@link #markWordDirty} 直接写 —— 写进去的值既不进脏标记，
+     * 也就永远不会落库（直到 12 轮全量兜底，甚至因缓存被清而丢失）。当前唯一调用方
+     * {@code ReviewScheduler.getDueReviewWords} 只遍历不写，{@code unmodifiableMap}
+     * 零拷贝且遍历语义不变；改为抛出 {@code UnsupportedOperationException} 反而能
+     * 在第一次误写时立即暴露问题，而不是静默丢数据。
+     *
+     * <p>{@code computeIfAbsent} 仍保留：cache miss 时需要建出空 map，否则调用方的
+     * 遍历会拿到 NPE（且 review 调度需要该玩家条目存在）。
      */
     public Map<String, Long> getLastReviewTimes(UUID playerId) {
-        return lastReviewTimeCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
+        return Collections.unmodifiableMap(
+                lastReviewTimeCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>()));
     }
 
     /**
      * Get review counts for a player's words.
+     *
+     * <p><b>R7-C（P2-3）：返回不可修改视图</b>，理由同 {@link #getLastReviewTimes}。
      */
     public Map<String, Integer> getReviewCounts(UUID playerId) {
-        return reviewCountCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
+        return Collections.unmodifiableMap(
+                reviewCountCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>()));
     }
 
     /**
@@ -863,6 +1313,9 @@ public class PlayerDataStore {
         Map<String, Integer> reviewCounts = reviewCountCache.computeIfAbsent(
                 playerId, k -> new ConcurrentHashMap<>());
         reviewCounts.merge(wordLower, 1, Integer::sum);
+
+        // R7-A markWordDirty 点 5/7：reviewCountCache.merge(wordLower, +1)（lastReviewTime 同词）。
+        markWordDirty(playerId, wordLower);
     }
 
     /**
@@ -896,6 +1349,10 @@ public class PlayerDataStore {
         // 刚写入的 lastReviewTime / reviewCount；真实掌握度仍由 updateWordProgress 维护。
         wordMasteryCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>())
                 .putIfAbsent(wordLower, 0.0);
+
+        // R7-A markWordDirty 点 6/7：seedReview 写 lastReviewTime + reviewCount，
+        // 且可能补建 masteryMap 条目（putIfAbsent 0.0）—— 三者同属一个词，一次标记。
+        markWordDirty(playerId, wordLower);
     }
 
     /**
@@ -913,6 +1370,9 @@ public class PlayerDataStore {
         Map<String, Integer> reviewCounts = reviewCountCache.computeIfAbsent(
                 playerId, k -> new ConcurrentHashMap<>());
         reviewCounts.put(wordLower, 0);
+
+        // R7-A markWordDirty 点 7/7：resetReview 写 lastReviewTime + reviewCount（mastery 不动）。
+        markWordDirty(playerId, wordLower);
     }
 
     /**
@@ -964,11 +1424,25 @@ public class PlayerDataStore {
         todayAiRoundCache.remove(playerId);
         conversationCountCache.remove(playerId); // R-28
         wrongBookClearedCache.remove(playerId); // Phase 3 S-A（H11）
+        // R7-A：全量 savePlayerData 已兑现所有标记；此处清残留防止为已下线玩家积累。
+        // 注意：若上面的 savePlayerData 失败（SQLException），缓存随后仍被清空 ——
+        // 这次 quit 的数据就真的丢了。这是 R7-A 之前既有的行为（全量保存失败 + 清缓存），
+        // 本流不改变它；保留标记反而会让已下线玩家的 dirty 集合无限增长。
+        dirtyPlayers.remove(playerId);
+        dirtyWords.remove(playerId);
+        dirtySaveCount.remove(playerId);
+        idleSaveCount.remove(playerId); // R7-C（P1-2）：空转计数随下线清理，避免为已下线玩家积累
+        playerWriteSeq.remove(playerId);
     }
 
     /**
      * Clear all in-memory caches.
      * Called during /lea reload to ensure fresh data from disk.
+     *
+     * <p>R7-A：<b>本方法不落盘</b>（既有的 {@code HotReloadManager.flushOnlinePlayerData}
+     * 已在此之前对全部在线玩家走过全量 {@link #savePlayerData}，语义不能在此重复加锁）。
+     * 这里同时清掉脏标记与兜底计数 —— 全量落盘已经兑现了所有标记；若不清，
+     * 下一次 {@link #saveDirty} 会拿着"已落盘且缓存已清"的过期标记空跑。
      */
     public void clearCache() {
         wordMasteryCache.clear();
@@ -984,6 +1458,11 @@ public class PlayerDataStore {
         playerNameCache.clear();
         conversationCountCache.clear(); // R-28
         wrongBookClearedCache.clear(); // Phase 3 S-A（H11）
+        dirtyPlayers.clear(); // R7-A
+        dirtyWords.clear(); // R7-A
+        dirtySaveCount.clear(); // R7-A
+        idleSaveCount.clear(); // R7-C（P1-2）
+        playerWriteSeq.clear(); // R7-A
     }
 
     /**
@@ -993,31 +1472,76 @@ public class PlayerDataStore {
         PlayerStats stats = playerStatsCache.get(playerId);
         if (stats == null) {
             loadPlayerData(playerId);
-            stats = playerStatsCache.computeIfAbsent(playerId, k -> new PlayerStats());
+            stats = statsFor(playerId);
         }
         return stats;
     }
 
     /**
      * Player aggregate statistics for data export and display.
+     *
+     * <p><b>R7-A 并发修复</b>：四个字段原本是裸 {@code int}/{@code long}，而写入
+     * （{@link #updatePlayerStats}、{@code GameWorld} 侧 {@code addScore}）发生在
+     * <b>主线程</b>、读取（{@code savePlayerData} 的 player_data 行）发生在
+     * <b>异步保存线程</b> —— 没有任何 happens-before 边，保存线程可能永远读不到
+     * 主线程的更新（JMM 允许缓存该字段）或读到撕裂值（32 位 JVM 上 long 尤其）。
+     *
+     * <p>修复方式：字段加 {@code volatile}。
+     * <ul>
+     *   <li>为什么 volatile 足够：每次操作都是<b>单个字段</b>的读或写；{@code +=} 虽非原子，
+     *       但写入方只有主线程一条（会话结算）——不存在写写竞争，只需保证"写入对
+     *       其他线程可见 + 不发生字撕裂"，这正是 volatile 的语义；</li>
+     *   <li>为什么不用 AtomicInteger/LongAdder：会把 4 个字段的读放大成 4 次原子读，
+     *       且 {@code getTotalWords()} 等对外 API 的返回类型/语义要跟着改（波及
+     *       AchievementManager/PAPI/各 GUI），收益为零；</li>
+     *   <li>跨字段一致性：保存侧用 {@link PlayerDataSnapshot} 一次取全 4 个值
+     *       （见 {@link #snapshotPlayerData}），保证写出去的是"同一个观察点"的快照。
+     *       4 个字段之间仍非原子，但绝对值覆写 + 下轮全量兜底使误差只可能是
+     *       "某次结算的统计晚一轮落库"，不会累积。</li>
+     *   <li>没有引入任何新锁：volatile 只是内存屏障，不阻塞、不加锁。</li>
+     * </ul>
      */
     public static class PlayerStats {
-        private int totalCorrect;
-        private int totalIncorrect;
-        private int totalSessions;
-        private long totalScore;
+        private volatile int totalCorrect;
+        private volatile int totalIncorrect;
+        private volatile int totalSessions;
+        private volatile long totalScore;
 
-        public void addCorrect(int count) { totalCorrect += count; }
-        public void addIncorrect(int count) { totalIncorrect += count; }
+        /**
+         * R7-A：所有<b>变更型</b>方法（addXxx / incrementXxx / setXxx）结束时调用的回调。
+         *
+         * <p>为什么需要它：{@code WordManagerImpl.endSession} 直接用
+         * {@code playerDataStore.getPlayerStats(id).addScore(session.getScore())}
+         * 改 {@code totalScore} —— 这条路径<b>不经过</b>本类的任何方法，漏标 markDirty
+         * 就等于 {@code total_score} 永不落库（榜单/统计全错）。把标记挂在实例上，
+         * 无论谁拿着引用去改都能标脏，比"穷举所有外部写入点"可靠。
+         *
+         * <p>为 null 时表示该实例只用于读（如 {@link #loadPlayerData} 重建期间的临时对象），
+         * 此时不做任何事。
+         */
+        private Runnable dirtyHook;
+
+        /** 包私有：只允许 {@link PlayerDataStore} 挂接/摘除。 */
+        void setDirtyHook(Runnable hook) { this.dirtyHook = hook; }
+
+        private void onMutated() {
+            Runnable hook = dirtyHook;
+            if (hook != null) {
+                hook.run();
+            }
+        }
+
+        public void addCorrect(int count) { totalCorrect += count; onMutated(); }
+        public void addIncorrect(int count) { totalIncorrect += count; onMutated(); }
         /**
          * Block C2（A5/R3-M4）：total_sessions = 学习局数（每次会话结束 +1，同日多局
          * 累计）——与 player_sessions 表"每人每日一行"的天数口径**不同源**；
          * 成就判定（AchievementManager）以本口径为准。
          */
-        public void incrementSessions() { totalSessions++; }
-        public void addScore(long score) { totalScore += score; }
-        public void setSessions(int sessions) { totalSessions = sessions; }
-        public void setScore(long score) { totalScore = score; }
+        public void incrementSessions() { totalSessions++; onMutated(); }
+        public void addScore(long score) { totalScore += score; onMutated(); }
+        public void setSessions(int sessions) { totalSessions = sessions; onMutated(); }
+        public void setScore(long score) { totalScore = score; onMutated(); }
 
         public int getTotalCorrect() { return totalCorrect; }
         public int getTotalIncorrect() { return totalIncorrect; }
@@ -1225,44 +1749,68 @@ public class PlayerDataStore {
         }
         String trimmed = name.length() > 32 ? name.substring(0, 32) : name;
         playerNameCache.put(playerId, trimmed);
+        // R7-A markDirty 点 4/7：player_data.player_name 列。
+        markDirty(playerId);
     }
 
     /**
      * M9：将会话连击峰值落盘到 longest_streak（只增不减）。
-     * 先 INSERT 保行（玩家可能从未 save 过），再条件 UPDATE 取 max。
-     * 调用方（AchievementManager.checkStreakAchievement）跑在主线程，
-     * 单条 SQL 很快，直接同步执行即可。
+     *
+     * <p>R7-B ①：原实现「INSERT 保行 + 条件 UPDATE 取 max」两条 SQL 合并为单条 UPSERT
+     * （答对路径每次连击结算省 1 次同步往返）。语义逐条对齐：</p>
+     * <ul>
+     *   <li>行不存在 → 插入 {@code longest_streak = streak}（原 INSERT OR IGNORE 分支）；</li>
+     *   <li>行存在 → {@code longest_streak = max(旧值, 新值)}，只增不减；</li>
+     *   <li>{@code longest_streak} 为 NULL 时按 0 参与比较（原 UPDATE 的
+     *       {@code longest_streak IS NULL OR longest_streak < ?} 分支）。</li>
+     * </ul>
+     *
+     * <p><strong>NULL 语义</strong>：SQLite 标量 {@code MAX(a, b)} 与 MySQL {@code GREATEST(a, b)}
+     * 都是"任一参数为 NULL 则返回 NULL"，故两侧都必须用 {@code COALESCE(..., 0)} 包住旧值
+     * （MySQL 尤其致命：不包的话 {@code longest_streak} 为 NULL 时整列会被写成 NULL）。</p>
+     *
+     * <p><strong>不冲突核实</strong>：{@code savePlayerData} 的 player_data UPSERT
+     * （{@link #buildPlayerDataUpsertSql}）列清单只有
+     * uuid / player_name / total_words_learned / total_sessions / total_score / updated_at，
+     * <strong>不含 longest_streak</strong>；{@code DatabaseManager.adjustCoins} 只写
+     * total_coins_* 两列。故本方法与该两条写路径互不覆盖，可独立合并。</p>
+     *
+     * <p>唯一可观察差异：{@code updated_at} 现在无论是否刷新最大值都会更新（原实现只在
+     * "确实变大"时更新）。player_data.updated_at 全仓无任何读取点（仅 social_feed 有自己的
+     * updated_at 排序列），故无影响。</p>
+     *
+     * <p>调用方（AchievementManager.checkStreakAchievement）跑在主线程，单条 SQL 很快，
+     * 直接同步执行即可。</p>
      */
     public void persistLongestStreak(UUID playerId, int streak) {
         if (streak <= 0) {
             return;
         }
         String tablePrefix = databaseManager.getTablePrefix();
-        String insertSql = databaseManager.isSQLite()
-                ? "INSERT OR IGNORE INTO " + tablePrefix + "player_data (uuid, longest_streak) VALUES (?, ?)"
-                : "INSERT IGNORE INTO " + tablePrefix + "player_data (uuid, longest_streak) VALUES (?, ?)";
-        String updateSql = "UPDATE " + tablePrefix
-                + "player_data SET longest_streak = ?, updated_at = ? WHERE uuid = ? AND (longest_streak IS NULL OR longest_streak < ?)";
+        String sql;
+        if (databaseManager.isSQLite()) {
+            sql = "INSERT INTO " + tablePrefix
+                    + "player_data (uuid, longest_streak, updated_at) VALUES (?, ?, ?) "
+                    + "ON CONFLICT(uuid) DO UPDATE SET "
+                    + "longest_streak = MAX(COALESCE(longest_streak, 0), excluded.longest_streak), "
+                    + "updated_at = excluded.updated_at";
+        } else {
+            sql = "INSERT INTO " + tablePrefix
+                    + "player_data (uuid, longest_streak, updated_at) VALUES (?, ?, ?) "
+                    + "ON DUPLICATE KEY UPDATE "
+                    + "longest_streak = GREATEST(COALESCE(longest_streak, 0), VALUES(longest_streak)), "
+                    + "updated_at = VALUES(updated_at)";
+        }
 
         synchronized (databaseManager.getConnectionLock()) {
-        Connection conn = databaseManager.getConnection();
-        try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
-            insertStmt.setString(1, playerId.toString());
-            insertStmt.setInt(2, streak);
-            insertStmt.executeUpdate();
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to ensure player_data row: " + playerId, e);
-            return;
-        }
-        try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
-            updateStmt.setInt(1, streak);
-            updateStmt.setLong(2, System.currentTimeMillis());
-            updateStmt.setString(3, playerId.toString());
-            updateStmt.setInt(4, streak);
-            updateStmt.executeUpdate();
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to persist longest_streak: " + playerId, e);
-        }
+            try (PreparedStatement stmt = databaseManager.getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setInt(2, streak);
+                stmt.setLong(3, System.currentTimeMillis());
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to persist longest_streak: " + playerId, e);
+            }
         }
     }
 

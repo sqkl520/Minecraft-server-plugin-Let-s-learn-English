@@ -3,6 +3,8 @@ package com.letslearnenglish.minecraftplugin.gui;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager.ScenarioConfig;
 import com.letslearnenglish.minecraftplugin.core.ai.PersonalScenarioStore;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -97,7 +99,11 @@ public class PersonalScenarioGUI {
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(msg, "scenario.manage-title"));
 
-        Inventory gui = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-7：挂结构身份 holder（NoPayload）。确认删除态刻意「不」进 payload ——
+        // 它已由条目物品的 PDC 标记承载（confirmKey，"屏幕即真相"），
+        // 再搬进 holder 会产生两份确认态真相、且每次重渲染都要重建 holder。
+        Inventory gui = Bukkit.createInventory(
+                PluginGuiHolder.of(GuiViewKey.PERSONAL_SCENARIO), GUI_SIZE, title);
 
         // 背景：先铺灰色玻璃板，防止玩家把物品拖进空槽（其余物品随后覆盖）
         ItemStack filler = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);

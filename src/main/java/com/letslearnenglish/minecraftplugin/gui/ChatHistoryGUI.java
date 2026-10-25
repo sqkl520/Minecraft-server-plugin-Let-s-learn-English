@@ -4,6 +4,8 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.ai.ConversationFeedback;
 import com.letslearnenglish.minecraftplugin.data.ChatFeedbackEntry;
 import com.letslearnenglish.minecraftplugin.data.ChatHistoryEntry;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -209,7 +211,10 @@ public class ChatHistoryGUI {
 
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(msg, "chat-history.title"));
-        Inventory gui = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-5：挂结构身份 holder —— 列表页与详情页标题文案不同，本页是 LIST。
+        // 两者同为 54 格，尺寸无法区分，必须靠两个 key（见 GuiViewKey 粒度约定）。
+        Inventory gui = Bukkit.createInventory(
+                PluginGuiHolder.of(GuiViewKey.CHAT_HISTORY_LIST), GUI_SIZE, title);
 
         // Background
         ItemStack bg = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
@@ -404,7 +409,9 @@ public class ChatHistoryGUI {
 
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(msg, "chat-history.session-title"));
-        Inventory gui = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-5：详情页挂 SESSION key —— 与列表页同尺寸（54），只有 holder 能区分两屏。
+        Inventory gui = Bukkit.createInventory(
+                PluginGuiHolder.of(GuiViewKey.CHAT_HISTORY_SESSION), GUI_SIZE, title);
 
         // Background
         ItemStack bg = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
@@ -665,6 +672,11 @@ public class ChatHistoryGUI {
 
     /**
      * Check if an inventory title is a ChatHistoryGUI.
+     *
+     * <p>R5-5：本方法已降级为<b>迁移期标题兜底</b>—— 两个屏幕（列表 / 详情）现在各自
+     * 挂了 {@code PluginGuiHolder}（{@code CHAT_HISTORY_LIST} / {@code CHAT_HISTORY_SESSION}），
+     * listener 以 holder 为准，只有 holder 认不出时才调用本方法。方法本身保留原样
+     * （宽认领：四个关键词任一命中都算本类 GUI），具体是哪一屏由调用方再按标题细分。
      */
     public static boolean isChatHistoryGUI(String title) {
         if (title == null) return false;

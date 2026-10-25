@@ -8,6 +8,9 @@ import com.letslearnenglish.minecraftplugin.gui.DuelChallengeGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.WordBankSelectGUI;
 import com.letslearnenglish.minecraftplugin.gui.WrongBookGUI;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiIdentity;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
@@ -15,9 +18,14 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.inventory.InventoryView;
 
 /**
  * Listener for Main Menu, Language Switch, and Confirmation GUI interactions.
+ *
+ * <p>R5-2：界面识别改为「holder 优先、标题兜底」——{@link MainMenu}
+ * 与 {@link ConfirmationGUI} 打开时已挂 {@link PluginGuiHolder}，标题的三段宽松判定
+ * （配置等值 / 客户端截断前缀 / 品牌词兜底）只在 holder 缺失时作为迁移期 fallback。
  */
 public class MainMenuListener implements Listener {
 
@@ -32,13 +40,12 @@ public class MainMenuListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        String title = event.getView().getTitle();
-        if (title == null) return;
+        GuiViewKey key = resolveOwnedView(event.getView());
+        if (key == null) return;
 
-        boolean isMainMenu = isMainMenuTitle(title);
-        if (!isMainMenu && !ConfirmationGUI.isConfirmGUI(title)) {
-            return;
-        }
+        // R5-2：切换点影子比对（去重 WARNING）——holder 与标题说法不一致时暴露漂移，
+        // 不改变本方法的任何行为。
+        GuiIdentity.logMismatch(plugin, event.getView());
 
         // R-01/R-22: 只处理上半区（Top 容器）点击。玩家背包（下半区）直接 return
         // 且不 cancel，玩家开着 GUI 也能正常整理背包。
@@ -53,11 +60,35 @@ public class MainMenuListener implements Listener {
 
         int slot = event.getSlot();
 
-        if (isMainMenu) {
+        if (key == GuiViewKey.MAIN_MENU) {
             handleMainMenu(player, slot);
         } else {
             handleConfirmGUI(player, slot);
         }
+    }
+
+    /**
+     * R5-2：解析「本 listener 负责的界面」—— holder 优先，标题兜底。
+     *
+     * <p>holder 是目前唯一可信身份：{@code MainMenu} / {@code ConfirmationGUI} 打开时
+     * 已挂 {@link PluginGuiHolder}。只有 holder 认不出（{@code null}，即尚未迁移的
+     * 旧界面/旧事件路径）时才回落标题判定，保持迁移期行为与旧版逐字一致；holder
+     * 已经答出别的 key 时<b>不再</b>用标题翻案（结构身份压倒文案）。
+     *
+     * @param view 事件界面，可为 null
+     * @return {@link GuiViewKey#MAIN_MENU}、{@link GuiViewKey#CONFIRMATION}，或 null（不归本类管）
+     */
+    private GuiViewKey resolveOwnedView(InventoryView view) {
+        GuiViewKey key = GuiIdentity.resolve(view);
+        if (key == GuiViewKey.MAIN_MENU || key == GuiViewKey.CONFIRMATION) return key;
+        if (key != null) return null; // holder 明确说是别的屏幕 —— 不归本类管
+
+        // ── 以下为迁移期兜底（holder 未命中）──
+        String title = view == null ? null : view.getTitle();
+        if (title == null) return null;
+        if (isMainMenuTitle(title)) return GuiViewKey.MAIN_MENU;
+        if (ConfirmationGUI.isConfirmGUI(title)) return GuiViewKey.CONFIRMATION;
+        return null;
     }
 
     /**
@@ -68,9 +99,8 @@ public class MainMenuListener implements Listener {
      */
     @EventHandler
     public void onInventoryDrag(InventoryDragEvent event) {
-        String title = event.getView().getTitle();
-        if (title == null) return;
-        if (!isMainMenuTitle(title) && !ConfirmationGUI.isConfirmGUI(title)) return;
+        // R5-2：与点击同一套 holder 优先判定（标题兜底逻辑见 resolveOwnedView）。
+        if (resolveOwnedView(event.getView()) == null) return;
 
         int topSize = event.getView().getTopInventory().getSize();
         for (int rawSlot : event.getRawSlots()) {

@@ -6,11 +6,14 @@ import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.ai.PersonalScenarioStore;
 import com.letslearnenglish.minecraftplugin.gui.PersonalScenarioGUI;
 import com.letslearnenglish.minecraftplugin.gui.ScenarioSelectGUI;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiIdentity;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
@@ -18,10 +21,11 @@ import org.bukkit.persistence.PersistentDataType;
 /**
  * 个人场景管理页（{@link PersonalScenarioGUI}）点击/拖拽守卫 — Phase 3 · MC-4。
  *
- * <p>标题判定：{@link PersonalScenarioGUI#isPersonalScenarioTitle}（zh/en 两份配置的
- * <b>完整标题等值</b>，照 DuelChallengeListener.isDuelChallengeGUI 模式）+ 尺寸 54
- * 双重确认 —— 与场景选择页的 contains 判定互不命中（「我的个人场景」≠「场景选择」，
- * 「My Personal Scenarios」≠「Scenario Select」）。
+ * <p>R5-7：界面识别改为 <b>holder 优先、标题兜底</b>。{@link PersonalScenarioGUI#open}
+ * 打开时已挂 {@link com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder}
+ * （{@link GuiViewKey#PERSONAL_SCENARIO}）；holder 缺失时才回落到原判定 ——
+ * {@link PersonalScenarioGUI#isPersonalScenarioTitle}（zh/en 两份配置的
+ * <b>完整标题等值</b>）+ 尺寸 54 双重确认。
  *
  * <p>行内二次确认（首点红 / 再点删 / 其它点击复位）为"屏幕即真相"实现：确认态记在
  * 条目物品的 PDC 标记上（{@link PersonalScenarioGUI#confirmKey}），本 Listener
@@ -39,15 +43,24 @@ public class PersonalScenarioListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        int topSize = event.getView().getTopInventory().getSize();
-        if (!isManageGUI(event.getView().getTitle(), topSize)) return;
-
-        // R-01 补漏：只处理上半区（Top 容器）点击。玩家背包（下半区）直接 return
-        // 且不 cancel，玩家开着 GUI 也能正常整理背包。
+        // ── R5-7 判定顺序（顺序不可调整）────────────────────────────────────
+        // 1) 先判窗外：getClickedInventory() 只在点到界面之外时为 null。
         if (event.getClickedInventory() == null) return;
+
+        // 2) 再判下半区（玩家背包）：rawSlot 落在 top 之外一律不处理、也不 cancel，
+        //    玩家开着 GUI 仍能正常整理背包（R-01 语义原样保留）。
+        int topSize = event.getView().getTopInventory().getSize();
         int rawSlot = event.getRawSlot();
         if (rawSlot < 0 || rawSlot >= topSize) return;
 
+        // 3) 然后才做身份判定：holder 优先（结构身份），未命中才回落标题+尺寸（迁移期兜底）。
+        if (!isManageView(event.getView())) return;
+
+        // R5-7 切换点插桩：holder 与标题说法不一致时暴露漂移（去重 WARNING），不改变行为。
+        GuiIdentity.logMismatch(plugin, event.getView());
+
+        // 4) 只有「本页上半区点击」才 cancel —— 绝不允许只判 holder 就 cancel
+        //    （event.getInventory() 恒为上半区，与玩家实际点击的位置无关）。
         event.setCancelled(true);
         if (event.getCurrentItem() == null) return;
         if (!(event.getWhoClicked() instanceof Player player)) return;
@@ -101,14 +114,17 @@ public class PersonalScenarioListener implements Listener {
      * 拖拽是独立事件，点击的 setCancelled(true) 拦不住它 —— 不拦的话
      * 条目/计数物/返回键可被拖进玩家背包。
      *
-     * <p>标题判定与 {@link #onInventoryClick} 入口同源（等值 + 尺寸双重确认）；
+     * <p>身份判定与 {@link #onInventoryClick} 入口同源（R5-7：holder 优先、标题+尺寸兜底）；
      * 只在拖拽触及界面上半部分时取消，玩家整理自己背包不受影响。
      */
     @EventHandler
     public void onInventoryDrag(InventoryDragEvent event) {
-        int topSize = event.getView().getTopInventory().getSize();
-        if (!isManageGUI(event.getView().getTitle(), topSize)) return;
+        if (!isManageView(event.getView())) return;
 
+        GuiIdentity.logMismatch(plugin, event.getView());
+
+        // 身份判定不蕴含「拖的是上半区」，rawSlot < topSize 的判断必须保留。
+        int topSize = event.getView().getTopInventory().getSize();
         for (int rawSlot : event.getRawSlots()) {
             if (rawSlot < topSize) {
                 event.setCancelled(true);
@@ -118,12 +134,26 @@ public class PersonalScenarioListener implements Listener {
     }
 
     /**
-     * 本页判定：标题与配置完全等值（zh/en 两份）且尺寸为 54。
-     * 两个条件都来自 {@link PersonalScenarioGUI} 的同一套常量/方法，不重复魔法数字。
+     * R5-7：本页归属判定 —— holder 优先、标题兜底。
+     *
+     * <p>holder 已答出别的屏幕时<b>不再</b>用标题翻案（结构身份压倒文案）。holder 缺失
+     * （旧页面 / holder 未挂的路径）时回落到原判定：{@link PersonalScenarioGUI#isPersonalScenarioTitle}
+     * 的 zh/en <b>完整标题等值</b> 与 {@link PersonalScenarioGUI#GUI_SIZE} 的 54 格
+     * <b>双重确认</b> —— 两者都来自 {@code PersonalScenarioGUI} 的同一套常量/方法，
+     * 不重复魔法数字。
+     *
+     * @param view 事件界面，可为 null
+     * @return true 表示本页属于个人场景管理页
      */
-    private boolean isManageGUI(String title, int topSize) {
-        return PersonalScenarioGUI.isPersonalScenarioTitle(title)
-                && topSize == PersonalScenarioGUI.GUI_SIZE;
+    private boolean isManageView(InventoryView view) {
+        GuiViewKey byHolder = GuiIdentity.resolve(view);
+        if (byHolder != null) {
+            return byHolder == GuiViewKey.PERSONAL_SCENARIO;
+        }
+        // ── 迁移期兜底（holder 未命中）──
+        if (view == null) return false;
+        return PersonalScenarioGUI.isPersonalScenarioTitle(view.getTitle())
+                && view.getTopInventory().getSize() == PersonalScenarioGUI.GUI_SIZE;
     }
 
     /**

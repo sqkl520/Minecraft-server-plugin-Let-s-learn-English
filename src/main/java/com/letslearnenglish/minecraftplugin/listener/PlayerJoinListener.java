@@ -117,6 +117,10 @@ public class PlayerJoinListener implements Listener {
         plugin.getWordLearningManager().cancelPractice(playerId);
         plugin.getPlayerDataStore().unloadPlayerData(playerId);
         plugin.getAchievementManager().unloadPlayer(playerId);
+        // R7-B：每日挑战的 per-player 每日缓存（今日挑战词集合 / 已完成集合 / 已付标记）。
+        // 不接也不泄漏（跨天 + 午夜 rollover 双兜底），但长期不重启 + 大量离线玩家时
+        // map 会只增不减；与上面几个服务的 quit 编排点保持同一致。
+        plugin.getDailyChallengeManager().unloadPlayer(playerId);
         plugin.getPlayerDataStore().unloadProfileSettings(playerId);
         // S5 quit 编排点：各服务的内存卫生统一在此收口（方向 Listener → 服务，
         // 无反向依赖、不成环；PlayerDataStore 只管自己的 map，不反向调这些服务）：

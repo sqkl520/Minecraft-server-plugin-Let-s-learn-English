@@ -15,6 +15,8 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -1209,6 +1211,161 @@ public class DatabaseManager {
     }
 
     /**
+     * R7-B ③：一次查询取回「今日挑战词集合 + 已完成集合 + 奖励台账是否已发」三份数据，
+     * 供 {@code DailyChallengeManager} 的 per-player 每日缓存加载（把答对路径上原本
+     * 每题 4 条 SELECT 压成"每次缓存加载 2 条"）。
+     *
+     * <p>语义与 {@link #getDailyChallengeWords}、{@link #isDailyChallengeWordsCompleted}、
+     * {@link #isDailyWordRewardClaimed} 三者组合完全一致，但拆成两次最小查询：
+     * 第一次只读 {@code daily_challenge_words}（绝不在 JOIN 后再查
+     * {@code daily_word_reward_claims} —— 后者多行会产生笛卡尔积），第二次单行 COUNT。</p>
+     *
+     * <p><strong>失败降级</strong>（与原三方法逐条一致）：单词查询异常 → 返回空快照
+     * （words 空集 + rewardPaid=false，调用方据此视为"今日无可挑战词"）；台账查询异常 →
+     * 只把 rewardPaid 置 false（记 WARNING），单词集合照常返回。</p>
+     *
+     * <p><strong>R6-E</strong>：本方法不再计算"是否全完成"。那个字段原先算出来
+     * <b>从未被任何调用方读取</b>（调用方一律用缓存的
+     * {@code DailyWordChallengeState.allCompleted()}），属于审计噪音；
+     * "有词且全部完成"的判定规则仍在两处活着的实现里：
+     * {@link #isDailyChallengeWordsCompleted}（SQL 口径，rollover 补发仍走它）
+     * 与 {@code DailyChallengeManager.DailyWordChallengeState#allCompleted()}（缓存口径）。
+     * 两者语义等价（都要求"至少一个词"且"完成数 ≥ 总数"，DB 侧因 {@code completed ⊆ words}
+     * 可写成 {@code ==}）。</p>
+     *
+     * @param playerId 玩家
+     * @param date     {@code yyyy-MM-dd}
+     * @return 不可变快照（详见 {@link WordChallengeSnapshot}）
+     */
+    public WordChallengeSnapshot loadWordChallengeSnapshot(UUID playerId, String date) {
+        String wordsSql = "SELECT word_id, completed FROM " + tablePrefix
+                + "daily_challenge_words WHERE player_uuid = ? AND challenge_date = ?";
+        Set<String> words = new HashSet<>();
+        Set<String> completedWords = new HashSet<>();
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(wordsSql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        String wordId = rs.getString("word_id");
+                        words.add(wordId);
+                        if (rs.getBoolean("completed")) {
+                            completedWords.add(wordId);
+                        }
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to load daily challenge words for " + playerId, e);
+                // 与 getDailyChallengeWords 的降级一致：读失败 → 空集合
+                return new WordChallengeSnapshot(Collections.<String>emptySet(),
+                        Collections.<String>emptySet(), false);
+            }
+        }
+        return new WordChallengeSnapshot(words, completedWords,
+                isDailyWordRewardClaimed(playerId, date));
+    }
+
+    /**
+     * R7-B ②：单条 UPDATE 推进行为挑战进度并判定完成位（合并原
+     * {@code DailyChallengeRepository.findState} SELECT + {@code updateProgress} UPDATE）。
+     *
+     * <p><strong>返回值语义是本方法的关键契约</strong>：返回受影响行数，
+     * {@code 0} 表示"该玩家今日没有这一行挑战"——这正是原实现
+     * {@code loadChallengeState(...) == null} 的触发条件，调用方据此走 R-32 补分配，
+     * 因此本方法<strong>必须</strong>返回 {@code executeUpdate()} 的原值，不能改成 boolean。</p>
+     *
+     * <p>SQL 层面的等价替换（原两步的全部判定下推到一条语句；<strong>赋值顺序见实现注释</strong>）：</p>
+     * <pre>
+     * completed = CASE WHEN claimed = 0 AND completed = 0 AND progress + inc &gt;= target
+     *                  THEN 1 ELSE completed END                       -- 只置不撤
+     * progress  = CASE WHEN claimed = 0 THEN
+     *                 CASE WHEN progress + inc &gt;= target THEN target      -- R-79 clamp
+     *                      ELSE progress + inc END
+     *                 ELSE progress END
+     * </pre>
+     *
+     * <p><strong>方言关键陷阱</strong>：MySQL 单表 UPDATE 按从左到右求值、后续赋值看到的是
+     * 前面刚写入的新值；SQLite 一律用旧行值。故 {@code completed} 必须写在 {@code progress}
+     * <em>之前</em>，否则 MySQL 会把 {@code progress + inc} 算成 {@code (旧+inc)+inc}，
+     * 差一格提前完成。此顺序下两方言行为完全一致。</p>
+     *
+     * <p><strong>方言核对</strong>：<em>不</em>使用 {@code MIN(a, b)} —— 虽然 SQLite 与 MySQL
+     * 在双参数形式下都会解析为标量函数，但 MySQL 的 {@code MIN} 同时是聚合函数名，
+     * 可读性与工具链（SQL 高亮/静态检查）歧义都不值得省一个 {@code CASE}。此处统一用
+     * {@code CASE WHEN ... THEN ... ELSE ... END}，两方言逐字同义。</p>
+     *
+     * <p>{@code progress} 列在 {@code schema.sql} 与 {@code createTables()} 中均为
+     * {@code INT DEFAULT 0}，但存量库若为 NULL 会传染成 NULL 写回 —— 故每次读取都用
+     * {@code COALESCE(progress, 0)} 包住（与既有 {@code adjustCoins} 的惯例一致）。</p>
+     *
+     * <p><strong>并发</strong>：整条语句在 MySQL 默认 REPEATABLE READ 下对目标行加排他锁，
+     * 读-改-写原子；调用方仍在未变的 {@code connectionLock} 临界区内，无新增锁。</p>
+     *
+     * <p><strong>{@code claimed = 1} 为什么放进 CASE 而不是 WHERE</strong>：原实现在
+     * {@code alreadyClaimed} 时直接 return、<em>不写库</em>，但行仍存在。若把它写进 WHERE，
+     * 已领取行会返回 {@code 0} 行，调用方会把"已领取"误判成"今日未分配"并触发一次无谓的
+     * R-32 补分配。放进 SET 的 CASE 里则：行被命中（返回 1，不触发补分配）、两列原样写回
+     * （与原 return 的可观察状态一致）。</p>
+     *
+     * <p>与原实现逐条等价（无放宽、无收紧）：{@code increment} 恒 &gt; 0，故
+     * {@code progress >= target} 时 {@code progress + inc >= target} 必然成立 ——
+     * 原实现"已达标的畸形旧行也判完成"的行为被完整保留。</p>
+     *
+     * @param playerId     玩家
+     * @param date         {@code yyyy-MM-dd}
+     * @param challengeId  挑战 id
+     * @param increment    本次增量（恒 &gt; 0，调用方保证）
+     * @param target       完成阈值（挑战类型不同而不同，<strong>必须参数绑定</strong>）
+     * @return 受影响行数；写失败返回 {@code -1}（区别于"今日无行"的 0）
+     */
+    public int advanceChallengeProgress(UUID playerId, String date, String challengeId,
+                                        int increment, int target) {
+        // 每个 ? 都独立绑定（不用同名参数复用）：明确、可读、与既有 SQL 风格一致。
+        //
+        // 【赋值顺序是正确性的一部分，不可交换】MySQL 的单表 UPDATE 按**从左到右**求值，
+        // 后面的赋值会看到前面刚写入的新值（官方示例：SET col1 = col1+1, col2 = col1 里
+        // col2 拿到的是新 col1）；SQLite 则一律用旧行值。若把 progress 写在前面，MySQL 下
+        // completed 的 `progress + inc >= target` 会变成 `(旧值+inc) + inc >= target`，
+        // 导致差一格就提前置 completed=1（如 8/10 答对一次就被判完成）。故 completed
+        // **必须写在 progress 之前**：此时两方言看到的都是旧 progress，语义一致。
+        //
+        // completed 分支带 `completed = 0` 前提：只置位、绝不撤销 —— 等价原实现的
+        // `if (alreadyCompleted) nowCompleted = true;`，也兜住"completed 由 completeChallenge
+        // 二进制置 1、progress 仍为 0"的行（COMBO_5 这类），不会被本条 UPDATE 打回 0。
+        String sql = "UPDATE " + tablePrefix
+                + "daily_challenges SET "
+                + "completed = CASE WHEN claimed = 0 AND completed = 0 AND COALESCE(progress, 0) + ? >= ? "
+                + "THEN 1 ELSE completed END, "
+                + "progress = CASE WHEN claimed = 0 THEN "
+                + "CASE WHEN COALESCE(progress, 0) + ? >= ? THEN ? ELSE COALESCE(progress, 0) + ? END "
+                + "ELSE progress END "
+                + "WHERE uuid = ? AND challenge_date = ? AND challenge_id = ?";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                int idx = 1;
+                // completed 分支：+inc 与 target 比较（必须在 progress 之前求值）
+                stmt.setInt(idx++, increment);
+                stmt.setInt(idx++, target);
+                // progress 分支：+inc 与 target 比较，封顶 target，否则累加
+                stmt.setInt(idx++, increment);
+                stmt.setInt(idx++, target);
+                stmt.setInt(idx++, target);
+                stmt.setInt(idx++, increment);
+                stmt.setString(idx++, playerId.toString());
+                stmt.setString(idx++, date);
+                stmt.setString(idx, challengeId);
+                return stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to advance daily challenge progress for " + playerId, e);
+                return -1;
+            }
+        }
+    }
+
+    /**
      * Block C2（R2-M2）：今日 AI 有效轮次 +1 落库（UPSERT，双后端对照）。
      *
      * <p>SQLite {@code ON CONFLICT(player_uuid, round_date) DO UPDATE} /
@@ -1607,6 +1764,31 @@ public class DatabaseManager {
     // ============================================================
     //  Statistics HTTP Dashboard queries
     // ============================================================
+
+    /**
+     * R7-B ③：单词挑战的当日快照（{@link #loadWordChallengeSnapshot} 的返回体）。
+     *
+     * <p><strong>R6-E</strong>：原先的 {@code allCompleted} 字段已删除——它算出来后
+     * 从未被任何调用方读取（调用方一律用缓存的
+     * {@code DailyWordChallengeState.allCompleted()}），留着只会误导"业务规则只存在一处"
+     * 的判断。业务判定请走缓存侧的 {@code allCompleted()}；SQL 口径的等价判定见
+     * {@link #isDailyChallengeWordsCompleted}（rollover 补发路径仍在用）。</p>
+     *
+     * <p>集合均为不可变快照（调用方不得写入；缓存侧自行复制）。</p>
+     *
+     * @param words          今日分配的全部挑战词 id
+     * @param completedWords 其中已完成的词 id
+     * @param rewardPaid     当日奖励台账（{@code daily_word_reward_claims}）是否已有行
+     */
+    public record WordChallengeSnapshot(Set<String> words, Set<String> completedWords,
+                                        boolean rewardPaid) {
+
+        /** 防御性复制 + 只读包装：调用方持有的可变集合不会反向影响快照。 */
+        public WordChallengeSnapshot {
+            words = Collections.unmodifiableSet(new HashSet<>(words));
+            completedWords = Collections.unmodifiableSet(new HashSet<>(completedWords));
+        }
+    }
 
     /**
      * Daily statistics record for the 7-day trend chart.
@@ -3223,10 +3405,22 @@ public class DatabaseManager {
      * {@code synchronized (databaseManager.getConnectionLock()) { ... }} on this
      * same monitor to fully guarantee single-threaded connection use.
      *
-     * <p>Phase 1 流 E（F0-01/F0-02）：外部裸用点已收编完毕（PlayerDataStore 8 处、
-     * DailyChallengeManager 8 处、AchievementManager 3 处、AdminCommandHandler 2 处、
-     * ProgressManagerImpl 1 处、LLEPapiExpansion 1 处、LetsLearnEnglish 备份任务 2 处
-     * 共 25 处），新代码继续遵循此约定。
+     * <p>Phase 1 流 E（F0-01/F0-02）曾登记"外部裸用点已收编完毕，共 25 处"。
+     * <b>该账本已过期</b>。2026-10-25（R6-D）逐文件实测的开工基线为：
+     * PlayerDataStore 12 处、DailyChallengeManager 10 处、ReportGenerator 9 处、
+     * AchievementManager 4 处、AdminCommandHandler 3 处、LLEPapiExpansion 1 处、
+     * LetsLearnEnglish 1 处，<b>共 40 处</b>；R6-D 将入口类备份任务的 1 处上收进
+     * {@link #backupTo(String)} 后为 <b>39 处</b>。
+     * （注：AdminCommandHandler 旧账登记 2 处，实测为 3 处，已按实测更正。）
+     *
+     * <p><b>R6 重构进行中</b>：上述裸用点正陆续迁入 {@code data/repository/*}
+     * （DailyChallengeRepository / AchievementRepository / ReportRepository 等，
+     * 仓储内部同样持本锁，约定不变），因此数字会实时变动——本注释记录的是
+     * R6-D 开工基线而非终值。迁移完成后请重新统计并更新本段。
+     *
+     * <p>在此之前，任何直接取 {@link #getConnection()} 的新代码仍必须包在
+     * {@code synchronized (databaseManager.getConnectionLock()) { ... }} 内；
+     * 也可选用新增的 {@link #withConnection(SqlFunction)} 减少样板（两者语义等价）。
      */
     public Object getConnectionLock() {
         return connectionLock;
@@ -3302,6 +3496,304 @@ public class DatabaseManager {
             stmt.setString(1, "-" + daysToKeep + " days");
         } else {
             stmt.setInt(1, daysToKeep);
+        }
+    }
+
+    // ============================================================
+    //  R6-D: 供仓储与入口类使用（2026-10-25）
+    //
+    //  本节只做"加法"：以上 92 个 public 方法的签名与实现均未改动。
+    //  新增方法集中追加在文件末尾，避免与并行流（data/repository/*、core 各管理器）
+    //  的改动面重叠，减少合并冲突。
+    // ============================================================
+
+    /**
+     * R6-D：受检 SQL 操作的函数式载体。
+     *
+     * <p>作为 {@link DatabaseManager} 的嵌套接口定义，不新建顶层文件——避免与其他
+     * 并行流在包扫描/白名单式检查上产生冲突。
+     *
+     * @param <T> 返回值类型
+     */
+    @FunctionalInterface
+    public interface SqlFunction<T> {
+        /**
+         * 在 connectionLock 内对共享连接执行操作。
+         *
+         * @param conn 由 {@link #getConnection()} 提供的共享连接（调用期间持有锁）
+         * @return 操作结果
+         * @throws SQLException SQL 失败时抛出，由 {@link #withConnection} 统一记录
+         */
+        T apply(Connection conn) throws SQLException;
+    }
+
+    /**
+     * R6-D：在 connectionLock 内取连接并执行一段 SQL 操作，失败记 WARNING 后返回 {@code null}。
+     *
+     * <p><b>当前无生产调用方（R6-E 审计说明）</b>：本重载目前只被同文件的
+     * {@link #countRows(String)} 间接使用，<b>不是</b> R6 搬迁遗漏的死代码，而是为
+     * 后续仓储化批次预留的标准形态——它就是"锁内取连接 + 异常兜底"这段样板的
+     * 唯一收口点，后续新仓储应当直接用它，而不是各写一份 synchronized 模板。
+     * 下次审计请勿按"零调用方"删除。</p>
+     *
+     * <p><b>这是可选工具，不是强制入口。</b>R6 的 5 个仓储流是并行开发的，
+     * 它们可能不知道本方法存在——那没有任何问题：新仓储完全可以直接沿用既有范式
+     *
+     * <pre>{@code
+     * synchronized (db.getConnectionLock()) {
+     *     try (PreparedStatement ps = db.getConnection().prepareStatement(sql)) { ... }
+     * }
+     * }</pre>
+     *
+     * <p>本方法只是把"加锁 + 取连接 + catch SQLException + 记 WARNING + 返回兜底值"
+     * 这段重复样板收拢一次，语义与手写完全一致，可按需选用。
+     *
+     * <p>锁语义：内部先 {@code synchronized (connectionLock)} 再调用
+     * {@link #getConnection()}（后者自身也同步同一把锁）。Java 的 synchronized 是
+     * <b>可重入</b>的，同一线程二次进入不会自锁，因此不存在"嵌套加锁造成死锁"的问题；
+     * 反过来说，仓储若已在外层持有该锁，再调用本方法同样安全（重入计数 +1 后退出）。
+     * 请勿在持锁期间做消息投递/调度器调用等阻塞动作（R9-L5 约定）。
+     *
+     * <p>异常口径：只捕获 {@link SQLException}。连接自愈失败时 {@link #getConnection()}
+     * 抛出的 {@link RuntimeException} 会原样上抛——那属于"数据库整体不可用"，应让调用方
+     * 明确感知，而不是被兜底值静默吞掉。
+     *
+     * @param fn 要执行的操作，不可为 null
+     * @param <T> 返回值类型
+     * @return 操作结果；{@code fn} 为 null 或抛出 SQLException 时返回 {@code null}
+     */
+    public <T> T withConnection(SqlFunction<T> fn) {
+        return withConnection(fn, null);
+    }
+
+    /**
+     * R6-D：{@link #withConnection(SqlFunction)} 的带兜底值重载。
+     *
+     * <p><b>当前无生产调用方（R6-E 审计说明）</b>：目前仅被 {@link #countRows(String)}
+     * 与上面那个重载内部使用，为后续仓储化批次预留（带兜底值的变体是"读失败降级"
+     * 的通用形态）。下次审计请勿按"零调用方"删除。</p>
+     *
+     * @param fn       要执行的操作，不可为 null
+     * @param fallback 失败（或被传入 null 函数）时返回的默认值
+     * @param <T>      返回值类型
+     * @return 操作结果，或 {@code fallback}
+     */
+    public <T> T withConnection(SqlFunction<T> fn, T fallback) {
+        if (fn == null) {
+            return fallback;
+        }
+        synchronized (connectionLock) {
+            try {
+                return fn.apply(getConnection());
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Database operation failed (withConnection) — returning fallback", e);
+                return fallback;
+            }
+        }
+    }
+
+    /**
+     * R6-D：诊断用行数统计。
+     *
+     * <p>表名<b>只接受白名单内的 22 张逻辑表名</b>（不含 table-prefix，如
+     * {@code player_data}；若传入已带前缀的完整名也会被识别并剥掉前缀），
+     * 其余一律拒绝并返回 -1——杜绝把外部输入拼进 SQL 造成注入/误查。
+     * 前缀取自配置 {@code database.mysql.table-prefix}（SQLite 同样生效）。
+     *
+     * <p>R6-E（当前无生产调用方，为后续诊断/运维命令预留）：前缀与表名的剥离比较
+     * 改为大小写不敏感——运维手工输入 {@code LLE_player_data} 时不该被拒。安全性不变：
+     * 剥离<b>之后</b>仍要过 {@link #COUNTABLE_TABLES} 精确白名单，比对大小写不敏感
+     * 只会让"已带前缀的完整名"这一输入形态更宽容，不会放宽白名单本身；
+     * 实际拼进 SQL 的仍是白名单内的字面量，且 SQL 标识符在 SQLite/MySQL 默认配置下
+     * 本身大小写不敏感。</p>
+     *
+     * @param table 逻辑表名，见 {@code COUNTABLE_TABLES}（私有常量，Javadoc 无法链接）
+     * @return 行数；表名非法或查询失败返回 -1（与"0 行"区分）
+     */
+    public int countRows(String table) {
+        if (table == null) {
+            return -1;
+        }
+        String prefix = tablePrefix == null ? "" : tablePrefix;
+        String logical = table.trim();
+        // R6-E：剥离前缀用大小写不敏感比较；白名单校验仍用原值精确匹配。
+        if (!prefix.isEmpty()
+                && logical.regionMatches(true, 0, prefix, 0, prefix.length())) {
+            logical = logical.substring(prefix.length());
+        }
+        if (!COUNTABLE_TABLES.contains(logical)) {
+            plugin.getLogger().warning("countRows rejected unknown table: " + table);
+            return -1;
+        }
+        final String counted = logical;
+        Integer rows = withConnection(conn -> {
+            try (PreparedStatement stmt = conn.prepareStatement(
+                    "SELECT COUNT(*) FROM " + prefix + counted);
+                 ResultSet rs = stmt.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }, Integer.valueOf(-1));
+        // 显式判 null：即便日后有人改动 fallback 传参，也不会因自动拆箱抛 NPE。
+        return rows == null ? -1 : rows;
+    }
+
+    /**
+     * R6-D：允许 {@link #countRows(String)} 统计的逻辑表名白名单（22 张，与
+     * {@code createTables()} 的建表清单一一对应）。
+     *
+     * <p>新增表时必须同步补进本集合，否则诊断统计会安全地拒绝该表名。
+     */
+    private static final Set<String> COUNTABLE_TABLES = Set.of(
+            "player_data",
+            "word_progress",
+            "achievements",
+            "learning_log",
+            "player_sessions",
+            "player_profiles",
+            "player_achievements",
+            "daily_challenges",
+            "daily_challenge_words",
+            "daily_word_reward_claims",
+            "ai_round_counters",
+            "duel_stats",
+            "ai_chat_history",
+            "ai_chat_feedback",
+            "difficult_words",
+            "checkin_data",
+            "social_feed",
+            "social_cheers",
+            "seasons",
+            "season_rewards",
+            "classes",
+            "class_members"
+    );
+
+    /**
+     * R6-D：SQLite 数据库文件的绝对路径，供诊断/运维显示与备份路径推演。
+     *
+     * <p><b>当前无生产调用方（R6-E 审计说明）</b>：这是诊断能力的基础件，为后续
+     * {@code /lea} 诊断命令等批次预留，<b>不是</b> R6 搬迁的死代码。下次审计请勿
+     * 按"零调用方"删除。</p>
+     *
+     * <p>与 {@code initializeSQLite()} 同源取值：数据目录 + 配置
+     * {@code database.sqlite.filename}（默认 {@code playerdata.db}）。
+     *
+     * <p>后端判定读 {@code isSQLite} 字段（与既有 {@link #isSQLite()} 同源）。
+     * 诊断命令在主线程调用，此时 initialize() 早已完成，无需额外同步。
+     *
+     * @return 绝对路径；当前后端为 MySQL（或尚未 initialize）时返回 {@code null}
+     */
+    public String getSqliteFilePath() {
+        if (!isSQLite) {
+            return null;
+        }
+        File dbFile = new File(plugin.getDataFolder(),
+                configManager.getMainConfig().getString("database.sqlite.filename", "playerdata.db"));
+        return dbFile.getAbsolutePath();
+    }
+
+    /**
+     * R6-D：只读探活——不触发重连、不修改任何状态，供 /lea 诊断命令使用。
+     *
+     * <p><b>当前无生产调用方（R6-E 审计说明）</b>：这是诊断能力的基础件，为后续
+     * {@code /lea} 诊断命令等批次预留，<b>不是</b> R6 搬迁的死代码。下次审计请勿
+     * 按"零调用方"删除。</p>
+     *
+     * <p>直接读 volatile 字段而非走 {@link #getConnection()}：后者在连接缺失时会
+     * 同步加锁并尝试 initialize()，那是"自愈"而不是"探活"，诊断命令不应有副作用，
+     * 也不应为了报告一个状态而阻塞主线程等锁。
+     *
+     * @return true 表示当前持有可用连接；false 表示连接为 null、已关闭或状态不可读
+     */
+    public boolean isConnectionHealthy() {
+        Connection conn = connection;
+        if (conn == null) {
+            return false;
+        }
+        try {
+            return !conn.isClosed();
+        } catch (SQLException e) {
+            // isClosed 本身极少失败；失败时按"不健康"报告，不抛给诊断调用方。
+            return false;
+        }
+    }
+
+    /**
+     * R6-D：SQLite 热备快照（{@code VACUUM INTO}）。
+     *
+     * <p>自 {@code LetsLearnEnglish.backupDatabase} 上收：原有
+     * {@code synchronized (getConnectionLock())} + {@link #getConnection()} + 路径单引号
+     * 转义逻辑<b>逐字保留</b>。
+     *
+     * <p>为什么仍是字符串拼接：SQLite 的 {@code VACUUM INTO} 只接受字面量文件名，
+     * <b>不接受绑定参数</b>（{@code VACUUM INTO ?} 会报语法错误），因此只能拼接；
+     * 调用方传入的是内部构造路径（数据目录 + 时间戳），单引号转义作为纵深防御保留。
+     *
+     * <p>异常口径与原实现一致：SQL 失败原样抛出 {@link SQLException}，由调用方
+     * （备份任务）负责删除可能的残缺产物并记日志——本方法<b>不</b>做文件清理，
+     * 以免与调用方的清理职责重叠。
+     *
+     * <p>后端约束：仅对 SQLite 有意义（MySQL 无 {@code VACUUM INTO}）。是否调用由
+     * 调用方按 {@code database.type} 判断——与原入口类 {@code backupDatabase} 的
+     * 前置检查保持同一职责划分，本方法<b>不</b>重复判断，以免在"部分初始化"等
+     * 边缘状态下引入原本不存在的失败路径。
+     *
+     * @param absolutePath 目标文件的绝对路径（不可为 null/空）
+     * @throws SQLException 目标路径为空，或 VACUUM INTO 执行失败
+     */
+    public void backupTo(String absolutePath) throws SQLException {
+        if (absolutePath == null || absolutePath.isEmpty()) {
+            throw new SQLException("Backup target path is empty");
+        }
+        synchronized (connectionLock) {
+            String target = absolutePath.replace("'", "''");
+            try (PreparedStatement stmt = getConnection()
+                    .prepareStatement("VACUUM INTO '" + target + "'")) {
+                stmt.execute();
+            }
+        }
+    }
+
+    /**
+     * R6-D：备份产物完整性校验（{@code PRAGMA quick_check}）。
+     *
+     * <p>自 {@code LetsLearnEnglish.checkBackupIntegrity} 上收。关键点：必须使用
+     * <b>独立只读连接</b>直连备份文件——查活连接等于查错对象（R3-H1 第二修）。
+     * 因此本方法<b>不经过</b> {@link #getConnection()}，也不持有 connectionLock。
+     *
+     * <p>R6-D 加固：显式 {@code Class.forName("org.sqlite.JDBC")}（照
+     * {@link #initializeMySQL} 的写法）。Bukkit/Paper 的插件 ClassLoader 与 JDBC 4
+     * 的服务自动发现（依赖线程上下文类加载器）不总是能互相看见，显式加载可把失败点
+     * 从晦涩的 "No suitable driver found" 提前成一条可读的 WARNING。加载失败时
+     * <b>不直接判负</b>，而是记 WARNING 后继续尝试 DriverManager（若驱动经
+     * ServiceLoader 可见仍可成功），保持与原实现相同的成功率。
+     *
+     * @param backupFile 备份文件
+     * @return true 表示 quick_check 返回 "ok"；文件缺失、驱动缺失且无法连接、
+     *         或校验结果非 ok 时返回 false
+     */
+    public boolean checkBackupIntegrity(File backupFile) {
+        if (backupFile == null || !backupFile.isFile()) {
+            plugin.getLogger().warning("Backup integrity check skipped: file not found"
+                    + (backupFile == null ? "" : " (" + backupFile.getAbsolutePath() + ")"));
+            return false;
+        }
+        try {
+            Class.forName("org.sqlite.JDBC");
+        } catch (ClassNotFoundException e) {
+            // 不提前返回：DriverManager 的服务发现仍可能成功，降级为提示。
+            plugin.getLogger().warning("SQLite JDBC driver (org.sqlite.JDBC) not found by name; "
+                    + "falling back to JDBC ServiceLoader discovery: " + e.getMessage());
+        }
+        String url = "jdbc:sqlite:" + backupFile.getAbsolutePath();
+        try (Connection conn = DriverManager.getConnection(url);
+             PreparedStatement stmt = conn.prepareStatement("PRAGMA quick_check");
+             ResultSet rs = stmt.executeQuery()) {
+            return rs.next() && "ok".equalsIgnoreCase(rs.getString(1));
+        } catch (SQLException e) {
+            plugin.getLogger().warning("Backup integrity check failed to run: " + e.getMessage());
+            return false;
         }
     }
 }

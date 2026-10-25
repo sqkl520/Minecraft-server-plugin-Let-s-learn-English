@@ -5,6 +5,7 @@ import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.season.SeasonManager;
 import com.letslearnenglish.minecraftplugin.data.CheckInData;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import com.letslearnenglish.minecraftplugin.data.repository.PlayerDirectoryRepository;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
@@ -67,6 +68,9 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
 
     private final LetsLearnEnglish plugin;
 
+    /** R6-A：player_data 单列读取仓储（SQL 与参数绑定已收口）。 */
+    private final PlayerDirectoryRepository playerDirectory;
+
     /** R-43: key = targetUuid + "|" + params + "|" + selfFlag + "|" + lang. */
     private final Map<String, CachedValue> cache = new ConcurrentHashMap<>();
 
@@ -82,6 +86,8 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
 
     public LLEPapiExpansion(LetsLearnEnglish plugin) {
         this.plugin = plugin;
+        this.playerDirectory = new PlayerDirectoryRepository(plugin.getDatabaseManager(),
+                plugin.getLogger());
     }
 
     @Override
@@ -354,25 +360,10 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
     /**
      * longest_streak = 答题会话连击峰值（PlayerDataStore.persistLongestStreak 写入
      * player_data.longest_streak，只增不减），与签到连击是两个不同语义，保持直查该列。
-     * 走 DatabaseManager 的 connectionLock 同步姿势（PAPI 可在任意线程被调用）。
+     * R6-A：SQL 收口到 {@link PlayerDirectoryRepository#findLongestStreak}（锁内取
+     * 连接）；异常语义原样保留——静默返回 0，不记日志（PAPI 每秒可能被调多次）。
      */
     private int getLongestStreak(UUID playerId) {
-        String column = "longest_streak";
-        String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
-        String sql = "SELECT " + column + " FROM " + tablePrefix + "player_data WHERE uuid = ?";
-        java.sql.Connection conn = plugin.getDatabaseManager().getConnection();
-        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
-        try (java.sql.PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            try (java.sql.ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt(column);
-                }
-            }
-        } catch (java.sql.SQLException e) {
-            // Silently return 0 on error
-        }
-        }
-        return 0;
+        return playerDirectory.findLongestStreak(playerId);
     }
 }

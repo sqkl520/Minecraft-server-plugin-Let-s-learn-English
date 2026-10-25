@@ -9,6 +9,7 @@ import com.letslearnenglish.minecraftplugin.core.word.WordBankValidator;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import com.letslearnenglish.minecraftplugin.data.repository.PlayerDirectoryRepository;
 
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -17,10 +18,6 @@ import org.bukkit.entity.Player;
 
 import java.io.File;
 import java.io.IOException;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -30,14 +27,41 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 public class AdminCommandHandler {
 
     private final LetsLearnEnglish plugin;
 
+    /** R6-A：player_data 目录查询（名字↔UUID、前缀补全名源）仓储。 */
+    private final PlayerDirectoryRepository playerDirectory;
+
+    /**
+     * R6-A：tab 补全名源短 TTL 缓存 —— 按前缀缓存 30 秒，上限 64 条（简单整体
+     * clear 防无界增长）。补全在主线程每次按键都会触发，缓存把"每次按键一次主
+     * 线程查库"降为"每前缀每 30 秒一次"。写路径（reset/join 落盘名）最迟 30 秒
+     * 后可见，补全场景可接受。用 ConcurrentHashMap 而非普通 HashMap：现有唯一
+     * 调用方在主线程，但该类无显式线程契约，避免将来被异步调用时踩坏普通 map。
+     */
+    private static final long NAME_CACHE_TTL_MILLIS = 30_000L;
+    private static final int NAME_CACHE_MAX_ENTRIES = 64;
+    private final Map<String, CachedNames> knownNamesCache = new ConcurrentHashMap<>();
+
+    private static final class CachedNames {
+        final List<String> names;
+        final long expiresAt;
+
+        CachedNames(List<String> names, long expiresAt) {
+            this.names = names;
+            this.expiresAt = expiresAt;
+        }
+    }
+
     public AdminCommandHandler(LetsLearnEnglish plugin) {
         this.plugin = plugin;
+        this.playerDirectory = new PlayerDirectoryRepository(plugin.getDatabaseManager(),
+                plugin.getLogger());
     }
 
     /**
@@ -65,6 +89,21 @@ public class AdminCommandHandler {
         dataStore.unloadPlayerData(playerId);
         dataStore.unloadProfileSettings(playerId);
         plugin.getAchievementManager().unloadPlayer(playerId);
+        // R7-D（P1-1）：每日挑战的 per-player 内存态必须一起失效。deletePlayerData 会删掉
+        // daily_challenge_words 与 daily_word_reward_claims 两表的本玩家行，而
+        // DailyChallengeManager 的 dailyWordStateCache（挑战词集合 / 已完成集合 / 已付位）
+        // 与 wordChallengeClaimedToday（"今日已付"内存快路径）都是进程内状态，删表不会碰。
+        // 不清理的后果（在线玩家 reset 后真实可复现）：缓存日期仍是今日 → getOrLoadWordState
+        // 命中旧缓存不重建 → 旧 completedWords 短路 onWordCorrect 的写入分支（DB 行已删，
+        // 该词当天永远不再落库）；同时 getTodayWordProgress 经 ensureWordChallengesAssigned
+        // 给 DB 分配一批新词，而 onWordCorrect 仍拿旧 challengeWords 做 contains → 新词
+        // 永不命中，GUI 显示 5 词、进度恒 0/5。已付内存位则会造成"DB 台账已删、内存仍说已付"，
+        // 重刷完挑战当天也拿不到奖励。故这里调 resetPlayer（清缓存 + 清已付内存位），
+        // 而不是只调 unloadPlayer（后者刻意不动已付位，见其 javadoc 的 quit 语义）。
+        // 顺序：与 dataStore.unloadPlayerData 同理，内存清理必须先于删表；resetPlayer 只做
+        // 两次进程内集合 remove（不落盘、不查库），所以不存在"把旧态写回刚删的
+        // 表"的风险，放在 deletePlayerData 之前只是保持与其他 unload 一致的时序纪律。
+        plugin.getDailyChallengeManager().resetPlayer(playerId);
 
         plugin.getDatabaseManager().deletePlayerData(playerId);
 
@@ -93,22 +132,9 @@ public class AdminCommandHandler {
             return target.getUniqueId();
         }
 
-        String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
-        String sql = "SELECT uuid FROM " + tablePrefix
-                + "player_data WHERE player_name = ?";
-        Connection conn = plugin.getDatabaseManager().getConnection();
-        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, playerName);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return UUID.fromString(rs.getString("uuid"));
-                }
-            }
-        } catch (SQLException | IllegalArgumentException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to lookup player UUID: " + playerName, e);
-        }
+        UUID fromDb = playerDirectory.resolveUuidByName(playerName);
+        if (fromDb != null) {
+            return fromDb;
         }
 
         // F5-01：表里查不到（已被删过一次的行不会再出现在 player_data）时，
@@ -209,38 +235,27 @@ public class AdminCommandHandler {
 
     /**
      * US-RPT-3：/lea report 第二参数的 tab 补全名源 —— player_data.player_name
-     * 前缀查（最多 limit 条）。plan §3.3 将该查询画在 DatabaseManager；本批
-     * DatabaseManager 为并行兄弟流文件白名单，方法宿于本 Handler 以免文件重叠，
-     * SQL 与 plan 草案逐字一致。单表小查询，主线程调用量级可接受（既有 reset
-     * 补全同样在主线程做在线玩家遍历）。
+     * 前缀查（最多 limit 条）。R6-A 起 SQL 收口在 {@link PlayerDirectoryRepository}，
+     * 并在本类加 30 秒内存缓存（按前缀分键，上限 64 条）——补全每次按键都在主线程
+     * 触发，缓存把主线程查库降为"每前缀每 30 秒最多一次"。
      *
      * @param prefix 已输入前缀（空串全量前缀）
      * @param limit  最大返回条数
      * @return 名字列表（无命中返回空列表）
      */
     public List<String> getKnownPlayerNames(String prefix, int limit) {
-        List<String> names = new ArrayList<>();
-        String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
-        String sql = "SELECT DISTINCT player_name FROM " + tablePrefix
-                + "player_data WHERE player_name IS NOT NULL AND player_name LIKE ? LIMIT ?";
-        Connection conn = plugin.getDatabaseManager().getConnection();
-        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, prefix + "%");
-                stmt.setInt(2, limit);
-                try (ResultSet rs = stmt.executeQuery()) {
-                    while (rs.next()) {
-                        String name = rs.getString("player_name");
-                        if (name != null && !name.isBlank()) {
-                            names.add(name);
-                        }
-                    }
-                }
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to query known player names for tab completion", e);
-            }
+        String key = prefix + "|" + limit;
+        long now = System.currentTimeMillis();
+        CachedNames cached = knownNamesCache.get(key);
+        if (cached != null && cached.expiresAt > now) {
+            return new ArrayList<>(cached.names);
         }
+        List<String> names = playerDirectory.findNamesByPrefix(prefix, limit);
+        if (knownNamesCache.size() >= NAME_CACHE_MAX_ENTRIES) {
+            knownNamesCache.clear(); // 简单整体清空：条目少、重建代价低
+        }
+        knownNamesCache.put(key, new CachedNames(new ArrayList<>(names),
+                now + NAME_CACHE_TTL_MILLIS));
         return names;
     }
 
