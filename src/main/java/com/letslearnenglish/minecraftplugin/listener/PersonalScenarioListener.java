@@ -11,6 +11,7 @@ import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.InventoryView;
@@ -50,6 +51,30 @@ public class PersonalScenarioListener implements Listener {
         //    玩家开着 GUI 仍能正常整理背包（R-01 语义原样保留）。
         int topSize = event.getView().getTopInventory().getSize();
         int rawSlot = event.getRawSlot();
+
+        // FIX-C2：下半区 shift-click（MOVE_TO_OTHER_INVENTORY）与双击收集
+        //（COLLECT_TO_CURSOR）的前置例外，照 SocialListener / MiscGUIListener 同式。
+        //
+        // 位置铁律：必须在下面 rawSlot 越界 return 之前 —— 这两类 action 的 rawSlot 落在
+        // 下半区（玩家背包），一旦让越界 return 先吃掉就永远走不到本分支。
+        //
+        // 为什么必需：MOVE_TO_OTHER_INVENTORY 会把玩家背包物品合并进上半区同类堆叠
+        //（不依赖空槽）；COLLECT_TO_CURSOR 会把上半区展示物扫进光标（反向失窃）。
+        // 本页虽靠自铺满维持无空槽，但合堆与收集两条路径都不经过空槽。
+        //
+        // 为什么不含 PICKUP_ALL：Paper 1.21.4 把「光标空着、左键拾取整叠」映射为
+        // PICKUP_ALL（点玩家自己背包的格子也走这个），拦它等于把「开着 GUI 整理背包」
+        // 一并吞掉，与 R-01 语义冲突；双击收集的落点是 COLLECT_TO_CURSOR，已在本守卫内。
+        // 归属判定必须写在这里（本类的 holder 判定在第 3 步、位于越界 return 之后）。
+        if (rawSlot >= topSize
+                && (event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY
+                        || event.getAction() == InventoryAction.COLLECT_TO_CURSOR)) {
+            if (isManageView(event.getView())) {
+                event.setCancelled(true);
+            }
+            return;
+        }
+
         if (rawSlot < 0 || rawSlot >= topSize) return;
 
         // 3) 然后才做身份判定：只认 holder（结构身份）。
