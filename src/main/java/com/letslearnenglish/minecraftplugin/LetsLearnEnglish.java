@@ -31,6 +31,7 @@ import com.letslearnenglish.minecraftplugin.listener.ChatScenarioListener;
 import com.letslearnenglish.minecraftplugin.listener.DuelChallengeListener;
 import com.letslearnenglish.minecraftplugin.listener.DuelGUIListener;
 import com.letslearnenglish.minecraftplugin.listener.DuelListener;
+import com.letslearnenglish.minecraftplugin.listener.GlobalGuiActionGuardListener;
 import com.letslearnenglish.minecraftplugin.listener.MainMenuListener;
 import com.letslearnenglish.minecraftplugin.listener.MiscGUIListener;
 import com.letslearnenglish.minecraftplugin.listener.PlayerJoinListener;
@@ -488,6 +489,12 @@ public final class LetsLearnEnglish extends JavaPlugin {
     }
 
     private void registerListeners() {
+        // 全局 GUI 物品守卫：放在最前只为阅读时先看到「全局规则」—— 实际执行顺序由
+        // @EventHandler(priority = LOWEST) 决定，与注册先后无关。它只拦「插件 GUI + 下半区 +
+        // shift-click / 双击收集」这一种组合，不参与任何业务分派。
+        // 刻意不含 PICKUP_ALL：那是「左键取整叠」，拦它会锁死背包整理（见该类的字节码实证）。
+        getServer().getPluginManager().registerEvents(
+                new GlobalGuiActionGuardListener(this), this);
         getServer().getPluginManager().registerEvents(new PlayerJoinListener(this), this);
         getServer().getPluginManager().registerEvents(new MainMenuListener(this), this);
         getServer().getPluginManager().registerEvents(new WordLearningListener(this), this);
