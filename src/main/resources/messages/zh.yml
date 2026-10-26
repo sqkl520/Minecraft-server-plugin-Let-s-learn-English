@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 18
+config-version: 19
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -574,6 +574,12 @@ profile:
   stats-coins-value: "&f{coins}"
   stats-achievements-label: "成就"
   stats-achievements-value: "&f{unlocked}/{total}"
+  # 决斗战绩（仅统计正常打满的对局；中途退出 / 掉线 / 管理员解散不计入）
+  stats-duel-label: "决斗战绩"
+  stats-duel-value: "&a{wins} 胜 &7/ &c{losses} 负 &7(胜率 {rate})"
+  stats-duel-loading: "&7加载中…"
+  stats-duel-none: "&7暂无战绩"
+  stats-duel-note: "&8仅统计完整对局"
   achievements-hint: "&7点击查看成就列表"
   achievement-unlocked: "&6✔ 已解锁"
   achievement-locked: "&8🔒 未解锁"

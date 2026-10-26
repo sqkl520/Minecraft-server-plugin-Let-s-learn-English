@@ -110,10 +110,27 @@ public class AIChatManager {
     private volatile boolean shuttingDown = false;
     /** R-63：system prompt 单独超预算的 WARNING 只打一次（reload 时重置）。 */
     private volatile boolean systemOverBudgetWarned = false;
+    /** R12：注入后 prompt 超 {@code scenario.max-prompt-length} 的 WARNING 只打一次（reload 时重置）。 */
+    private volatile boolean promptBudgetWarned = false;
     /** US-FB R2：总结输出解析失败的 WARNING 只打一次（reload 时重置），防刷日志。 */
     private volatile boolean feedbackParseWarned = false;
     /** R-20：鉴权熔断"开启至"时间戳（毫秒）；&gt; now 即熔断中。成功请求/reload 清零。 */
     private volatile long authCircuitOpenUntil = 0L;
+
+    /**
+     * R12：目标词取数函数。由 DI 层（{@code LetsLearnEnglish}）接线，指向
+     * {@code ChatFeedbackManager.getSuggestedFocusWords} 等<b>纯内存</b>数据源。
+     *
+     * <p>为什么用 {@code Function} 而不直接持有 {@code ChatFeedbackManager}：
+     * <ul>
+     *   <li>DI 顺序是 AIChatManager 先构造、ChatFeedbackManager 后构造，构造期反向取必为 null；</li>
+     *   <li>ChatFeedbackManager 已单向持有 AIChatManager，反向引用会成环（见
+     *       {@code PluginGuiHolder} 对双向引用的禁忌说明）；</li>
+     *   <li>本包（core.ai）内不该出现"Manager 互指"的隐式时序契约。</li>
+     * </ul>
+     * 默认恒空 —— 未接线时功能自然关闭，且 prompt 与旧版逐字节一致。
+     */
+    private volatile java.util.function.Function<UUID, List<String>> focusWordProvider = id -> List.of();
 
     private final Map<UUID, Long> lastRequestTime = new ConcurrentHashMap<>();
     private final Set<UUID> pendingRequests = ConcurrentHashMap.newKeySet();
@@ -352,6 +369,64 @@ public class AIChatManager {
                 + " difficulties=" + difficulties.size());
     }
 
+    /**
+     * R12：注入目标词取数函数（由 {@code LetsLearnEnglish} 在 DI 阶段接线）。
+     *
+     * <p>契约：provider 只允许读<b>纯内存</b>数据源，必须零 DB、零锁、不阻塞 ——
+     * 它会被 {@code buildSystemPrompt} 在主线程同步调用。传 {@code null} 等价于"关闭注入"。
+     *
+     * @param provider 取数函数；null = 关闭
+     */
+    public void setFocusWordProvider(java.util.function.Function<UUID, List<String>> provider) {
+        this.focusWordProvider = (provider == null) ? id -> List.of() : provider;
+    }
+
+    /**
+     * R12：收集本场要注入的目标词。
+     *
+     * <p>线程：由 {@code buildSystemPrompt} 在主线程调用，因此 provider 必须零 DB
+     * （见 {@link #setFocusWordProvider} 契约）。这里不做任何词库校验 ——
+     * 上游 {@code ChatFeedbackManager} 已按词库过滤，重复校验只会引入缓存 miss 查库风险。
+     *
+     * @return 不可变列表；功能关闭 / 无数据 / 异常时返回空表
+     */
+    private List<String> collectFocusWords(UUID playerId) {
+        if (playerId == null) {
+            return List.of();
+        }
+        // 与 daily-round-limit 的"≤0 = 不限"不同：本键 0 = 关闭（配置注释已明示口径差异）。
+        int max = plugin.getConfigManager().getMainConfig().getInt("ai-chat.focus-words-max", 5);
+        if (max <= 0) {
+            return List.of();
+        }
+        List<String> provided;
+        try {
+            provided = focusWordProvider.apply(playerId);
+        } catch (RuntimeException e) {
+            // 取数是锦上添花：provider 抛异常绝不能让玩家开不了对话。
+            debugLog("[collectFocusWords] focus word provider failed: " + e.getMessage());
+            return List.of();
+        }
+        if (provided == null || provided.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> deduped = new LinkedHashSet<>();
+        for (String word : provided) {
+            if (word == null) {
+                continue;
+            }
+            String trimmed = word.trim();
+            if (trimmed.isEmpty() || deduped.contains(trimmed)) {
+                continue;
+            }
+            deduped.add(trimmed);
+            if (deduped.size() >= max) {
+                break; // 截断到 max（保序：先到先得）
+            }
+        }
+        return deduped.isEmpty() ? List.of() : List.copyOf(deduped);
+    }
+
     private void loadConfig() {
         File aiConfigFile = new File(plugin.getDataFolder(), "ai_config.yml");
         if (!aiConfigFile.exists()) {
@@ -398,6 +473,8 @@ public class AIChatManager {
         this.authCircuitOpenUntil = 0L;
         // R-63：配置可能改了 token 预算 —— 重置 system 超预算的单次 WARNING 标志。
         this.systemOverBudgetWarned = false;
+        // R12：同理，reload 后允许 prompt 长度超限的 WARNING 再提示一次。
+        this.promptBudgetWarned = false;
         // US-FB：重载后允许"总结解析失败"的单次 WARNING 再次提示。
         this.feedbackParseWarned = false;
 
@@ -864,10 +941,16 @@ public class AIChatManager {
         dispatchChat(player, trigger, guarded, ChatTrigger.OPENING);
     }
 
-    private String buildSystemPrompt(String scenarioKey, String difficultyKey, String lang) {
-        return buildSystemPrompt(scenarioKey, difficultyKey, lang, null);
-    }
-
+    /**
+     * R12：组装 system prompt —— 场景/难度展示名 + 占位符替换 + 目标词注入。
+     *
+     * <p>线程：主线程（调用点 {@code startConversation}）。因此这里的每一次取值都必须
+     * 零 DB：{@link #collectFocusWords} 只走 {@code focusWordProvider}（纯内存），
+     * 绝不调用 {@code getMasteredWords} / {@code loadPlayerData} —— 后者缓存 miss 时
+     * 会主线程同步查库并等 {@code connectionLock}。
+     *
+     * <p>R12 同时删除了此前的 3 参死重载（零调用，仅委托本方法）。
+     */
     private String buildSystemPrompt(String scenarioKey, String difficultyKey, String lang, UUID ownerId) {
         ScenarioConfig sc = scenarios.get(scenarioKey);
         if (sc == null && ownerId != null) {
@@ -890,16 +973,28 @@ public class AIChatManager {
         String scenarioName = (sc != null) ? sc.getDisplayName(zh) : scenarioKey;
         String scenarioPrompt = (sc != null) ? sc.prompt : "Chat with the player.";
         String difficultyPrompt = (dc != null) ? dc.prompt : "";
+        String difficultyName = (dc != null) ? dc.getDisplayName(zh) : String.valueOf(difficultyKey);
 
-        return "You are role-playing a scenario: " + scenarioName + ".\n\n"
-                + "=== SCENE ===\n" + scenarioPrompt.trim() + "\n\n"
-                + "=== DIFFICULTY ===\n" + difficultyPrompt.trim() + "\n\n"
-                + "Important rules:\n"
-                + "- Always stay in character.\n"
-                + "- If the player writes in Chinese, gently encourage them to try in English.\n"
-                + "- Remember conversation context and refer back to earlier messages.\n"
-                + "- End responses with a question or prompt when appropriate to keep the conversation going.\n"
-                + "- About correcting mistakes: follow the difficulty instructions above.";
+        List<String> focusWords = collectFocusWords(ownerId);
+        String prompt = PromptComposer.compose(scenarioName, scenarioPrompt,
+                difficultyName, difficultyPrompt, focusWords);
+
+        // R12：注入可能把 prompt 推过 scenario.max-prompt-length，而 /le scenario save
+        // 用同一阈值校验导出长度 —— 超长会让"保存场景"直接失败。此处只告警不改行为
+        // （与 R-63 的 system 超预算告警同姿态：system prompt 永不裁剪），且进程内只报一次防刷屏。
+        if (maxPromptLength > 0 && prompt.length() > maxPromptLength && !promptBudgetWarned) {
+            promptBudgetWarned = true;
+            plugin.getLogger().warning("AI system prompt length " + prompt.length()
+                    + " exceeds scenario.max-prompt-length " + maxPromptLength
+                    + " (scenario=" + scenarioKey + ", focusWords=" + focusWords.size()
+                    + "). Shorten the scenario prompt or lower ai-chat.focus-words-max;"
+                    + " otherwise /le scenario save will be rejected. Further warnings suppressed.");
+        }
+        if (!focusWords.isEmpty()) {
+            debugLog("目标词注入 — 场景=" + scenarioKey + " 词数=" + focusWords.size()
+                    + " 词表=" + focusWords + " prompt长度=" + prompt.length());
+        }
+        return prompt;
     }
 
     /**
@@ -1666,7 +1761,8 @@ public class AIChatManager {
                 + " Keep \"original\" and \"corrected\" in English; write \"note\" briefly in " + language + "."
                 + " Use an empty array if there is no meaningful mistake.\n"
                 + "- \"words\": up to 3 English words or phrases related to this scenario that the student"
-                + " could learn next.\n"
+                + " could learn next. When recommending words in \"words\", prefer words already listed in"
+                + " TARGET WORDS if any, and keep them simple and common enough for a learner.\n"
                 + "- Every string must stay under 120 characters.";
 
         String userPrompt = "TRANSCRIPT:\n" + renderTranscript(summary.transcript())

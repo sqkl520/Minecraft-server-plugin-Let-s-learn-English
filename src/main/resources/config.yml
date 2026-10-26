@@ -115,6 +115,11 @@ word-system:
     # 默认 30 天
     mastered-review-interval-days: 30
 
+  # 近期已答词排除窗口（分钟；0 = 关闭）
+  # 开新学习会话时，跳过最近该时间窗口内已答过的词，避免「刚答错就重抽同一题」。
+  # 仅内存态：退服 / 重启 / reload 后窗口清空（长期记忆由复习种子承担）。
+  recent-word-exclusion-minutes: 30
+
   # --- 学习模式配置 ---
   # Phase 3 已接线（Wave 2 · MC-3）：以下各键均被代码读取，/lea reload 即时生效
   #（判分大小写 / 选项数 / 倒计时在开局时快照，改动对下一局生效；提示显隐实时生效）。
@@ -215,6 +220,12 @@ ai-chat:
   # 注意：它不参与 daily-round-limit（轮次上限按每次成功 API 回复累加）；默认 3
   # 设为 0 则只要求有成功回复（不再要求玩家消息条数）
   count-min-rounds: 3
+  # AI 对话「目标词注入」上限（0 = 关闭本功能）
+  # 每场对话开始时，系统会挑选最多 N 个玩家当前需要练习的词，注入 system prompt，
+  # 让 AI 在角色扮演中自然地引导玩家使用它们（不是考试式提问）。
+  # 数据来源优先级：上一场 AI 纠错词 → 艾宾浩斯到期复习词。
+  # 注意：本键 0 表示「关闭」，与上面 daily-round-limit 的「0 = 不限」口径不同，请勿混淆。
+  focus-words-max: 5
 
   # ---- 对话小结 / AI 学习反馈 (Session Feedback, Phase 3 US-FB) ----
   feedback:

@@ -169,6 +169,30 @@ public final class LetsLearnEnglish extends JavaPlugin {
         this.achievementManager = new AchievementManager(this, playerDataStore);
         this.aiChatManager = new AIChatManager(this);
         this.chatFeedbackManager = new ChatFeedbackManager(this, aiChatManager);
+        // B1（R12）：目标词注入接线 —— 只走零 DB 数据源。buildSystemPrompt 在主线程跑，
+        // 所以这里绝不能用 getMasteredWords / loadPlayerData（缓存 miss 时会主线程同步
+        // 查库并等 connectionLock）。两路数据源都是纯内存：
+        //   1) getSuggestedFocusWords —— ChatFeedbackManager 的 ConcurrentHashMap（上一场纠错/推荐词，已按词库过滤）；
+        //   2) getDueReviewWords —— ReviewScheduler 的 30s TTL 内存缓存（缓存内也是纯 map 读）。
+        // 用 Function 注入而非直接持有 ChatFeedbackManager：本类先构造 aiChatManager 再构造
+        // chatFeedbackManager，反向引用会成环。
+        this.aiChatManager.setFocusWordProvider(id -> {
+            if (id == null) {
+                return java.util.List.of();
+            }
+            // null 守卫只为防御"DI 半初始化"被外部提前调用；正常路径两者此时均已构造。
+            if (chatFeedbackManager == null) {
+                return java.util.List.of();
+            }
+            List<String> suggested = chatFeedbackManager.getSuggestedFocusWords(id);
+            if (suggested != null && !suggested.isEmpty()) {
+                return suggested;
+            }
+            // 兜底：艾宾浩斯到期复习词（同样只在内存缓存/内存 map 上读）。
+            return (wordManager != null && wordManager.getReviewScheduler() != null)
+                    ? wordManager.getReviewScheduler().getDueReviewWords(id)
+                    : java.util.List.of();
+        });
         this.chatScenarioListener = new ChatScenarioListener(this, aiChatManager);
         this.guiNavigationManager = new GuiNavigationManager();
         this.dailyChallengeManager = new DailyChallengeManager(this, wordManager);

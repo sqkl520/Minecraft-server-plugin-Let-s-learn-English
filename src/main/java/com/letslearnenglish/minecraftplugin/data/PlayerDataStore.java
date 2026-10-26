@@ -59,6 +59,20 @@ public class PlayerDataStore {
     private final Map<UUID, ProfileSettings> profileSettingsCache;
     private final Map<UUID, Map<String, DifficultWord>> difficultWordsCache;
     private final Map<UUID, Map<String, Integer>> wrongCountCache;
+
+    /**
+     * B2b（R3-b）：近期已答词窗口 —— 词（小写）→ 最后一次答题的 epoch ms。
+     *
+     * <p><b>刻意纯内存、不落库</b>：它只是"开局别马上重出刚答过的题"这一交互优化，
+     * 窗口以分钟计（默认 30），退服 / 重启 / reload 后清空完全可接受；
+     * 长期记忆由 {@code lastReviewTimeCache} 里的复习种子承担，两者互不替代。
+     *
+     * <p>因此本字段<b>不进</b> {@link #savePlayerDataInternal} 的写路径，也不参与
+     * {@code dirtyWords} 脏标记体系 —— 它没有"待落盘"语义，把它塞进写路径只会
+     * 让每轮保存多一次无意义的 SQL 绑定。
+     */
+    private final Map<UUID, Map<String, Long>> recentAnswerCache = new ConcurrentHashMap<>();
+
     // H10：玩家名缓存（join 时由主线程写入，savePlayerData 读出随 UPSERT 落盘）。
     // 不走 Bukkit API，保证异步保存线程安全；quit 时随 unload 清理。
     private final Map<UUID, String> playerNameCache;
@@ -1182,6 +1196,58 @@ public class PlayerDataStore {
     }
 
     /**
+     * B2b（R3-b）：取「最近 {@code windowMillis} 毫秒内答过的词」。
+     *
+     * <p>读时顺手<b>剪枝</b>：窗口外的条目在本次读取时删掉，避免只增不删的内存泄漏
+     * （窗口默认 30 分钟，玩家在线数小时也不该把历史全留在 map 里）。剪枝后若该玩家
+     * 的 map 空了，把外层条目一并摘掉。
+     *
+     * <p>{@code windowMillis <= 0} = 功能关闭，直接返回空集（调用方据此把
+     * {@code recent-word-exclusion-minutes: 0} 当作「不排除」）。
+     *
+     * <p>返回的是<b>防御拷贝</b>：调用方（{@code WordBank.selectWordsForSession}）只读，
+     * 但把它包成不可变视图会让每次开局都多一层包装，而拷贝本身只有窗口内的词（≤ 每会话题数），
+     * 代价可忽略，且彻底断掉"误改缓存"的可能。
+     *
+     * @param playerId     玩家
+     * @param windowMillis 有效窗口（毫秒）；{@code <= 0} 表示关闭
+     * @return 窗口内答过的词（小写）；永不为 {@code null}
+     */
+    public Set<String> getRecentlyAnsweredWords(UUID playerId, long windowMillis) {
+        if (playerId == null || windowMillis <= 0) {
+            return Collections.emptySet();
+        }
+
+        Map<String, Long> answers = recentAnswerCache.get(playerId);
+        if (answers == null || answers.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        long cutoff = System.currentTimeMillis() - windowMillis;
+        Set<String> recent = new HashSet<>();
+        for (Map.Entry<String, Long> entry : answers.entrySet()) {
+            Long at = entry.getValue();
+            if (at != null && at >= cutoff) {
+                recent.add(entry.getKey());
+            } else if (at == null) {
+                // ConcurrentHashMap 不允许 null 值，理论上不可达；留着防止后人改写入点时
+                // 用 remove(key, null) 触发 NPE（该重载的值参数不可为 null）。
+                answers.remove(entry.getKey());
+            } else {
+                // 窗口外：顺手剪掉。remove(key, value) 两参形式避免误删并发写入的新时间戳。
+                answers.remove(entry.getKey(), at);
+            }
+        }
+        if (answers.isEmpty()) {
+            // 外层条目也摘掉（否则在线玩家的 UUID 会一直堆在 recentAnswerCache 里）。
+            // 残余窗口：isEmpty 判断与本次 remove 之间若有并发写入，那条新词会连带被摘 ——
+            // 后果是"该词这次没被排除"，窗口只持续 30 分钟且不影响任何落盘数据，可接受。
+            recentAnswerCache.remove(playerId, answers);
+        }
+        return recent;
+    }
+
+    /**
      * Update word progress after a learning session.
      * Invalidates the mastered words cache for the player.
      *
@@ -1233,6 +1299,22 @@ public class PlayerDataStore {
             // "窗口内是否有新写入"；先标后写会让"读到旧值 + 序号未变 → 误清标记"成立。
             // 不按"是否答过"过滤 —— 未作答的词 mastery 也可能被写，凡进循环即标。
             markWordDirty(playerId, word);
+
+            // B2b（R3-b）：近期已答词窗口写入点。
+            // 为什么<b>放在这里</b>：所有答题结算（学习会话 / 复习会话 / 下线结算 /
+            // AI 纠错闭环）都必须经过 updateWordProgress —— 它是 word_progress 的唯一
+            // 结算入口。因此放在这个循环里，"答对"与"答错"都会自动记账，不需要在每个
+            // 调用方各写一遍（那样一定会漏掉某条路径）。时间戳取 settle 时刻而非逐题时刻：
+            // 窗口语义是"最近 N 分钟内答过的词"，整局共用同一时刻的误差不超过一局时长。
+            // 纯内存操作，不标脏 —— 本 map 不落库（见字段注释）。
+            //
+            // 只记"实际作答过"的词：results 里也包含中途 stop 残留的未作答词
+            // （correct + incorrect == 0，与 endSession / review 分支的 continue 判据同源）。
+            // 把没答过的词算进"近期已答"，会让"开局即停"的玩家把整局词表冻结 30 分钟。
+            if (wordCorrect + wordIncorrect > 0) {
+                recentAnswerCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>())
+                        .put(word, System.currentTimeMillis());
+            }
         }
 
         masteredWordsCache.remove(playerId);
@@ -1424,6 +1506,7 @@ public class PlayerDataStore {
         todayAiRoundCache.remove(playerId);
         conversationCountCache.remove(playerId); // R-28
         wrongBookClearedCache.remove(playerId); // Phase 3 S-A（H11）
+        recentAnswerCache.remove(playerId); // B2b（R3-b）：纯内存窗口，下线即清
         // R7-A：全量 savePlayerData 已兑现所有标记；此处清残留防止为已下线玩家积累。
         // 注意：若上面的 savePlayerData 失败（SQLException），缓存随后仍被清空 ——
         // 这次 quit 的数据就真的丢了。这是 R7-A 之前既有的行为（全量保存失败 + 清缓存），
@@ -1458,6 +1541,7 @@ public class PlayerDataStore {
         playerNameCache.clear();
         conversationCountCache.clear(); // R-28
         wrongBookClearedCache.clear(); // Phase 3 S-A（H11）
+        recentAnswerCache.clear(); // B2b（R3-b）：reload 时窗口整体作废（纯内存态，无落盘语义）
         dirtyPlayers.clear(); // R7-A
         dirtyWords.clear(); // R7-A
         dirtySaveCount.clear(); // R7-A

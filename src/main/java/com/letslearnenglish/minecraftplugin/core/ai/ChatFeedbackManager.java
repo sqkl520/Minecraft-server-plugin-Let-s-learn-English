@@ -2,22 +2,21 @@ package com.letslearnenglish.minecraftplugin.core.ai;
 
 import com.google.gson.Gson;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.word.ReviewScheduler;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
 import com.letslearnenglish.minecraftplugin.data.ChatFeedbackEntry;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Pattern;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Level;
 
 /**
  * Chat Feedback Manager — AI 会话小结与点评的显示编排 + 持久化（Phase 3 · US-FB 1b，plan-ai-feedback §3.5）。
@@ -40,19 +39,30 @@ public class ChatFeedbackManager {
     /** Gson 无状态可复用（与 AIChatManager 同姿态；arch tester 6① 收口——避免每单 new）。 */
     private static final Gson GSON = new Gson();
 
-    /**
-     * R9"纠错闭环"：单词级纠错判定 —— 单个英文词、字母开头、至少 2 个字母、无空格；
-     * 允许词内连字符/撇号（{@code don't} / {@code well-known}），不允许首尾标点。
-     * 句子级纠错（含空格/中文/数字开头）不进错题本（错题本是单词库，收句子只会产生脏数据）。
-     */
-    private static final Pattern WORD_LEVEL_PATTERN =
-            Pattern.compile("[A-Za-z](?:[A-Za-z]|['’-][A-Za-z])+");
-
-    /** 目标词长度上限（与 ConversationFeedback 的单词上限对齐，防异常长 token）。 */
-    private static final int MAX_FOCUS_WORD_CHARS = 40;
-
     /** 每玩家"下一场建议目标词"（最近一次 AI 点评产出；去重保插入序）。 */
     private final Map<UUID, List<String>> suggestedFocusWords = new ConcurrentHashMap<>();
+
+    // ── FIX-H1（RT-H2 中危·可观测性）：全服丢弃统计的节流聚合 ──────────────────
+    //
+    // 逐场丢弃情况原来只有 FINE 一条，而 Bukkit 默认日志级别是 INFO —— 运维在默认
+    // logback 配置下<b>完全看不到</b>「AI 纠错被丢了多少」。改成每 N 场打一条 INFO 汇总：
+    // 既不刷屏（一场一行 INFO 在高峰是全服刷屏），又让"纠错闭环在静默失效"有信号。
+    //
+    // 累加器是<b>全服共享</b>而非 per-player：语义是「运维看全服丢弃率」，per-player
+    // 拆分只会让汇总更难读，还要额外的 Map 生命周期管理。计数取 ≤ 上限的自饱和值，
+    // 累加到上限后不再增长（实际不可能触及，纯防溢出 + 防日志里出现负数的荒谬值）。
+    /** 汇总日志间隔：每 N 场点评打一条 INFO（1 = 每场都打，用于临时排障）。 */
+    private static final int SUMMARY_LOG_EVERY_N = 10;
+
+    /** 单场各计数的累加上限（防 long 溢出；触及后停止累加，汇总行标 saturated）。 */
+    private static final long COUNTER_SATURATION = Long.MAX_VALUE / 4;
+
+    /** 已处理的点评场数（同时充当「该不该打汇总」的节流计数）。 */
+    private final AtomicLong summaryLogCounter = new AtomicLong();
+    private final AtomicLong totalApplied = new AtomicLong();
+    private final AtomicLong totalReviewOnly = new AtomicLong();
+    private final AtomicLong totalDroppedSentence = new AtomicLong();
+    private final AtomicLong totalDroppedUnknown = new AtomicLong();
 
     private final LetsLearnEnglish plugin;
     private final AIChatManager aiChatManager;
@@ -243,17 +253,22 @@ public class ChatFeedbackManager {
     /**
      * 把一次 AI 点评的 {@code corrections} 与推荐词接回学习闭环。
      *
-     * <p>语义（与 {@code WordLearningManager.trackWrongAnswer} 完全同款，不另立阈值）：
+     * <p>R9 收口：本方法只负责「执行」，映射决策全部下放到纯函数
+     * {@link CorrectionPlanner#plan}（可单测、无 Bukkit 依赖）。执行语义：
      * <ul>
-     *   <li>corrections：仅"单词级"（单英文词、字母开头、≥2 字符、无空格）且存在于已加载
-     *       词库的 {@code original} 才计数；{@code incrementWrongCount} 返回值 == 3 时
-     *       {@code addDifficultWord}（错题本）；同场同词只计一次（Set 去重，防 AI 重复
-     *       输出把一个词直接刷进错题本）；随后 {@code seedReview} 排入 1h 后复习。</li>
-     *   <li>推荐词（{@code feedback.words()}）：存在于词库的才 {@code seedReview}
-     *       （进复习/待学排程），<b>不</b>进错题本（推荐词不是错词）。</li>
-     *   <li>两者合并为"下一场建议目标词"，存入本类内存 map 供
+     *   <li>{@code countAsWrong}：与 {@code WordLearningManager.trackWrongAnswer} 完全同款 ——
+     *       {@code incrementWrongCount} 返回值 == 3 时 {@code addDifficultWord}（错题本）；
+     *       随后排复习。</li>
+     *   <li>{@code reviewOnly}：只排复习，<b>不</b>计数、不进错题本（推荐词不是错词；
+     *       句级纠错切出的已学词也没有"错次"语义）。</li>
+     *   <li>两者合并为「下一场建议目标词」，存入本类内存 map 供
      *       {@link #getSuggestedFocusWords(UUID)} 消费。</li>
      * </ul>
+     *
+     * <p>词形变化（{@code goes} / {@code went} 之类）由 {@link WordFormResolver} 还原成词库
+     * 原形后记账，还原失败的按未知词丢弃并计入 FINE 日志 —— 绝不猜、绝不往错题本写词库外
+     * 的键。句级纠错不进错题本（错题本是单词库，收句子是脏数据），改为按词回收进复习池。
+     * 已知限制：单字母词 {@code a} / {@code i} 因单词级正则要求 ≥2 字母而无法进入闭环。
      *
      * <p>线程：由 {@link #handleSummaryResult} 调用，AIChatManager 已保证主线程
      * （见其 {@code thenAcceptAsync(..., runnable -> scheduler.runTask(...))}），
@@ -285,54 +300,56 @@ public class ChatFeedbackManager {
                 return; // 单词系统整体关闭：错题本/复习队列都不该被写入
             }
 
-            // 下一场目标词（保序去重；只收词库内词，避免脏数据进 prompt）
-            LinkedHashSet<String> focusWords = new LinkedHashSet<>();
-            // 本场已计过错的词（同场去重：AI 重复输出同一条 correction 只算一次）
-            Set<String> countedThisSession = new HashSet<>();
+            // R9：映射决策收口在纯函数里（词级/句级/词形/去重/丢弃计数一次算清）
+            CorrectionPlanner.Plan plan = CorrectionPlanner.plan(
+                    feedback.corrections(),
+                    feedback.words(),
+                    word -> existsInWordBank(wordManager, word),
+                    word -> hasLearned(store, playerId, word),
+                    CorrectionPlanner.DEFAULT_MAX_SENTENCE_WORDS);
+
             boolean addedToWrongBook = false;
 
-            List<ConversationFeedback.Correction> corrections = feedback.corrections() != null
-                    ? feedback.corrections() : List.<ConversationFeedback.Correction>of();
-            List<String> recommended = feedback.words() != null
-                    ? feedback.words() : List.<String>of();
-
-            for (ConversationFeedback.Correction correction : corrections) {
-                if (correction == null) {
-                    continue;
-                }
-                String original = normalizeFocusCandidate(correction.original());
-                if (original == null) {
-                    continue; // 非单词级（句子/短语/带标点）→ 不进单词错题本
-                }
-                if (!existsInWordBank(wordManager, original)) {
-                    continue; // 错题本只收词库里的词
-                }
-                focusWords.add(original);
-                if (!countedThisSession.add(original)) {
-                    continue; // 同场重复 correction 只计一次
-                }
-                int wrongCount = store.incrementWrongCount(playerId, original);
+            for (String word : plan.countAsWrong()) {
+                int wrongCount = store.incrementWrongCount(playerId, word);
                 // 与 trackWrongAnswer 完全同款：恰好第 3 次才进错题本
                 if (wrongCount == 3) {
-                    store.addDifficultWord(playerId, original);
+                    store.addDifficultWord(playerId, word);
                     addedToWrongBook = true;
                 }
-                seedReview(playerId, original);
+                // R9 裁决：真答错的词必须「重新排到最近的一次复习」—— 只调 seedReview 时，
+                // 已经学过的词会被 containsKey 直接挡回（空操作），AI 纠错等于没接上闭环。
+                scheduleReview(playerId, word, true);
             }
 
-            for (String rawWord : recommended) {
-                String word = normalizeFocusCandidate(rawWord);
-                if (word == null || !existsInWordBank(wordManager, word)) {
-                    continue;
-                }
-                focusWords.add(word);
-                seedReview(playerId, word); // 推荐词只排复习，不进错题本
+            for (String word : plan.reviewOnly()) {
+                // 推荐词 / 句级纠错切出的词不是「答错事件」：只保证它在复习池里，
+                // 已有进度的词不重置间隔（seedReview 空操作正是期望行为）。
+                scheduleReview(playerId, word, false);
             }
 
+            // 下一场目标词：语义<b>冻结</b>（B1 消费）—— 只收「纠错词 + AI 推荐词」，
+            // 与既有实现的成员口径一致（区别仅在于词形变化现在归到原形）。
+            // 句级纠错切出的词只进复习池、不进目标词：它们多半是玩家句中用对的词，
+            // 掺进 prompt 会稀释"该重点练什么"的信号。故这里重算推荐词而<b>不</b>直接用
+            // plan.reviewOnly()（后者混了句级回收结果，无法区分）。
+            LinkedHashSet<String> focusWords = new LinkedHashSet<>(plan.countAsWrong());
+            appendFocusWords(focusWords, feedback.words(), wordManager);
             if (!focusWords.isEmpty()) {
-                // 不可变快照：消费方（未来 AIChatManager 注入点）不会与后续写入竞争
+                // 不可变快照：消费方（B1 的 prompt 注入）不会与后续写入竞争
                 suggestedFocusWords.put(playerId, List.copyOf(focusWords));
             }
+
+            // 会话末一行 FINE：纠错落地情况可观测（丢弃原本完全静默，是 R9 的核心缺口之一）。
+            // FIX-H1：保留逐场 FINE 给调试用，另加全服节流 INFO 汇总（见字段说明）——
+            // 两者并存是刻意的：FINE 是"这一场发生了什么"，INFO 是"运维看不看得见"。
+            plugin.getLogger().log(Level.FINE,
+                    "AI corrections applied=" + plan.countAsWrong().size()
+                            + " reviewOnly=" + plan.reviewOnly().size()
+                            + " droppedSentence=" + plan.droppedSentence()
+                            + " droppedUnknown=" + plan.droppedUnknown()
+                            + " dup=" + plan.droppedDuplicate());
+            logPeriodicSummary(plan);
 
             if (addedToWrongBook && notify) {
                 // 复用既有键（不新增 i18n）：语义与 WordLearningManager 的"已加入错题本"一致
@@ -347,16 +364,144 @@ public class ChatFeedbackManager {
     }
 
     /**
-     * 复习种子（含 ReviewScheduler 的 30s due 缓存失效）——走 WordManager 侧入口，
-     * 只调 PlayerDataStore.seedReview 会让复习提醒延迟至多 30s 才看到新种子。
+     * FIX-H1（RT-H2 中危·可观测性）：全服 AI 纠错落地情况的分级汇总日志。
+     *
+     * <p>为什么需要：{@link #applyToLearningLoop} 的逐场统计原本只打 {@code Level.FINE}，
+     * 而 Bukkit 默认日志级别是 {@code INFO} —— 随包发出去的 logback 配置下运维根本看不到
+     * 「AI 纠错丢弃了多少」，闭环静默失效（例如词形归一化突然大面积失配）没有任何信号。
+     *
+     * <p>为什么必须节流：本类是全服单例，一场一波流；高峰期每场一行 INFO 会把控制台
+     * 刷满、把真正重要的告警挤走。折中是每 {@link #SUMMARY_LOG_EVERY_N} 场打一条汇总，
+     * 丢掉的是"单场明细"（那仍由 FINE 覆盖），保住的是"趋势可见"。
+     *
+     * <p>口径：<b>窗口值</b>而非累计值 —— 打完一条就把四个累加器归零，所以文案里的
+     * "last N sessions" 名副其实。用累计值配这个文案会让运维把「开服以来总共丢了多少」
+     * 误读成「最近 N 场丢了多少」，进而在量级上做出错误判断（两者差着几个数量级）。
+     *
+     * <p>线程：调用点由 AIChatManager 保证在主线程，但累加器仍用 {@link AtomicLong}
+     * 做无锁累加 —— 未来若换成异步调用点也不会给出撕裂的汇总值（窗口取用 getAndSet，
+     * 两个并发汇总最多各自少算一半，不会重复计入）。
+     *
+     * @param plan 本场映射结果（不为 null；调用点已判空）
      */
-    private void seedReview(UUID playerId, String word) {
-        WordManagerImpl wordManager = plugin.getWordManager();
-        if (wordManager == null || wordManager.getReviewScheduler() == null) {
-            plugin.getPlayerDataStore().seedReview(playerId, word);
+    private void logPeriodicSummary(CorrectionPlanner.Plan plan) {
+        accumulate(totalApplied, plan.countAsWrong().size());
+        accumulate(totalReviewOnly, plan.reviewOnly().size());
+        accumulate(totalDroppedSentence, plan.droppedSentence());
+        accumulate(totalDroppedUnknown, plan.droppedUnknown());
+
+        // 先累加再自增：第 N 场打完汇总时，本场已计入，窗口值名副其实。
+        if (summaryLogCounter.incrementAndGet() % SUMMARY_LOG_EVERY_N != 0) {
             return;
         }
-        wordManager.getReviewScheduler().seedReview(playerId, word);
+        // getAndSet(0)：取走本窗口值并开新窗口（窗口语义见方法头 "口径"）。
+        long applied = totalApplied.getAndSet(0);
+        long reviewOnly = totalReviewOnly.getAndSet(0);
+        long droppedSentence = totalDroppedSentence.getAndSet(0);
+        long droppedUnknown = totalDroppedUnknown.getAndSet(0);
+        plugin.getLogger().info("AI corrections (last " + SUMMARY_LOG_EVERY_N + " sessions): applied="
+                + applied + " reviewOnly=" + reviewOnly
+                + " droppedSentence=" + droppedSentence
+                + " droppedUnknown=" + droppedUnknown
+                + saturatedSuffix(applied, reviewOnly, droppedSentence, droppedUnknown));
+    }
+
+    /** 单调累加 + 饱和保护（触及上限后停止增长，避免 long 回绕成负数写进日志）。 */
+    private static void accumulate(AtomicLong counter, int delta) {
+        if (delta <= 0) {
+            return;
+        }
+        counter.updateAndGet(current -> current >= COUNTER_SATURATION
+                ? COUNTER_SATURATION
+                : Math.min(COUNTER_SATURATION, current + delta));
+    }
+
+    /**
+     * 汇总行的饱和标记：只有本窗口某个计数真的触顶才追加，正常运行时零噪音。
+     *
+     * @param applied         本窗口纠错落地数
+     * @param reviewOnly      本窗口只排复习数
+     * @param droppedSentence 本窗口句级丢弃数
+     * @param droppedUnknown  本窗口未知词丢弃数
+     * @return 触顶时 {@code " (saturated)"}，否则空串
+     */
+    private static String saturatedSuffix(long applied, long reviewOnly,
+                                          long droppedSentence, long droppedUnknown) {
+        boolean saturated = applied >= COUNTER_SATURATION
+                || reviewOnly >= COUNTER_SATURATION
+                || droppedSentence >= COUNTER_SATURATION
+                || droppedUnknown >= COUNTER_SATURATION;
+        return saturated ? " (saturated)" : "";
+    }
+
+    /**
+     * R9：按「是否真答错」选择复习排程入口。
+     *
+     * <p><b>裁决：真答错用 {@code seedReview + resetReview} 连调，其余用 {@code seedReview}。</b>
+     * 理由（读实现后确认）：
+     * <ul>
+     *   <li>{@code PlayerDataStore.seedReview} 在 {@code lastReviewTime} 或 {@code reviewCount}
+     *       任一已存在时<b>直接 return</b> —— 对练过的词是纯空操作。而 AI 纠错命中的词几乎
+     *       全是「玩家在对话里用错的、多半已经学过」的词，只会 seedReview 等于整条闭环落空。</li>
+     *   <li>{@code resetReview} 的语义是「把这词的间隔进度重置」：{@code reviewCount = 0} +
+     *       {@code lastReviewTime = now}，因此下一次 due = {@code now + intervals[0]}（默认 1h），
+     *       正好是「答错后尽快再考一次」的期望行为。它<b>不碰 mastery</b>（掌握度由
+     *       {@code updateWordProgress} 单源维护），也不新建 mastery 行。</li>
+     *   <li>反过来对 {@code reviewOnly}（推荐词 / 句级切出的已学词）用 {@code resetReview}
+     *       是错的：推荐词不是错词，把玩家已有的复习进度打回 1h 会平白增加复习量。故仍走
+     *       {@code seedReview}（已有进度不动，没有才种）。</li>
+     * </ul>
+     *
+     * <p><b>FIX-H1（RT-H2 中危·数据丢失）：为什么先 seedReview 再 resetReview。</b>
+     * 只调 {@code resetReview} 时会出现「重启后复习种子蒸发」：落盘路径
+     * {@code savePlayerDataInternal} 只遍历 {@code wordMasteryCache}，而
+     * {@code masteryMap.get(word) == null} 的词会被<b>跳过并留 FINE 日志</b>（它绝不拿
+     * 0.0 覆盖 DB 真值）。AI 纠错里的「玩家没学过的词」正是这种没有 mastery 行的词 ——
+     * {@code resetReview} 刻意不建 mastery 行，于是刚写的复习种子只在内存里活着，
+     * 下次重启就没了，只剩错题本那一行。
+     *
+     * <p>{@code seedReview} 补的是这一行（{@code putIfAbsent(0.0)}，已有 mastery 则 no-op）。
+     * 顺序论证（读 {@code PlayerDataStore:1409-1458} 实现）：
+     * <ul>
+     *   <li>对<b>已有复习记录</b>的词：{@code seedReview} 在 {@code reviewTimes.containsKey}
+     *       处直接 return —— <b>不</b>重置 {@code reviewCount}、不写任何 map；随后
+     *       {@code resetReview} 无条件覆盖为 {@code lastReviewTime=now / reviewCount=0}。
+     *       结果与「只调 resetReview」逐值一致，零副作用。</li>
+     *   <li>对<b>没有复习记录</b>的词：{@code seedReview} 写入 now/0 并补 mastery 行，
+     *       {@code resetReview} 再写一遍同样的语义（now/0）—— 幂等覆盖，不是"两次不同状态"。</li>
+     * </ul>
+     * 两条路径都不存在「seedReview 的新种子被 resetReview 破坏」或反之的窗口；
+     * 唯一区别是后者顺手把词挂进了 masteryMap，让 UPSERT 能带上复习种子。
+     *
+     * <p>风险说明：{@code resetReview} 会把「已复习到第 5 个间隔」的词打回第 0 个间隔。
+     * 对真答错的词这是<b>期望</b>语义（与复习答错完全一致），且 AI 纠错的词频很低（≤5 条/场），
+     * 不会造成间隔反复归零。
+     *
+     * @param asWrong true = 真答错（补 mastery 行 + 重置间隔到 1h 后）；false = 只保证在复习池里（不动已有进度）
+     */
+    private void scheduleReview(UUID playerId, String word, boolean asWrong) {
+        WordManagerImpl wordManager = plugin.getWordManager();
+        ReviewScheduler scheduler = wordManager != null ? wordManager.getReviewScheduler() : null;
+        if (!asWrong) {
+            if (scheduler != null) {
+                scheduler.seedReview(playerId, word);
+            } else {
+                plugin.getPlayerDataStore().seedReview(playerId, word);
+            }
+            return;
+        }
+        // 真答错：两步都必须 —— seedReview 保证 mastery 行存在（否则 resetReview 写的
+        // 种子落不了盘），resetReview 保证「答错 = 遗忘」语义（间隔打回 intervals[0]）。
+        // 走同一个入口（scheduler 优先）而不是 scheduler.seedReview + store.resetReview 混用：
+        // ReviewScheduler 两方法都顺带清 dueWordCache，混用会漏清一次缓存。
+        if (scheduler != null) {
+            scheduler.seedReview(playerId, word);
+            scheduler.resetReview(playerId, word);
+        } else {
+            PlayerDataStore store = plugin.getPlayerDataStore();
+            store.seedReview(playerId, word);
+            store.resetReview(playerId, word);
+        }
     }
 
     /** 词库存在性（globalWordIndex 小写索引，getWord 内部已 toLowerCase）。 */
@@ -365,28 +510,65 @@ public class ChatFeedbackManager {
     }
 
     /**
-     * 单词级候选归一化：字母开头、长度 ≥2、无空格、全英文（允许词内连字符/撇号），
-     * 统一小写；不合格返回 {@code null}。句子级纠错（含空格/中文/标点/数字开头）返回 null。
+     * 「下一场目标词」追加 AI 推荐词（语义冻结：只有词库内、小写原形、保序去重）。
+     *
+     * <p>为什么不用 {@code plan.reviewOnly()}：那里混了句级纠错回收的已学词，无法区分
+     * 「AI 主动推荐要练的词」与「玩家句子里顺带出现的词」。目标词只该是前者。
+     * 词形变化（{@code desserts}）同样归到原形（{@code dessert}）。
+     *
+     * <p>单词级归一化走 {@link CorrectionPlanner#normalizeWordLevel(String)}（单一真相）。
+     * 已知限制：单字母词 {@code a} / {@code i} 不匹配（正则要求 ≥2 字母），无法进入闭环。
      */
-    private String normalizeFocusCandidate(String raw) {
-        if (raw == null) {
-            return null;
+    private void appendFocusWords(LinkedHashSet<String> focusWords, List<String> recommended,
+                                  WordManagerImpl wordManager) {
+        if (recommended == null) {
+            return;
         }
-        String trimmed = raw.trim();
-        if (trimmed.isEmpty() || trimmed.length() > MAX_FOCUS_WORD_CHARS
-                || !WORD_LEVEL_PATTERN.matcher(trimmed).matches()) {
-            return null;
+        for (String raw : recommended) {
+            String wordLevel = CorrectionPlanner.normalizeWordLevel(raw);
+            if (wordLevel == null) {
+                continue;
+            }
+            String lemma = WordFormResolver.resolve(wordLevel, word -> existsInWordBank(wordManager, word));
+            if (lemma != null) {
+                focusWords.add(lemma);
+            }
         }
-        return trimmed.toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * 玩家是否「学过」某词（R9 句级纠错回收的过滤门：未学过的词排进复习，玩家答不出）。
+     *
+     * <p>{@code PlayerDataStore.wordMasteryCache} 是私有字段，此处用其两个公开只读视图的
+     * 等价判据：{@code lastReviewTimes} 与 {@code reviewCounts} 的 key 集合覆盖了所有写入过
+     * 学习进度的词 —— {@code seedReview}（普通会话结算 / 推荐词）/ {@code recordReview}
+     * （复习答对）/ {@code resetReview}（复习答错）都会写这两个 map，而
+     * {@code updateWordProgress} 建 mastery 行的同时 {@code endSession} 也必写复习种子。
+     * 两视图均为 {@code unmodifiableMap}（只读，不会误改缓存）。
+     *
+     * <p>取并集而非单边：{@code seedReview} 只在两 map 均无该词时才写入，理论上存在
+     * 「只有 reviewCount 无 lastReviewTime」的中间态，单边判断会漏。
+     */
+    private boolean hasLearned(PlayerDataStore store, UUID playerId, String word) {
+        if (store == null || playerId == null || word == null) {
+            return false;
+        }
+        return store.getLastReviewTimes(playerId).containsKey(word)
+                || store.getReviewCounts(playerId).containsKey(word);
     }
 
     /**
      * R9：最近一次 AI 点评产出的"下一场建议目标词"（corrections 的 original 词 +
      * AI 推荐词，均已过滤到词库内、保序去重、小写）。
      *
-     * <p>当前 AIChatManager 尚无"下一场目标词注入"API（无 focus/target 概念），
-     * 本方法只完成数据准备，供未来接线（会话 system prompt 注入）。
-     * 返回不可变快照，永不为 null；无数据时返回空列表。
+     * <p>B1（R12）已接线：{@code LetsLearnEnglish} 在 DI 阶段调用
+     * {@code AIChatManager.setFocusWordProvider} 把本方法注册为目标词数据源
+     * （{@code LetsLearnEnglish} 约 :179），消费点是 {@code AIChatManager.collectFocusWords}
+     * → {@code PromptComposer} 的 system prompt 注入。取数在主线程同步执行，因此本方法
+     * 只读 {@code ConcurrentHashMap}，零 DB、零锁。
+     *
+     * <p>返回语义冻结：词库内小写原形、保序去重、不可变快照、永不为 null（无数据时空列表）。
+     * 若返回空表，{@code AIChatManager} 会回落到艾宾浩斯到期复习词（见上面的接线处）。
      */
     public List<String> getSuggestedFocusWords(UUID playerId) {
         if (playerId == null) {
