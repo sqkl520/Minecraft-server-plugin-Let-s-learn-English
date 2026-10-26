@@ -132,7 +132,16 @@ public class WordManagerImpl {
         }
 
         Set<String> masteredWords = playerDataStore.getMasteredWords(player.getUniqueId());
-        List<Word> sessionWords = bank.selectWordsForSession(wordCount, masteredWords);
+
+        // B2b（R3-b）：近期已答词排除 —— 开新学习会话时跳过窗口内刚答过的词，
+        // 避免「刚答错就重抽同一题」。配置 0 = 关闭（getRecentlyAnsweredWords 收到
+        // <= 0 直接返回空集，所以这里不做条件分支，保持单一取值路径）。
+        // 只作用于普通学习会话；复习会话（startReviewSession）刻意不排除 —— 复习就是要重考。
+        Set<String> excluded = playerDataStore.getRecentlyAnsweredWords(
+                player.getUniqueId(),
+                configManager.getMainConfig()
+                        .getInt("word-system.recent-word-exclusion-minutes", 30) * 60_000L);
+        List<Word> sessionWords = bank.selectWordsForSession(wordCount, masteredWords, excluded);
 
         if (sessionWords.isEmpty()) {
             throw new IllegalStateException("No words available for session in difficulty: " + difficulty);
@@ -185,8 +194,18 @@ public class WordManagerImpl {
                 }
             } else {
                 for (LearningSession.WordResult result : session.getResults().values()) {
-                    // 只有实际答过的词才播种子：未作答的词（stop 残留）不进复习池
-                    if (result.getCorrectCount() + result.getIncorrectCount() > 0) {
+                    // 只有实际答过的词才碰复习状态：未作答的词（stop 残留）不进复习池
+                    if (result.getCorrectCount() + result.getIncorrectCount() == 0) {
+                        continue;
+                    }
+                    if (result.getIncorrectCount() > 0) {
+                        // B2b（R3-c）：普通会话答错也必须把间隔打回起点。此前普通分支只调
+                        // seedReview，而 seedReview 对已有种子的词是 no-op
+                        // （PlayerDataStore 的 seedReview 在 lastReviewTime 已存在时直接 return），
+                        // 所以"学过的词答错后复习间隔分毫不动"，下次提醒仍按旧的长间隔走。
+                        // resetReview：lastReviewTime=now、reviewCount=0 → 下次 due = now + intervals[0]。
+                        reviewScheduler.resetReview(playerId, result.getWord().getEnglish());
+                    } else {
                         reviewScheduler.seedReview(playerId, result.getWord().getEnglish());
                     }
                 }

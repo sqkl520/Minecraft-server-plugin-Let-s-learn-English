@@ -5,6 +5,7 @@
 #  支持以下变量（在 prompt 中使用）：
 #    {scenario}   — 被替换为场景 display_name
 #    {difficulty} — 被替换为难度 display_name
+#    {focus_words} — 被替换为逗号分隔的目标词列表（为空时替换为空串）
 #
 #  设计说明（面向 8-14 岁、在 MC 里打字的玩家）：
 #    - 场景全部取自 Minecraft 世界内的情境，不出现护照、行李托运、

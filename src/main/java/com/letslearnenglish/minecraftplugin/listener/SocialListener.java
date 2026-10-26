@@ -22,6 +22,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.ClickType;
+import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -149,6 +150,32 @@ public class SocialListener implements Listener {
         InventoryView view = event.getView();
         int topSize = view.getTopInventory().getSize();
         int rawSlot = event.getRawSlot();
+
+        // FIX-H1（RT-H2 高危·物品丢失）：下半区 shift-click（MOVE_TO_OTHER_INVENTORY）与
+        // 双击收集（COLLECT_TO_CURSOR）的<b>前置例外</b>，照 DuelGUIListener:54 /
+        // ClassBoardListener:52 同式。
+        //
+        // 位置铁律：必须在下面 rawSlot 越界 return <b>之前</b> —— 这两类 action 的
+        // rawSlot 落在下半区（玩家背包），一旦让越界 return 先吃掉就永远走不到本分支。
+        // 语义边界：只 cancel 本类辖管的界面（resolveSocialKey 纯 holder 判定，
+        // SQUARE / SQUARE_HIDDEN / LEADERBOARD / PROFILE / ACHIEVEMENT_WALL），
+        // 且只 cancel 这两类 action —— 普通下半区点击仍一步不拦（玩家整理背包不受影响，
+        // R-01/R-22 语义保持）。用 InventoryAction 常量而非 ClickType：shift-click
+        // 对应的是 MOVE_TO_OTHER_INVENTORY，"SHIFT_LEFT" 在界面上还可能被原版映射成
+        // 别的落点，判 ClickType 抓不到「双击收集」这一类。
+        //
+        // 为什么必需：上半区已被 fillEmpty / 边框铺满，本分支是纵深第二道 —— 即便未来
+        // 某页再出现裸空槽（如 duel.enabled=false 时的 slot 16），玩家物品也不会被塞进
+        // 一个「点击被 cancel、关界面即丢」的死槽。
+        if (rawSlot >= topSize
+                && (event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY
+                        || event.getAction() == InventoryAction.COLLECT_TO_CURSOR)) {
+            if (resolveSocialKey(view) != null) {
+                event.setCancelled(true);
+            }
+            return;
+        }
+
         if (rawSlot < 0 || rawSlot >= topSize) return;
 
         GuiViewKey key = resolveSocialKey(view);

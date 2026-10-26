@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 18
+config-version: 19
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -574,6 +574,12 @@ profile:
   stats-coins-value: "&f{coins}"
   stats-achievements-label: "Achievements"
   stats-achievements-value: "&f{unlocked}/{total}"
+  # Duel record (only fully completed matches are counted; quitting mid-match, disconnects and admin disbands are not)
+  stats-duel-label: "Duel Record"
+  stats-duel-value: "&a{wins}W &7/ &c{losses}L &7({rate} win rate)"
+  stats-duel-loading: "&7Loading…"
+  stats-duel-none: "&7No duels yet"
+  stats-duel-note: "&8Completed duels only"
   achievements-hint: "&7Click to view achievements"
   achievement-unlocked: "&6✔ Unlocked"
   achievement-locked: "&8🔒 Locked"

@@ -3,6 +3,8 @@ package com.letslearnenglish.minecraftplugin.gui;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.achievement.AchievementManager;
+import com.letslearnenglish.minecraftplugin.core.duel.DuelStatsText;
+import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
 import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
@@ -13,11 +15,14 @@ import org.bukkit.Material;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 
 import java.util.*;
+import java.util.function.Function;
+import java.util.logging.Level;
 
 /**
  * Personal Profile GUI — 27-slot small chest layout.
@@ -25,12 +30,31 @@ import java.util.*;
  * Shows:
  * - Player head with name (top center, slot 4)
  * - Key statistics row (slots 10-15)
+ * - Duel record (slot 16, asynchronously filled — R10)
  * - Achievement wall button (bottom-left, slot 18)
  * - Settings button (bottom-right, slot 26, only when viewing own profile)
  */
 public class ProfileGUI {
 
     private static final int GUI_SIZE = 27;
+
+    /**
+     * 决斗战绩槽位（R10）。
+     *
+     * <p>原属 {@link #fillBorder} 的边框玻璃（16），因此 fillBorder 的槽位表已同步
+     * 摘掉它 —— 否则边框会在本行写入之后/之前互相覆盖，取决于调用顺序。
+     * 该槽为纯展示物：点击侧（SocialListener#handleProfileGUI）没有 16 分支，
+     * 上半区点击由 SocialListener 统一 cancel。
+     *
+     * <p>FIX-H1（RT-H2 高危）订正：本类原注释称「上半区点击由 MiscGUIListener 统一
+     * cancel」，这是<b>错的</b> —— {@code MiscGUIListener.isTrackedKey} 只含
+     * PROFILE_SETTINGS / WORD_BANK / LEARNING_CALENDAR / DAILY_CHALLENGE /
+     * CHALLENGE_COMPLETE，<b>不含 PROFILE</b>。本页上半区的 cancel 由 SocialListener 负责。
+     * 这条错误前提正是 slot 16 裸空却无人兜底的根源：误以为另有一层守卫，于是既没铺
+     * 空槽、也没补下半区 shift-click 守卫。现在两道都补齐（fillEmpty + SocialListener
+     * 的 InventoryAction 前置例外），见 {@link #open} 末尾注释。
+     */
+    private static final int DUEL_SLOT = 16;
     private final LetsLearnEnglish plugin;
 
     public ProfileGUI(LetsLearnEnglish plugin) {
@@ -74,10 +98,14 @@ public class ProfileGUI {
         // 注意：本人与他人主页共用同一个 key（PROFILE），归属只由 payload 区分。
         // targetId 为 null 属调用方违约（全仓调用点都传非 null UUID）：Target 构造
         // 会立即抛 NPE，比「一张归属不明的主页被打开、点击侧再靠标题猜人」更安全。
-        Inventory inv = Bukkit.createInventory(
-                PluginGuiHolder.of(GuiViewKey.PROFILE,
-                        new PluginGuiHolder.GuiPayload.Target(targetId)),
-                GUI_SIZE, title);
+        //
+        // R10：holder 先落局部变量再交给 createInventory —— 异步回填要靠这把「钥匙」
+        // 判定「我回填的是不是当初那张界面」（见 placeDuelRow）。若改读
+        // inv.getHolder()，纯 JVM 单测里 mock Inventory 返回 null，回填守卫会永远
+        // 静默失败；持有构造时的引用则与运行环境无关。
+        PluginGuiHolder holder = PluginGuiHolder.of(GuiViewKey.PROFILE,
+                new PluginGuiHolder.GuiPayload.Target(targetId));
+        Inventory inv = Bukkit.createInventory(holder, GUI_SIZE, title);
         PlayerDataStore.PlayerStats stats = store.getPlayerStats(targetId);
         // L-05：展示路径走只读版，缓存缺失不建条目。
         PlayerDataStore.ProfileSettings ps = store.getProfileSettingsReadOnly(targetId);
@@ -204,6 +232,22 @@ public class ProfileGUI {
                         MessageUtil.getGuiMsg(messages, "profile.stats-coins-label")),
                 Collections.singletonList(coinsLine)));
 
+        // Duel record — slot 16 (R10)
+        // 模块门：与 slot 18 成就墙同源 gating —— duel.enabled 关闭时整行不渲染
+        // （槽位留空），也<b>不派发</b>那次异步 DB 读：模块关着还每题开主页去查两张
+        // 决斗表，纯属白烧 IO。历史战绩仍在库里，重新开启模块后自动恢复显示。
+        if (plugin.getConfigManager().isDuelEnabled()) {
+            // 主线程只放「加载中」占位；真正的取数在异步段（getDuelStats 是同步阻塞读，
+            // DatabaseManager:1600 明写禁止主线程调用）。
+            // 占位必须先于 openInventory 落进 inv：玩家开界面后到异步回填之间的这段时间
+            // 看到的是「加载中…」而不是一个空槽（空槽=看上去这张主页没有这一行）。
+            List<String> loadingLines = List.of(
+                    guiText(messages, DuelStatsText.KEY_LABEL),
+                    guiText(messages, DuelStatsText.KEY_LOADING));
+            inv.setItem(DUEL_SLOT, buildDuelItem(loadingLines));
+            scheduleDuelRow(viewer, targetId, holder, messages, hideResults);
+        }
+
         // Achievement wall button — slot 18 (bottom-left) with count.
         // MC-2 模块门：progress-system/achievements 关闭时按钮不渲染（槽位留空）；
         // 点击侧（SocialListener）另有分支拒绝，渲染与点击同源 gating。
@@ -242,6 +286,20 @@ public class ProfileGUI {
                     Collections.singletonList(ChatColor.translateAlternateColorCodes('&',
                             MessageUtil.getGuiMsg(messages, "profile.settings-locked-lore")))));
         }
+
+        // FIX-H1（RT-H2 高危·物品丢失）：本页有多个<b>条件渲染</b>槽位 —— slot 16 决斗行
+        // 在 duel.enabled=false 时整行不渲染、slot 18 成就墙在 achievements 关闭时留空、
+        // slot 26 之外的布局未来也可能调整。B3 已把 slot 16 从 fillBorder 的槽位表摘掉
+        // （让位给战绩行），于是模块关闭时 27 格里至少有一个裸空槽：原版 shift-click /
+        // 双击收集会在整个 view 里找落点，把玩家物品塞进去；而点击侧对 PROFILE 上半区
+        // 一律 cancel，物品既取不回也放不下，<b>关界面即丢</b>。
+        //
+        // 位置铁律：fillBorder 最前、各 setItem 居中、fillEmpty 在<b>全部 setItem 之后
+        // 与 openInventory 之前</b> —— fillEmpty 只填空槽、不覆盖已渲染物品，因此对
+        // slot 16 的「加载中」占位与异步回填（placeDuelRow 走 setItem 直写）都无影响；
+        // 反过来放在前面则会被后续 setItem 覆盖成无效兜底。与 openSettings 的 R5-7
+        // 同款写法（那边是 10/12 裸空，这里是 16/18）。
+        GUIUtils.fillEmpty(inv);
 
         viewer.openInventory(inv);
     }
@@ -372,9 +430,153 @@ public class ProfileGUI {
         viewer.openInventory(inv);
     }
 
+    /**
+     * R10：异步取决斗战绩，回主线程回填 slot 16。
+     *
+     * <p><b>线程契约</b>：{@code getDuelStats} 是同步阻塞读，
+     * {@code DatabaseManager:1600} 明写禁止主线程调用。因此这里严格两段式：异步段只做
+     * DB 读，主线程段只做渲染（零 DB 调用），照 {@code ChatHistoryGUI#openAsync} 同式。
+     *
+     * <p><b>为什么不再查连胜</b>（FIX-H2）：{@code profile.stats-duel-streak} 键在
+     * {@code messages/zh.yml} / {@code en.yml} 里都不存在，{@link DuelStatsText#render}
+     * 会因空串跳过该行 —— 即「每次开主页多跑一条 50 行有界扫描，结果永远不显示」。
+     * 与其留一次纯浪费的 IO，不如先摘掉查询；键落地后重新接上即可（{@code render}
+     * 的 {@code streak} 形参仍在，语义未变）。
+     *
+     * <p><b>为什么先建界面再回填</b>（而不是先取数再建界面）：{@code open()} 必须同步
+     * 走完 {@code createInventory} + {@code openInventory}，否则玩家点了按钮却什么都不
+     * 发生；同时 {@code GuiOpenIdentityTest} 的 {@code verify(viewer).openInventory(same(...))}
+     * 也依赖这条同步链。
+     *
+     * <p><b>调度器 null 守卫</b>：{@code Bukkit.getScheduler()} 在纯 JVM 单测里被
+     * {@code mockStatic(Bukkit.class)} 返回 null。这里显式判空而不是让 NPE 冒出来 ——
+     * 主页渲染不该因为「这一个可选信息块取不到」而整体打开失败。
+     *
+     * @param viewer     打开界面的玩家（回填时复检在线）
+     * @param target     战绩归属玩家
+     * @param opened     打开时构造的 holder 实例，用作「还是不是这张界面」的钥匙
+     * @param messages   打开者语言的文案配置（异步段不读，仅捕获给主线程渲染用）
+     * @param hideValues 他人主页且对方关闭 showResults 时 true（只显示标签行）
+     */
+    private void scheduleDuelRow(Player viewer, UUID target, PluginGuiHolder opened,
+                                 FileConfiguration messages, boolean hideValues) {
+        Function<String, String> msg = key -> guiText(messages, key);
+
+        org.bukkit.scheduler.BukkitScheduler scheduler = Bukkit.getScheduler();
+        if (scheduler == null) {
+            return;
+        }
+        try {
+            scheduler.runTaskAsynchronously(plugin, () -> {
+                if (!plugin.isEnabled()) return;
+                DatabaseManager.DuelStats stats;
+                try {
+                    DatabaseManager db = plugin.getDatabaseManager();
+                    stats = db.getDuelStats(target);
+                } catch (Exception e) {
+                    // DB 层内部已把 SQLException 降级成 (0,0)/0（见 getDuelStats 的
+                    // 异常分支），走到这里说明是接线/生命周期问题。保留「加载中」
+                    // 占位而不是伪造「暂无战绩」—— 后者会把「不知道」说成「没打过」。
+                    plugin.getLogger().log(Level.WARNING,
+                            "Failed to preload duel stats for " + target, e);
+                    return;
+                }
+                try {
+                    scheduler.runTask(plugin,
+                            () -> placeDuelRow(viewer, target, opened, stats, msg, hideValues));
+                } catch (IllegalStateException ignored) {
+                    // 关服竞态：调度器已关闭，放弃本次回填（玩家也已不可能看到结果）
+                }
+            });
+        } catch (IllegalStateException ignored) {
+            // 插件停用窗口（调度器已关闭）：占位行留在「加载中」，界面不会露出
+        }
+    }
+
+    /**
+     * R10：主线程回填决斗战绩。三道守卫缺一不可。
+     *
+     * <p>异步段可能耗时数十毫秒，期间玩家完全可能：关掉主页、打开别人的主页、
+     * 或者下线。任何一道守卫失效的后果都不是「看起来旧」，而是<b>把 A 的战绩写进
+     * B 的界面</b>（跨玩家数据串台，隐私事故）。
+     *
+     * @param viewer  打开者
+     * @param target  战绩归属
+     * @param opened  打开时的 holder 实例
+     * @param stats   已取到的战绩（可能为 null，{@code DuelStatsText} 内部防御）
+     * @param msg     i18n 取值函数
+     * @param hideValues 隐私态
+     */
+    private void placeDuelRow(Player viewer, UUID target, PluginGuiHolder opened,
+                              DatabaseManager.DuelStats stats,
+                              Function<String, String> msg, boolean hideValues) {
+        // 守卫 1：玩家还在线（下线后 getOpenInventory 可能已不可用）
+        if (viewer == null || !viewer.isOnline()) return;
+
+        // 守卫 2：当前打开的仍是「打开时那张界面」——按持有者实例比对，而不是标题
+        // 或 key：同 key 的两次打开（连点/来回切人）holder 值相等，必须是同一实例。
+        InventoryView view = viewer.getOpenInventory();
+        if (view == null) return;
+        Inventory top = view.getTopInventory();
+        if (top == null) return;
+        if (top.getHolder() != opened) return;
+
+        // 守卫 3：界面归属仍是原目标（纵深：防止对上面的实例比对做未来重构时退化）
+        if (!(opened.getPayload() instanceof PluginGuiHolder.GuiPayload.Target t)
+                || !t.targetId().equals(target)) {
+            return;
+        }
+
+        top.setItem(DUEL_SLOT, buildDuelItem(
+                // FIX-H2：streak 传 0 —— 本类已不再查连胜（键未落地，查了也不显示）；
+                // DuelStatsText.render 在 streak <= 0 时本来就不追加连胜行，语义等价。
+                DuelStatsText.render(stats, 0, hideValues, msg, value -> value + "%")));
+    }
+
+    /**
+     * 把 {@code DuelStatsText.render} 的输出搬进 ItemStack：第 0 项是 displayName，
+     * 其余是 lore。
+     *
+     * @param lines 至少 1 项（{@code render} 的契约）
+     * @return 展示用物品
+     */
+    private ItemStack buildDuelItem(List<String> lines) {
+        String name = lines.isEmpty() ? "" : lines.get(0);
+        List<String> lore = (lines.size() > 1)
+                ? new ArrayList<>(lines.subList(1, lines.size()))
+                : Collections.emptyList();
+        return createItem(Material.IRON_SWORD, name, lore);
+    }
+
+    /**
+     * 光标文案取值：<b>缺键返回空串</b>，而不是 {@code MessageUtil.getGuiMsg} 的
+     * {@code [?key]} 占位符。
+     *
+     * <p>为什么单独一条：决斗块的 {@code profile.stats-duel-streak} 是可选键
+     * （当前语言文件里尚未落地）。把 {@code [?profile.stats-duel-streak]} 写进 lore
+     * 等于把内部 key 漏给玩家；空串则让 {@code DuelStatsText.render} 静默跳过该行。
+     *
+     * @param messages 文案配置，可为 null（返回空串）
+     * @param key      键
+     * @return 已转颜色码的文案；缺键时空串
+     */
+    private static String guiText(FileConfiguration messages, String key) {
+        if (messages == null || key == null) return "";
+        String raw = messages.getString(key);
+        if (raw == null) return "";
+        return ChatColor.translateAlternateColorCodes('&', raw);
+    }
+
     private void fillBorder(Inventory inv) {
         ItemStack border = createItem(Material.BLACK_STAINED_GLASS_PANE, " ", Collections.emptyList());
-        int[] borderSlots = {1,2,3,5,6,7,9,10,16,17,19,20,21,22,23,24,25};
+        // R10：slot 16 从边框让位给「决斗战绩」行（原属边框玻璃）。
+        // FIX-H1（RT-H2 高危）订正：此处原注释称「MiscGUIListener 对全部 5 个 key 的
+        // MOVE_TO_OTHER_INVENTORY / COLLECT_TO_CURSOR 有前置整段 cancel」—— 事实不符，
+        // MiscGUIListener.isTrackedKey <b>不含 PROFILE</b>，PROFILE 归 SocialListener。
+        // 当时缺的那道守卫已补在 SocialListener.onInventoryClick（InventoryAction
+        // 前置例外），且 open() 末尾另有 GUIUtils.fillEmpty 把条件渲染留下的空格铺满；
+        // 两层都到位后，把 16 换成有 lore 的展示物才是安全的。
+        int[] borderSlots = {1,2,3,5,6,7,9,10,17,19,20,21,22,23,24,25};
         for (int slot : borderSlots) {
             inv.setItem(slot, border);
         }
