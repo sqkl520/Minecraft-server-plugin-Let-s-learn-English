@@ -21,6 +21,7 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * 英语广场「模式键」的生产者/消费者契约测试。
@@ -135,7 +136,7 @@ class EnglishSquareModeContractTest {
     @DisplayName("用例3：modeFromKey 对 null/空串/大写/错拼/未知键一律返回 null（不抛异常）")
     void modeFromKeyReturnsNullForUnknownKeys(String modeKey) throws Exception {
         RankingMode result = invokeModeFromKey(modeKey);
-        assertEquals(null, result,
+        assertNull(result,
                 () -> "消费侧 SocialListener.modeFromKey(\"" + modeKey + "\") 应返回 null"
                         + "（resolveSquareMode 据此回落 ALL_PLAYERS），实际返回 " + result
                         + "。若该键本应合法，说明生产侧拼写与文档不一致；"
