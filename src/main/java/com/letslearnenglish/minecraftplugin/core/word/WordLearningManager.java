@@ -643,6 +643,33 @@ public class WordLearningManager implements Listener {
         quizStates.clear();
     }
 
+    /**
+     * /lea reload 动态卸载钩子：清掉 {@link #clearAllSessions()} <b>覆盖不到</b>的两处
+     * 瞬时态 —— {@link #practiceWords}（错题练习入口标记）与 {@link #deathPausedQuiz}
+     * （死亡暂停标记）。
+     *
+     * <p><b>与 clearAllSessions 的分工</b>：本方法<b>不动</b> {@code quizStates} —— 会话
+     * 对象、答题计时任务的取消、{@code wordManager.endSession} 的结算全归
+     * {@link #clearAllSessions()}。这里只补清「会话之外的入口守卫态」。两者<b>都要调</b>，
+     * <b>顺序不限</b>：操作的是不相交的字段集合，没有任何先后依赖。
+     *
+     * <p><b>只调 clearAllSessions 不够</b>：{@code practiceWords} 残留会让该玩家在重开
+     * 后永久卡在 {@link #startQuiz} 的 {@code isPracticingWord} 守卫上（
+     * {@code word.practice-in-progress} 拒入，见 {@link #startQuiz} 与
+     * {@link #startReviewQuiz} 的入口检查）；{@code deathPausedQuiz} 残留则是一条指向
+     * 早已不存在会话的脏 id，会让下次重生路径多走一遍无效判定。
+     *
+     * <p><b>任务句柄</b>：{@code deathPausedQuiz} 当前是纯 {@code Set<UUID>}，<b>不持有</b>
+     * {@link BukkitTask}；死亡时 {@link #onPlayerDeath} 已经调过 {@code cancelAnswerTimer}
+     * （{@code answerTaskId} 置 -1），因此本方法没有句柄需要 cancel。若将来该集合改成
+     * 携带任务句柄（例如死亡暂停后仍保留一个延迟任务），必须在此处 cancel 后再清 ——
+     * 参考 {@link #clearAllSessions()} 对 {@code answerTaskId} 的处理方式。
+     */
+    public void resetTransientState() {
+        practiceWords.clear();
+        deathPausedQuiz.clear();
+    }
+
     public double getComboMultiplier(int consecutiveCorrect) {
         for (int i = COMBO_THRESHOLDS.length - 1; i >= 0; i--) {
             if (consecutiveCorrect >= COMBO_THRESHOLDS[i]) {

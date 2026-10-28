@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 21
+config-version: 26
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -314,6 +314,8 @@ duel:
   started: "{prefix}&a单词对决开始！对手: &e{player} &a先得5分者获胜！&c⚠ 注意：决斗中所有聊天都算作答案喵~"
   cancelled: "{prefix}&c对决已取消喵~"
   cancelled-by-gm: "{prefix}&c本次对决已被管理员解散，不判胜负喵~"
+  # /lea reload 关闭本插件时解散进行中的对局（不判胜负、不记战绩）
+  dismissed-server-off: "{prefix}&e本服已关闭英语学习功能，对局已取消。"
   word-timeout: "{prefix}&e⏱ 时间到！正确答案是 &f{word}&e，双方都不加分，下一题！"
   round-bossbar: "&e⚔ 本题剩余 {seconds}s"
   round-bossbar-urgent: "&c&l⚔ {seconds}s！"
@@ -593,6 +595,8 @@ profile:
   settings-locked: "&8设置 (已锁定)"
   settings-locked-lore: "&7只能修改自己的设置"
   settings-title: "&e隐私设置"
+  # 设置页读库失败时拒绝改动的提示（缓存缺失且 load 失败 → 不允许写回，防伪造公开值落盘）
+  settings-load-failed: "&c设置读取失败，请稍后重试。"
   settings-show-answers: "答题记录对他人可见"
   settings-show-answers-on: "&a当前: 可见"
   settings-show-answers-off: "&7当前: 隐藏"
@@ -822,3 +826,17 @@ class:
 #  `admin.server.disabled`，代码按 `server.disabled` 查会取不到 —— 必须真嵌套。
 server:
   disabled: "{prefix}&c本服未启用英语学习功能。"
+  # 运行时被 /lea reload 拆掉时，发给「正在答题」的玩家——必须说清已答的题算数，
+  # 否则玩家会以为白练一局（红队 B 指出的体验缺口）。
+  quiz-interrupted: "{prefix}&e本服正在关闭英语学习功能，当前练习已结束。已答对的题目均正常计入，进度不会丢失。"
+  # /lea reload 的结局文案（五分支见 HotReloadManager.ReloadResult）。
+  # reload-enabled / reload-disabled 是「本次 reload 把 server.enabled 拔动了」的两条成功提示：
+  # 监听器、定时任务、代理通道已实际装卸，无需重启。
+  reload-enabled: "{prefix}&a已启用运行时：监听器、定时任务、代理通道已装配。"
+  reload-disabled: "{prefix}&e已停用运行时：监听器/任务/通道已撤销，数据已落盘。"
+  # 装配或拆解抛异常（enableAll 内部已回滚到关闭态）。必须明确「已回滚」，不能让服主以为功能还在。
+  enable-failed: "{prefix}&c装配失败，已回滚到关闭态。详见控制台。"
+  # /lea reload 在「运行时模块未装配」时的提示（配置为 server.enabled=false，或上次装配失败）。
+  # 与 general.reload-success 的区别：那条是纯绿成功，这条必须讲清「配置读了但运行时没装」。
+  # 注意：本键名保留历史写法（restart-required），但文案已与「需重启」脱钩 —— reload 现在能完整装卸。
+  reload-restart-required: "{prefix}&e配置已重新加载，但运行时未装配（本服 server.enabled=false）。"

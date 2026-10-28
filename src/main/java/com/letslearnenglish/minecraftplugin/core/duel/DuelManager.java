@@ -1141,21 +1141,98 @@ public class DuelManager {
      *               debug log here is the intended consumer, not an oversight
      */
     private void cancelDuelInternal(DuelRoom room, String reason) {
+        cancelDuelInternal(room, reason, "duel.cancelled");
+    }
+
+    /**
+     * 同 {@link #cancelDuelInternal(DuelRoom, String)}，但双方收到的提示改用
+     * {@code messageKey}（走 {@link #getMsg} 的 per-player 语言渲染，支持
+     * {@code {prefix}} 与占位符）。
+     *
+     * <p>拆出重载而非改原签名：原三处调用点（{@code no-words} 路径）语义是「本局作废」，
+     * 文案必须是既有的 {@code duel.cancelled}；{@code /lea reload} 卸载路径需要一条
+     * 说明「本服已关闭英语学习功能」的不同文案。共用同一段拆解逻辑，保证
+     * {@code setActive → cancelWordTimeout → 双端消息 → removeScoreboard →
+     * closeInventory → cleanup} 的步骤与顺序对所有调用方恒等 —— 少一步就会留下
+     * 计分板残影或未取消的计时任务。
+     *
+     * @param room       the room to cancel
+     * @param reason     logging hook (unused today, same as the 2-arg overload)
+     * @param messageKey i18n key sent to both online duelists
+     */
+    private void cancelDuelInternal(DuelRoom room, String reason, String messageKey) {
         room.setActive(false);
         cancelWordTimeout(room);
         Player p1 = Bukkit.getPlayer(room.getPlayer1());
         Player p2 = Bukkit.getPlayer(room.getPlayer2());
         if (p1 != null && p1.isOnline()) {
-            p1.sendMessage(getMsg(p1, "duel.cancelled"));
+            p1.sendMessage(getMsg(p1, messageKey));
             removeScoreboard(p1);
             p1.closeInventory();
         }
         if (p2 != null && p2.isOnline()) {
-            p2.sendMessage(getMsg(p2, "duel.cancelled"));
+            p2.sendMessage(getMsg(p2, messageKey));
             removeScoreboard(p2);
             p2.closeInventory();
         }
         cleanup(room);
+    }
+
+    /**
+     * /lea reload 动态卸载钩子：<b>直接解散</b>所有进行中的决斗，<b>不结算</b> ——
+     * 不判胜负、不记战绩、不写 {@code duel_stats}、不挂钩首胜成就。
+     *
+     * <p><b>为什么不能走 {@link #endDuel}</b>：
+     * <ul>
+     *   <li>{@link DuelRoom#getWinner()} 只在某人先到 WIN_SCORE 时非 null；被 reload
+     *       打断的房间两者都没打满，winner 恒 null；</li>
+     *   <li>{@code endDuel} 虽对 winnerScore 做了 0 兜底，但紧接着
+     *       {@code tryUnlock(winnerId, DUEL_FIRST_WIN)} 传 null UUID 有 NPE 风险；</li>
+     *   <li>语义上被打断不是任何一方的过错 —— 判负会写进 {@code duel_stats} 永久拉低
+     *       胜率，与「服务器关掉功能」这一外部原因不符。</li>
+     * </ul>
+     *
+     * <p><b>去重是必须的</b>：{@link #activeDuels} 是双键结构（player1 → room 与
+     * player2 → room 两个键指向<b>同一个</b> {@link DuelRoom} 实例）。直接遍历
+     * {@code activeDuels.values()} 会让每个房间被处理两次 —— {@code setActive(false)}
+     * 与 {@code cleanup} 都是幂等的，但<b>消息会重复发一遍</b>。此处按实例引用去重
+     * （{@code DuelRoom} 未覆写 equals/hashCode，HashSet 即身份比较，正是所需语义）。
+     *
+     * <p><b>容错</b>：逐房间 try/catch —— 房间可能处于宽限期、掉线、GUI 已关等中间态，
+     * 一个房间拆解失败不能影响其余房间，也不能让异常冒到 reload 流程。本方法不抛异常。
+     *
+     * @return 实际解散的房间数（去重后；已 {@code isActive()==false} 的不计）
+     */
+    public int dismissAllActiveDuels() {
+        int dismissed = 0;
+        Set<DuelRoom> rooms;
+        try {
+            rooms = new HashSet<>(activeDuels.values());
+        } catch (Throwable t) {
+            plugin.getLogger().warning("Failed to snapshot active duels on dismiss: " + t.getMessage());
+            return 0;
+        }
+        for (DuelRoom room : rooms) {
+            if (room == null) {
+                continue;
+            }
+            try {
+                if (!room.isActive()) {
+                    continue;
+                }
+                cancelDuelInternal(room, "reload", "duel.dismissed-server-off");
+                dismissed++;
+            } catch (Throwable t) {
+                plugin.getLogger().warning("Failed to dismiss duel between "
+                        + safeName(room.getPlayer1Name()) + " and " + safeName(room.getPlayer2Name())
+                        + ": " + t.getMessage());
+            }
+        }
+        return dismissed;
+    }
+
+    private static String safeName(String name) {
+        return name != null ? name : "?";
     }
 
     private void cleanup(DuelRoom room) {

@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 21
+config-version: 26
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -314,6 +314,8 @@ duel:
   started: "{prefix}&aWord Duel started! Opponent: &e{player} &aFirst to 5 wins! &c⚠ Warning: all chat counts as answers during the duel!"
   cancelled: "{prefix}&cThe duel has been cancelled!"
   cancelled-by-gm: "{prefix}&cThis duel was dismissed by an admin. No winner declared."
+  # Dismissing in-progress duels when /lea reload disables the plugin (no winner, no stats)
+  dismissed-server-off: "{prefix}&eEnglish learning was disabled on this server; the duel has been cancelled."
   word-timeout: "{prefix}&e⏱ Time's up! The answer is &f{word}&e. No points — next word!"
   round-bossbar: "&e⚔ {seconds}s left"
   round-bossbar-urgent: "&c&l⚔ {seconds}s!"
@@ -595,6 +597,9 @@ profile:
   settings-locked: "&8Settings (Locked)"
   settings-locked-lore: "&7You can only change your own settings"
   settings-title: "&ePrivacy Settings"
+  # Shown when the settings page cannot read from DB (cache miss + load failed):
+  # refuse the change rather than write fabricated public defaults back.
+  settings-load-failed: "&cFailed to load your settings. Please try again."
   settings-show-answers: "Answers visible to others"
   settings-show-answers-on: "&aCurrent: Visible"
   settings-show-answers-off: "&7Current: Hidden"
@@ -825,3 +830,17 @@ class:
 #  `<section>.server.disabled`, and the code's lookup of `server.disabled` fails.
 server:
   disabled: "{prefix}&cEnglish learning is not enabled on this server."
+  # Sent to players whose quiz is force-ended while /lea reload tears down the runtime.
+  # Must state that correct answers still count, or players think the session was wasted.
+  quiz-interrupted: "{prefix}&eEnglish learning is being disabled on this server; your session has ended. Correct answers were counted — no progress is lost."
+  # Outcome messages for /lea reload (five branches, see HotReloadManager.ReloadResult).
+  # reload-enabled / reload-disabled are the two success paths where THIS reload flipped
+  # server.enabled: listeners, scheduled tasks and the proxy channel are really (un)loaded.
+  reload-enabled: "{prefix}&aRuntime enabled: listeners, scheduled tasks and proxy channel are now active."
+  reload-disabled: "{prefix}&eRuntime disabled: listeners, tasks and channels were torn down; data has been saved."
+  # enableAll()/disableAll() threw (enableAll already rolled back to the disabled state).
+  enable-failed: "{prefix}&cFailed to enable; rolled back to disabled state. See console for details."
+  # Runtime modules are not loaded (server.enabled=false, or the previous enable attempt failed).
+  # Key name is historical (restart-required) but the text no longer mentions restarts: reload
+  # can now load and unload the runtime both ways.
+  reload-restart-required: "{prefix}&eConfig reloaded, but runtime is not loaded (server.enabled=false on this server)."

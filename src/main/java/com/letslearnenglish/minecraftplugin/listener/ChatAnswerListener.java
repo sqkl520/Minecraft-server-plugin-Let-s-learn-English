@@ -80,9 +80,15 @@ public class ChatAnswerListener implements Listener {
         String enMsg = renderBroadcastTemplate(plugin, "en", safeName, scoreText);
         for (Player online : snapshot) {
             if (!online.equals(answerer) && online.isOnline()) {
-                // B2：隐私开关查的是收件人自己的设置，不是答题者的
+                // B2：隐私开关查的是收件人自己的设置，不是答题者的。
+                // L-写路径收口：这里必须用只读版。收件人虽然在线，但缓存未必有条目
+                // （join 读库失败时 loadProfileSettings 刻意不 put）。旧写法 getProfileSettings
+                // 会 computeIfAbsent 往 profileSettingsCache 里种一份「全公开」条目，
+                // 而 getActivePlayerIds() = 缓存键 ∪ 在线玩家 —— 一次广播就把隐私未知的玩家
+                // 当成公开写进广场候选集。只读版 miss 时回 unresolvedFallback()（showAnswers=false），
+                // 即「隐私优先」：宁可少发这条广播，也不把答案推给隐私状态未知的人。
                 PlayerDataStore.ProfileSettings ps = plugin.getPlayerDataStore()
-                        .getProfileSettings(online.getUniqueId());
+                        .getProfileSettingsReadOnly(online.getUniqueId());
                 if (ps.isShowAnswers()) {
                     String rendered = "zh".equalsIgnoreCase(plugin.getPlayerLanguage(online))
                             ? zhMsg : enMsg;

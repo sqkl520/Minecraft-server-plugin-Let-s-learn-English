@@ -44,6 +44,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.mockStatic;
@@ -372,8 +373,11 @@ class GuiOpenIdentityTest {
         void profileAndSettingsUseDistinctKeys() {
             mockProfileServices();
             // 设置页独有：ProfileGUI.openSettings 只读自己的隐私设置。
-            when(dataStore.getProfileSettings(VIEWER_ID))
-                    .thenReturn(new PlayerDataStore.ProfileSettings());
+            // 红队 L 之后它走只读版（写路径会 computeIfAbsent 合成「全公开」条目并落盘），
+            // 并且先确认缓存里是真实值 —— 两条都要 stub。
+            PlayerDataStore.ProfileSettings settings = new PlayerDataStore.ProfileSettings();
+            lenient().when(dataStore.getCachedProfileSettings(VIEWER_ID)).thenReturn(settings);
+            when(dataStore.getProfileSettingsReadOnly(VIEWER_ID)).thenReturn(settings);
 
             ProfileGUI gui = new ProfileGUI(plugin);
             GuiCapture profileCapture = captureGui(() -> gui.open(viewer, TARGET_ID));

@@ -165,6 +165,19 @@ public class MiscGUIListener implements Listener {
         } else if (slot == 11 || slot == 13 || slot == 14 || slot == 15 || slot == 16) {
             SoundManager.playSound(player, "menu-click");
             PlayerDataStore store = plugin.getPlayerDataStore();
+            // L-写路径收口：缓存缺失说明 join 时读库失败（或热重载 clear 后未重建）。
+            // 此时直接 getProfileSettings 会 computeIfAbsent 合成一份「全公开」默认值
+            // （showResults / showInSquare 均为 true），玩家只点一个开关，
+            // saveProfileSettings 就整对象 UPSERT，把 show_in_square / show_results
+            // 永久写回 true —— 玩家关掉的隐私开关不可撤销地丢失。
+            // 因此先尝试同步加载真实值；DB 仍不可用就不允许改（fail-closed，提示后返回）。
+            if (store.getCachedProfileSettings(player.getUniqueId()) == null) {
+                if (!store.loadProfileSettings(player.getUniqueId())) {
+                    player.sendMessage(plugin.getMessageUtil().getPlayerMessage(
+                            player, "profile.settings-load-failed"));
+                    return;
+                }
+            }
             PlayerDataStore.ProfileSettings ps = store.getProfileSettings(player.getUniqueId());
             switch (slot) {
                 case 11 -> ps.setShowAnswers(!ps.isShowAnswers());

@@ -484,8 +484,11 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             Player target = plugin.getServer().getPlayer(targetName);
             if (target != null) {
                 // R-05：/le profile 直达同样查开关 —— 目标隐身且非本人时回 i18n 提示，不开界面。
+                // L-写路径收口：纯读判定走只读版。旧 getProfileSettings 会在缓存 miss 时
+                // computeIfAbsent 合成「全公开」条目并留在缓存里（getActivePlayerIds 取键集），
+                // 等于「看一眼 /le profile 就把隐私未知的玩家重新放回广场候选集」。
                 if (!target.getUniqueId().equals(player.getUniqueId())
-                        && !plugin.getPlayerDataStore().getProfileSettings(target.getUniqueId()).isShowInSquare()) {
+                        && !plugin.getPlayerDataStore().getProfileSettingsReadOnly(target.getUniqueId()).isShowInSquare()) {
                     player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                             "profile.hidden"));
                 } else {

@@ -130,6 +130,56 @@ public final class LetsLearnEnglish extends JavaPlugin {
     /** R-75：自递归午夜 rollover 任务的当前引用（重载先 cancel 再重排，停用 cancel）。主线程访问。 */
     private BukkitTask midnightTask;
 
+    // ---------------- 动态装卸（/lea reload 切换 server.enabled）----------------
+    //
+    // 状态机与动作分离：RuntimeModules 只做「这次该不该装/拆」的判断与记账（可纯 JVM 单测），
+    // 真正的装配/拆解仍在本类，因为 30+ 个字段必须留在入口类上（全仓 40+ 个 getXxx() 消费点）。
+    /**
+     * 运行时装配状态机 + 记账。实例跨启停保活，只翻内部 active 标志。
+     *
+     * <p>非 final 且经 {@link #modules()} 取值：{@code ServerToggleTest} 用 Objenesis 造
+     * mock 实例（字段初始化器不执行，本字段为 null），直接 {@code modules().beginDisable()}
+     * 会 NPE 并把「关闭态 onDisable 不抛异常」那条既有用例打成红。懒初始化让 mock 实例上
+     * 的语义与真实实例一致（{@code beginDisable()} 返回 false ⇒ 拆解段整体跳过）。
+     */
+    private RuntimeModules modules = new RuntimeModules();
+
+    /**
+     * 运行时模块（监听器 / 周期任务 / 全部 Manager）是否已装配。
+     *
+     * <p>它与 {@code isEnabled()} 的区别是本类停用逻辑的全部要害：{@code /lea reload} 期间
+     * {@code isEnabled()} 恒为 true，只有这个字段能在「配置已读成 false、Manager 还没拆完」
+     * 的窗口里立刻回答「现在不能再派发业务」。
+     */
+    private boolean runtimeActive;
+
+    /**
+     * onEnable 的计时起点：{@link #enableAll()} 末尾打印加载耗时用。
+     *
+     * <p>为什么做成字段而不是 {@code enableAll(long)} 入参：冻结契约要求 {@code void enableAll()}
+     * 无参（B 流直接调用）。onEnable 在调用前写入本字段以保留「从 onEnable 第一行算起」的
+     * 原语义；/lea reload 触发时它是 -1，enableAll 自行计时。
+     */
+    private long enableStartTime = -1L;
+
+    /**
+     * PlaceholderAPI expansion 的持有引用（A5）。
+     *
+     * <p>原实现里它是 {@code setupPlaceholderAPI()} 的局部变量，{@code register()} 之后引用即丢，
+     * 全仓没有任何 {@code unregister()} 调用 —— 停用后 {@code %lle_score%} 仍会被 PAPI 求值，
+     * 打在已置空的 Manager 上。改成字段才能在 D8 里注销。
+     */
+    private LLEPapiExpansion papiExpansion;
+
+    // D1 的 5 个周期任务句柄（第 6 个是上面的 midnightTask）。全部显式持有：
+    // scheduler.cancelTasks(plugin) 会连 PlayerDataStore 的异步落库与
+    // ChatFeedbackManager 的 flush 链一起杀掉，绝不能用。
+    private BukkitTask autoSaveTask;
+    private BukkitTask reviewNotifyTask;
+    private BukkitTask dailyReminderTask;
+    private BukkitTask leaderboardRefreshTask;
+    private BukkitTask backupTask;
+
     /** R-86p：join 每日提醒去重 — 玩家 UUID → 最近发送的自然日（quit 不清，按日期懒判定）。 */
     private final Map<UUID, LocalDate> joinReminderSent = new ConcurrentHashMap<>();
 
@@ -190,19 +240,47 @@ public final class LetsLearnEnglish extends JavaPlugin {
             return;
         }
 
-        enableFullFeatures(startTime);
+        // 计时起点从 onEnable 第一行算起（enableAll 无参，见 enableStartTime 字段注释）。
+        this.enableStartTime = startTime;
+        enableAll();
     }
 
     /**
-     * 完整功能启动路径（{@code server.enabled=true} 时由 {@link #onEnable()} 调用）。
+     * 完整功能装配路径（{@code server.enabled=true} 时由 {@link #onEnable()} 调用，
+     * 或 {@code /lea reload} 在 false→true 时调用）。
      *
-     * <p>本方法体是 {@code onEnable} 原有逻辑<b>逐字搬移</b>的结果（含全部注释），除
-     * {@code startTime} 改为入参外无任何逻辑改动 —— 这样「子服总开关」那次改动的 diff
-     * 只剩一行分支加一次方法抽取，审查时不需要重读一遍启动顺序。
+     * <p><b>本方法体是原 {@code enableFullFeatures(long)} 的逐字搬移</b>（含全部注释与逐行
+     * 顺序），锁着它的形状的是两条契约：
+     * <ol>
+     *   <li>{@code ServerToggleLintsTest} 的 L2 断言本方法体内 {@code new WordLearningManager(}、
+     *       {@code new OnboardingManager(}、{@code proxyMessenger.register()}、
+     *       {@code papiExpansion.register()}、{@code startScheduledTasks()}、
+     *       {@code registerListeners()} 各出现<b>恰好一次</b> —— 所以不要把这些调用抽到
+     *       辅助方法里去；</li>
+     *   <li>{@code onEnable} 的计时起点由 {@link #enableStartTime} 传入，本方法体末尾打印。</li>
+     * </ol>
      *
-     * @param startTime {@code onEnable} 入口的计时起点，用于末尾打印加载耗时
+     * <p><b>为什么必须有失败回滚</b>：{@code onEnable} 期装配失败由 Bukkit 兜底 disable
+     * 整个插件；{@code /lea reload} 期没有那层兜底，半装配会留下「监听器齐了但
+     * startScheduledTasks 没跑」这类怪状态。{@link #disableAll()} 每步都有 null 守卫 +
+     * try/catch，天然能吃下半成品，所以回滚就是直接调它。
+     *
+     * <p><b>为什么 Manager 每次 enable 全新建而不复用</b>：{@code AIChatManager.shuttingDown}
+     * 与 {@code ChatFeedbackManager.accepting} 都是单向闩（一旦置位永不回 true），复用实例
+     * 会让重开后的 AI 对话永久短路、chat_feedback 落库被静默丢弃。新建用「重建」换双向对称。
      */
-    private void enableFullFeatures(long startTime) {
+    public void enableAll() {
+        if (!modules().beginEnable()) {
+            return; // 幂等：已装配时重复调用什么都不做
+        }
+        // 开装前先清上一次拆解留下的记账（正常路径下 disableAll 的 D10 已清，这里是纵深防御：
+        // 若上一次 enable 半途失败并回滚，记账本不该带进下一代）。
+        modules().releaseAll();
+        // 计时起点：onEnable 会把 enableStartTime 预设成 onEnable 第一行的时间；
+        // /lea reload 触发时它是 -1，此处自行计时。**在 try 之外求值** —— 它在 try 里
+        // 声明就跨不出括号，末尾打印加载耗时要读它。
+        final long startTime = enableStartTime > 0 ? enableStartTime : System.currentTimeMillis();
+        try {
         // Clean up old AI chat history (older than 30 days) asynchronously
         getServer().getScheduler().runTaskAsynchronously(this, () -> {
             databaseManager.cleanupOldChatHistory(30);
@@ -269,7 +347,18 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
         setupEconomy();
 
-        setupPlaceholderAPI();
+        // A5：expansion 存字段（D8 要 unregister）。原实现是 setupPlaceholderAPI() 里的局部
+        // 变量，register() 后引用即丢，全仓无注销点 —— 停用后 %lle_score% 会打在已置空的
+        // Manager 上。**先在装配路径里登记字段、再 register()**：register() 抛异常时字段仍
+        // 持有引用，D8 仍能尝试注销（未注册成功的 unregister() 在 PAPI 侧是安全 no-op）。
+        if (getServer().getPluginManager().getPlugin("PlaceholderAPI") != null) {
+            LLEPapiExpansion expansion = new LLEPapiExpansion(this);
+            if (expansion.canRegister()) {
+                this.papiExpansion = expansion;
+                papiExpansion.register();
+                getLogger().info("PlaceholderAPI expansion registered. Available: %lle_score%, %lle_rank%, etc.");
+            }
+        }
 
         this.api = new LetsLearnEnglishAPI(this);
 
@@ -316,52 +405,160 @@ public final class LetsLearnEnglish extends JavaPlugin {
         // 仅当存在 FAIL 时打 WARNING 块，全绿只打一行 INFO；内部 catch(Throwable)，
         // 绝不中断 enable。玩家投诉"奖励没发"时，服主先看这里再看 /lea diagnose。
         com.letslearnenglish.minecraftplugin.command.DiagnoseCommand.logStartupSummary(this);
+
+            runtimeActive = true;
+        } catch (Throwable t) {
+            // 半装配必须能安全收尾：/lea reload 期没有 Bukkit 兜底 disable。
+            // disableAll() 每步都有 null 守卫 + try/catch，天然能吃下半成品。
+            getLogger().log(java.util.logging.Level.WARNING,
+                    "Runtime assembly failed; rolling back to the disabled state.", t);
+            try {
+                disableAll();
+            } catch (Throwable rollbackFailure) {
+                // disableAll 设计上不抛（每步自吞只 WARNING），但它是几十个调用的聚合体，
+                // 将来有人在里面加了不经过 self-catch 的代码就会抛。**绝不能让它盖掉原始异常** ——
+                // 那样 /lea reload 的 FAILED 只会报「回滚时崩了」，而真正的原因（哪个 Manager
+                // 构造失败）彻底丢失，日志里只剩一条无关的次生异常。
+                t.addSuppressed(rollbackFailure);
+                getLogger().log(java.util.logging.Level.SEVERE,
+                        "Rollback during runtime assembly failed too (see suppressed).", rollbackFailure);
+            }
+            throw t;
+        }
     }
 
-    @Override
-    public void onDisable() {
-        // R5-15：这句是**整段停用流程**的入口标记（清会话 → 决斗收尾 → GUI 清扫 → 落盘
-        // → 关库），不是"落盘马上开始"。真正的落盘完成另有 "Saved data for N player(s)."
-        // 一行，两者不重复：前者标停用开始，后者报实际落盘人数（0 人时不打印）。
-        getLogger().info("Disabling plugin - clearing sessions and saving player data...");
+    /**
+     * 拆解运行时模块（true → false）。<b>顺序就是本方法的全部价值</b>，每一步都在注释里
+     * 写清「为什么必须在这个位置」。
+     *
+     * <p>幂等：{@link RuntimeModules#beginDisable()} 首次返回 true、之后恒 false；每步都有
+     * null 守卫 + {@code catch(Throwable)}（照 {@code onDisable} 的既有姿态：停用路径要防的
+     * 正是 {@code LinkageError} / {@code NoClassDefFoundError} 这类换 ClassLoader 或依赖缺失
+     * 才会冒出来的 Error，{@code catch(Exception)} 会让它们照旧截断停用流程）。
+     *
+     * <p><b>本方法不关数据库</b>——这与 {@code onDisable} 的根本差异：{@code /lea reload} 之后
+     * 插件仍然活着，{@code databaseManager} 是关闭态三件套之一，必须留着。
+     */
+    public void disableAll() {
+        // ---- D0：runtimeActive = false（必须是第一行）----
+        // 清理过程本身会**同步触发事件回环**（closeInventory() → InventoryCloseEvent，
+        // endSession → 成就/挑战回调）。任何回环里的 isFullyEnabled() 必须在第一纳秒就为
+        // false，否则监听器会在「半拆」的 Manager 上继续派发。这一个布尔量同时是午夜自续、
+        // GUI 异步回填、赛季结算回投的统一闸门。
+        runtimeActive = false;
 
-        // R-75：自递归午夜任务在停用时取消（下次 enable 会重新排程）。
-        if (midnightTask != null) {
-            midnightTask.cancel();
-            midnightTask = null;
+        if (!modules().beginDisable()) {
+            // 已处于关闭态：幂等返回。beginDisable() 已经先把 active 翻成 false，
+            // 所以这里不会留下「标志没翻、活也没干」的漏洞。
+            return;
         }
+        getLogger().info("Unloading runtime modules (listeners / tasks / channels)...");
 
-        // R5-15：会话清理必须自带 try/catch —— 它是 onDisable 里第一个会碰 DB 的步骤。
-        // 故障链：clearAllSessions() → endSession → PlayerDataStore.updateWordProgress /
-        // getPlayerStats，缓存缺失时会走 loadPlayerData → DatabaseManager.getConnection()，
-        // 而后者在取连接失败时 throw new RuntimeException("Failed to get database
-        // connection", e)。没有这层兜底时，整段 onDisable 会就此中断，后面四件事全部跳过：
-        //   1. duelManager.shutdown()（决斗房间/任务/记分板清理）
-        //   2. GUI 清扫（closeIfPluginGui）—— 它是「holder 跨 ClassLoader 失效」这条裂缝的
-        //      唯一堵漏手段，跳过就等于裂缝重新敞开，且是在热重载/重启这种最需要它的时刻
-        //   3. savePlayerLanguages() 与 playerDataStore 全量落盘（玩家进度丢失）
-        //   4. databaseManager.shutdown()（连接未正常关闭）
-        // R5-15 补充：上面这四件事要**真的**都能跑到，只靠本处的 try/catch 不够 —— 每一步
-        // 自己也得扛得住异常。所以落盘段另做了逐玩家 try/catch（见下方），否则本处注释就
-        // 变成空头支票：会话清理兜住了，紧接着的落盘一抛，第 2、3、4 件照样跑不到。
-        // 用 Throwable 而不是 Exception，照下面 duelManager.shutdown() 的既有先例：
-        // 清理路径上真正要防的是"任何"异常，包括 LinkageError / NoClassDefFoundError 这类
-        // 换 ClassLoader 或依赖缺失才会冒出来的 Error；catch(Exception) 漏掉它们的话，
-        // 停用流程照样会被截断，兜底就名不副实。异常只记 WARNING、不重抛 —— onDisable
-        // 没有上层可以补救，继续往下走（至少把 GUI 关掉、把数据落盘）才是最优解。
-        if (wordLearningManager != null) {
+        // ---- D1：取消插件级周期任务（6 个句柄 + SocialManager 自持的那个）----
+        // 先停「生产新工作」的源头，D6 落盘期间就不会有 auto-save 的异步写插进来
+        //（saveDirty 与全量 savePlayerData 抢同一把 connectionLock，虽安全但会拉长落盘窗口）。
+        //
+        // **不用 scheduler.cancelTasks(plugin)**：它会把 PlayerDataStore 已派发的异步落库
+        //（:363/390/747/778/807）、ChatFeedbackManager 的 flush 链、SeasonManager 在途结算
+        // 一起杀掉 —— 正是 D6 要保全的写操作。只 cancel 我们记账的句柄。
+        cancelTaskQuietly("auto-save", autoSaveTask);
+        autoSaveTask = null;
+        cancelTaskQuietly("review-notify", reviewNotifyTask);
+        reviewNotifyTask = null;
+        cancelTaskQuietly("daily-reminder", dailyReminderTask);
+        dailyReminderTask = null;
+        cancelTaskQuietly("leaderboard-refresh", leaderboardRefreshTask);
+        leaderboardRefreshTask = null;
+        cancelTaskQuietly("database-backup", backupTask);
+        backupTask = null;
+        // midnightTask 必须单独 cancel，不能只靠自续守卫：它的守卫原为 if (!isEnabled())，
+        // reload 期间 plugin 一直 enabled，任务一旦触发就会在拆分之后重排下一天，等于在
+        // 禁用态留下一个活任务。（守卫已加 isRuntimeActive() 做纵深防御，见 A7。）
+        cancelTaskQuietly("midnight-rollover", midnightTask);
+        midnightTask = null;
+        // 兜底：tasksSnapshot() 里的任何漏网句柄（例如将来有人 track 了新任务却忘了写
+        // 显式字段）。只清记账，真正的 cancel 在本类做 —— RuntimeModules 不调 Bukkit 方法。
+        for (BukkitTask task : modules().tasksSnapshot()) {
+            cancelTaskQuietly("tracked", task);
+        }
+        // 广场社交的周期刷新任务是它自己持有的（C 流新增 shutdown()），此处一并收。
+        if (socialManager != null) {
             try {
-                wordLearningManager.clearAllSessions();
-                getLogger().info("Cleared all active word learning sessions.");
+                socialManager.shutdown();
             } catch (Throwable t) {
-                getLogger().warning("Failed to clear word learning sessions: " + t.getMessage());
+                getLogger().warning("Failed to shut down social manager: " + t.getMessage());
             }
         }
 
-        // R-72：决斗房间清理（清任务/记分板/map，shutdown() 幂等）。
-        // 放在数据落盘之前、会话清理之后：先清活动对局态，再进入持久化阶段；
-        // try/catch 兜底任何清理异常，保证 onDisable 后续步骤（落盘/关库）不被拖垮。
+        // ---- D2：中断 AI 对话（逐在线玩家 endConversation）----
+        // endConversation 做三件必须做的事：移出 sessions、统计计数（incrementConversationCount
+        // 直接 UPSERT）、成就与每日挑战进度。三件都要 achievementManager / playerDataStore
+        // **还活着**（所以必须在 D10 之前），又写内存态（所以必须在 D6 之前）。
+        // 它不发 UI、不发 HTTP，是干净的状态终局。
+        //
+        // **不用 ChatScenarioListener.removePlayer()**：那个方法会发小结卡、触发 AI 点评
+        // 异步链（ChatFeedbackManager → HTTP），正好在我们要拆 HTTP 栈的时刻又开一条链。
+        if (aiChatManager != null) {
+            for (Player online : getServer().getOnlinePlayers()) {
+                try {
+                    aiChatManager.endConversation(online);
+                } catch (Throwable t) {
+                    getLogger().warning("Failed to end AI conversation for " + online.getName()
+                            + " during unload: " + t.getMessage());
+                }
+            }
+            // D2 收尾：置 shuttingDown 单向闩，短路仍在途的 HTTP 回调链 —— 否则旧实例的
+            // 回调会在下一代运行时装配后继续写库/调旧 scheduler。放在 endConversation
+            // **之后**：endConversation 自身要读 sessions 与计数。
+            try {
+                aiChatManager.shutdown();
+            } catch (Throwable t) {
+                getLogger().warning("Failed to shut down AI chat manager: " + t.getMessage());
+            }
+        }
+
+        // ---- D3：清答题会话（**必须先清会话、后关 GUI**）----
+        // WordLearningListener.onInventoryClose 的三道守卫是 resolveOwnedView == WORD_LEARNING
+        // → hasActiveQuiz → isAnswering，第三道为 false 时调 startAnswerForCurrentWord()。
+        // 先关 GUI 而会话还在 ⇒ 每关一个界面就凭空起一个 20L 周期倒计时任务 + 给「即将断开」
+        // 的玩家推答题提示；先清会话 ⇒ 第二道守卫即 early return，事件彻底 no-op。
+        // clearAllSessions() 自身也是「写库步骤」（endSession 落掌握度/累计分/复习种子），
+        // 所以必须在 D6 之前。
+        // resetTransientState() 补 clearAllSessions() 的两个漏：practiceWords /
+        // deathPausedQuiz 都不在它的清理范围，不清会让玩家重开后卡在「练习进行中」。
+        if (wordLearningManager != null) {
+            // 先告知、后清会话：清会话会结算已得进度，但玩家看到的是「界面突然没了」。
+            // 不解释一句，玩家会以为是卡顿或掉线（红队 B 指出这个体验缺口）。
+            // 文案必须说清「已答的题算数」——否则玩家会以为白练一局。
+            notifyActiveQuizzesBeforeDisable();
+            try {
+                wordLearningManager.clearAllSessions();
+            } catch (Throwable t) {
+                getLogger().warning("Failed to clear word learning sessions: " + t.getMessage());
+            }
+            try {
+                wordLearningManager.resetTransientState();
+            } catch (Throwable t) {
+                getLogger().warning("Failed to reset word learning transient state: " + t.getMessage());
+            }
+        }
+
+        // ---- D4：决斗 —— 直接解散，不结算 ----
+        // 裁决：不判负、不记战绩、不写 duel_stats。理由：DuelRoom.getWinner() 未分胜负时返回
+        // null，而 endDuel 对 null winner 仍会调 tryUnlock(null, ...)（NPE 风险）；且对局被
+        // 打断不是任何一方的过错，判负会写进 duel_stats 影响胜率展示。
+        // dismissAllActiveDuels() 走 cancelDuelInternal 的现成语义（双方提示 + removeScoreboard
+        // + closeInventory + cleanup）；随后 shutdown() 幂等收尾 grace/wordTimeout/requestExpiry
+        // 三类任务、BossBar、pendingRequests、offlineNotices。
         if (duelManager != null) {
+            try {
+                int dismissed = duelManager.dismissAllActiveDuels();
+                if (dismissed > 0) {
+                    getLogger().info("Dismissed " + dismissed + " active duel(s) during unload.");
+                }
+            } catch (Throwable t) {
+                getLogger().warning("Failed to dismiss active duels: " + t.getMessage());
+            }
             try {
                 duelManager.shutdown();
             } catch (Throwable t) {
@@ -369,32 +566,10 @@ public final class LetsLearnEnglish extends JavaPlugin {
             }
         }
 
-        // R5-9：关闭所有在线玩家身上残留的本插件 GUI —— 堵死「holder 跨 ClassLoader 失效」。
-        //
-        // 为什么必须有这一步：GUI 归属判定已迁到 holder（PluginGuiHolder）。holder 判定唯一
-        // 的死穴是 ClassLoader 换代 —— PlugMan 之类热重载卸载本插件时会新建 ClassLoader，旧
-        // 实例留在玩家客户端上的界面在新 ClassLoader 下 instanceof 恒为 false，holder 判定
-        // 集体失效（R5-16 起标题层已整体删除，没有任何 fallback 可以兜住）。这类操作必然
-        // 先调 onDisable()，所以在这里把界面关掉，就不存在「陈旧界面存活到新 ClassLoader」的
-        // 窗口。注意 /lea reload 不换 ClassLoader（只是重载配置 + clearCache），因此 reload
-        // 路径不关 GUI。
-        //
-        // 位置裁决（三处顺序都是刻意的）：
-        //   1. 在 wordLearningManager.clearAllSessions() **之后** —— WordLearningListener
-        //      .onInventoryClose 在 hasActiveQuiz=true && !isAnswering 时会调
-        //      startAnswerForCurrentWord()（发答题提示 + startAnswerTimer）。会话已清空后
-        //      该判定为 false，关闭事件 early return，不会在停用途中凭空起一个倒计时任务，
-        //      也不会给即将断线的玩家推答题提示。反过来放前面则必触发。
-        //   2. 在 duelManager.shutdown() **之后** —— 决斗收尾本身会 closeInventory() 并
-        //      清 activeDuels；先让它按自己的顺序收尾（清任务/记分板/状态），我们这步只做
-        //      兜底清扫，覆盖决斗界面之外的所有插件界面。若反过来，shutdown 里的
-        //      removeScoreboard/closeInventory 会作用在已被关闭的界面上（虽幂等，但语义更乱）。
-        //   3. 在 savePlayerLanguages()/savePlayerData **之前** —— 关闭界面会同步触发
-        //      InventoryCloseEvent；当前唯一处理它的是 WordLearningListener（已被上一条约束
-        //      挡成 no-op），其余 listener 不监听该事件。仍放在落盘之前，是为了让「关界面可能
-        //      引发的任何内存态变化」都发生在全量保存之前，而不是落在落盘之后丢失。
-        // 整段 try/catch(Throwable) 兜底，照 duelManager.shutdown() 的先例：一个玩家关闭失败
-        // 不能拖垮后续的落盘与关库。
+        // ---- D5：关 GUI（在 D3/D4 之后、D6 之前）----
+        // 位置：D3/D4 之后 —— 避免 D3 论证的倒计时副作用、避免对已被关闭的界面重复操作；
+        // D6 之前 —— 让「关界面引发的任何内存态变化」发生在全量保存之前，而不是落在落盘后
+        // 丢失。逐人 try/catch：一个玩家失败不能拖垮剩余玩家（照抄 onDisable 的形状）。
         try {
             int closedPluginGuis = 0;
             for (Player online : getServer().getOnlinePlayers()) {
@@ -404,42 +579,21 @@ public final class LetsLearnEnglish extends JavaPlugin {
                     }
                 } catch (Throwable t) {
                     getLogger().warning("Failed to close plugin GUI for " + online.getName()
-                            + " during shutdown: " + t.getMessage());
+                            + " during unload: " + t.getMessage());
                 }
             }
             if (closedPluginGuis > 0) {
-                getLogger().info("Closed " + closedPluginGuis
-                        + " lingering plugin GUI(s) before shutdown.");
+                getLogger().info("Closed " + closedPluginGuis + " lingering plugin GUI(s) during unload.");
             }
         } catch (Throwable t) {
-            getLogger().warning("Failed to sweep plugin GUIs during shutdown: " + t.getMessage());
+            getLogger().warning("Failed to sweep plugin GUIs during unload: " + t.getMessage());
         }
 
-        savePlayerLanguages();
-
-        // R5-15：落盘必须**逐玩家**独立 try/catch，形状照上面的 GUI 清扫段。
-        //
-        // 为什么不用整段 try、也不沿用原来的 forEach lambda（原来连一层 try 都没有）：
-        //   a) 原实现是 forEach + lambda，任何一条抛异常都会中断**剩余所有玩家**的保存 ——
-        //      第一个玩家失败，后面 N-1 个玩家的进度全部丢失。逐玩家 catch 才能把损失
-        //      限制在失败的那一个玩家身上（与上面的 GUI 清扫段同一形状、同一语义）。
-        //   b) 更不能让异常冲出本段：本段之后还有 achievementManager.clearCache()、
-        //      proxyMessenger.unregister()、aiChatManager.shutdown()、
-        //      statisticsHttpServer.stop()、databaseManager.shutdown() —— 尤其
-        //      databaseManager.shutdown()，跳过它就是连接不关、SQLite 可能留下锁。
-        //
-        // 真实故障点（不是假想）：DatabaseManager.getConnection() 在取连接失败时
-        // throw new RuntimeException("Failed to get database connection", e)；而
-        // PlayerDataStore.savePlayerDataInternal 的 catch(SQLException) 在 SQL 阶段，
-        // **晚于**它取连接那一行（PlayerDataStore.java:918），所以该异常会一路冒到调用方。
-        // saveProfileSettings 同样在 try 之外取连接（PlayerDataStore.java:1626）。
-        // 即：DB 不可用时，这里的异常是**必然**发生的，不是理论风险。
-        //
-        // 用 Throwable 而非 Exception，理由与 clearAllSessions / duelManager.shutdown
-        // 一致：停用路径要防的正是 LinkageError / NoClassDefFoundError 这类换 ClassLoader
-        // 或依赖缺失才会出现的 Error；catch(Exception) 会让它们照旧截断停用流程。
-        // 单体失败只记 WARNING、不重抛 —— onDisable 没有上层可补救，继续往下走
-        // （把后面的清理和关库做完）才是最优解。
+        // ---- D6：落盘（在所有中断之后）----
+        // D2 的计数/成就、D3 的 endSession（掌握度/分数/复习种子）、D3 里 stopQuiz 的金币奖励
+        // 都改的是内存态，落在 D6 之前才能被这一次全量写覆盖。逐玩家独立 catch：第一个玩家
+        // 失败不能让后面 N-1 个玩家的进度全丢（原 onDisable 注释里的真实故障点：
+        // DatabaseManager.getConnection() 取连接失败会抛 RuntimeException，不是理论风险）。
         if (playerDataStore != null) {
             int savedPlayers = 0;
             for (Player p : getServer().getOnlinePlayers()) {
@@ -449,7 +603,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
                     savedPlayers++;
                 } catch (Throwable t) {
                     getLogger().warning("Failed to save data for " + p.getName()
-                            + " during shutdown: " + t.getMessage());
+                            + " during unload: " + t.getMessage());
                 }
             }
             if (savedPlayers > 0) {
@@ -457,72 +611,196 @@ public final class LetsLearnEnglish extends JavaPlugin {
             }
         }
 
-        if (achievementManager != null) {
-            achievementManager.clearCache();
-        }
-
-        if (proxyMessenger != null) {
-            proxyMessenger.unregister();
-        }
-
-        if (ttsManager != null) {
-            ttsManager.shutdown();
-        }
-
-        if (aiChatManager != null) {
-            aiChatManager.shutdown();
-        }
-
-        // L1（P1·关服丢数据）：排空 ChatFeedbackManager 的在途落库任务。
-        //
-        // 为什么位置在这里（aiChatManager.shutdown() 之后、databaseManager.shutdown() 之前）：
-        //   1) 必须在 databaseManager.shutdown() <b>之前</b> —— 排在它之后时，flush 要写的
-        //      正是已经关闭的连接，等于把「静默丢弃」换成「一屏异常」，一条都救不回来；
-        //   2) 必须在 aiChatManager.shutdown() <b>之后</b> —— shutdown 置 shuttingDown 标志，
-        //      让所有在途 AI 回调短路，因此 flush 窗口里不会再有 AI 点评回调提交新的
-        //      覆写任务，「排空」才真的有终点（否则 flush 与回调赛跑）；
-        //   3) 为什么不是更早（例如紧接 clearAllSessions）：那之后还有 savePlayerData 等
-        //      纯写库步骤，提前 flush 会白白占掉 5s 预算却让后面的等待变长。
-        //
-        // 为什么必须 flush：落库走 CompletableFuture.runAsync（ForkJoinPool.commonPool），
-        // Paper 的 waitForAsyncTasksShutdown() 只等 BukkitScheduler 的异步任务，管不到它。
-        // 不 flush 时，onDisable 期间排队中的 chat_feedback 写会在 writeTask 的 accepting
-        // 守卫处被丢 —— 而玩家此时已经看过点评，事后无从察觉。
-        //
-        // 异常与超时都只记 WARNING：onDisable 没有上层可补救，绝不能因为排空失败而跳过
-        // 下面的关库（跳过 = 连接不关、SQLite 可能留锁）。null 守卫覆盖「DI 半初始化」
-        // 这一情形（chatFeedbackManager 在 onEnable 里构造，理论上非 null，但 onDisable
-        // 可能在 enable 中途被调用）。
+        // ---- D7：排空 chat_feedback 在途写（在 D6 之后）----
+        // 它走 CompletableFuture.runAsync（ForkJoinPool.commonPool），**不受 Bukkit 调度器
+        // 取消管辖**。不排空 ⇒ 玩家已看过点评、但落库被 writeTask 的 !accepting 守卫丢掉，
+        // 事后无从察觉。位置在 D6 之后：让 D2/D3 引发的任何新写先进来再一次性排空。
+        // 本流程**不关 databaseManager**，所以 flush 之后连接仍然可用。
         if (chatFeedbackManager != null) {
             try {
                 chatFeedbackManager.flushPending(5000L);
             } catch (Throwable t) {
-                // 用 Throwable 而非 Exception，理由同本方法其余兜底段：停用路径要防的
-                // 正是 LinkageError / NoClassDefFoundError 这类换 ClassLoader 才会冒出来的 Error。
                 getLogger().log(java.util.logging.Level.WARNING,
-                        "Failed to flush pending chat feedback writes during shutdown", t);
+                        "Failed to flush pending chat feedback writes during unload", t);
             }
         }
 
-        // R5-15：这里只包 statisticsHttpServer.stop() **一个**，不是漏了上面那四个 ——
-        //   * achievementManager.clearCache() / aiChatManager.shutdown() 是纯内存 clear，
-        //     不碰 DB / IO，也没有会抛的调用；
-        //   * proxyMessenger.unregister() 内部已有 catch(Exception ignored)；
-        //   * ttsManager.shutdown() 是空方法。
-        // 而 stop() 是 JDK 的 com.sun.net.httpserver.HttpServer.stop(0)，对
-        // IllegalStateException / SecurityException 这类非受检异常没有任何承诺；更关键的是
-        // 它**紧邻** databaseManager.shutdown() —— 一旦抛，关库直接被跳过（连接不关、
-        // SQLite 可能留下 -wal/-shm 与锁），这是五个裸奔点里唯一有实害的。
-        // 其余四个即使抛也只截断"更靠后的空操作"，收益远小于给停用流程堆 try 的噪音成本，
-        // 故有意保持原样。
+        // ---- D8：拆外部接线 ----
+        // 四件的共同点是「插件**外部**可见」：消息通道在 Messenger 注册表里、占位符在 PAPI
+        // 注册表里、HTTP 在端口上、成就缓存在静态可达的 manager 上 —— HandlerList.unregisterAll
+        // 一个都管不到，必须显式逐个撤。
+        if (proxyMessenger != null) {
+            try {
+                proxyMessenger.unregister();
+            } catch (Throwable t) {
+                getLogger().warning("Failed to unregister proxy messenger: " + t.getMessage());
+            }
+        }
+        if (papiExpansion != null) {
+            // A5：当前全仓此前没有任何 unregister() 调用 —— 停用后 %lle_score% 仍会被
+            // PAPI 求值，打在已置空的 Manager 上。
+            try {
+                papiExpansion.unregister();
+            } catch (Throwable t) {
+                getLogger().warning("Failed to unregister PlaceholderAPI expansion: " + t.getMessage());
+            }
+        }
         if (statisticsHttpServer != null && statisticsHttpServer.isRunning()) {
             try {
                 statisticsHttpServer.stop();
             } catch (Throwable t) {
-                getLogger().warning("Failed to stop statistics HTTP server during shutdown: "
+                getLogger().warning("Failed to stop statistics HTTP server during unload: "
                         + t.getMessage());
             }
         }
+        if (achievementManager != null) {
+            try {
+                achievementManager.clearCache();
+            } catch (Throwable t) {
+                getLogger().warning("Failed to clear achievement cache: " + t.getMessage());
+            }
+        }
+
+        // ---- D9：反注册事件监听器（必须在所有清理之后）----
+        // 理由：D2~D5 期间仍希望本插件自己的事件回环走正常处理器（例如某玩家此刻 quit，
+        // DuelListener.onPlayerQuit 需要 duelManager 还活着来走它自己的收尾）；且 D3 的
+        // 「先清会话后关 GUI」论证本身就假定监听器**还注册着**（要求它 early return，而不是
+        // 压根不存在）。**保持「监听器最后撤」这一不变量，请勿把它提前。**
+        // 用 plugin 级全撤而不是逐个 unregister：它能覆盖「我们记不住的那一个」（记账清单
+        // 永远可能漏），天然幂等，且不会误伤别的插件（按 RegisteredListener 的 plugin 过滤）。
+        try {
+            org.bukkit.event.HandlerList.unregisterAll(this);
+            // 免费的生产自检：撤完应为空。非空说明有人在我们记账之外注册了东西。
+            List<?> leftover = org.bukkit.event.HandlerList.getRegisteredListeners(this);
+            if (!leftover.isEmpty()) {
+                StringBuilder names = new StringBuilder();
+                for (Object registered : leftover) {
+                    if (names.length() > 0) {
+                        names.append(", ");
+                    }
+                    names.append(registered.getClass().getName());
+                }
+                getLogger().warning("HandlerList still reports " + leftover.size()
+                        + " registered listener(s) after unregisterAll: " + names);
+            }
+        } catch (Throwable t) {
+            getLogger().warning("Failed to unregister event listeners: " + t.getMessage());
+        }
+
+        // ---- D10：置空字段 ----
+        // 全新建（不复用）的理由见 enableAll()：AIChatManager.shuttingDown 与
+        // ChatFeedbackManager.accepting 都是单向闩，复用会让重开后静默失效。
+        //
+        // **必须保留**：configManager / messageUtil / databaseManager（关闭态三件套）、
+        // versionAdapter（onLoad 建，SoundManager 构造期要它）、hotReloadManager（关闭态唯一
+        // 逃生口，AdminCommand 裸调用）、updateChecker（PlayerJoinListener 的 60L 延迟任务在
+        // 触发时才取它，置 null 会 NPE）、economy（外部 provider）、
+        // playerLanguage / joinReminderSent（插件级跨启停状态）。
+        this.playerDataStore = null;
+        this.wordManager = null;
+        this.wordLearningManager = null;
+        this.achievementManager = null;
+        this.aiChatManager = null;
+        this.chatFeedbackManager = null;
+        this.chatScenarioListener = null;
+        this.socialListener = null;
+        this.guiNavigationManager = null;
+        this.dailyChallengeManager = null;
+        this.progressManager = null;
+        this.duelManager = null;
+        this.checkInManager = null;
+        this.onboardingManager = null;
+        this.socialManager = null;
+        this.seasonManager = null;
+        this.adminCommandHandler = null;
+        this.dataExporter = null;
+        this.reportGenerator = null;
+        this.soundManager = null;
+        this.ttsManager = null;
+        this.proxyMessenger = null;
+        this.statisticsHttpServer = null;
+        this.api = null;
+        // 光把字段置 null 不够 —— getInstance() 是第三方插件的唯一入口，
+        // 静态引用还指着刚拆掉的实例。不清的话第三方拿到的是一个「所有 getter 都返回
+        // null Manager」的僵尸对象：它通常只判 getInstance() != null 就继续用，
+        // 于是 NPE 发生在调用方那一侧，而不是「本插件未启用」这个可理解的事实。
+        // 清掉之后「停用后拿不到 API」与「启动时就是 server.enabled=false」完全同构。
+        // 用 force 版：D10 时已确定是本实例在拆，不需要 clearInstance() 的「别抹掉别人」保护。
+        LetsLearnEnglishAPI.forceClearInstance();
+        this.papiExpansion = null;
+        // 只清记账，不撤销注册（注册已由 D9 全撤）。
+        modules().releaseAll();
+        this.enableStartTime = -1L;
+
+        getLogger().info("Runtime modules unloaded: listeners unregistered, tasks cancelled,"
+                + " channels closed, player data saved.");
+    }
+
+    /** D1 用：单个任务取消，null 守卫 + 异常自吞（cancel 失败不能拖垮拆解流程）。 */
+    private void cancelTaskQuietly(String what, BukkitTask task) {
+        if (task == null) {
+            return;
+        }
+        try {
+            task.cancel();
+        } catch (Throwable t) {
+            getLogger().warning("Failed to cancel " + what + " task during unload: " + t.getMessage());
+        }
+    }
+
+    /**
+     * 拆运行时之前，先给「正在答题」的玩家一句解释。
+     *
+     * <p><b>为什么需要这个</b>：{@link #disableAll()} 的 D3 会调
+     * {@code clearAllSessions()}，它把已答对的题结算入账（掌握度/分数/复习种子），
+     * 然后 D5 关掉界面。玩家看到的事实是「界面突然没了」—— 不解释一句，
+     * 会以为是卡顿或掉线；更要紧的是<b>不知道已答的题算不算数</b>，
+     * 于是可能去找客服、或者以为白练一局。
+     *
+     * <p><b>为什么放在清会话之前</b>：清完之后 {@code hasActiveQuiz()} 全是 false，
+     * 就找不到「谁需要被通知」了。
+     *
+     * <p>逐人 try/catch：一个玩家发送失败不能拖垮其余玩家（与 D3~D6 的姿态一致）。
+     * 管理器为 null 时静默返回（关闭态下重复调用的正常情形）。
+     */
+    private void notifyActiveQuizzesBeforeDisable() {
+        if (wordLearningManager == null || messageUtil == null) {
+            return;
+        }
+        for (Player online : getServer().getOnlinePlayers()) {
+            try {
+                if (!wordLearningManager.hasActiveQuiz(online.getUniqueId())) {
+                    continue;
+                }
+                online.sendMessage(messageUtil.getPlayerMessage(online, "server.quiz-interrupted"));
+            } catch (Throwable t) {
+                getLogger().warning("Failed to notify player " + online.getName()
+                        + " about the interrupted quiz: " + t.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 服务器/插件停用：先走 {@link #disableAll()} 拆运行时，再补两件**只有这里才做**的事。
+     *
+     * <p>为什么收敛成「调 disableAll + 关库/语言落盘」：两套拆解逻辑并存必然漂移 ——
+     * 有一处加了守卫、另一处没加，症状只会在「热重载 vs 关服」某一条路径上出现。
+     * 注意不能反过来让 disableAll 吞掉这两步：{@code /lea reload} 之后插件仍活着，
+     * {@code databaseManager} 必须留着，{@code playerLanguage} 也不必每次 reload 都写盘。
+     */
+    @Override
+    public void onDisable() {
+        // R5-15：这句是**整段停用流程**的入口标记（清会话 → 决斗收尾 → GUI 清扫 → 落盘
+        // → 关库），不是"落盘马上开始"。真正的落盘完成另有 "Saved data for N player(s)."
+        // 一行，两者不重复：前者标停用开始，后者报实际落盘人数（0 人时不打印）。
+        getLogger().info("Disabling plugin - clearing sessions and saving player data...");
+
+        disableAll();
+
+        // 关闭态（server.enabled=false 启动）下 disableAll() 因 beginDisable() 返回 false 而
+        // 整段跳过，但语言落盘与关库仍然必须执行 —— 它们与「运行时是否装配」无关。
+        // onDisable 独有的两步，顺序与旧实现一致：先写语言文件，再关库。
+        savePlayerLanguages();
 
         if (databaseManager != null) {
             databaseManager.shutdown();
@@ -622,29 +900,65 @@ public final class LetsLearnEnglish extends JavaPlugin {
         // @EventHandler(priority = LOWEST) 决定，与注册先后无关。它只拦「插件 GUI + 下半区 +
         // shift-click / 双击收集」这一种组合，不参与任何业务分派。
         // 刻意不含 PICKUP_ALL：那是「左键取整叠」，拦它会锁死背包整理（见该类的字节码实证）。
-        getServer().getPluginManager().registerEvents(
-                new GlobalGuiActionGuardListener(this), this);
-        getServer().getPluginManager().registerEvents(new PlayerJoinListener(this), this);
-        getServer().getPluginManager().registerEvents(new MainMenuListener(this), this);
-        getServer().getPluginManager().registerEvents(new WordLearningListener(this), this);
-        getServer().getPluginManager().registerEvents(new ScenarioSelectListener(this), this);
+        //
+        // 全部经 modules().track(...) 记账：记账**只用于停用时的日志统计与漏网 cancel**，
+        // 反注册统一走 HandlerList.unregisterAll(plugin)（见 disableAll 的 D9）—— 所以这里
+        // 漏记一笔不会造成监听器泄漏，只会让日志少一个可读的类名。
+        GlobalGuiActionGuardListener globalGuiGuard = new GlobalGuiActionGuardListener(this);
+        getServer().getPluginManager().registerEvents(globalGuiGuard, this);
+        modules().track(globalGuiGuard);
+        PlayerJoinListener playerJoinListener = new PlayerJoinListener(this);
+        getServer().getPluginManager().registerEvents(playerJoinListener, this);
+        modules().track(playerJoinListener);
+        MainMenuListener mainMenuListener = new MainMenuListener(this);
+        getServer().getPluginManager().registerEvents(mainMenuListener, this);
+        modules().track(mainMenuListener);
+        WordLearningListener wordLearningListener = new WordLearningListener(this);
+        getServer().getPluginManager().registerEvents(wordLearningListener, this);
+        modules().track(wordLearningListener);
+        ScenarioSelectListener scenarioSelectListener = new ScenarioSelectListener(this);
+        getServer().getPluginManager().registerEvents(scenarioSelectListener, this);
+        modules().track(scenarioSelectListener);
         // Phase 3 · MC-4：个人场景管理页（纯 holder 判定，GuiViewKey.PERSONAL_SCENARIO；
         // 与 ScenarioSelectListener 各自按 holder key 分派，互不影响）
-        getServer().getPluginManager().registerEvents(
-                new com.letslearnenglish.minecraftplugin.listener.PersonalScenarioListener(this), this);
+        com.letslearnenglish.minecraftplugin.listener.PersonalScenarioListener personalScenarioListener =
+                new com.letslearnenglish.minecraftplugin.listener.PersonalScenarioListener(this);
+        getServer().getPluginManager().registerEvents(personalScenarioListener, this);
+        modules().track(personalScenarioListener);
         this.socialListener = new SocialListener(this);
         getServer().getPluginManager().registerEvents(socialListener, this);
-        getServer().getPluginManager().registerEvents(new MiscGUIListener(this), this);
+        modules().track(socialListener);
+        MiscGUIListener miscGUIListener = new MiscGUIListener(this);
+        getServer().getPluginManager().registerEvents(miscGUIListener, this);
+        modules().track(miscGUIListener);
         getServer().getPluginManager().registerEvents(chatScenarioListener, this);
-        getServer().getPluginManager().registerEvents(new ChatAnswerListener(this), this);
-        getServer().getPluginManager().registerEvents(new ChatHistoryListener(this), this);
-        getServer().getPluginManager().registerEvents(new DuelGUIListener(this), this);
-        getServer().getPluginManager().registerEvents(new DuelChallengeListener(this), this);
-        getServer().getPluginManager().registerEvents(new DuelListener(this), this);
-        getServer().getPluginManager().registerEvents(new com.letslearnenglish.minecraftplugin.listener.WrongBookListener(this), this);
+        modules().track(chatScenarioListener);
+        ChatAnswerListener chatAnswerListener = new ChatAnswerListener(this);
+        getServer().getPluginManager().registerEvents(chatAnswerListener, this);
+        modules().track(chatAnswerListener);
+        ChatHistoryListener chatHistoryListener = new ChatHistoryListener(this);
+        getServer().getPluginManager().registerEvents(chatHistoryListener, this);
+        modules().track(chatHistoryListener);
+        DuelGUIListener duelGUIListener = new DuelGUIListener(this);
+        getServer().getPluginManager().registerEvents(duelGUIListener, this);
+        modules().track(duelGUIListener);
+        DuelChallengeListener duelChallengeListener = new DuelChallengeListener(this);
+        getServer().getPluginManager().registerEvents(duelChallengeListener, this);
+        modules().track(duelChallengeListener);
+        DuelListener duelListener = new DuelListener(this);
+        getServer().getPluginManager().registerEvents(duelListener, this);
+        modules().track(duelListener);
+        com.letslearnenglish.minecraftplugin.listener.WrongBookListener wrongBookListener =
+                new com.letslearnenglish.minecraftplugin.listener.WrongBookListener(this);
+        getServer().getPluginManager().registerEvents(wrongBookListener, this);
+        modules().track(wrongBookListener);
         // Wave 4 · US-CLS-2：班级榜（纯 holder 判定，GuiViewKey.CLASS_BOARD）
-        getServer().getPluginManager().registerEvents(new com.letslearnenglish.minecraftplugin.listener.ClassBoardListener(this), this);
+        com.letslearnenglish.minecraftplugin.listener.ClassBoardListener classBoardListener =
+                new com.letslearnenglish.minecraftplugin.listener.ClassBoardListener(this);
+        getServer().getPluginManager().registerEvents(classBoardListener, this);
+        modules().track(classBoardListener);
         getServer().getPluginManager().registerEvents(soundManager, this);
+        modules().track(soundManager);
     }
 
     private void registerCommands() {
@@ -669,7 +983,10 @@ public final class LetsLearnEnglish extends JavaPlugin {
                     + " out of range [1,60], clamped to " + clamped + ".");
             saveInterval = clamped;
         }
-        getServer().getScheduler().runTaskTimer(this, () -> {
+        // 6 个周期任务的句柄全部落在字段里（+ modules.track 记账）：disableAll 的 D1 逐个
+        // cancel。绝不能用 scheduler.cancelTasks(plugin) —— 它会连 PlayerDataStore 的异步
+        // 落库与 ChatFeedbackManager 的 flush 链一起杀掉。
+        autoSaveTask = getServer().getScheduler().runTaskTimer(this, () -> {
             List<UUID> onlinePlayerIds = getServer().getOnlinePlayers().stream()
                     .map(Player::getUniqueId)
                     .toList();
@@ -683,11 +1000,13 @@ public final class LetsLearnEnglish extends JavaPlugin {
                 onlinePlayerIds.forEach(playerId -> playerDataStore.saveProfileSettings(playerId));
             });
         }, saveInterval * 1200L, saveInterval * 1200L);
+        modules().track(autoSaveTask);
 
         if (configManager.getMainConfig().getBoolean("word-system.review.enabled", true)) {
-            getServer().getScheduler().runTaskTimer(this, () -> {
+            reviewNotifyTask = getServer().getScheduler().runTaskTimer(this, () -> {
                 wordManager.getReviewScheduler().checkAndNotifyReviews();
             }, 6000L, 6000L);
+            modules().track(reviewNotifyTask);
         }
 
         if (configManager.getMainConfig().getBoolean("daily-reminder.enabled", true)) {
@@ -709,12 +1028,13 @@ public final class LetsLearnEnglish extends JavaPlugin {
                 .getInt("progress-system.leaderboard.update-interval", 300);
         refreshSeconds = Math.max(30, Math.min(3600, refreshSeconds));
         long refreshTicks = refreshSeconds * 20L;
-        getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
+        leaderboardRefreshTask = getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
             progressManager.getLeaderboard().refreshCache();
             if (seasonManager != null) {
                 seasonManager.refreshCacheAsync();
             }
         }, refreshTicks, refreshTicks);
+        modules().track(leaderboardRefreshTask);
     }
 
     private void scheduleDailyReminders() {
@@ -727,7 +1047,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
         Set<Integer> remindedHours = new HashSet<>();
         final Set<Integer> effectiveHours = new HashSet<>(reminderHours);
 
-        getServer().getScheduler().runTaskTimer(this, () -> {
+        dailyReminderTask = getServer().getScheduler().runTaskTimer(this, () -> {
             // R10-M1：reload 不重建任务，体内点读门是唯一保障（对齐 ReviewScheduler 先例）。
             if (!configManager.getMainConfig().getBoolean("daily-reminder.enabled", true)) return;
             Calendar cal = Calendar.getInstance();
@@ -757,6 +1077,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
                 getLogger().info("Daily study reminder sent to all online players at hour " + currentHour + ":00");
             }
         }, 1200L, 1200L);
+        modules().track(dailyReminderTask);
 
         getLogger().info("Daily study reminder scheduled at hours: " + effectiveHours);
     }
@@ -820,9 +1141,10 @@ public final class LetsLearnEnglish extends JavaPlugin {
         int maxBackups = configManager.getMainConfig().getInt("general.backup.max-backups", 7);
         long intervalTicks = intervalMinutes * 1200L;
 
-        getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
+        backupTask = getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
             backupDatabase(maxBackups);
         }, intervalTicks, intervalTicks);
+        modules().track(backupTask);
 
         getLogger().info("Database auto-backup scheduled every " + intervalMinutes
                 + " minutes, keeping up to " + maxBackups + " backups.");
@@ -854,7 +1176,9 @@ public final class LetsLearnEnglish extends JavaPlugin {
      * 任务体执行现有全部 rollover 逻辑，末尾再调本方法续排下一天。
      */
     private void scheduleNextMidnightRollover() {
-        if (!isEnabled()) {
+        // A7：守卫必须同时含 isRuntimeActive()。/lea reload 期间 isEnabled() 恒为 true，
+        // 只靠它救不了 —— 任务一旦在拆分之后触发，就会把下一天的任务重排进禁用态。
+        if (!isEnabled() || !isRuntimeActive()) {
             return;
         }
         Calendar now = Calendar.getInstance();
@@ -971,6 +1295,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
                 // 停用窗口：异步段未派发，无自续需求（同上）。
             }
         }, delayTicks);
+        modules().track(midnightTask);
 
         getLogger().info("Midnight rollover scheduled, next run in "
                 + (delayTicks / 20L) + " seconds.");
@@ -1101,13 +1426,19 @@ public final class LetsLearnEnglish extends JavaPlugin {
         return economy;
     }
 
+    /**
+     * @deprecated A5 起注册动作内联进 {@link #enableAll()}（那里才看得到 {@code papiExpansion}
+     * 字段与 D8 的配对关系），本方法保留只为不破坏既有调用点，行为与内联版本一致。
+     */
+    @Deprecated
     private void setupPlaceholderAPI() {
         if (getServer().getPluginManager().getPlugin("PlaceholderAPI") == null) {
             return;
         }
         LLEPapiExpansion expansion = new LLEPapiExpansion(this);
         if (expansion.canRegister()) {
-            expansion.register();
+            this.papiExpansion = expansion;
+            papiExpansion.register();
             getLogger().info("PlaceholderAPI expansion registered. Available: %lle_score%, %lle_rank%, etc.");
         }
     }
@@ -1120,17 +1451,50 @@ public final class LetsLearnEnglish extends JavaPlugin {
      * 本服的英语学习功能是否<b>真的</b>可用：配置门开 <b>且</b> 运行时已经装配。
      *
      * <p>命令入口用它而不是直接读 {@link ConfigManager#isServerEnabled()}，因为两者会在
-     * 一个窗口里分叉：启动时 {@code server.enabled=false}，服主随后 {@code /lea reload}
-     * 把它改成 true —— 配置文件读出来是 true，但监听器/Manager 一个都没装（动态装配
-     * 本轮不实现），此时若按配置值放行，命令会一路走到 null Manager 上 NPE。
-     * 用「配置 + 已装配」双条件，这个窗口里命令继续拒绝，直到重启真正装好为止。
+     * 一个窗口里分叉：{@code /lea reload} 把 {@code server.enabled} 改关的瞬间，配置文件
+     * 已经是 false，但拆解还没跑完；反过来改开时，配置已是 true 而装配尚未完成。这两种
+     * 窗口里若按裸配置值放行，命令会一路走到 null Manager 上 NPE。用「配置 + 已装配」双条件，
+     * 命令在窗口里继续拒绝。
      *
-     * <p>判据选 {@code playerDataStore != null}：它是 {@code enableFullFeatures()} 里
-     * 第一个被赋值的运行时依赖，也是 {@code HotReloadManager} 短路用的同一个标记，
-     * 两处语义一致（见该类 reloadAll 的注释）。
+     * <p>判据选 {@code playerDataStore != null}：它是 {@link #enableAll()} 里第一个被赋值的
+     * 运行时依赖，也是 {@code HotReloadManager} 短路用的同一个标记，两处语义一致
+     *（见该类 reloadAll 的注释）。{@code runtimeActive} 是更早、更粗的一道闸（见字段注释）。
      */
     public boolean isFullyEnabled() {
-        return configManager != null && configManager.isServerEnabled() && playerDataStore != null;
+        // A6：加 runtimeActive 在前。它覆盖「配置已 reload 成 false 但 pds 还没拆完」的那几百
+        // 毫秒；playerDataStore != null 一项保留 —— ServerToggleTest 有 6 个用例钉的就是它，
+        // 而它同时也是 HotReloadManager 短路用的同一语义。
+        return isRuntimeActive() && configManager != null && configManager.isServerEnabled()
+                && playerDataStore != null;
+    }
+
+    /**
+     * 运行时模块是否已装配（true = 监听器/任务/Manager 齐备）。
+     *
+     * <p>与 {@code isEnabled()} 的区别是本轮改动的核心：{@code /lea reload} 期间
+     * {@code isEnabled()} 恒为 true，只有本方法能在拆解窗口里立刻回答「不能再派发业务」。
+     * 冻结契约方法，B/C/D 流直接调用。
+     */
+    public boolean isRuntimeActive() {
+        return runtimeActive;
+    }
+
+    /**
+     * 取状态机实例，null 时就地补一个。
+     *
+     * <p>为什么需要它：{@code ServerToggleTest} 用 {@code mock(LetsLearnEnglish.class)}
+     * （Objenesis，不跑字段初始化器）造实例再 {@code doCallRealMethod().onDisable()}，
+     * 此时本字段是 null。直接解引用会 NPE，把「关闭态 onDisable 必须跑完且不抛」这条
+     * 既有用例打成红。补出来的实例是「未装配」状态，{@code beginDisable()} 返回 false，
+     * 拆解段整体跳过 —— 正是该场景应有的语义。
+     */
+    private RuntimeModules modules() {
+        RuntimeModules m = modules;
+        if (m == null) {
+            m = new RuntimeModules();
+            modules = m;
+        }
+        return m;
     }
 
     public AIChatManager getAIChatManager() {

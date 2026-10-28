@@ -132,7 +132,7 @@ class B3WiringLintsTest {
             //（关闭态压根不该注册 AI，这正是总开关要的）。
             // 找不到方法签名时 methodBody 会 fail()，所以「方法被改名/拆并」不会静默假绿。
             String body = methodBody("LetsLearnEnglish.java",
-                    "private void enableFullFeatures(long");
+                    "public void enableAll()");
 
             List<Integer> calls = occurrences(body, "setFocusWordProvider(");
             assertEquals(1, calls.size(),
@@ -218,7 +218,7 @@ class B3WiringLintsTest {
         void focusWordProviderIsNotConstantEmpty() {
             // 同 L1：锚点随子服总开关搬到 enableFullFeatures(long)。
             String body = methodBody("LetsLearnEnglish.java",
-                    "private void enableFullFeatures(long");
+                    "public void enableAll()");
 
             List<Integer> calls = occurrences(body, "setFocusWordProvider(");
             assertFalse(calls.isEmpty(),
