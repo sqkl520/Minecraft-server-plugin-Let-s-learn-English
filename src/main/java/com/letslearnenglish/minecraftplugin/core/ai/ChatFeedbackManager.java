@@ -12,9 +12,13 @@ import org.bukkit.entity.Player;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 
@@ -32,7 +36,8 @@ import java.util.logging.Level;
  * 中断/崩溃时本地行已可回看；UPSERT 幂等无读-改-写。
  *
  * <p>线程纪律：{@link #deliverEnd} 呼叫方线程不限（主线程直执行保消息顺序，异步切主线程）；
- * HTTP 回调由 AIChatManager 保证主线程；落库一律异步（{@code isEnabled} 守卫）。
+ * HTTP 回调由 AIChatManager 保证主线程；落库一律异步（本类的 {@code accepting}/{@code draining}
+ * 双闸守卫，见 {@link #writeTask}），关服前由 {@link #flushPending(long)} 排空。
  */
 public class ChatFeedbackManager {
 
@@ -67,9 +72,92 @@ public class ChatFeedbackManager {
     private final LetsLearnEnglish plugin;
     private final AIChatManager aiChatManager;
 
+    // ── L1（P1·关服丢数据）：在途落库 future 的登记表 + 收口闸 ──────────────────
+    //
+    // 为什么必须自持这份登记表：落库走 CompletableFuture.runAsync(...)，底层是
+    // ForkJoinPool.commonPool —— <b>不受</b> Paper 的 waitForAsyncTasksShutdown() 管辖
+    // （那个只等 BukkitScheduler 的异步任务）。关服时序是
+    //   disablePlugins() → setEnabled(false) → onDisable() → waitForAsyncTasksShutdown()
+    //   → playerList.saveAll() → removeAll()
+    // 而 setEnabled(false) 在 onDisable() <b>之前</b>就写了字段，所以排队中的写任务一旦
+    // 读到 isEnabled()==false 就静默 return，整条 chat_feedback 记录凭空消失 ——
+    // 且这个丢失发生在「玩家已经看到点评」之后，事后无法察觉。
+    //
+    // 修法：登记 → onDisable 里 flushPending 排空 → 排空期间仍允许执行。
+    /** 在途落库 future（提交时登记、完成时移除）；key 为 future 自身，值无意义。 */
+    private final Set<CompletableFuture<Void>> pendingWrites = ConcurrentHashMap.newKeySet();
+
+    /**
+     * 是否还接受新的落库任务（L1）。{@code false} 之后 {@link #persistAsync} /
+     * {@link #persistAfter} 一律不再登记 —— 这就是「onDisable 之后新提交被拒绝」
+     * 的实现点（DB 已/即将关闭，再提交只会刷屏）。
+     */
+    private volatile boolean accepting = true;
+
+    /**
+     * 是否处于关服排空窗口（{@link #flushPending(long)} 期间为 {@code true}）。
+     *
+     * <p><b>为什么必须有这个字段，而不能只靠 {@code accepting}</b>：
+     * 字面上「flush 时先置 accepting=false 再 join，writeTask 守卫改成
+     * {@code if (!accepting) return;}」看起来成立，实际会得到一个<b>假绿</b>的修复 ——
+     * 提交到 commonPool 但<b>尚未开始执行</b>的任务，一启动就读到 {@code accepting==false}
+     * 并立刻 return，future 随即以「正常完成」结算，于是 flush 报告「已排空」而数据
+     * 全丢。<b>排空窗口内必须允许执行已提交的任务</b>，所以判据拆成两半：
+     * 「现在还接不接新活」（{@code accepting}，提交点判定）与「这条已登记的任务还能不能
+     * 跑」（本窗口标记，执行点判定）。
+     *
+     * <p><b>写入顺序</b>：{@code flushPending} 必须先写本字段、再写 {@code accepting}
+     * （两笔都在 {@link #submitLock} 里）。{@code writeTask} 先读 accepting 再读本字段，
+     * 因此「读到 accepting 新值 false ⇒ 一定能读到本字段 true」，不会误杀已登记任务。
+     */
+    private volatile boolean draining = false;
+
+    /**
+     * 提交与「关闸」之间的互斥锁（L1）。
+     *
+     * <p>为什么光靠 {@code volatile} 不够：提交分两步 —— 先查 {@code accepting}、再
+     * {@code runAsync}、再 {@code track}（登记）。若 flush 恰好插在「查过 accepting」
+     * 与「登记完成」之间，它会看到空集合、立刻报「已排空」并退出排空窗口；随后那条
+     * 任务才被登记，等它真正开始跑时 {@code accepting=false} 且 {@code draining=false}，
+     * 直接被守卫丢弃 —— 排空报告成功、数据却丢了，正是本类要修的那个 bug 换了个位置。
+     *
+     * <p>因此提交侧的「判 accepting + 登记」与 flush 侧的「关闸」必须互斥：要么任务先登记好
+     * （flush 一定能看到它），要么 flush 先关闸（提交被明确拒绝）。两者不可能交错。
+     * 锁只在毫秒级临界区里持有（无 IO），对每场一次的落库路径没有可测开销。
+     */
+    private final Object submitLock = new Object();
+
+    /**
+     * 落库任务的执行器（L1 可测试性缝隙）。
+     *
+     * <p><b>生产值恒为 commonPool</b>（{@code CompletableFuture.runAsync(r, executor)} 的
+     * 默认执行器就是它，显式传与不传完全等价）——这个字段不改变任何运行时行为，它存在的
+     * 唯一目的是让测试能注入一个「提交了但不立刻执行」的执行器，从而构造出
+     * {@link #draining} 唯一存在的那个场景：<b>任务已登记、但还没开始跑</b>。
+     *
+     * <p>为什么非要这个缝隙：{@code draining} 的作用是「排空窗口内放行已登记但未启动的
+     * 任务」。若测试让任务先跑起来再 flush（现有测试就是这样），写线程早已越过守卫，
+     * {@code draining} 取什么值都不影响结果 —— 于是删掉 {@code draining = true} 这一行，
+     * 测试依然全绿。那是假绿，不是守卫。
+     *
+     * <p>包级可见 + 仅包级 setter：不污染公共 API。
+     *
+     * <p><b>C-P2-3（红队 C）：{@code volatile}</b>。生产路径从不调
+     * {@link #setWriteExecutor}，本字段恒为 {@code commonPool}；volatile 只为杜绝
+     * 「异步线程读到 null」的极端情形（构造期与注入期的可见性），零运行时代价。
+     */
+    private volatile java.util.concurrent.Executor writeExecutor = java.util.concurrent.ForkJoinPool.commonPool();
+
     public ChatFeedbackManager(LetsLearnEnglish plugin, AIChatManager aiChatManager) {
         this.plugin = plugin;
         this.aiChatManager = aiChatManager;
+    }
+
+    /** 仅供测试注入执行器；传 {@code null} 回落 commonPool。 */
+    void setWriteExecutor(java.util.concurrent.Executor executor) {
+        this.writeExecutor = (executor == null)
+                ? java.util.concurrent.ForkJoinPool.commonPool()
+                : executor;
     }
 
     // ============================================================
@@ -335,7 +423,20 @@ public class ChatFeedbackManager {
             // plan.reviewOnly()（后者混了句级回收结果，无法区分）。
             LinkedHashSet<String> focusWords = new LinkedHashSet<>(plan.countAsWrong());
             appendFocusWords(focusWords, feedback.words(), wordManager);
-            if (!focusWords.isEmpty()) {
+            // L5（P2·污染下一场 prompt）：<b>无论是否为空都要写</b>。
+            //
+            // 原实现是 `if (!focusWords.isEmpty()) put(...)`，看着像省内存的优化，实际是
+            // 一个残留 bug：某场没有任何纠错词与推荐词时<b>不会</b>覆盖上一场的快照，
+            // 于是「下一场目标词」仍是两场前甚至更早的值 —— 玩家在新一场看到的
+            // TARGET WORDS 与刚结束的那场毫无关系，AI 被引导去练一批早已过时的词，
+            // 闭环信号彻底失效。空场次必须把旧值<b>清掉</b>：
+            // 语义是「这场没学到 / 没推荐任何词 → 下一场不该有针对性的目标词」。
+            // 用 remove 而非 put(List.of()) 省一个空条目：消费侧
+            // getSuggestedFocusWords 对 null 已返回 List.of()，语义等价但少一份
+            // per-player 常驻内存。
+            if (focusWords.isEmpty()) {
+                suggestedFocusWords.remove(playerId);
+            } else {
                 // 不可变快照：消费方（B1 的 prompt 注入）不会与后续写入竞争
                 suggestedFocusWords.put(playerId, List.copyOf(focusWords));
             }
@@ -357,9 +458,12 @@ public class ChatFeedbackManager {
                         "wrong-book.auto-add"));
             }
         } catch (Exception e) {
-            // 静默降级：点评是玩家可见主功能，本段失败只记日志
-            plugin.getLogger().warning("Failed to apply AI corrections to learning loop: "
-                    + e.getMessage());
+            // 静默降级：点评是玩家可见主功能，本段失败只记日志。
+            // L2（P2·可观测性）：必须带异常对象 —— 原来只打 e.getMessage()，线上拿到的是
+            // "null"（NPE 之类）或一句无栈的一句话，既不知道异常类型也不知道在哪一行，
+            // 等于「有日志但无法定位」。Logger.log(Level, msg, Throwable) 会输出完整栈。
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to apply AI corrections to learning loop", e);
         }
     }
 
@@ -568,7 +672,9 @@ public class ChatFeedbackManager {
      * 只读 {@code ConcurrentHashMap}，零 DB、零锁。
      *
      * <p>返回语义冻结：词库内小写原形、保序去重、不可变快照、永不为 null（无数据时空列表）。
-     * 若返回空表，{@code AIChatManager} 会回落到艾宾浩斯到期复习词（见上面的接线处）。
+     * 若返回空表，{@code AIChatManager} <b>默认</b>就到此为止（不再注入任何目标词）；
+     * 只有服主显式打开 {@code ai-chat.focus-words-from-review}（默认 false）时，
+     * 接线处才会回落到艾宾浩斯到期复习词（见 {@code LetsLearnEnglish} 的 provider 接线）。
      */
     public List<String> getSuggestedFocusWords(UUID playerId) {
         if (playerId == null) {
@@ -583,7 +689,11 @@ public class ChatFeedbackManager {
     // ============================================================
 
     /**
-     * 异步 UPSERT（isEnabled 守卫；异常吞掉记 WARNING——DB 层已记）。
+     * 异步 UPSERT（accepting/draining 双闸守卫；异常吞掉记 WARNING——DB 层已记）。
+     *
+     * <p>L1：future 先登记进 {@link #pendingWrites} 再返回，完成（正常/异常/取消）时移除。
+     * {@code whenComplete} 在<b>同一个任务线程</b>上跑，不会再排一个 task，因此不会
+     * 引入额外的调度开销，也不会在 DB 已关时多一次异常。
      *
      * @return 写完成 future（异常已在内部吞掉，future 不会以异常完成）——
      *         供 AI 覆写经 {@link #persistAfter} 串行排在本地行之后
@@ -593,7 +703,22 @@ public class ChatFeedbackManager {
         if (playerId == null) {
             return CompletableFuture.completedFuture(null);
         }
-        return CompletableFuture.runAsync(writeTask(playerId, summary, source, payloadJson));
+        // 提交与 track 必须在同一临界区里完成（见 submitLock）：否则 flush 可能插在
+        // 「runAsync 已发起、track 还没执行」之间，看到空集合就报「已排空」并退出排空窗口，
+        // 那条任务随后才被登记、执行时撞上 accepting=false 被丢 —— 排空报告成功、数据丢失。
+        // 这里刻意<b>不</b>用 plugin.isEnabled() 判 —— 那是 L1 要修的 bug 本体（见 writeTask）。
+        synchronized (submitLock) {
+            if (!accepting) {
+                return CompletableFuture.completedFuture(null);
+            }
+            CompletableFuture<Void> future =
+                    CompletableFuture.runAsync(writeTask(playerId, summary, source, payloadJson),
+                            writeExecutor);
+            pendingWrites.add(future);
+            // whenComplete 在任务线程上跑，注册本身不阻塞；以 future 自身为 key 精确移除。
+            future.whenComplete((ignored, error) -> pendingWrites.remove(future));
+            return future;
+        }
     }
 
     /**
@@ -606,19 +731,160 @@ public class ChatFeedbackManager {
         if (playerId == null) {
             return;
         }
-        prerequisite.thenRunAsync(writeTask(playerId, summary, source, payloadJson));
+        // 与 persistAsync 同一条纪律：判 accepting + 挂链 + 登记 在同一临界区。
+        // AI 覆写是最容易丢的那一笔（它总排在 local 写之后，关服时正好卡在队列尾部），
+        // 所以派生 future 也必须登记 —— 只登记 prerequisite 会漏掉它。
+        synchronized (submitLock) {
+            if (!accepting) {
+                return;
+            }
+            CompletableFuture<Void> chained = prerequisite.thenRunAsync(
+                    writeTask(playerId, summary, source, payloadJson), writeExecutor);
+            pendingWrites.add(chained);
+            chained.whenComplete((ignored, error) -> pendingWrites.remove(chained));
+        }
+    }
+
+    /**
+     * L1（P1·关服丢数据）：排空所有在途落库任务，供 {@code LetsLearnEnglish.onDisable}
+     * 在关闭 DatabaseManager <b>之前</b>调用。
+     *
+     * <p>为什么需要：{@link #persistAsync} 走 {@code ForkJoinPool.commonPool}，
+     * 而 Paper 的 {@code waitForAsyncTasksShutdown()} 只等 BukkitScheduler 派发的异步任务
+     * —— commonPool 上的写任务不在它的管辖内。关服时若不等，这些写要么被
+     * {@code plugin.isEnabled()} 守卫丢掉（本类原来的行为），要么撞上已关闭的连接。
+     *
+     * <p>语义细节：
+     * <ul>
+     *   <li><b>先开执行闸、再关提交闸</b>：{@code accepting = false} 必须在 join 之前（否则
+     *       「排空期间又有新任务提交」会让等待永远追不上）；{@code draining = true} 也必须在
+     *       join 之前，<b>且要写在 {@code accepting} 之前</b>，否则排队中的任务一启动就自杀，
+     *       排空变成一场空跑（顺序论证见 {@link #draining} 与 {@link #flushPending}）。</li>
+     *   <li><b>幂等</b>：重复调用直接返回 true（已排空 / 本来就没有在途任务）——
+     *       第二次进来时 {@code pendingWrites} 已空，直接短路。</li>
+     *   <li><b>超时不抛异常</b>：onDisable 已经没有上层可补救，抛出去只会截断后续的
+     *       关库流程。超时记一条 WARNING（带剩余条数）后返回 false，让调用方知情但不中断。</li>
+     *   <li><b>不吞 InterruptedException 的中断标志</b>：恢复后返回 false —— 被中断说明
+     *       服务器在催，继续等没有意义。</li>
+     * </ul>
+     *
+     * <p><b>C-P2-4（红队 C）调用方约束</b>：本方法会重新写 {@code draining = true} /
+     * {@code accepting = false} —— 也就是说<b>第二次调用会重新开启排空窗口</b>。
+     * 若第一次调用后 DB 已被关闭，第二次排空出来的写任务将落在一个已关闭的连接上。
+     * 因此<b>调用方必须保证第二次调用时 DB 尚未关闭</b>（当前唯一调用点
+     * {@code LetsLearnEnglish.onDisable} 位于关库之前，满足该约束）。
+     *
+     * @param timeoutMillis 最长等待毫秒；{@code <= 0} 视为不等（直接关闸返回是否已空）
+     * @return true = 所有在途任务已完成（或本就无在途）；false = 超时/被中断仍有残余
+     */
+    public boolean flushPending(long timeoutMillis) {
+        // 提交侧的「判 accepting + 登记」与这里的「关闸」互斥：见 submitLock 的说明。
+        // 临界区只有两次 volatile 写，不涉及等待。
+        synchronized (submitLock) {
+            // 执行闸<b>先</b>开、提交闸<b>后</b>关 —— 顺序不能反，这是一个真实的并发竞态：
+            //
+            // writeTask 的判据是 `!accepting && !draining`（先读 accepting、再读 draining）。
+            // 若先写 accepting=false 再写 draining=true，中间存在一个窗口：写线程读到
+            // 「accepting=false（新值）+ draining=false（旧值）」，于是直接 return ——
+            // 任务以「正常完成」结算，flush 报「已排空」，数据却丢了，恰好是本类要修的那个
+            // bug 换了个位置复现。
+            //
+            // 反过来写（先 draining=true）则安全：若写线程读到 accepting 的<b>新值</b> false，
+            // 按 JMM 的 synchronization order，accepting=false 的写排在 draining=true 的写之后，
+            // 那么它随后对 draining 的读必然看到 true → 放行。若读到 accepting 的旧值 true，
+            // 短路后直接放行。两条路径都不会误杀已登记任务。
+            draining = true;
+            // 提交闸：排空期间不再收新活（否则等待可能永远追不上提交）。
+            accepting = false;
+        }
+        try {
+            if (pendingWrites.isEmpty()) {
+                return true;
+            }
+            if (timeoutMillis <= 0) {
+                return pendingWrites.isEmpty();
+            }
+            long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+            // 循环而不是「一次 allOf(...).get(timeout)」：pendingWrites 是<b>成员会变</b>的活容器 ——
+            // 每轮取快照等它，等完再看集合是否真空。这样既覆盖「等待期间又派生出的任务」
+            // （例如 persistAfter 的链式覆写），也不会因为某个任务晚到 1ms 就漏掉它。
+            // 每轮都等「剩余预算」而不是固定切片：总耗时严格被 deadline 约束。
+            while (!pendingWrites.isEmpty()) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) {
+                    break;
+                }
+                CompletableFuture<?>[] snapshot = pendingWrites.toArray(new CompletableFuture<?>[0]);
+                try {
+                    CompletableFuture.allOf(snapshot)
+                            .get(Math.max(1L, TimeUnit.NANOSECONDS.toMillis(remaining)),
+                                    TimeUnit.MILLISECONDS);
+                } catch (TimeoutException e) {
+                    // 本轮快照耗尽预算：回到 while 顶部由 isEmpty 定夺（超时瞬间刚好完成的
+                    // 任务因此仍会被看到，不会误报「有残余」）。
+                    break;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt(); // 保留中断标志，别吞
+                    return false;
+                } catch (ExecutionException e) {
+                    // writeTask 内部已吞异常，future 理论上不会以异常完成；真出现也只当作
+                    // 「这一批没等到」，由下面的 isEmpty 给最终结论，不在此处刷日志。
+                    break;
+                }
+                // allOf 返回后，本轮快照里的 whenComplete（负责从集合里移除条目）可能还没跑完
+                // —— 这是 CompletableFuture 的既定语义，不是 bug。此时若直接再取快照会对
+                // 已完成的 future 立即返回、形成忙等，故让出 CPU 1ms 再看一次。
+                if (!pendingWrites.isEmpty()) {
+                    java.util.concurrent.locks.LockSupport.parkNanos(
+                            TimeUnit.MILLISECONDS.toNanos(1L));
+                }
+            }
+            int pending = pendingWrites.size();
+            if (pending > 0) {
+                // 超时不是 bug，是「DB 太慢 / 任务太多」的运维信号：记 WARNING 并带上剩余条数，
+                // 便于服主判断要不要调大 timeout。绝不抛异常 —— onDisable 没有上层可补救。
+                // logger 双重判空：本方法可能在 DI 半初始化时被调用，日志失败不能反过来打断关服。
+                java.util.logging.Logger logger = plugin != null ? plugin.getLogger() : null;
+                if (logger != null) {
+                    logger.warning("Chat feedback flush timed out after "
+                            + timeoutMillis + " ms with " + pending
+                            + " write(s) still pending; they may be lost at shutdown.");
+                }
+                return false;
+            }
+            return true;
+        } finally {
+            // 排空窗口结束：之后到 DB 关闭之间的残余任务一律拒绝（DB 已不可用，
+            // 放行只会换来一屏 "database is closed"）。这里<b>不</b>重置 accepting ——
+            // 关服是单向的，flush 之后本类不该再收任何新活。
+            draining = false;
+        }
+    }
+
+    /** 在途落库任务数（诊断/测试用；稳态为 0）。 */
+    int pendingWriteCount() {
+        return pendingWrites.size();
     }
 
     /**
      * 落库任务工厂（D2-4：persistAsync/persistAfter 两路径逐字去重）：
-     * isEnabled 守卫 + upsertChatFeedback 7 参 + WARNING 吞异常。
+     * accepting 守卫 + upsertChatFeedback 7 参 + WARNING 吞异常。
      *
      * <p>每次调用返回新 Runnable 实例（无状态，但保守起见不跨 future 复用同一实例）。
      */
     private Runnable writeTask(UUID playerId, AIChatManager.SessionSummary summary,
                                String source, String payloadJson) {
         return () -> {
-            if (!plugin.isEnabled()) {
+            // L1：守卫从 plugin.isEnabled() 改为「本类自己的两个闸」。
+            //
+            // 原守卫的问题：Bukkit 在调 onDisable() <b>之前</b>就把 enabled 字段写成
+            // false，所以 onDisable → flush 这段窗口里所有排队中的写都读到 false 而
+            // 静默 return —— 恰恰是「玩家看到点评之后、关服之前」那一小段最容易丢数据的
+            // 时间。现在：
+            //   · accepting == false 且不在排空窗口 → 拒绝（onDisable 之后的新任务，DB 已关）；
+            //   · 排空窗口内（draining）→ 放行已登记的任务，让 flush 真的能排空；
+            //   · 常态 → 照常执行（即使 isEnabled() 已是 false）。
+            if (!accepting && !draining) {
                 return;
             }
             try {
@@ -627,8 +893,9 @@ public class ChatFeedbackManager {
                         summary.validInputs(), summary.aiReplyCount(),
                         (int) summary.durationSeconds(), source, payloadJson);
             } catch (Exception e) {
-                plugin.getLogger().warning("Failed to persist chat feedback for "
-                        + playerId + ": " + e.getMessage());
+                // L2：带异常对象，保留类型与堆栈（原来只有 getMessage()）。
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to persist chat feedback for " + playerId, e);
             }
         };
     }

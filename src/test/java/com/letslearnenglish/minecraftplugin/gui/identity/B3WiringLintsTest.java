@@ -36,7 +36,8 @@ import org.junit.jupiter.api.Test;
  *
  * <p><b>本类与 {@code GuiWiringLintsTest} / {@code SessionLoopLintsTest} 零耦合</b>：
  * {@code stripComments} / {@code extractBody} / {@code srcRoot} / {@code sourceOf} /
- * {@code methodBody} / {@code findBlockByBraceMatching} 在这里各自独立实现一遍。复用会
+ * {@code rawSourceOf} / {@code rawMethodBody} / {@code methodBody} /
+ * {@code findBlockByBraceMatching} 在这里各自独立实现一遍。复用会
  * 带来真实的维护陷阱 —— 那边为了「GUI 覆盖」或「生命周期」调宽了剥注释的容错，本类的
  * 接线 lint 会跟着静默失效，而失败消息却指向另一个文件。重复几十行换来三组 lint 的失效
  * 模式互相独立，是划算的。
@@ -47,35 +48,50 @@ import org.junit.jupiter.api.Test;
  *
  * <h2>六条 lint 与它们各自封死的变异</h2>
  * <ol>
- *   <li><b>L1</b> {@code setFocusWordProvider(...)} 在 {@code onEnable} 里恰好一次，且
- *       lambda 体内同时取 {@code getSuggestedFocusWords} 与 {@code getDueReviewWords} ——
- *       删掉这个调用，AI 永远拿不到目标词。</li>
- *   <li><b>L2</b> provider 不是恒空常量 —— lambda 里 {@code return java.util.List.of();}
- *       至多 2 次（两个 null 守卫），且存在 {@code suggested.isEmpty()} 分支判据。</li>
+ *   <li><b>L1</b> {@code setFocusWordProvider(...)} 在 {@code onEnable} 里恰好一次、转发到
+ *       {@code resolveFocusWords}，且该决策体内同时取 {@code getSuggestedFocusWords} 与
+ *       {@code getDueReviewWords} —— 删掉这个调用，AI 永远拿不到目标词。
+ *       （L6 之后决策体从 lambda 内联抽成了纯函数，见下方「已知且接受的误报」。）</li>
+ *   <li><b>L2</b> provider 不是恒空常量 —— lambda 里没有 {@code return java.util.List.of();}，
+ *       决策体里存在 {@code suggested.isEmpty()} 分支，且
+ *       {@code ai-chat.focus-words-from-review} 的读点默认值为 {@code false}。</li>
  *   <li><b>L3</b> {@code handleSummaryResult} 真的调用 {@code applyToLearningLoop} ——
  *       删掉它，AI 花钱买来的纠错永不落地。</li>
  *   <li><b>L4</b> {@code scheduleReview} 同时存在 {@code true}（真答错）与 {@code false}
  *       （推荐词）两种调用 —— 把 {@code true} 改回 {@code false}，真答错的词不重置复习
  *       间隔，AI 纠错等于没接上。</li>
  *   <li><b>L5</b> {@code ProfileGUI.open} 在 {@code isDuelEnabled()} 的 if 块<b>内</b>
- *       调用 {@code scheduleDuelRow} —— 删掉它，主页永远停在「加载中」。</li>
- *   <li><b>L6</b> {@code placeDuelRow} 的三道守卫都在 —— 删掉任意一道，异步回填会把 A 的
- *       战绩写进 B 的界面（跨玩家串台）。</li>
+ *       落 slot 16 占位，且整页异步回填（{@code scheduleProfileBackfill}）恰好派发一次
+ *       —— 删掉任一处，主页数据永远停在「加载中」。</li>
+ *   <li><b>L6</b> {@code stillViewing} 的三道守卫都在，且生产回填方法
+ *       {@code placeProfileData} 在渲染决斗行（{@code applyDuelRow}）前调用它
+ *       —— 删掉任意一道，异步回填会把 A 的战绩写进 B 的界面（跨玩家串台）。
+ *       C-P2-6 起锚点从已删除的 {@code placeDuelRow} 上移到真实生产路径。</li>
  * </ol>
  *
  * <h2>已知且接受的误报（写在这里，免得后人反复踩）</h2>
  * <ol>
- *   <li>L1 / L2：若把 lambda 抽成 {@code this::focusWordsForPlayer} 之类的具名方法，
- *       会误红 —— 接受。抽走等于把「取哪两路数据」搬出了本 lint 的视野，应当同步 lint
- *       而不是放行。</li>
+ *   <li>L1 / L2：<b>L6 已经做过一次这样的重构并同步了 lint</b> —— 取数决策体从
+ *       {@code onEnable} 的 lambda 内联抽成了 {@code LetsLearnEnglish.resolveFocusWords}
+ *       静态纯函数（原因：{@code onEnable} 依赖 Bukkit server，「开关默认关闭」这条隐私
+ *       边界必须能被纯 JVM 单测钉住）。因此 L1 的锚点分两段：lambda 里查
+ *       {@code resolveFocusWords(}，决策体里查两路数据源；L2 的 {@code isEmpty} 判据也
+ *       跟着搬到决策体。同理，若再抽成 {@code this::focusWordsForPlayer} 之类的具名方法，
+ *       会误红 —— 接受，但应按同样方式同步 lint，而不是放行。</li>
  *   <li>L2：判据认的是 {@code suggested.isEmpty()} 这个<b>变量名</b>。局部变量改名
  *       （{@code suggested} → {@code focus}）会误红 —— 接受，见失败消息里的同步提示。</li>
  *   <li>L3：断言分两层 —— ① 主路径（{@code hasActiveConversation} 守卫块之外）恰好 1 处；
  *       ② 若该守卫块存在，则块内也必须至少有 1 处。实测该方法体里本来就有两处调用
  *       （守卫分支 {@code notify=false}、主路径 {@code notify=true}），把总数写死成某个
  *       具体值会在合理的分支拆分后误红，因此按「位置 + 存在性」断言而不是「总数」。</li>
- *   <li>L6：这是<b>文本形状</b>断言，只验三道守卫的文本存在，不验其顺序与真实短路行为；
- *       真行为由 {@code ProfileDuelRowGuardTest} 覆盖。</li>
+ *   <li>L6：这是<b>文本形状</b>断言，只验三道守卫的文本存在、且 {@code placeProfileData}
+ *       在渲染前调用守卫，不验真实短路行为；真行为由 {@code ProfileOpenAsyncTest} 覆盖
+ *       （C-P2-6：守卫测试已从反射直调死方法改为经 {@code open()} 全链路）。</li>
+ *   <li>L5 / L6：L3/L21 把守卫从 {@code placeDuelRow} 抽进 {@code stillViewing}、把派发点
+ *       从 {@code scheduleDuelRow} 合成 {@code scheduleProfileBackfill}，lint 已同步锚点；
+ *       C-P2-6 又删掉了已死的 {@code placeDuelRow}，L6 的接线锚点改指 {@code placeProfileData}。
+ *       再进一步抽（例如守卫改成 {@code guard(view) → Optional<Inventory>}）会误红 ——
+ *       接受，同步 lint 而不是放行。</li>
  * </ol>
  */
 class B3WiringLintsTest {
@@ -90,21 +106,33 @@ class B3WiringLintsTest {
 
         /**
          * L1：{@code onEnable} 里 {@code setFocusWordProvider(...)} 恰好出现 1 次，
-         * 且传入的 lambda 体内同时含 {@code getSuggestedFocusWords(} 与
-         * {@code getDueReviewWords(}。
+         * 它转发到 {@code resolveFocusWords(...)}，且该方法体内同时含
+         * {@code getSuggestedFocusWords(} 与 {@code getDueReviewWords(}。
+         *
+         * <p><b>L6 之后的结构变化</b>：取数决策体已从 lambda 内联抽到
+         * {@code LetsLearnEnglish.resolveFocusWords}（纯函数，供 {@code FocusWordReviewToggleTest}
+         * 直接调用 —— {@code onEnable} 依赖 Bukkit server，纯 JVM 跑不起来）。因此本 lint
+         * 分两段断言：① lambda 仍在且仍转发（接线没断）；② 决策体里两路数据源都还在
+         * （数据源没被砍）。两段缺一，目标词注入就整体失效。
          *
          * <p>为什么必须两种都断言：只数调用次数抓不到「provider 还挂着但恒返回空表」
-         * （那是 L2 的活），只查 lambda 内容抓不到「整块被删」。
+         * （那是 L2 的活），只查决策体抓不到「整块被删」。
          *
          * <p>红队变异：删掉 {@code this.aiChatManager.setFocusWordProvider(...)} 这一整段。
          * 后果是 {@code AIChatManager.focusWordProvider} 永远为 {@code null}，system prompt
          * 里的「目标词」一节永远拼不出来 —— 玩家每场都在盲练。而 {@code AIChatManager}
-         * 没有测试类，{@code buildSystemPrompt} 又是 private，295 个用例全绿。
+         * 没有测试类，{@code buildSystemPrompt} 又是 private，其余用例全绿。
          */
         @Test
-        @DisplayName("L1：onEnable 里 setFocusWordProvider 恰好一次，且接了两路数据源")
+        @DisplayName("L1：enableFullFeatures 里 setFocusWordProvider 恰好一次，且转发到接了两路数据源的决策体")
         void focusWordProviderIsWired() {
-            String body = methodBody("LetsLearnEnglish.java", "public void onEnable()");
+            // 锚点变更（子服总开关 server.enabled）：provider 接线随 onEnable 的
+            // 「完整启用」段一起搬进 enableFullFeatures(long)。语义未变 —— 仍是在
+            // 插件启用的主干上一次注入；变的是它现在只在 server.enabled=true 时执行
+            //（关闭态压根不该注册 AI，这正是总开关要的）。
+            // 找不到方法签名时 methodBody 会 fail()，所以「方法被改名/拆并」不会静默假绿。
+            String body = methodBody("LetsLearnEnglish.java",
+                    "private void enableFullFeatures(long");
 
             List<Integer> calls = occurrences(body, "setFocusWordProvider(");
             assertEquals(1, calls.size(),
@@ -113,7 +141,7 @@ class B3WiringLintsTest {
                             + "删掉这个调用会让 AI 永远拿不到目标词 —— "
                             + "AIChatManager.focusWordProvider 恒为 null，system prompt 的"
                             + "「目标词」一节永远拼不出来，玩家每场都在盲练；"
-                            + "而现有 295 个测试全绿（AIChatManager 没有测试类，buildSystemPrompt 是 private）。\n"
+                            + "而 AIChatManager 没有测试类，buildSystemPrompt 是 private。\n"
                             + "出现 2 次以上则可能是有人复制粘贴出第二段 provider 注入，"
                             + "后注册的会覆盖先注册的，接线语义不再唯一。\n"
                             + "这是语义锚点检查，比字符串匹配更严格；若为真正等价的重构"
@@ -131,23 +159,32 @@ class B3WiringLintsTest {
 
             String lambda = body.substring(region[0], region[1]);
 
-            assertTrue(lambda.contains("getSuggestedFocusWords("),
-                    "setFocusWordProvider 的 lambda 体里找不到 getSuggestedFocusWords(...) 喵。\n"
+            assertTrue(lambda.contains("resolveFocusWords("),
+                    "setFocusWordProvider 的 lambda 体里找不到 resolveFocusWords(...) 喵。\n"
+                            + "L6 之后取数决策体已抽到该静态纯函数（为了让「开关默认关闭」这条"
+                            + "隐私边界能被纯 JVM 单测钉住）。lambda 只剩一行转发，"
+                            + "转发目标被删/改名 = provider 恒空 = 目标词注入整体失效。\n"
+                            + "这是语义锚点检查，比字符串匹配更严格；若为真正等价的重构"
+                            + "（例如改调 focusWordsFor(id)），请同步本 lint。");
+
+            String decision = methodBody("LetsLearnEnglish.java",
+                    "public static List<String> resolveFocusWords(");
+
+            assertTrue(decision.contains("getSuggestedFocusWords("),
+                    "resolveFocusWords 方法体里找不到 getSuggestedFocusWords(...) 喵。\n"
                             + "这是第 1 路数据源：ChatFeedbackManager 的 ConcurrentHashMap"
                             + "（上一场 AI 纠错词 + 推荐词，已按词库过滤），纯内存读。\n"
                             + "少了它，「下一场重点练什么」这条闭环就断了 —— AI 只会按词库随机出题，"
                             + "上一场用错的词不会在下一场被针对。\n"
-                            + "这是语义锚点检查，比字符串匹配更严格；若为真正等价的重构"
-                            + "（例如抽成 focusWordsFor(id) 辅助方法），请同步本 lint。");
+                            + "这是语义锚点检查，比字符串匹配更严格；若为真正等价的重构，请同步本 lint。");
 
-            assertTrue(lambda.contains("getDueReviewWords("),
-                    "setFocusWordProvider 的 lambda 体里找不到 getDueReviewWords(...) 喵。\n"
+            assertTrue(decision.contains("getDueReviewWords("),
+                    "resolveFocusWords 方法体里找不到 getDueReviewWords(...) 喵。\n"
                             + "这是第 2 路数据源：ReviewScheduler 的 30s TTL 内存缓存"
                             + "（艾宾浩斯到期复习词），同样是纯内存读 —— 在主线程上安全。\n"
-                            + "少了它，provider 在「上一场没有纠错词」时恒返回空表："
-                            + "绝大多数场次玩家都没有用错词，等于目标词注入整体不生效。\n"
-                            + "注意：这里刻意<b>不</b>断言数据源的调用方式（是否经 wordManager 间接持有），"
-                            + "只断言两路都接了。\n"
+                            + "L6 起它受 ai-chat.focus-words-from-review（默认 false）控制，"
+                            + "但<b>代码路径必须存在</b>：开关为 true 时仍要能取到复习词。\n"
+                            + "整条调用被删掉 = 该配置键成了死配置（打开也没用）。\n"
                             + "这是语义锚点检查，比字符串匹配更严格；若为真正等价的重构，请同步本 lint。");
         }
 
@@ -156,70 +193,102 @@ class B3WiringLintsTest {
         // ==================================================================
 
         /**
-         * L2：provider 的 lambda 体内 {@code return java.util.List.of();} 至多 2 处，
-         * 且存在 {@code suggested.isEmpty()} 形式的分支判据。
+         * L2：provider 不是恒空常量 —— lambda 转发到决策体，且决策体里存在
+         * {@code suggested.isEmpty()} 分支与 {@code focus-words-from-review} 的读点。
          *
-         * <p>允许 2 处的原因：现有实现有<b>两个</b>防御性 null 守卫（{@code id == null} 与
-         * {@code chatFeedbackManager == null}），两个分支都返回空表是合理的。第 3 处及
-         * 以上说明「正常路径」也在返回空表 —— provider 事实上成了常量。
+         * <p><b>L6 之后的结构变化</b>：判据已从「lambda 内的 {@code return java.util.List.of();}
+         * 计数」搬到「决策体里的分支形态」。原因：L6 要给复习词回落加一个默认 false 的开关，
+         * 而「开关默认关闭」这条隐私边界必须能被纯 JVM 单测钉住 —— 于是决策体被抽成
+         * {@code resolveFocusWords} 纯函数（{@code onEnable} 依赖 Bukkit server，跑不起来）。
+         * 代价是本 lint 的锚点跟着换位置；收益是同一份语义第一次有了行为测试
+         * （{@code FocusWordReviewToggleTest}）。
          *
-         * <p><b>这条断言比其余五条更脆弱</b>，因为它认的是「分支判据的字面形态」。若实现
-         * 被等价重写（变量改名、改走 {@code Optional}、改判 {@code size() > 0}），本 lint
-         * 会误红；失败消息里已写明处置方式：<b>由人确认是等价重构后同步本 lint</b>，
-         * 不得为了让 lint 过而把实现改回原样。
+         * <p>仍然保留本 lint 的理由：行为测试只覆盖被显式调用的入参组合，而「lambda 被换成
+         * 恒空常量」这类接线级变异，行为测试看不见（它测的是 resolveFocusWords 本身）。
+         * <p><b>这条断言是较脆弱的文本形状检查</b>：认的是变量名 {@code suggested} 与
+         * {@code isEmpty()} 的字面形态。若实现被等价重写（变量改名、改走 {@code Optional}、
+         * 改判 {@code size() > 0}），会误红；失败消息写明处置方式：<b>由人确认是等价重构后
+         * 同步本 lint</b>，不得为了让 lint 过而改回原样。
          *
          * <p>红队变异：把 lambda 整体换成 {@code id -> java.util.List.of()}。
-         * 后果同 L1 —— AI 拿不到任何目标词；而 295 个用例全绿（没有测试类）。
+         * 后果 —— AI 拿不到任何目标词，玩家每场盲练。
          */
         @Test
-        @DisplayName("L2：provider 不是恒空常量，存在 suggested.isEmpty() 分支")
+        @DisplayName("L2：provider 转发到决策体，且决策体含 suggested.isEmpty() 分支与开关读点")
         void focusWordProviderIsNotConstantEmpty() {
-            String body = methodBody("LetsLearnEnglish.java", "public void onEnable()");
+            // 同 L1：锚点随子服总开关搬到 enableFullFeatures(long)。
+            String body = methodBody("LetsLearnEnglish.java",
+                    "private void enableFullFeatures(long");
 
             List<Integer> calls = occurrences(body, "setFocusWordProvider(");
             assertFalse(calls.isEmpty(),
-                    "onEnable 方法体里找不到 setFocusWordProvider(...) 喵 —— "
+                    "enableFullFeatures 方法体里找不到 setFocusWordProvider(...) 喵 —— "
                             + "provider 注入整段被删，本题无从检查（L1 也会同时变红）。\n"
                             + "请先修 L1 的接线，再回来看本 lint。");
 
             int parenOpen = body.indexOf('(', calls.get(0));
             int[] region = lambdaRegion(body, parenOpen);
             assertTrue(region != null,
-                    "onEnable 里 setFocusWordProvider(...) 之后找不到可解析的 lambda 体 喵。\n"
+                    "enableFullFeatures 里 setFocusWordProvider(...) 之后找不到可解析的 lambda 体 喵。\n"
                             + "这是语义锚点检查，比字符串匹配更严格；若为真正等价的重构，请同步本 lint。");
 
             String lambda = body.substring(region[0], region[1]);
 
-            // 只统计「整条 return 语句」，避免把三元表达式的 else 分支
-            // （`: java.util.List.of();`）误算成独立的一次提前返回。
+            // ① 恒空常量变异：lambda 里直接返回空表 = provider 事实上成了常量，
+            //    目标词注入整体失效。期望 0 处 —— 抽函数后 lambda 只是一行转发。
             List<Integer> emptyReturns = occurrences(lambda, "return java.util.List.of();");
-            assertTrue(emptyReturns.size() <= 2,
+            assertTrue(emptyReturns.isEmpty(),
                     "setFocusWordProvider 的 lambda 体里有 " + emptyReturns.size()
                             + " 处 `return java.util.List.of();`（偏移=" + emptyReturns + "），"
-                            + "上限是 2 喵。\n"
-                            + "允许 2 处是因为现有实现有两个<b>防御性 null 守卫</b>"
-                            + "（id == null / chatFeedbackManager == null），两者都返回空表是合理的。\n"
-                            + "第 3 处及以上说明「正常路径」也在返回空表 —— provider 事实上成了常量，"
-                            + "AI 永远拿不到目标词，system prompt 的「目标词」一节永远为空，"
-                            + "而现有 295 个测试全绿（AIChatManager 没有测试类）。\n"
-                            + "本 lint 认的是「提前返回的字面形态」，属于<b>较脆弱</b>的文本形状断言；"
-                            + "<b>若为等价重构（变量改名、改走 Optional、改判 size()），请先由人确认"
-                            + "语义确实未变，再同步本 lint</b> —— 绝不允许为了让 lint 过而改回错误实现。");
+                            + "期望 0 处 喵。\n"
+                            + "L6 之后 lambda 应只有一行转发 `resolveFocusWords(...)`；"
+                            + "任何直接返回空表的分支都属于「provider 变成常量」的变异 —— "
+                            + "AI 永远拿不到目标词，玩家每场盲练。\n"
+                            + "本 lint 认的是字面形态；<b>若为等价重构（例如把 null 守卫搬回 lambda），"
+                            + "请先由人确认语义确实未变，再同步本 lint</b>。");
 
-            // 分支判据：必须有「suggested 是否为空」这一层判断，证明 provider 不是直通常量。
+            String decision = methodBody("LetsLearnEnglish.java",
+                    "public static List<String> resolveFocusWords(");
+
+            // ② 分支判据：必须有「suggested 是否为空」这一层判断，证明决策体不是直通常量。
             boolean hasEmptinessBranch = Pattern.compile(
                             "!?\\s*suggested\\s*\\.\\s*isEmpty\\s*\\(\\s*\\)")
-                    .matcher(lambda).find();
+                    .matcher(decision).find();
             assertTrue(hasEmptinessBranch,
-                    "setFocusWordProvider 的 lambda 体里找不到 `suggested.isEmpty()` / "
-                            + "`!suggested.isEmpty()` 这类分支判据 喵。\n"
-                            + "provider 的正确形状是「先取 suggested，非空就用它，空了才回落到"
-                            + "到期复习词」—— 没有这层判断，要么恒返回空表（目标词注入失效），"
-                            + "要么恒返回某一侧（另一路数据源被彻底无视）。\n"
+                    "resolveFocusWords 里找不到 `suggested.isEmpty()` / `!suggested.isEmpty()` "
+                            + "这类分支判据 喵。\n"
+                            + "正确形状是「先取 suggested，非空就用它，空了才看要不要回落到复习词」"
+                            + "—— 没有这层判断，要么恒返回空表（目标词注入失效），"
+                            + "要么恒返回复习词（L6 的隐私开关形同虚设）。\n"
                             + "本 lint 认的是<b>变量名 + 方法名</b>的字面形态，属于较脆弱的文本形状断言；"
                             + "<b>若为等价重构（局部变量从 suggested 改名、改判 size()、改走 Optional），"
                             + "请先由人确认语义确实未变，再同步本 lint</b> —— "
                             + "绝不允许为了让 lint 过而改回错误实现。");
+
+            // ③ 隐私开关的读点必须在决策体里：删掉它，focus-words-from-review 变死配置，
+            //    「默认关闭」这条边界就无从谈起（服务器升级后可能悄悄开始泄题）。
+            //
+            // 用 rawMethodBody 而不是 methodBody：配置键是字符串字面量，stripComments
+            // 会把字面量内容抹成空格，在那里查键名永远是空答复（假绿）。
+            // 同时把默认值 false 一起钉住 —— 只查键名会让「默认改成 true」的变异溜过去，
+            // 而那正是 L6 要防的那一次改动。
+            String decisionRaw = rawMethodBody("LetsLearnEnglish.java",
+                    "public static List<String> resolveFocusWords(");
+            assertTrue(decisionRaw.contains("ai-chat.focus-words-from-review"),
+                    "resolveFocusWords 里找不到 `ai-chat.focus-words-from-review` 的读点 喵。\n"
+                            + "这是 L6 的隐私开关（默认 false）：到期复习词 = 玩家尚未掌握、"
+                            + "即将被考的单词，注入 TARGET WORDS 段等于告诉 AI「请用这些词」，"
+                            + "玩家会从 AI 台词里看到复习答案。\n"
+                            + "这是语义锚点检查，比字符串匹配更严格；若为真正等价的重构"
+                            + "（例如改走一个集中式 settings 读取器），请同步本 lint。");
+            assertTrue(Pattern.compile("\"ai-chat\\.focus-words-from-review\"\\s*,\\s*false")
+                            .matcher(decisionRaw).find(),
+                    "`ai-chat.focus-words-from-review` 的<b>读点默认值不是 false</b> 喵。\n"
+                            + "这是隐私边界，不是功能偏好：老服务器升级上来时配置文件里没有这个键，"
+                            + "读点默认值就是唯一生效的口径。默认 true = 升级即开始向 AI 泄露"
+                            + "玩家尚未掌握的复习词（AI 会在台词里用出来，玩家免费看到答案）。\n"
+                            + "若确有等价重构（例如抽出一个常量 DEFAULT_FOCUS_FROM_REVIEW = false），"
+                            + "请先由人确认默认值未变，再同步本 lint。");
         }
 
         // ==================================================================
@@ -382,59 +451,77 @@ class B3WiringLintsTest {
         // ==================================================================
 
         /**
-         * L5：{@code ProfileGUI.open(Player, UUID)} 里 {@code scheduleDuelRow(} 恰好 1 次，
-         * 且落在 {@code isDuelEnabled()} 的 if 块<b>内</b>。
+         * L5：{@code ProfileGUI.open(Player, UUID)} 必须同时满足两件事：决斗「加载中」占位
+         * 落在 {@code isDuelEnabled()} 的 if 块<b>内</b>，且整页异步回填恰好派发一次。
          *
-         * <p>「落在块内」必须用<b>括号配对</b>求区间：单看 {@code indexOf} 偏移，把调用
-         * 挪到 if 块外面（模块关着也去查两张决斗表）照样满足「文本里有这一行」。
+         * <p><b>L21 重构后的形态</b>：原实现是「决斗块内直接调 {@code scheduleDuelRow(...)}」。
+         * 现在统计 / 金币 / 成就数也搬进了异步段，四类数据合并为一个任务
+         * （{@code scheduleProfileBackfill}），因此「派发点」只有一个、且必须由
+         * {@code needBackfill} 判断承接（模块全关时不得派发）。原来那条「调用必须在
+         * isDuelEnabled() 块内」的锚点，改由「占位 setItem 必须在块内」承接 ——
+         * 语义等价：模块关着时既不该画占位、也不该发起 DB 读。
          *
-         * <p>红队变异：删掉 {@code scheduleDuelRow(viewer, targetId, holder, messages,
-         * hideResults);}。后果：slot 16 永远停在「加载中…」——主线程只放了占位，异步回填
-         * 从不派发。而所有 mock 下 {@code ConfigManager.isDuelEnabled()} 默认 {@code false}，
-         * 这段分支根本进不去，295 个用例全绿。
+         * <p>红队变异：删掉占位 {@code inv.setItem(DUEL_SLOT, ...)}，slot 16 从打开到回填
+         * 之间是一个裸空槽（会露馅成「这张主页没有这一行」，并且 fillEmpty 的灰玻璃会先
+         * 占位再被回填覆盖）；删掉 {@code scheduleProfileBackfill(...)}，整页数据永远停在
+         * 「加载中」。两种在 mock 下都不可观测（{@code isDuelEnabled()} 默认 false）。
          */
         @Test
-        @DisplayName("L5：open 在 isDuelEnabled() 块内恰好一次 scheduleDuelRow 调用")
-        void scheduleDuelRowIsInvoked() {
+        @DisplayName("L5：open 在 isDuelEnabled() 块内落占位，且异步回填恰好派发一次")
+        void duelPlaceholderAndBackfillAreWired() {
             String body = methodBody("ProfileGUI.java",
                     "public void open(Player viewer, UUID targetId)");
 
-            List<Integer> calls = occurrences(body, "scheduleDuelRow(");
-            assertEquals(1, calls.size(),
-                    "ProfileGUI.open 方法体里 scheduleDuelRow(...) 出现了 " + calls.size()
-                            + " 次（偏移=" + calls + "），期望恰好 1 次 喵。\n"
-                            + "删掉它，slot 16 的决斗战绩永远停在「加载中…」：主线程只落了占位 item，"
-                            + "真正的异步取数与回填全靠这一次派发。\n"
-                            + "而 mock 下 ConfigManager.isDuelEnabled() 默认 false，这段分支进不去，"
-                            + "现有 295 个测试全绿 —— 这是「分支被 mock 默认值关掉」的典型盲区。\n"
-                            + "这是语义锚点检查，比字符串匹配更严格；若为真正等价的重构"
-                            + "（例如抽成 refreshDuelRow(...) 并保留一次调用），请同步本 lint。");
+            List<Integer> placeholders = occurrences(body, "inv.setItem(DUEL_SLOT");
+            assertEquals(1, placeholders.size(),
+                    "ProfileGUI.open 方法体里 inv.setItem(DUEL_SLOT, ...) 出现了 "
+                            + placeholders.size() + " 次（偏移=" + placeholders + "），期望恰好 1 次 喵。\n"
+                            + "删掉它，slot 16 在异步回填之前是裸空槽；玩家会以为这张主页没有决斗行，"
+                            + "而模块关闭时该槽本该由 fillEmpty 垫灰玻璃。\n"
+                            + "这是语义锚点检查，比字符串匹配更严格；若为真正等价的重构，请同步本 lint。");
 
             List<int[]> duelBlocks = ifBlocksWithCondition(body, "isDuelEnabled()");
             assertFalse(duelBlocks.isEmpty(),
                     "ProfileGUI.open 方法体里找不到 if (... isDuelEnabled() ...) 块 喵。\n"
                             + "模块门是「决斗关着就整行不渲染、也不派发异步 DB 读」的唯一保证；"
-                            + "块结构被拆掉后，本 lint 无法再判断调用是否在门控之内。\n"
+                            + "块结构被拆掉后，本 lint 无法再判断占位是否在门控之内。\n"
                             + "这是语义锚点检查，比字符串匹配更严格；若改成 guard clause / switch，请同步本 lint。");
 
-            int call = calls.get(0);
-            assertTrue(insideAny(duelBlocks, call),
-                    "scheduleDuelRow(...) 不在 isDuelEnabled() 的 if 块<b>内</b> 喵"
-                            + "（调用偏移=" + call + "，if 块区间=" + renderRanges(duelBlocks) + "）。\n"
-                            + "把调用挪到 if 外面 = duel.enabled 关闭时每开一次主页都白烧一次"
-                            + "异步 DB 读（getDuelStats 是同步阻塞读，两张决斗表）——"
-                            + "模块门形同虚设，同时槽位也不该有内容。\n"
-                            + "本检查用括号配对求块区间；「if 块前后各留一行调用」「if 块里只留占位"
-                            + "setItem、调用挪到块外」都会被判红。\n"
+            assertTrue(insideAny(duelBlocks, placeholders.get(0)),
+                    "决斗占位不在 isDuelEnabled() 的 if 块<b>内</b> 喵"
+                            + "（调用偏移=" + placeholders.get(0)
+                            + "，if 块区间=" + renderRanges(duelBlocks) + "）。\n"
+                            + "把占位挪到 if 外面 = duel.enabled 关闭时 slot 16 仍被写，「整行不渲染」失效。\n"
                             + "这是语义锚点检查，比字符串匹配更严格；若为真正等价的重构，请同步本 lint。");
+
+            List<Integer> dispatches = occurrences(body, "scheduleProfileBackfill(");
+            assertEquals(1, dispatches.size(),
+                    "ProfileGUI.open 方法体里 scheduleProfileBackfill(...) 出现了 "
+                            + dispatches.size() + " 次（偏移=" + dispatches + "），期望恰好 1 次 喵。\n"
+                            + "删掉它，统计三卡 / 金币 / 成就数 / 决斗战绩全都停在「加载中」："
+                            + "主线程只落了占位，真正取数与回填全靠这一次派发。\n"
+                            + "而 mock 下 ConfigManager 的模块门默认 false，这段分支进不去，"
+                            + "现有测试会全绿 —— 这是「分支被 mock 默认值关掉」的典型盲区。\n"
+                            + "这是语义锚点检查，比字符串匹配更严格；若为真正等价的重构"
+                            + "（例如抽成 refreshProfileData(...) 并保留一次调用），请同步本 lint。");
         }
 
         // ==================================================================
-        // L6：placeDuelRow 的三道守卫
+        // L6：决斗回填的三道守卫
         // ==================================================================
 
         /**
-         * L6：{@code placeDuelRow(...)} 方法体内三道守卫的文本形状都在。
+         * L6：三道守卫的文本形状都在，且 {@code placeProfileData} 在渲染决斗行前调用它们。
+         *
+         * <p><b>L3/L21 重构后的形态</b>：守卫从 {@code placeDuelRow} 内联抽进了
+         * {@code stillViewing(...)}（统计/金币/成就/决斗四处回填共用同一份守卫，避免
+         * 四份会各自漂移的实现）。因此断言分两段：守卫在 {@code stillViewing} 里，
+         * 且生产方法 {@code placeProfileData} 的 {@code applyDuelRow(...)} 渲染发生在
+         * {@code stillViewing} 之后。
+         *
+         * <p><b>C-P2-6（红队 C）</b>：原锚点指向 {@code placeDuelRow} —— 自 L21 起生产
+         * 路径不再调用它（只剩测试反射直调），守卫测试因此验证的是死代码。它已被删除，
+         * 锚点上移到 {@code placeProfileData}。
          *
          * <p>三道守卫逐条对应一种「异步回填报废」的失效：
          * <ol>
@@ -449,34 +536,28 @@ class B3WiringLintsTest {
          * <p><b>本 lint 只验守卫存在，不验行为。</b> 真实的串台/过期快照行为由
          * {@code ProfileDuelRowGuardTest} 覆盖（它能直接调 private 方法或经反射构造场景）；
          * 这里补的是「守卫被整段删掉、而行为测试被同步删掉/没覆盖到」时的兜底。
-         *
-         * <p>红队变异：删掉 {@code if (viewer == null || !viewer.isOnline()) return;}。
-         * 后果：玩家在异步窗口内下线后仍会 {@code top.setItem}，在已关闭的视图上写入
-         * （部分实现下抛 {@code IllegalStateException}，打断调度线程）；更危险的是与
-         * 守卫 2/3 组合出的跨玩家串台。295 个用例全绿（{@code placeDuelRow} 是 private）。
          */
         @Test
-        @DisplayName("L6：placeDuelRow 三道守卫（isOnline / holder 引用相等 / Target 归属）都在")
+        @DisplayName("L6：stillViewing 三道守卫都在，且 placeProfileData 渲染决斗行前必须调用它")
         void placeDuelRowHasThreeGuards() {
-            String body = methodBody("ProfileGUI.java", "private void placeDuelRow(");
+            String guards = methodBody("ProfileGUI.java", "private boolean stillViewing(");
 
             // 守卫 1：在线检查。
-            assertTrue(body.contains("isOnline()"),
-                    "placeDuelRow 方法体里找不到 isOnline() 喵 —— <b>守卫 1</b> 缺失。\n"
+            assertTrue(guards.contains("isOnline()"),
+                    "stillViewing 方法体里找不到 isOnline() 喵 —— <b>守卫 1</b> 缺失。\n"
                             + "异步段可能耗时数十毫秒，期间玩家完全可能下线；没有这道守卫时"
                             + "仍会对已关闭的视图 setItem（部分实现下抛 IllegalStateException，"
                             + "打断调度线程），并且与后面两道守卫组合出跨玩家串台。\n"
                             + "注意：本 lint 只验守卫存在，实际行为由 ProfileDuelRowGuardTest 覆盖。\n"
-                            + "这是文本形状断言，比行为测试弱；若为真正等价的重构"
-                            + "（例如抽成 ensureViewerStillPresent(viewer) 辅助方法），请同步本 lint —— "
-                            + "但调用必须仍发生在 placeDuelRow 的写入之前。");
+                            + "这是文本形状断言，比行为测试弱；若为真正等价的重构，请同步本 lint —— "
+                            + "但调用必须仍发生在任何回填写入之前。");
 
             // 守卫 2：holder <b>引用</b>相等（!=），不是 equals。
             boolean holderRefCompare = Pattern.compile(
                             "getHolder\\s*\\(\\s*\\)\\s*!=\\s*[A-Za-z_$][\\w$]*")
-                    .matcher(body).find();
+                    .matcher(guards).find();
             assertTrue(holderRefCompare,
-                    "placeDuelRow 方法体里找不到 `top.getHolder() != opened` 形式的引用相等比较 喵"
+                    "stillViewing 方法体里找不到 `top.getHolder() != opened` 形式的引用相等比较 喵"
                             + " —— <b>守卫 2</b> 缺失或被改成了 equals。\n"
                             + "这道守卫判定「当前打开的仍是打开时那张界面」。必须是<b>引用</b>比较："
                             + "同 key 的两次打开（连点 / 来回切人）holder 的值相等，"
@@ -486,18 +567,77 @@ class B3WiringLintsTest {
                             + "这是文本形状断言，比行为测试弱；若为真正等价的重构"
                             + "（例如把比较收进 isSameView(opened) 辅助方法），请同步本 lint。");
 
-            // 守卫 3：payload 归属（Target）+ targetId 比对。
-            boolean targetPayload = body.contains("Target")
-                    && Pattern.compile("targetId\\s*\\(\\s*\\)").matcher(body).find();
+            // 守卫 3：payload 归属 —— 锚点必须是「守卫 3 独有的形状」。
+            //
+            // 这里踩过两次坑：
+            //   ① 最初只查 `guards.contains("Target")` + `targetId()` —— 守卫 2 的
+            //      WARNING 分支里同样有这两个词，删掉守卫 3 整段 lint 依然绿。
+            //   ② 之后改成「`opened.getPayload() instanceof` find() && `targetId().equals(target)`
+            //      find()」—— 两条<b>独立</b>的 find()。第二条仍从方法体开头扫，第一个命中是
+            //      守卫 2 WARNING 分支里的 `t.targetId().equals(target)`（它在文件里更早），
+            //      于是「删掉守卫 3 的归属判定半边、只留 instanceof 外壳」时 lint 仍绿。
+            // 现在用<b>一次匹配</b>把变量名与负向谓词绑成合取形状：`\1` 反向引用保证
+            // `instanceof` 绑定的变量就是被 `equals` 判的那个；`||` + 前导 `!` 是守卫 3
+            // 独有的形状（守卫 2 用的是 `&&` + `!(...)` 收尾，不会命中）。
+            //
+            // ⚠ 本正则依赖守卫 3 的真实形状：
+            //     if (!(opened.getPayload() instanceof ...Target t) || !t.targetId().equals(target))
+            //   若做等价重构（例如抽成 payloadBelongsTo(opened, target)），<b>必须同步本 lint</b>，
+            //   不允许为了让 lint 过而改回错误实现。
+            boolean targetPayload = Pattern.compile(
+                            "if\\s*\\(\\s*!\\s*\\(\\s*opened\\s*\\.\\s*getPayload\\s*\\(\\s*\\)\\s*instanceof"
+                                    + "\\s+[\\w.$]*Target\\s+(\\w+)\\s*\\)"
+                                    + "\\s*\\|\\|\\s*!\\s*\\1\\s*\\.\\s*targetId\\s*\\(\\s*\\)\\s*\\."
+                                    + "\\s*equals\\s*\\(\\s*target\\s*\\)")
+                    .matcher(guards).find();
             assertTrue(targetPayload,
-                    "placeDuelRow 方法体里找不到 Target 归属判定"
-                            + "（`instanceof ...Target t` + `t.targetId().equals(target)`）喵"
-                            + " —— <b>守卫 3</b> 缺失。\n"
-                            + "这是纵深防御：即使守卫 2 的实例比对将来被重构成读 inv.getHolder()"
+                    "stillViewing 方法体里找不到守卫 3 的<b>完整合取形状</b>喵：\n"
+                            + "    if (!(opened.getPayload() instanceof ...Target t)"
+                            + " || !t.targetId().equals(target))\n"
+                            + "<b>注意锚点选择</b>：必须用一次匹配 + 反向引用把「instanceof 绑定的变量」"
+                            + "与「被 equals 判的变量」绑成同一个 `\\1`。守卫 2 的 WARNING 分支里有"
+                            + " `other.getPayload() instanceof ...Target t` 和 `t.targetId().equals(target)`，"
+                            + "任何拆成两条独立 find() 的写法都会让「删掉守卫 3 归属判定半边」这个变异全绿"
+                            + "（曾经如此：第二条 find() 的第一个命中点在守卫 2）。\n"
+                            + "守卫 3 是纵深防御：即使守卫 2 的实例比对将来被重构成读 inv.getHolder()"
                             + "（纯 JVM 单测里 mock 返回 null，会静默失效），归属判定仍能拦住串台。\n"
-                            + "注意：本 lint 只验守卫存在，实际行为由 ProfileDuelRowGuardTest 覆盖。\n"
-                            + "这是文本形状断言，比行为测试弱；若为真正等价的重构"
-                            + "（例如把归属判定收进 payloadBelongsTo(opened, target)），请同步本 lint。");
+                            + "本 lint 依赖上述 `if (!(...) || !t.targetId().equals(target))` 形状；"
+                            + "若做等价重构请同步本 lint。\n"
+                            + "注意：本 lint 只验守卫存在，实际行为由 ProfileDuelRowGuardTest 覆盖。");
+
+            // 顺序锚点（防将来有人调换两段）：守卫 3 必须排在守卫 2 之后。
+            // 若守卫 2 被重写成不再出现 `other.getPayload()`，indexOf 返回 -1，
+            // 本断言自动通过 —— 这可接受：守卫 2 另有独立锚点（上面的 holder 引用相等）。
+            assertTrue(guards.indexOf("opened.getPayload()") > guards.indexOf("other.getPayload()"),
+                    "守卫 3 必须排在守卫 2 之后（否则锚点会再次串味）喵：\n"
+                            + "守卫 3 偏移=" + guards.indexOf("opened.getPayload()")
+                            + "，守卫 2 偏移=" + guards.indexOf("other.getPayload()") + "。\n"
+                            + "两段顺序一旦对调，任何「从方法体开头扫」的弱锚点都会先命中守卫 2，"
+                            + "重新退回假绿（本条 lint 的历史缺陷正是如此）。");
+
+
+            // 接线：placeProfileData 必须先过守卫再决斗行渲染（否则守卫形同虚设）。
+            //
+            // C-P2-6（红队 C）：原锚点指向 {@code placeDuelRow} —— 那方法自 L21 起
+            // 生产路径不再调用（只剩测试反射直调），于是「守卫测试验证的是死代码」，
+            // 把 placeProfileData 开头的 stillViewing 删掉它们照样全绿。现在
+            // placeDuelRow 已删除，渲染收进 {@code applyDuelRow}，锚点改为
+            // **生产方法** placeProfileData 里「stillViewing 调用 → applyDuelRow 调用」
+            // 的先后关系。
+            String place = methodBody("ProfileGUI.java",
+                    "private void placeProfileData(Player viewer, UUID target,");
+            int guardCall = place.indexOf("stillViewing(");
+            int write = place.indexOf("applyDuelRow(");
+            assertTrue(guardCall >= 0,
+                    "placeProfileData 方法体里找不到 stillViewing(...) 调用 喵。\n"
+                            + "守卫被抽成公共方法后，若漏掉这次调用，所有回填都绕过三门校验 —— "
+                            + "跨玩家串台会重新变成静默行为。\n"
+                            + "这是语义锚点检查，比字符串匹配更严格；若为真正等价的重构，请同步本 lint。");
+            assertTrue(write > guardCall,
+                    "placeProfileData 里 applyDuelRow(...) 出现在 stillViewing(...) 之前 喵"
+                            + "（守卫偏移=" + guardCall + "，渲染偏移=" + write + "）。\n"
+                            + "守卫必须在写入之前：顺序反过来等于「先写数据再检查该不该写」。\n"
+                            + "这是语义锚点检查，比字符串匹配更严格；若为真正等价的重构，请同步本 lint。");
         }
     }
 
@@ -562,12 +702,69 @@ class B3WiringLintsTest {
     }
 
     /**
+     * 定位源码并返回<b>未剥注释</b>的方法体（保留字符串字面量的原文）。
+     *
+     * <p>为什么需要它：{@link #stripComments(String)} 会把字符串字面量的内容抹成空格，
+     * 于是「配置键名」「默认值字面量」这类检查在剥过的文本上永远是空答复 ——
+     * 那会让断言静默变成「查的东西不存在」而不是「代码里没有」。
+     *
+     * <p>实现靠一条不变量：{@code stripComments} 用<b>空格（保留换行）</b>替换注释与字面量，
+     * 所以剥过的文本与原文<b>偏移逐一对应</b>。因此在剥过的文本上做括号配对求出
+     * {@code [start, end)}，再用同一对偏移去切原文，就能既避开注释里的花括号、
+     * 又拿到字面量的真实字符。
+     */
+    private static String rawMethodBody(String fileName, String signature) {
+        String stripped = sourceOf(fileName);
+        String raw = rawSourceOf(fileName);
+        int sigIndex = stripped.indexOf(signature);
+        if (sigIndex < 0) {
+            fail("源码中找不到方法签名「" + signature + "」喵 —— 方法可能被改名/改签名，"
+                    + "请同步本 lint（否则门禁会静默失效）。");
+        }
+        int bodyStart = stripped.indexOf('{', sigIndex + signature.length());
+        if (bodyStart < 0) {
+            fail("方法签名「" + signature + "」之后找不到左花括号喵。");
+        }
+        int bodyClose = findBlockByBraceMatching(stripped, bodyStart);
+        if (bodyClose < 0) {
+            fail("方法签名「" + signature + "」的花括号没有配对结束喵 —— 源码可能不完整。");
+        }
+        return raw.substring(bodyStart + 1, bodyClose);
+    }
+
+    /**
+     * 定位源码并返回<b>未剥注释/未抹字面量</b>的原文。
+     *
+     * <p>与 {@link #sourceOf(String)} 的唯一差别是「不 strip」。检查「配置键名 +
+     * 默认值」这类<b>字面量</b>时必须用它：stripComments 会把字符串内容抹成空格。
+     */
+    private static String rawSourceOf(String fileName) {
+        List<Path> hits = new ArrayList<>();
+        try (java.util.stream.Stream<Path> stream = Files.walk(srcRoot())) {
+            stream.filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().equals(fileName))
+                    .forEach(hits::add);
+        } catch (IOException e) {
+            fail("遍历 " + srcRoot().toAbsolutePath() + " 失败喵：" + e.getMessage());
+        }
+        if (hits.size() != 1) {
+            fail("源码树里 " + fileName + " 的命中数是 " + hits.size() + "（期望恰好 1）喵。");
+        }
+        try {
+            return java.nio.file.Files.readString(hits.get(0), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            fail("读取 " + hits.get(0).toAbsolutePath() + " 失败喵：" + e.getMessage());
+            return ""; // 不可达
+        }
+    }
+
+    /**
      * 按方法签名截出方法体（花括号之间的文本）。
      *
      * <p>签名必须<b>在源码中唯一出现</b>：既不能有重载，也不能有同名的调用点。
      * 这里刻意不提供「第 N 个匹配」这种逃生口 —— 一旦需要它，说明 lint 的定位不再可信。
      *
-     * <p>签名可以只写到参数表开头（{@code "private void placeDuelRow("}）：参数表跨多行时
+     * <p>签名可以只写到参数表开头（例如 {@code "private void placeProfileData("}）：参数表跨多行时
      * 写全签名既难维护又容易在换行后失配；只要「签名 → 第一个左花括号」之间没有分号，
      * 就足以确认匹配到的是带体的方法声明。
      *

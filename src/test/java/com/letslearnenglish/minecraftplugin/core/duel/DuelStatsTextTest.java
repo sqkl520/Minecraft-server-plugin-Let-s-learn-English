@@ -136,6 +136,55 @@ class DuelStatsTextTest {
         assertFalse(joined(lines).contains("streak"), "不得出现 key 名");
         assertFalse(joined(lines).contains("["), "不得出现 [?key] 形式的占位符");
         assertFalse(joined(lines).contains("{"), "不得残留未替换的占位符");
+        assertEquals(3, lines.size(),
+                "键缺失时只应有 标签 + 数值 + 备注 三行（连胜行被跳过）");
+    }
+
+    @Test
+    @DisplayName("L4：连胜行在隐藏态绝不渲染（连「最近在赢」都不透露）")
+    void streakLineIsHiddenWhenValuesHidden() {
+        Map<String, String> withStreak = new HashMap<>(MESSAGES);
+        withStreak.put(DuelStatsText.KEY_STREAK, "&e连胜：&f{streak} 场");
+        Function<String, String> msgWithStreak = key -> withStreak.getOrDefault(key, "");
+
+        List<String> hidden = DuelStatsText.render(
+                new DuelStats(9, 1), 7, true, msgWithStreak, FORMAT);
+
+        assertEquals(1, hidden.size(), "隐藏态只允许标签行 —— 连胜行必须一并消失");
+        String text = joined(hidden);
+        assertFalse(text.contains("连胜"), "隐藏态不得渲染连胜行喵：" + text);
+        assertFalse(text.contains("7"), "隐藏态不得泄露连胜场数");
+    }
+
+    @Test
+    @DisplayName("L4：streak 只接受正整数 —— 0 / 负数都不渲染（语义 = 无连胜）")
+    void nonPositiveStreakNeverRenders() {
+        Map<String, String> withStreak = new HashMap<>(MESSAGES);
+        withStreak.put(DuelStatsText.KEY_STREAK, "连胜 {streak}");
+        Function<String, String> msgWithStreak = key -> withStreak.getOrDefault(key, "");
+
+        assertFalse(joined(DuelStatsText.render(
+                new DuelStats(3, 1), 0, false, msgWithStreak, FORMAT)).contains("连胜"),
+                "streak=0 不应渲染连胜行");
+        assertFalse(joined(DuelStatsText.render(
+                new DuelStats(3, 1), -2, false, msgWithStreak, FORMAT)).contains("连胜"),
+                "streak<0（脏数据）不应渲染连胜行");
+    }
+
+    @Test
+    @DisplayName("L4：连胜行位置在数值行之后、备注行之前（备注必须是最后一行）")
+    void streakLineSitsBetweenValueAndNote() {
+        Map<String, String> withStreak = new HashMap<>(MESSAGES);
+        withStreak.put(DuelStatsText.KEY_STREAK, "连胜 {streak}");
+        Function<String, String> msgWithStreak = key -> withStreak.getOrDefault(key, "");
+
+        List<String> lines = DuelStatsText.render(
+                new DuelStats(3, 1), 4, false, msgWithStreak, FORMAT);
+
+        assertEquals(4, lines.size(), "标签 + 数值 + 连胜 + 备注");
+        assertTrue(lines.get(1).contains("胜"), "第 2 行应是数值行：" + lines);
+        assertTrue(lines.get(2).contains("连胜 4"), "第 3 行应是连胜行：" + lines);
+        assertEquals("中途退出不计入", lines.get(3), "备注行必须仍在最后");
     }
 
     @Test

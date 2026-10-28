@@ -57,6 +57,24 @@ public class LeaderboardGUI {
     public static final int TAB_COINS_SLOT = 0;
     public static final int TAB_WORDS_SLOT = 1;
     public static final int TAB_COMBO_SLOT = 2;
+    /** 四个 tab 的下标常量（渲染 switch 与「默认落点」共用，避免裸数字）。 */
+    public static final int TAB_COINS_INDEX = 0;
+    public static final int TAB_WORDS_INDEX = 1;
+    public static final int TAB_COMBO_INDEX = 2;
+    /**
+     * L25：无参入口（{@code /le leaderboard}）的默认落点 —— <b>单词榜</b>。
+     *
+     * <p>为什么不是 coins：{@code rewards.types.money.enabled} 出厂默认 false
+     * （{@code config.yml:318-319}），默认装上本插件的服没有经济来源，金币榜是一张
+     * <b>恒为 0 的空榜</b>——玩家点进排行榜第一眼看到的是一页「暂无数据」。而
+     * 「已学单词」是本插件的核心指标（词库/掌握度/复习全围绕它），把它放首屏才符合
+     * 「排行榜 = 学习激励」的产品语义。sharp-review R3 亦点名了这条首屏空榜问题。
+     *
+     * <p>coins tab 仍然存在且一键可达（slot 0），只是不再抢默认落点；装了 Vault 的服
+     * 管理员与玩家都仍能看到金币榜。<b>不</b>做「按 money.enabled 动态选默认」：
+     * 默认值随配置变化会让同一命令在不同服上打开不同页面，玩家手册/教程无法写死。
+     */
+    public static final int DEFAULT_TAB = TAB_WORDS_INDEX;
     /** 第四个标签页【赛季】槽位（plan-season §2.1 默认 slot 3，行 0 空闲位）。 */
     public static final int TAB_SEASON_SLOT = 3;
     /** 赛季 tab 下标（0=coins, 1=words, 2=combo, 3=season；监听器 slot→tab 映射用）。 */
@@ -75,7 +93,7 @@ public class LeaderboardGUI {
 
     public LeaderboardGUI(LetsLearnEnglish plugin) {
         this.plugin = plugin;
-        this.activeTab = 0;
+        this.activeTab = DEFAULT_TAB;
         this.displayedPlayerIds = new ArrayList<>();
     }
 
@@ -87,8 +105,18 @@ public class LeaderboardGUI {
         return displayedPlayerIds;
     }
 
+    /**
+     * L25：无参打开 = 默认落点（{@link #DEFAULT_TAB}，单词榜）。
+     *
+     * <p>改动前这里是 {@code open(player, 0)}（金币榜），而 {@code /le leaderboard}
+     * 是全仓<b>唯一</b>的无参调用点（{@code LearnCommand:467} →
+     * {@code SocialListener.openLeaderboardWithSnapshot} → 本方法）：既没有主菜单入口，
+     * 也没有 {@code /le leaderboard words} 之类的子参数。因此"保留其他路径原有行为"
+     * 这条约束在这里没有第二个受益方 —— 直接改默认值即可，无需再加 tab 重载。
+     * 显式传 tab 的调用点（tab 切换、返回栈重开）行为完全不变。
+     */
     public void open(Player player) {
-        open(player, 0);
+        open(player, DEFAULT_TAB);
     }
 
     public void open(Player player, int tab) {
@@ -99,11 +127,12 @@ public class LeaderboardGUI {
         SeasonManager season = plugin.getSeasonManager();
         boolean seasonAvailable = SeasonManager.isAvailable(season);
         // R-55i 真 gating：赛季关闭/未开启时 season tab 不可达 —— 旧界面残留的 3 号
-        // tab 重开在此静默回落 coins（干净容器化旧态）；点击新开路径由
-        // SocialListener 赛季分支给 season.disabled 提示（tester L8 语义：残留
-        // 回落 vs 主动点击提示，两路各自合理且均已收口）。
+        // tab 重开在此静默回落<b>默认落点</b>（干净容器化旧态；L25 起默认落点是单词榜，
+        // 与无参打开保持同一落点，避免"残留界面落到一个不再是首屏的页面"）；
+        // 点击新开路径由 SocialListener 赛季分支给 season.disabled 提示
+        // （tester L8 语义：残留回落 vs 主动点击提示，两路各自合理且均已收口）。
         if (tab == SEASON_TAB_INDEX && !seasonAvailable) {
-            tab = 0;
+            tab = DEFAULT_TAB;
         }
         this.activeTab = tab;
 
@@ -111,11 +140,11 @@ public class LeaderboardGUI {
         String subtabLabel;
         List<SeasonManager.SeasonRankRow> seasonRows = null;
         switch (tab) {
-            case 1:
+            case TAB_WORDS_INDEX:
                 entries = plugin.getProgressManager().getLeaderboard().getCachedWordsLeaderboard();
                 subtabLabel = MessageUtil.getGuiMsg(messages, "leaderboard.tab-words");
                 break;
-            case 2:
+            case TAB_COMBO_INDEX:
                 entries = plugin.getProgressManager().getLeaderboard().getCachedComboLeaderboard();
                 subtabLabel = MessageUtil.getGuiMsg(messages, "leaderboard.tab-combo");
                 break;
@@ -166,11 +195,11 @@ public class LeaderboardGUI {
                 PluginGuiHolder.of(GuiViewKey.LEADERBOARD), GUI_SIZE, title);
 
         // ---- Tab buttons (slots 0, 1, 2, 3) ----
-        addTabButton(inv, cm, messages, TAB_COINS_SLOT, 0, "tab-coins",
+        addTabButton(inv, cm, messages, TAB_COINS_SLOT, TAB_COINS_INDEX, "tab-coins",
                 Material.GOLD_INGOT, "leaderboard.tab-coins");
-        addTabButton(inv, cm, messages, TAB_WORDS_SLOT, 1, "tab-words",
+        addTabButton(inv, cm, messages, TAB_WORDS_SLOT, TAB_WORDS_INDEX, "tab-words",
                 Material.BOOK, "leaderboard.tab-words");
-        addTabButton(inv, cm, messages, TAB_COMBO_SLOT, 2, "tab-combo",
+        addTabButton(inv, cm, messages, TAB_COMBO_SLOT, TAB_COMBO_INDEX, "tab-combo",
                 Material.DIAMOND_SWORD, "leaderboard.tab-combo");
         if (seasonAvailable) {
             addTabButton(inv, cm, messages, TAB_SEASON_SLOT, SEASON_TAB_INDEX, "tab-season",
@@ -201,10 +230,10 @@ public class LeaderboardGUI {
                 List<String> lore = new ArrayList<>();
                 String scoreLabel;
                 switch (tab) {
-                    case 1:
+                    case TAB_WORDS_INDEX:
                         scoreLabel = MessageUtil.getGuiMsg(messages, "leaderboard.entry-words");
                         break;
-                    case 2:
+                    case TAB_COMBO_INDEX:
                         scoreLabel = MessageUtil.getGuiMsg(messages, "leaderboard.entry-combo");
                         break;
                     case SEASON_TAB_INDEX:

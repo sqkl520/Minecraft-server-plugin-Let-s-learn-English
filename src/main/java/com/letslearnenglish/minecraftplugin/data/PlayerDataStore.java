@@ -1678,6 +1678,40 @@ public class PlayerDataStore {
         // R1/R4：提醒总开关（发送侧读侧统一走 getProfileSettingsReadOnly，不建缓存条目）
         public boolean isRemindersEnabled() { return remindersEnabled; }
         public void setRemindersEnabled(boolean remindersEnabled) { this.remindersEnabled = remindersEnabled; }
+
+        /**
+         * L22：缓存未知（离线玩家 / reload 清缓存后尚未重新载入）时的「隐私最严」回落。
+         *
+         * <p><b>为什么不能再用 {@code new ProfileSettings()} 兜底</b>：该构造函数给出的是
+         * 「新玩家默认值」（showResults / showInSquare 均为 true）。离线玩家的设置根本不在
+         * {@code profileSettingsCache} 里（quit 时 {@code unloadProfileSettings} 会删键），
+         * 于是「离线」被读成「公开」—— 玩家关掉的隐身/结果开关在榜单头像点击、广场渲染、
+         * PAPI 占位符三处同时失效，直接违反 R-38 / R4-M2 的四层隐私模型。缓存 miss 的
+         * 唯一诚实语义是「不知道」，而不知道就不能假设公开。
+         *
+         * <p><b>为什么隐私位一律收紧、偏好位却保持默认</b>：
+         * <ul>
+         *   <li>showAnswers / showResults / showInSquare 关的是「他人能不能看到我」，
+         *       错判为公开 = 不可撤销的信息泄露，故 miss 一律按最严（false）处理；</li>
+         *   <li>soundsEnabled / remindersEnabled 是「我要不要被提醒/放音效」的个人偏好，
+         *       不泄露任何信息。miss 时若按最严（false）处理，热重载清空 profile 缓存后
+         *       全体在线玩家会静默失去提醒与音效（见 {@code HotReloadManager.reloadAll}
+         *       先 saveProfileSettings 再 clearProfileCache，并未重新载入）——那是功能
+         *       故障，不是隐私收益。故保持 fail-open（true），与 SoundManager /
+         *       ReviewScheduler 既有口径一致。</li>
+         * </ul>
+         *
+         * <p>每次调用返回<b>新实例</b>：调用方改它不会污染缓存，也不会有跨调用方的共享
+         * 可变状态（与 {@link #getProfileSettingsReadOnly(UUID)} 的「调用方私有」契约一致）。
+         */
+        public static ProfileSettings unresolvedFallback() {
+            ProfileSettings settings = new ProfileSettings();
+            settings.showResults = false;
+            settings.showInSquare = false;
+            // showAnswers 构造期默认已是 false（D2 隐私优先），这里显式重申，防未来改默认值。
+            settings.showAnswers = false;
+            return settings;
+        }
     }
 
     public ProfileSettings getProfileSettings(UUID playerId) {
@@ -1687,14 +1721,61 @@ public class PlayerDataStore {
     /**
      * L-05 只读版：展示路径（ProfileGUI / EnglishSquareGUI / Leaderboard 查榜 /
      * PAPI 占位符）用此方法读隐私开关。
-     * 缓存缺失时返回一个全新的默认副本，绝不写入 profileSettingsCache，
-     * 避免只读展示在缓存里建条目、污染 {@link #getActivePlayerIds()}。
-     * 返回的实例是调用方私有的，改它不会影响缓存；写路径请走
-     * {@link #getProfileSettings(UUID)}。
+     * 绝不写入 {@code profileSettingsCache}，避免只读展示在缓存里建条目、污染
+     * {@link #getActivePlayerIds()}。返回的实例是调用方私有的，改它不会影响缓存；
+     * 写路径请走 {@link #getProfileSettings(UUID)}。
+     *
+     * <p><b>L22（隐私优先）：缓存 miss 不再回落到「新玩家默认值」。</b>
+     * 旧实现 miss 时返回 {@code new ProfileSettings()}（showResults / showInSquare
+     * 均为 true）。但 {@code profileSettingsCache} 只覆盖<b>在线</b>玩家 ——
+     * {@code PlayerJoinListener:29} 进服预热、{@code :124} 退出时
+     * {@code unloadProfileSettings} 删键。于是「离线」被静默读成「公开」：玩家关掉的
+     * 隐身/结果开关，在榜单头像点击（{@code SocialListener:718}）、广场渲染
+     * （{@code EnglishSquareGUI:446}）、PAPI 占位符、动态流点击四处同时失效，
+     * 直接违反 R-38 / R4-M2 的四层隐私模型。缓存 miss 的诚实语义是「不知道」，
+     * 而「不知道」不能当成「公开」。
+     *
+     * <p><b>为什么返回最严副本而不是 null</b>：{{@code null}} 会让全仓 10+ 个直读调用点
+     * （{@code .isShowInSquare()} / {@code .isSoundsEnabled()} / {@code .isRemindersEnabled()}）
+     * 立即 NPE，其中若干调用点在本次改动范围之外的文件里；而「失败即最严」的对象
+     * 让所有调用点<b>无需改动</b>就自动 fail-closed，新增调用点也天然安全。
+     * 需要区分「未知」与「明确关闭」的调用方（如未来要做「加载中」文案）应改用
+     * {@link #getCachedProfileSettings(UUID)} 判 null。
+     *
+     * <p>隐私位（showAnswers / showResults / showInSquare）miss → false；
+     * 个人偏好位（soundsEnabled / remindersEnabled）miss 保持 true（fail-open）——
+     * 详见 {@link ProfileSettings#unresolvedFallback()} 的理由说明。
+     *
+     * <p><b>本人路径不受影响</b>：本人主页（{@code isOwn}）的 {@code hideResults}
+     * 在 {@code ProfileGUI} 里就已按 {@code !isOwn} 短路，这里返回的最严副本只影响
+     * 年龄展示（miss 时 age=0 → 「未设置」，与 L22 之前的展示完全一致，无回归）；
+     * 设置页走写路径 {@link #getProfileSettings(UUID)}，不受本方法影响。
+     *
+     * @param playerId 目标玩家（非 null；调用方全部传真实 UUID）
+     * @return 缓存中的真实设置；缓存 miss 时为「隐私最严」的新副本（调用方私有）
      */
     public ProfileSettings getProfileSettingsReadOnly(UUID playerId) {
         ProfileSettings cached = profileSettingsCache.get(playerId);
-        return cached != null ? cached : new ProfileSettings();
+        return cached != null ? cached : ProfileSettings.unresolvedFallback();
+    }
+
+    /**
+     * L22：只读窥视 —— 缓存命中返回真实设置，miss 返回 {@code null}（语义 = 「未知」）。
+     *
+     * <p>与 {@link #getProfileSettingsReadOnly(UUID)} 的区别只在 miss 语义：前者把
+     * 「未知」折叠成「最严」，本方法保留「未知」这一信息，供需要区分三态
+     * （公开 / 明确关闭 / 尚未载入）的调用方使用（例如未来给主页展示
+     * 「隐私设置加载中」占位）。<b>当前生产代码零调用点</b>（{@code ProfileGUI} 的
+     * 异步回填读的是 {@link #getProfileSettingsReadOnly(UUID)} 的最严副本，不再区分三态）；
+     * 仅测试使用，保留为三态 API，供未来需要「未知」语义的展示路径复用。
+     *
+     * <p>同样<b>绝不写缓存</b>；返回的是缓存里的真实实例（只读契约，调用方不得改）。
+     *
+     * @param playerId 目标玩家
+     * @return 缓存中的真实设置，或 {@code null} 表示尚未载入
+     */
+    public ProfileSettings getCachedProfileSettings(UUID playerId) {
+        return profileSettingsCache.get(playerId);
     }
 
     public void saveProfileSettings(UUID playerId) {
@@ -1707,6 +1788,12 @@ public class PlayerDataStore {
                 : "INSERT INTO " + tablePrefix + "player_profiles (uuid, age, show_answers, show_results, show_in_square, sounds_enabled, reminders_enabled) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE age=VALUES(age), show_answers=VALUES(show_answers), show_results=VALUES(show_results), show_in_square=VALUES(show_in_square), sounds_enabled=VALUES(sounds_enabled), reminders_enabled=VALUES(reminders_enabled)";
 
         synchronized (databaseManager.getConnectionLock()) {
+        // C-P1-1（红队 C）：{@code getConnection()} 原先在 try 之外。它在重连失败时抛的是
+        // {@code RuntimeException}，不是 {@code SQLException} —— 于是那一次异常会直接冒出
+        // 本方法，把调用方（unloadProfileSettings → quit / reloadAll）的后续步骤整段截断。
+        // 现在把取连接也纳入 try，并把 catch 扩到 Exception：写失败只是丢一次落盘，
+        // 绝不该让调用方的生命周期流程中途失效。
+        try {
         Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
@@ -1717,17 +1804,34 @@ public class PlayerDataStore {
             stmt.setBoolean(6, settings.isSoundsEnabled());
             stmt.setBoolean(7, settings.isRemindersEnabled()); // R1/R4：提醒总开关
             stmt.executeUpdate();
-        } catch (SQLException e) {
+        }
+        } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to save profile settings: " + playerId, e);
         }
         }
     }
 
-    public void loadProfileSettings(UUID playerId) {
+    /**
+     * 载入（或刷新）该玩家的隐私设置缓存。
+     *
+     * <p><b>永不抛</b>：DB 故障只记 WARNING 并返回 {@code false}（C-P1-1）。调用方
+     * （join 预热 / quit 前落盘 / 热重载重建）都不该因为一次 DB 抖动而中断自身流程。
+     *
+     * @return true = 读到（或确认无行后建了默认条目）；false = 读失败，缓存<b>未</b>写入
+     *         （读侧因此走 fail-closed，表现为「隐私最严」）
+     */
+    public boolean loadProfileSettings(UUID playerId) {
         String tablePrefix = databaseManager.getTablePrefix();
         String sql = "SELECT age, show_answers, show_results, show_in_square, sounds_enabled, reminders_enabled FROM " + tablePrefix + "player_profiles WHERE uuid = ?";
 
         synchronized (databaseManager.getConnectionLock()) {
+        // C-P1-1（红队 C）：取连接必须在 try 内。{@code DatabaseManager.getConnection()}
+        // 在重连失败时抛的是 {@code RuntimeException("Failed to get database connection")}，
+        // **不**是 {@code SQLException} —— 留在 try 外面时，一次 DB 故障冒泡出本方法，
+        // 沿 clearProfileCache（逐玩家循环）→ HotReloadManager.reloadAll（AdminCommand:65
+        // 无 try）一路截断：reloadAll 后半段（成就缓存 / 音效缓存 / 统计服务重启）全被跳过。
+        // 因此这里把 catch 扩到 Exception：读失败只记一条 WARNING，方法正常返回。
+        try {
         Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
@@ -1745,9 +1849,24 @@ public class PlayerDataStore {
                     profileSettingsCache.putIfAbsent(playerId, new ProfileSettings());
                 }
             }
-        } catch (SQLException e) {
+        }
+        return true;
+        } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load profile settings: " + playerId, e);
-            profileSettingsCache.putIfAbsent(playerId, new ProfileSettings());
+            // P1-2（红队验收）：这里<b>刻意不 put 任何东西</b>。
+            // 读库失败 = 「不知道」，不是「新玩家」。旧实现在此 putIfAbsent 一份
+            // new ProfileSettings()（showResults/showInSquare=true），等于把「不知道」
+            // 写成「公开」并长期缓存：
+            //   ① 该玩家整个在线期间，EnglishSquareGUI / SocialListener 三处 /
+            //      LLEPapiExpansion 全部读成「公开」，即使 DB 里 show_in_square=0；
+            //   ② MiscGUIListener 设置页读同一份缓存再 saveProfileSettings（整对象
+            //      UPSERT），玩家随手点一个开关就把 show_in_square=true 永久写回 DB ——
+            //      隐私设置不可撤销地丢失。
+            // 留空后读侧自动走 getProfileSettingsReadOnly → unresolvedFallback()
+            // （隐私位全部 false，fail-closed），每次调用重新尝试读库。
+            // 注意：上面 else 分支的 putIfAbsent 不要动 —— 那是「DB 里确实没有该玩家的行」，
+            // 代表新玩家，默认公开是正确语义。
+            return false;
         }
         }
     }
@@ -1755,6 +1874,86 @@ public class PlayerDataStore {
     public void unloadProfileSettings(UUID playerId) {
         saveProfileSettings(playerId);
         profileSettingsCache.remove(playerId);
+    }
+
+    /**
+     * P1-3（红队验收）：<b>展示侧</b>的持久读取 —— 缓存 miss 时同步查库补一次，不写缓存。
+     *
+     * <p><b>为什么需要它</b>：{@link #getProfileSettingsReadOnly(UUID)} 的 miss 语义是
+     * 「隐私最严」（fail-closed），这对「不知道对方是否隐身」是正确的，但对
+     * {@code LLEPapiExpansion} 是明显回归：PAPI 的 {@code isSelfView} 只在目标<b>在线</b>
+     * 时为 true，目标离线 → 永远按「非本人」处理 → miss 的 fail-closed 让
+     * {@code %lle_score%} / {@code %lle_words%} / {@code %lle_rank%} / {@code %lle_streak%}
+     * 全部返回「已隐藏」。班级服的榜单全息字、计分板、别的插件 {@code /papi parse}
+     * 只要玩家不在线就整块变「已隐藏」；而这些玩家本就是从
+     * {@code COALESCE(show_in_square,1)<>0} 的 SQL 里筛出来的 —— SQL 已确认公开，
+     * 占位符却反口。
+     *
+     * <p><b>与只读版的区别</b>：
+     * <ul>
+     *   <li>缓存命中 → 直接返回缓存实例（在线玩家 join 时已预热，零 IO，与只读版一致）；</li>
+     *   <li>缓存 miss → <b>同步查一行</b> {@code player_profiles}，查到就按真实值返回；</li>
+     *   <li>查不到行 → 该玩家确实没有隐私设置（新玩家），返回默认值（公开），语义正确；</li>
+     *   <li>查询失败 → {@link ProfileSettings#unresolvedFallback()}（fail-closed）。</li>
+     * </ul>
+     *
+     * <p><b>绝不写 {@code profileSettingsCache}</b>：本方法服务的是展示路径
+     * （PAPI 可被任意线程/任意插件高频调用，含离线目标），写缓存会重新引入
+     * L-05/P1-1 那类「展示读把条目灌进 getActivePlayerIds() 候选集」的污染。
+     * 返回实例是调用方私有的：命中缓存时返回缓存实例（只读契约，调用方不得改）。
+     *
+     * <p><b>线程契约</b>：同步阻塞在调用线程，DB 读取经
+     * {@link DatabaseManager#withConnection} 走 {@code connectionLock}（与
+     * {@code getPlayerStats} / {@code getCoinsEarned} 同级成本）。PAPI 的 30s 值缓存
+     * 使这里每 (玩家, 占位符, 视角) 最多每 30s 触发一次。
+     *
+     * @param playerId 目标玩家（非 null）
+     * @return 真实设置；未知/失败时为隐私最严副本（调用方私有）
+     */
+    public ProfileSettings loadProfileSettingsForDisplay(UUID playerId) {
+        ProfileSettings cached = profileSettingsCache.get(playerId);
+        if (cached != null) {
+            return cached;
+        }
+        if (databaseManager == null || playerId == null) {
+            // 数据层尚未就绪（初始化前/未注入）：诚实语义是「不知道」→ 最严。
+            return ProfileSettings.unresolvedFallback();
+        }
+
+        String sql = "SELECT age, show_answers, show_results, show_in_square, sounds_enabled, reminders_enabled FROM "
+                + databaseManager.getTablePrefix() + "player_profiles WHERE uuid = ?";
+        ProfileSettings loaded;
+        try {
+            // 显式类型见证：lambda 是隐式类型的块体，避免返回类型推断歧义。
+            loaded = databaseManager.<ProfileSettings>withConnection(conn -> {
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, playerId.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (!rs.next()) {
+                            // 无行 = 新玩家，默认值（公开）是正确语义，与 loadProfileSettings 的
+                            // else 分支同口径。返回非 null 以区别于「查询失败」。
+                            return new ProfileSettings();
+                        }
+                        ProfileSettings settings = new ProfileSettings();
+                        settings.setAge(rs.getInt("age"));
+                        settings.setShowAnswers(rs.getBoolean("show_answers"));
+                        settings.setShowResults(rs.getBoolean("show_results"));
+                        settings.setShowInSquare(rs.getBoolean("show_in_square"));
+                        settings.setSoundsEnabled(rs.getBoolean("sounds_enabled"));
+                        settings.setRemindersEnabled(rs.getBoolean("reminders_enabled"));
+                        return settings;
+                    }
+                }
+            }, null);
+        } catch (RuntimeException e) {
+            // 连接自愈失败等「数据库整体不可用」：withConnection 只兜 SQLException，
+            // 这里再兜一层 —— 占位符解析绝不能因为一行隐私设置把整块计分板打崩。
+            // 隐私口径同失败分支：最严。
+            return ProfileSettings.unresolvedFallback();
+        }
+
+        // 查询失败（withConnection 已记 WARNING 并回 null）→ 隐私最严，绝不假设公开。
+        return loaded != null ? loaded : ProfileSettings.unresolvedFallback();
     }
 
     /**
@@ -1898,8 +2097,69 @@ public class PlayerDataStore {
         }
     }
 
+    /**
+     * 清空隐私设置缓存，并立刻为在线玩家重建。
+     *
+     * <p><b>L22 联动</b>：{@link #getProfileSettingsReadOnly(UUID)} 在缓存 miss 时已改为
+     * 返回「隐私最严」副本（不再假设公开）。若本方法只 clear 不重建，那么唯一调用点
+     * {@code HotReloadManager.reloadAll} 执行后，<b>全体在线玩家</b>会一直处于「设置未知」
+     * 状态直到重新进服 —— 表现是动态流事件静默不再产生、广场/榜单点击自己以外的人
+     * 全部进隐身页、自己的年龄显示回落到「未设置」。那是本方法造成的功能故障，不是
+     * 隐私收益。
+     *
+     * <p>因此这里在 clear 之后对当前在线玩家逐个 {@link #loadProfileSettings(UUID)}：
+     * 与进服预热同一条读路径（主线程、同步；{@code reloadAll} 本就在主线程，且
+     * {@code flushOnlinePlayerData} 刚对同一批玩家做过同步落盘，成本同级）。
+     * 重建失败（非主线程 / 服务端已关闭）时静默跳过 —— 与
+     * {@link #getActivePlayerIds()} 的兜底口径一致，最坏退化为「最严」而非崩溃。
+     *
+     * <p><b>顺序纪律：先取快照、再清、再重建。</b>旧写法「先 clear 再枚举在线玩家」在
+     * 枚举阶段抛异常时（非主线程 / 服务端关闭中）会留下一个<b>空缓存</b>，全体玩家降级为
+     * 「最严」——隐私上是安全方向，功能上是故障（对着自己的主页也看不到年龄、动态流静默）。
+     * 现在改为：先枚举出一份 UUID 快照，枚举失败就<b>原样保留旧缓存</b>（不清），
+     * 只有枚举成功才执行 clear + 重建。宁可保留一份可能过期的设置，也不制造一次全量降级。
+     */
     public void clearProfileCache() {
+        java.util.List<UUID> onlineIds = new java.util.ArrayList<>();
+        try {
+            for (org.bukkit.entity.Player online : plugin.getServer().getOnlinePlayers()) {
+                onlineIds.add(online.getUniqueId());
+            }
+        } catch (Exception e) {
+            // 枚举不到在线玩家（非主线程 / 服务端关闭中）：不动缓存，保持现状。
+            // 清空只会让所有人降级为「最严」，那是有代价的假修复。
+            return;
+        }
         profileSettingsCache.clear();
+        // C-P1-2（红队 C）：逐玩家兜底。重建循环原来没有任何 try —— 只要有一个玩家
+        // 的重建抛出非 SQL 异常（典型：DB 重连失败时的 RuntimeException，或 shutdown 中的
+        // IllegalStateException），它就会穿透本方法，把 reloadAll 的后续步骤整段跳过。
+        // 这里用 Throwable 与 onDisable 同姿态：单个玩家失败只影响他自己（读侧走
+        // fail-closed，表现为「隐身」而非崩溃），其余玩家与 reload 的其余阶段照常执行。
+        int failed = 0;
+        for (UUID id : onlineIds) {
+            try {
+                // C-P1-2：loadProfileSettings 自身已改为「永不抛、失败返回 false」。
+                // 这里仍保留 try/Throwable 作为<b>纵深</b>：将来若有人在该方法里加了一段
+                // 不经过它内部 catch 的代码（或换成别的实现），逐个玩家的兜底仍在。
+                if (!loadProfileSettings(id)) {
+                    failed++;
+                }
+            } catch (Throwable t) {
+                failed++;
+                java.util.logging.Logger logger = plugin.getLogger();
+                if (logger != null) {
+                    logger.log(Level.WARNING, "Failed to reload profile settings for " + id, t);
+                }
+            }
+        }
+        if (failed > 0) {
+            java.util.logging.Logger logger = plugin.getLogger();
+            if (logger != null) {
+                logger.warning("Profile settings reload: " + failed + "/" + onlineIds.size()
+                        + " player(s) failed; they will render as private until next join.");
+            }
+        }
     }
 
     /**

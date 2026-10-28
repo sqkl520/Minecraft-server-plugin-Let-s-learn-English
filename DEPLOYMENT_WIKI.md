@@ -1001,6 +1001,43 @@ stop
 | 词库更新 | 按需 | 修改 `words/*.yml` 后 `/lea reload` |
 | 报告文件清理 | 自动 | `exports/reports/` 下超过 `report.keep-days`（默认 30 天）的 TXT 在下次生成报告时惰性清理 |
 | 动态流清理 | 自动 | `social.feed.retention-days`（默认 7 天）过期的学习动态连同鼓励记录一并清理 |
+| SQLite 整理（VACUUM） | 每季度 / 库明显膨胀时 | 见下方「7.2.1 SQLite 数据库整理」 |
+
+#### 7.2.1 SQLite 数据库整理（VACUUM）
+
+**为什么需要**：SQLite 的 `DELETE` / `UPDATE` 只把页面标记为可复用，**不归还操作系统**。`ai_chat_history`、`social_feed`、`word_progress` 这类持续增删的表长期运行后，`playerdata.db` 只涨不缩，空闲页碎片化还会拖慢全表扫描。
+
+**不要和自动备份混淆**：自动备份走 `VACUUM INTO`，那是**热备快照**——生成一份新的副本文件，主库一个字节都不会变，因此**不能**回收空洞。整理必须用就地 `VACUUM`。
+
+**手动整理步骤**（推荐停机维护窗口执行）：
+
+```bash
+# 1. 停止服务器，进入数据目录
+cd plugins/LetsLearnEnglish/
+
+# 2. 先备份（VACUUM 中途磁盘满可能损坏文件，备份是硬性前置）
+cp playerdata.db playerdata.db.bak
+
+# 3. 就地整理：PRAGMA optimize 刷新查询规划器统计，VACUUM 重建文件回收空闲页
+sqlite3 playerdata.db "PRAGMA optimize; VACUUM;"
+
+# 4. 校验（期望输出 ok）
+sqlite3 playerdata.db "PRAGMA quick_check;"
+
+# 5. 观察回收效果：freelist_count 应接近 0，page_count 通常明显下降
+sqlite3 playerdata.db "PRAGMA freelist_count; PRAGMA page_count;"
+```
+
+确认无误后重启服务器。
+
+**通过插件代码调用**：`DatabaseManager.runMaintenance()` 提供同样的 `PRAGMA optimize` + `VACUUM`，返回 `boolean`（MySQL 后端直接返回 `false`，失败记 WARNING 不抛异常）。该方法**当前未接入任何命令**，是给未来的 `/lea maintenance` 预备的入口。若通过命令/任务调用：
+
+- **必须放到异步线程**（`runTaskAsynchronously` 或独立线程池）——`VACUUM` 持写锁且耗时与库体积成正比，主线程调用会卡服；
+- 方法内部持 `connectionLock`，执行期间所有数据库读写都会等待，这也是必须异步的第二个理由；
+- 已内置非阻塞去重：同时触发多次只有第一次会执行，其余立即返回 `false`；
+- 不要放进事务：SQLite 禁止在显式事务内 `VACUUM`（方法内已做 autocommit 防御处理）。
+
+> MySQL 后端无需此操作——MySQL 没有 `VACUUM`，空间由 `innodb_file_per_table` + `OPTIMIZE TABLE` 管理，不在本插件职责范围内。
 
 ### 7.3 安全最佳实践
 

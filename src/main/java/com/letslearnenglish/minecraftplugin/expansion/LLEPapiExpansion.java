@@ -187,7 +187,15 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
         PlayerDataStore store = plugin.getPlayerDataStore();
 
         // L-05：展示路径走只读版，不建缓存条目。
-        PlayerDataStore.ProfileSettings ps = store.getProfileSettingsReadOnly(playerId);
+        // P1-3（红队验收）：只读版的 miss 语义是「隐私最严」，但本类的 isSelfView 只在
+        // 目标<b>在线</b>时为 true —— 目标离线 → 永远「非本人」→ miss 的 fail-closed 让
+        // %lle_score% / %lle_words% / %lle_rank% / %lle_streak% 全部返回「已隐藏」。
+        // 榜单全息字、计分板、别的插件 /papi parse 只要玩家不在线就整块变「已隐藏」；
+        // 而这些玩家本就是从 COALESCE(show_in_square,1)<>0 的 SQL 里筛出来的。
+        // 改用 loadProfileSettingsForDisplay：缓存命中零 IO；miss 时同步查一行
+        // player_profiles（与本方法已有的 getPlayerStats / getCoinsEarned 同级成本），
+        // 只有查询失败才落 unresolvedFallback()。同样绝不写本质缓存。
+        PlayerDataStore.ProfileSettings ps = store.loadProfileSettingsForDisplay(playerId);
 
         // plan-season §2.5：三个赛季占位符在隐私门禁之前解析 ——
         // ① season.enabled=false 或赛季未开启（锚点在未来，id≤0）→ 空串真 gating，

@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 
 /**
@@ -38,6 +39,11 @@ public class DatabaseManager {
     private volatile Connection connection;
     private String tablePrefix;
     private boolean isSQLite;
+    /**
+     * L24：维护任务（{@code VACUUM}）的非阻塞去重闸。维护调用方在异步线程执行，
+     * 若玩家/管理员连续触发两次，第二次直接返回，避免排队堆积重复的全库重建。
+     */
+    private final AtomicBoolean maintenanceInProgress = new AtomicBoolean(false);
 
     public DatabaseManager(LetsLearnEnglish plugin, ConfigManager configManager) {
         this.plugin = plugin;
@@ -3803,6 +3809,103 @@ public class DatabaseManager {
         } catch (SQLException e) {
             plugin.getLogger().warning("Backup integrity check failed to run: " + e.getMessage());
             return false;
+        }
+    }
+
+    /**
+     * L24：SQLite 维护性整理（{@code PRAGMA optimize} + {@code VACUUM}）。
+     *
+     * <p><b>它解决什么问题</b>：SQLite 的 {@code DELETE}/{@code UPDATE} 只把页面标记为
+     * 可复用，<b>不归还操作系统</b>；{@code ai_chat_history}、{@code social_feed}、
+     * {@code word_progress} 这类持续增删的表长期运行后文件只涨不缩，空闲页碎片化还会
+     * 拖慢全表扫描。{@code VACUUM} 会重建整库文件，把空闲页真正释放并把行/索引重新
+     * 紧凑排布。{@code PRAGMA optimize} 先按需刷新查询规划器统计信息（等价于一次
+     * 有条件的 {@code ANALYZE}），两者搭配才是完整的"整理"。
+     *
+     * <p><b>与 {@link #backupTo(String)} 的区别</b>：{@code VACUUM INTO} 是<b>热备快照</b>
+     * ——生成一个新的副本文件，主库一个字节都不会变，因此不能用来回收空洞；本方法才是
+     * 就地整理。
+     *
+     * <p><b>线程契约（调用方必须保证）</b>：<b>绝不可在主线程（Bukkit tick 线程）调用</b>。
+     * {@code VACUUM} 会持有写锁且耗时与库体积成正比（大库可达数秒到数十秒），
+     * 在主线程执行会直接造成服务器卡顿甚至看门狗超时。调用方应自行丢到
+     * {@code Bukkit.getScheduler().runTaskAsynchronously(...)} 或独立线程池里执行；
+     * 本方法<b>不会</b>替你切换线程，也<b>不会</b>自动排程——它只是一个可被
+     * 未来的 {@code /lea maintenance} 命令或停机维护脚本调用的一次性入口。
+     *
+     * <p><b>并发</b>：内部持 {@code connectionLock}（与全类同一把锁），因此执行期间所有
+     * 其它数据库读写都会阻塞等待——这正是必须异步调用的第二个理由。为防止两次维护
+     * 请求叠加把队列越排越长，这里用一个 {@link java.util.concurrent.atomic.AtomicBoolean}
+     * 做非阻塞去重：已有维护在跑时直接返回 {@code false}。
+     *
+     * <p><b>事务状态</b>：SQLite 禁止在显式事务内执行 {@code VACUUM}（会报
+     * "cannot VACUUM from within a transaction"）。本类所有事务段都在
+     * {@code connectionLock} 内成对 {@code setAutoCommit(false/true)}，因此正常路径下
+     * 进来时必为 autocommit。这里仍做一次防御性检查：若发现 autocommit 已被关闭
+     * （说明有别处遗留了未提交事务），先恢复 autocommit 再执行。既然本方法全程持锁，
+     * 此刻不可能有别的线程正处于事务中，该分支只会在异常/缺陷路径下命中——此时
+     * <b>不</b>把 autocommit=false 还原回去：遗留的关闭状态本身才是 bug，让连接停在
+     * autocommit=true 比让它继续"写进去永不提交"更安全（后者是静默丢数据）。
+     *
+     * <p><b>异常口径</b>：任何 {@link SQLException}（含库被占用、文件只读、磁盘满）都
+     * <b>不</b>抛给调用方，只记 WARNING + 堆栈并返回 {@code false}。维护失败绝不该
+     * 影响主流程——最坏情况只是"这次没整理成"。
+     *
+     * <p><b>后端约束</b>：MySQL 没有 {@code VACUUM}（对应能力是 {@code OPTIMIZE TABLE}，
+     * 语义与代价都不同，未实现）。当前后端不是 SQLite 时直接记 FINE 并返回 {@code false}。
+     *
+     * <p><b>前置条件</b>：必须在 {@link #initialize()} 完成之后调用。后端判定读的是
+     * {@code isSQLite} 字段，该字段只由 {@code initialize()} 赋值；在初始化之前调用会
+     * 看到一个默认的 {@code false}，本方法按"非 SQLite"安全跳过（漏做一次整理，
+     * 不会误在 MySQL 上执行 VACUUM）。
+     *
+     * <p><b>手动执行</b>（服务器停机维护）：见仓库 {@code README.md}「SQLite 数据库整理」
+     * 与 {@code DEPLOYMENT_WIKI.md} 7.2.1。核心是三条 {@code sqlite3} 命令：
+     * {@code PRAGMA optimize; VACUUM;} 再 {@code PRAGMA quick_check;} 校验。
+     *
+     * @return {@code true} 表示确实执行了 {@code PRAGMA optimize} + {@code VACUUM}；
+     *         {@code false} 表示后端是 MySQL、已有维护在跑，或执行失败（已记日志）
+     */
+    public boolean runMaintenance() {
+        if (!isSQLite) {
+            plugin.getLogger().fine("Database maintenance skipped: not a SQLite backend.");
+            return false;
+        }
+        if (!maintenanceInProgress.compareAndSet(false, true)) {
+            plugin.getLogger().warning("Database maintenance skipped: another maintenance run is still in progress.");
+            return false;
+        }
+        synchronized (connectionLock) {
+            try {
+                Connection conn = getConnection();
+                if (!conn.getAutoCommit()) {
+                    // VACUUM 不能处于事务内；持锁期间不应存在进行中的事务，属防御分支。
+                    // 不还原：遗留 autocommit=false 会让之后所有写入永不提交（静默丢数据）。
+                    plugin.getLogger().warning("Database maintenance found autocommit disabled; "
+                            + "forcing autocommit=true so VACUUM can run (a caller left a transaction open).");
+                    conn.setAutoCommit(true);
+                }
+                // 先刷新查询规划器统计（按需 ANALYZE），再重建文件回收空闲页。
+                try (PreparedStatement optimize = conn.prepareStatement("PRAGMA optimize")) {
+                    optimize.execute();
+                }
+                try (PreparedStatement vacuum = conn.prepareStatement("VACUUM")) {
+                    vacuum.execute();
+                }
+                plugin.getLogger().info("Database maintenance finished (PRAGMA optimize + VACUUM).");
+                return true;
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Database maintenance failed (VACUUM/PRAGMA optimize); the database is left untouched", e);
+                return false;
+            } catch (RuntimeException e) {
+                // getConnection() 自愈失败会抛 RuntimeException（连接不可用）——同样不得外泄。
+                plugin.getLogger().log(Level.WARNING,
+                        "Database maintenance aborted: database connection unavailable", e);
+                return false;
+            } finally {
+                maintenanceInProgress.set(false);
+            }
         }
     }
 }

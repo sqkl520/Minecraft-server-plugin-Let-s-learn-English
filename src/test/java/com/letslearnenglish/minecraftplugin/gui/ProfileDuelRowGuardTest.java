@@ -2,11 +2,8 @@ package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
-import com.letslearnenglish.minecraftplugin.core.achievement.AchievementManager;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
-import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
-import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -27,49 +24,63 @@ import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
 /**
  * RT（红队）实测缺口：{@code ProfileGUI} 决斗战绩行（slot 16）的三层守卫 + 生产链接线。
  *
- * <p><b>为什么需要这个类</b>：{@code placeDuelRow} 的三道守卫都是「不满足就静默 return」，
- * 现有测试（{@code GuiOpenIdentityTest}）只覆盖 {@code open()} 交出的 holder，既不碰
- * slot 16，也不碰异步回填。于是下面三种回退全部是<b>静默</b>的：
+ * <p><b>C-P2-6（红队 C）的重大订正 —— 本类曾是「验证死代码」的假绿</b>：
+ * 原实现经反射直调 {@code ProfileGUI#placeDuelRow}。但自 L21 起，生产回填路径
+ * （{@code placeProfileData}）是直接 {@code top.setItem(DUEL_SLOT, ...)}，<b>从不调用
+ * {@code placeDuelRow}</b> —— 那个方法只剩测试在调。于是把 {@code placeProfileData}
+ * 开头的 {@code stillViewing(...)} 整行删掉，本类十几条守卫测试<b>依然全绿</b>：
+ * 它们验证的是一个生产永不执行的方法。
+ *
+ * <p>现在：
  * <ul>
- *   <li>删掉 {@code if (!viewer.isOnline()) return;} —— 玩家已下线仍往一张关掉的界面写；</li>
+ *   <li>生产实现把渲染收进 {@code applyDuelRow(top, streak, duel, hideResults, msg)}，
+ *       {@code placeDuelRow} 已删除；</li>
+ *   <li>本类的守卫测试全部改为<b>经 {@code open()} 全链路</b>驱动：真实调用
+ *       {@code open → scheduleProfileBackfill → placeProfileData → stillViewing → applyDuelRow}，
+ *       断言落在真实生产方法的真实写入上。删掉 {@code placeProfileData} 的
+ *       {@code stillViewing} 或把 {@code getHolder() != opened} 改成 {@code equals}，
+ *       这里的用例会立刻红。</li>
+ * </ul>
+ *
+ * <p><b>覆盖的三种回退</b>（全部曾是静默的）：
+ * <ul>
+ *   <li>删掉守卫 1（{@code viewer.isOnline()}）—— 玩家已下线仍往一张关掉的界面写；</li>
  *   <li>把 {@code top.getHolder() != opened} 改成 {@code equals} —— 连点/来回切人时，
  *       同 key 同 payload 的两次打开「值相等」，A 的战绩被写进 B 的界面（隐私事故）；</li>
- *   <li>删掉 {@code open()} 里的 {@code scheduleDuelRow(...)} 调用 —— 主页永远停在「加载中」。</li>
+ *   <li>删掉 {@code open()} 里的异步回填派发 —— 主页永远停在「加载中」。</li>
  * </ul>
+ * L3 起拒绝路径还会留下日志（fine / warning 分级），组 C 专门钉这部分。
  *
  * <p><b>技术前提</b>：
  * <ul>
@@ -105,6 +116,8 @@ class ProfileDuelRowGuardTest {
     private ConfigManager configManager;
     private FileConfiguration messages;
     private PlayerDataStore dataStore;
+    /** L3：守卫的日志出口。{@code plugin.getLogger()} 在真插件上恒非 null。 */
+    private java.util.logging.Logger logger;
 
     @BeforeEach
     void setUp() {
@@ -113,6 +126,10 @@ class ProfileDuelRowGuardTest {
         configManager = mock(ConfigManager.class);
         messages = mock(FileConfiguration.class);
         dataStore = mock(PlayerDataStore.class);
+        logger = mock(java.util.logging.Logger.class);
+        // lenient：组 B（open() 生产链）里 duel 关闭的用例根本不进任何守卫，
+        // 这条 stub 会变成死代码 —— 它是全类前置条件，不该由 STRICT_STUBS 报红。
+        lenient().when(plugin.getLogger()).thenReturn(logger);
     }
 
     /**
@@ -130,148 +147,184 @@ class ProfileDuelRowGuardTest {
         when(plugin.getPlayerLanguage(any(Player.class))).thenReturn("zh");
         when(plugin.getPlayerDataStore()).thenReturn(dataStore);
         when(dataStore.getPlayerName(TARGET_ID)).thenReturn("TargetPlayer");
-        when(dataStore.getPlayerStats(TARGET_ID)).thenReturn(new PlayerDataStore.PlayerStats());
         when(dataStore.getProfileSettingsReadOnly(TARGET_ID))
                 .thenReturn(new PlayerDataStore.ProfileSettings());
-        when(plugin.getAchievementManager()).thenReturn(mock(AchievementManager.class));
         when(viewer.getUniqueId()).thenReturn(VIEWER_ID);
         when(configManager.isAchievementsEnabled()).thenReturn(false);
+        // 守卫 1 的默认线上态：在线。放这里（而不是各夹具里）是为了让用例能<b>后</b>
+        // 覆盖成 false —— Mockito 后写的 stub 生效，而夹具若也铺 true 就会把用例的
+        // 「离线」覆盖回去（本类曾因此让守卫 1 的用例失去判别力）。
+        lenient().when(viewer.isOnline()).thenReturn(true);
+        // 注意：{@code getPlayerStats} 的 stub 不在这里 —— L21 起它只在异步段被调用，
+        // 而 duel 关闭的用例根本不派发异步任务。铺在公共处会变成死代码
+        // （STRICT_STUBS 直接红），下放到 {@link #captureProfileOpen}。
     }
 
     // ------------------------------------------------------------------
-    // A. 三层守卫（反射直调 private placeDuelRow）
+    // A. 三层守卫 —— 经 open() 全链路（C-P2-6：不再反射直调已删除的方法）
     // ------------------------------------------------------------------
 
     @Nested
-    @DisplayName("组 A —— 三层守卫：删掉任何一道都必须变红")
+    @DisplayName("组 A —— 三层守卫：删掉任何一道都必须变红（经 open() 全链路）")
     class ThreeGuards {
 
-        /**
-         * {@code placeDuelRow} 的实际签名（B3 之后、FIX-H2 之后）：
-         * <pre>{@code
-         * private void placeDuelRow(Player viewer, UUID target, PluginGuiHolder opened,
-         *                           DatabaseManager.DuelStats stats,
-         *                           Function<String, String> msg, boolean hideValues)
-         * }</pre>
-         * 注意：{@code streak} 形参已被 FIX-H2 从调用点摘除（{@code DuelStatsText.render}
-         * 仍保留该参数，调用方传 0），因此这里<b>没有</b> {@code int streak}。
-         *
-         * @return 被测方法实际写入 slot 16 的物品（守卫拦下时为 null）
-         */
-        @SuppressWarnings("unchecked")
-        private ItemStack invokePlaceDuelRow(Player who, UUID target, PluginGuiHolder opened,
-                                             boolean hideValues) throws Exception {
-            Method m = ProfileGUI.class.getDeclaredMethod("placeDuelRow",
-                    Player.class, UUID.class, PluginGuiHolder.class,
-                    DatabaseManager.DuelStats.class, Function.class, boolean.class);
-            m.setAccessible(true);
-            try {
-                m.invoke(new ProfileGUI(plugin), who, target, opened,
-                        new DatabaseManager.DuelStats(5, 2),
-                        (Function<String, String>) key -> "", hideValues);
-            } catch (InvocationTargetException e) {
-                Throwable cause = e.getCause();
-                throw (cause instanceof Exception ex) ? ex : e;
-            }
-            return null;
-        }
-
-        /**
-         * 一张「已经打开了 {@code top}」的玩家界面。
-         *
-         * @param top  当前 top inventory
-         * @param held 它报告的 holder（守卫 2 比对的实例）
-         */
-        private void stubOpenInventory(Inventory top, InventoryHolder held) {
-            when(top.getHolder()).thenReturn(held);
-            InventoryView view = mock(InventoryView.class);
-            when(view.getTopInventory()).thenReturn(top);
-            when(viewer.getOpenInventory()).thenReturn(view);
-        }
-
         @Test
-        @DisplayName("守卫 1：viewer 已下线 —— 连 getOpenInventory 都不该问，更不得写 slot 16")
-        void offlineViewerIsRejectedBeforeAnyInventoryRead() throws Exception {
+        @DisplayName("守卫 1：回填时 viewer 已下线 —— slot 16 只有占位（1 次），绝不回填")
+        void offlineViewerIsRejectedBeforeAnyInventoryRead() {
+            stubOpenBasics();
+            when(configManager.isDuelEnabled()).thenReturn(true);
+
+            // 关键形状：open() 本身不读 isOnline()（只用于回填守卫），所以这里直接给
+            // false 等价于「异步段执行时玩家已下线」。stubOpenBasics 里的 lenient true
+            // 会被本行覆盖（Mockito 后写者生效）。
             when(viewer.isOnline()).thenReturn(false);
-            PluginGuiHolder opened = PluginGuiHolder.of(GuiViewKey.PROFILE,
-                    new PluginGuiHolder.GuiPayload.Target(TARGET_ID));
-            // 刻意<b>不</b>铺 getOpenInventory 的 stub：守卫 1 在它之前，铺了就是多余 stub。
-            // 正确实现下这里零交互；若守卫 1 被删，getOpenInventory 返回 null 会让后续
-            // 守卫 2 的 view==null 分支接住 —— 所以断言必须落在「从未询问」上，而不是
-            // 只断言「没写」。
-            Inventory top = mock(Inventory.class);
 
-            try (MockedConstruction<ItemStack> ignored = mockConstruction(ItemStack.class)) {
-                invokePlaceDuelRow(viewer, TARGET_ID, opened, false);
-            }
+            OpenCapture capture = captureProfileOpen(true);
 
+            List<ItemStack> slot16 = capture.writes().getOrDefault(DUEL_SLOT, List.of());
+            assertEquals(1, slot16.size(),
+                    "回填时玩家已下线 → 守卫 1 必须拒绝执行：slot 16 只该有主线程那一次"
+                            + "「加载中」占位。写成 2 次说明守卫 1 失效，往一张已关闭的界面写了数据。\n"
+                            + "（C-P2-6 起本断言驱动的是生产方法 placeProfileData，而不是死方法"
+                            + " placeDuelRow —— 删掉 placeProfileData 开头的 stillViewing 会立刻红。）");
+            assertEquals(Material.IRON_SWORD, capture.materialOf(slot16.get(0)),
+                    "占位物品应是决斗行样式（IRON_SWORD）");
+            // 占位之后 fillEmpty 不会覆盖已非空的槽（它只填空槽），所以 1 次就是真相。
             verify(viewer, never()).getOpenInventory();
-            verify(top, never()).setItem(eq(DUEL_SLOT), any());
         }
 
         @Test
-        @DisplayName("守卫 2：同 key 同 payload 的另一次打开必须在实例层被拒（值相等不等于同一张界面）")
-        void sameKeyDifferentHolderInstanceIsRejected() throws Exception {
-            PluginGuiHolder opened = PluginGuiHolder.of(GuiViewKey.PROFILE,
-                    new PluginGuiHolder.GuiPayload.Target(TARGET_ID));
-            PluginGuiHolder reopened = PluginGuiHolder.of(GuiViewKey.PROFILE,
-                    new PluginGuiHolder.GuiPayload.Target(TARGET_ID));
-            // 前提：两者互等（值语义）但绝不是同一个对象 —— 正是「连点两次」「A→B→A」的形状
-            assertEquals(opened, reopened, "前置条件：holder 是值语义，同 key 同 payload 的两份实例相等");
-            assertNotSame(opened, reopened);
+        @DisplayName("守卫 2：同 key 同 payload 的另一次打开必须在实例层被拒（值相等 != 同一张界面）")
+        void sameKeyDifferentHolderInstanceIsRejected() {
+            stubOpenBasics();
+            when(configManager.isDuelEnabled()).thenReturn(true);
 
-            // lenient：这条 stub 是「守卫 2/3/全通过」三组用例的<b>前置条件</b>（玩家在线），
-            // 不是被测对象。若守卫 1 被删，本用例仍应只因「真的写了 slot 16」而红，而不是
-            // 因为这条 stub 变成死代码 —— 否则变异信号的归因会被 STRICT_STUBS 的噪音污染。
-            lenient().when(viewer.isOnline()).thenReturn(true);
-            Inventory top = mock(Inventory.class);
-            stubOpenInventory(top, reopened);
+            // 回填时玩家看的是「另一张同 key 同 payload 的主页」：holder 值相等但实例不同。
+            // 若守卫 2 用 equals，这里 A 的战绩会被写进 B 的界面。
+            captureProfileOpenWithSwappedGui(true);
 
-            try (MockedConstruction<ItemStack> ignored = mockConstruction(ItemStack.class)) {
-                invokePlaceDuelRow(viewer, TARGET_ID, opened, false);
-            }
-
-            verify(top, never()).setItem(eq(DUEL_SLOT), any());
+            // 判别力：回填一旦通过守卫就会写进「替身界面」（玩家当前真正看着的那张）。
+            // 正确实现下一次写入都没有；若守卫被削弱（改成 equals / 删掉通道），
+            // 这里会出现写入 —— 串台事故的直接证据。
+            List<ItemStack> slot16 = getSwappedWrites().getOrDefault(DUEL_SLOT, List.of());
+            assertTrue(slot16.isEmpty(),
+                    "holder 实例不同（同 key 同 payload 的另一次打开）→ 守卫 2 必须拒绝："
+                            + "替身界面的 slot 16 不得被写。实际写了 " + slot16.size()
+                            + " 次 —— 说明用的是 equals 而不是引用比较，"
+                            + "A 的战绩被写进了「值相等」的另一张界面（跨玩家串台）。");
         }
 
         @Test
-        @DisplayName("守卫 3：holder 实例对得上、但归属已换成另一个人 —— 仍然不得写")
-        void holderWithDifferentTargetIsRejected() throws Exception {
-            PluginGuiHolder opened = PluginGuiHolder.of(GuiViewKey.PROFILE,
-                    new PluginGuiHolder.GuiPayload.Target(OTHER_ID));
-            lenient().when(viewer.isOnline()).thenReturn(true);
-            Inventory top = mock(Inventory.class);
-            stubOpenInventory(top, opened);
+        @DisplayName("守卫 2b：界面已被换成别人的主页 —— 不得回填")
+        void anotherTargetsGuiIsRejected() {
+            stubOpenBasics();
+            when(configManager.isDuelEnabled()).thenReturn(true);
 
-            try (MockedConstruction<ItemStack> ignored = mockConstruction(ItemStack.class)) {
-                // 传参 target=TARGET_ID，payload 却是 OTHER_ID → 第三道守卫
-                invokePlaceDuelRow(viewer, TARGET_ID, opened, false);
-            }
+            captureProfileOpenWithSwappedGui(true, OTHER_ID);
 
-            verify(top, never()).setItem(eq(DUEL_SLOT), any());
+            List<ItemStack> slot16 = getSwappedWrites().getOrDefault(DUEL_SLOT, List.of());
+            assertTrue(slot16.isEmpty(),
+                    "界面已换成别人的主页 → 不得回填：替身界面的 slot 16 不得被写。"
+                            + "实际写了 " + slot16.size() + " 次 = A 的战绩进了 B 的界面（隐私事故）。");
         }
 
         @Test
-        @DisplayName("三重全通过：slot 16 必须被写恰好 1 次，且物品是 IRON_SWORD")
-        void fullyValidatedCallWritesTheRowOnce() throws Exception {
-            PluginGuiHolder opened = PluginGuiHolder.of(GuiViewKey.PROFILE,
-                    new PluginGuiHolder.GuiPayload.Target(TARGET_ID));
-            lenient().when(viewer.isOnline()).thenReturn(true);
-            Inventory top = mock(Inventory.class);
-            stubOpenInventory(top, opened);
+        @DisplayName("三重全通过：slot 16 必须被写恰好 2 次（占位 + 回填），且都是 IRON_SWORD")
+        void fullyValidatedCallWritesTheRowTwice() {
+            stubOpenBasics();
+            when(configManager.isDuelEnabled()).thenReturn(true);
 
-            Map<ItemStack, Material> materials = new IdentityHashMap<>();
-            try (MockedConstruction<ItemStack> ignored = mockConstruction(ItemStack.class,
-                    (mockItem, ctx) -> materials.put(mockItem, (Material) ctx.arguments().get(0)))) {
-                invokePlaceDuelRow(viewer, TARGET_ID, opened, false);
-            }
+            OpenCapture capture = captureProfileOpen(true);
 
             ArgumentCaptor<ItemStack> captor = ArgumentCaptor.forClass(ItemStack.class);
-            verify(top, times(1)).setItem(eq(DUEL_SLOT), captor.capture());
-            ItemStack written = captor.getValue();
-            assertNotNull(written, "守卫全通过时必须写入战绩物品，而不是 null");
-            assertEquals(Material.IRON_SWORD, materials.get(written),
+            verify(capture.inventory(), times(2)).setItem(eq(DUEL_SLOT), captor.capture());
+            List<ItemStack> written = captor.getAllValues();
+            assertEquals(2, written.size());
+            assertNotNull(written.get(1), "守卫全通过时必须写入战绩物品，而不是 null");
+            assertNotSame(written.get(0), written.get(1), "占位与回填必须是两个物品实例");
+            assertEquals(Material.IRON_SWORD, capture.materialOf(written.get(0)),
+                    "占位物品应是决斗行样式（IRON_SWORD）");
+            assertEquals(Material.IRON_SWORD, capture.materialOf(written.get(1)),
                     "决斗行物品材质必须是 IRON_SWORD（换材质 = 换了展示语义）");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // C. L3：守卫不再静默 —— 拒绝路径必须留下可诊断日志
+    // ------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("组 C —— L3：三条拒绝路径各自留下日志（正常路径不刷 WARNING）")
+    class GuardLogging {
+
+        @Test
+        @DisplayName("守卫 1（离线）：打 fine，不打 warning —— 关界面/下线是最常见的正常路径")
+        void offlineViewerLogsAtFine() {
+            stubOpenBasics();
+            when(configManager.isDuelEnabled()).thenReturn(true);
+            when(viewer.isOnline()).thenReturn(false);
+
+            captureProfileOpen(true);
+
+            verify(logger).fine(anyString());
+            verify(logger, never()).warning(anyString());
+        }
+
+        @Test
+        @DisplayName("守卫 2（同一张主页被重开）：fine 级，不是异常")
+        void reopenedSameProfileLogsAtFine() {
+            stubOpenBasics();
+            when(configManager.isDuelEnabled()).thenReturn(true);
+
+            captureProfileOpenWithSwappedGui(true);
+
+            verify(logger).fine(anyString());
+            verify(logger, never()).warning(anyString());
+        }
+
+        @Test
+        @DisplayName("守卫 2（界面已换成别人的主页）：WARNING —— 这正是跨玩家串台的形状")
+        void anotherTargetsProfileLogsAtWarning() {
+            stubOpenBasics();
+            when(configManager.isDuelEnabled()).thenReturn(true);
+
+            captureProfileOpenWithSwappedGui(true, OTHER_ID);
+
+            ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+            verify(logger).warning(message.capture());
+            assertTrue(message.getValue().contains(TARGET_ID.toString()),
+                    "日志必须带上期望的目标，否则排查时无法判断串了谁：" + message.getValue());
+            assertTrue(message.getValue().contains(OTHER_ID.toString()),
+                    "日志必须带上实际界面归属：" + message.getValue());
+        }
+
+        @Test
+        @DisplayName("三重全通过：不得留下任何 WARNING（否则正常回填会刷满日志）")
+        void successfulBackfillDoesNotWarn() {
+            stubOpenBasics();
+            when(configManager.isDuelEnabled()).thenReturn(true);
+
+            captureProfileOpen(true);
+
+            verify(logger, never()).warning(anyString());
+        }
+
+        @Test
+        @DisplayName("logger 不可用（纯逻辑环境）不得让守卫抛 NPE")
+        void nullLoggerDoesNotBreakGuards() {
+            // 少数纯逻辑测试会给 plugin.getLogger() 留 null；守卫的价值是「永不抛」。
+            // 本用例经 open() 全链路触发守卫 1 的拒绝路径（logFine），验证那里对
+            // null logger 做了判空。
+            stubOpenBasics();
+            when(plugin.getLogger()).thenReturn(null);
+            when(configManager.isDuelEnabled()).thenReturn(true);
+            when(viewer.isOnline()).thenReturn(false);
+
+            OpenCapture capture = captureProfileOpen(true);
+
+            // 无异常即通过（assertDoesNotThrow 由调用本身承担）；顺带确认没回填。
+            assertEquals(1, capture.writes().getOrDefault(DUEL_SLOT, List.of()).size(),
+                    "logger 为 null 时守卫仍必须正常拒绝（slot 16 只有占位）");
         }
     }
 
@@ -302,10 +355,12 @@ class ProfileDuelRowGuardTest {
                     "回填物品应是决斗行样式（IRON_SWORD）");
             assertEquals(TARGET_ID, capture.queriedTarget(),
                     "异步取数必须按被查看者 UUID 查，而不是打开者");
+            assertTrue(capture.streakQueried(),
+                    "L4：连胜必须与战绩同批取（getDuelWinStreak），否则 streak 永远显示不出来");
         }
 
         @Test
-        @DisplayName("duel.enabled=false：slot 16 只由 fillEmpty 垫灰玻璃（1 次），且调度器零交互")
+        @DisplayName("duel.enabled=false：slot 16 只由 fillEmpty 垫灰玻璃（1 次），且不查任何决斗表")
         void duelDisabledOnlyFillerAndNoDbRead() {
             stubOpenBasics();
             when(configManager.isDuelEnabled()).thenReturn(false);
@@ -318,8 +373,11 @@ class ProfileDuelRowGuardTest {
                             + "写 0 次 = 裸空槽（shift-click 会塞进玩家物品，关界面即丢）");
             assertEquals(Material.GRAY_STAINED_GLASS_PANE, capture.materialOf(slot16.get(0)),
                     "模块关闭时的 slot 16 必须是 fillEmpty 的灰玻璃");
-            verifyNoInteractions(capture.scheduler());
-            assertEquals(null, capture.queriedTarget(), "模块关闭时不得发起那次异步 DB 读（白烧 IO）");
+            // L21 起统计/金币/成就仍会派发一个异步任务（同一个 scheduleProfileBackfill），
+            // 因此这里<b>不能</b>再断言「调度器零交互」—— 那是 L21 之前的形状。
+            // 真正要钉住的是「决斗那两表一次都没查」：模块关着还查 = 纯白烧 IO。
+            assertEquals(null, capture.queriedTarget(), "模块关闭时不得查决斗战绩表（白烧 IO）");
+            assertFalse(capture.streakQueried(), "模块关闭时不得查连胜");
         }
     }
 
@@ -334,17 +392,124 @@ class ProfileDuelRowGuardTest {
      */
     private record OpenCapture(Inventory inventory, Map<Integer, List<ItemStack>> writes,
                                Map<ItemStack, Material> materials, BukkitScheduler scheduler,
-                               UUID queriedTarget) {
+                               UUID queriedTarget, boolean streakQueried) {
 
         Material materialOf(ItemStack item) {
             return item == null ? null : materials.get(item);
         }
     }
-
     /** 可变容器：{@code OpenCapture} 是 record（不可变），查询目标需要跨 lambda 回填。 */
     private static final class QueryProbe {
         private UUID value;
+        /** L4：连胜那次查询是否真的发生（与战绩查询分开记，便于断言"同批取"）。 */
+        private boolean streakQueried;
     }
+
+    // ------------------------------------------------------------------
+    // 「界面已换」场景的共用夹具
+    // ------------------------------------------------------------------
+
+    /** 最近一次 {@link #captureProfileOpenWithSwappedGui} 的替身界面写入表。 */
+    private Map<Integer, List<ItemStack>> swappedWrites;
+
+    private Map<Integer, List<ItemStack>> getSwappedWrites() {
+        return swappedWrites == null ? Map.of() : swappedWrites;
+    }
+
+    /** 回填时界面已换成「同一个目标的另一张主页」（同 key 同 payload，不同实例）。 */
+    private void captureProfileOpenWithSwappedGui(boolean duelEnabled) {
+        captureProfileOpenWithSwappedGui(duelEnabled, TARGET_ID);
+    }
+
+    /**
+     * 在 {@code open()} 全链路里让回填时玩家看的是<b>另一张</b>界面。
+     *
+     * <p>{@code swappedTarget} 决定那张界面的 holder payload：传 {@code TARGET_ID} 就是
+     * 「同一张主页被重开」（守卫 2 正常拒绝、fine 日志）；传别的 UUID 就是
+     * 「界面被换成了别人的主页」（守卫 2 WARNING）。
+     */
+    private void captureProfileOpenWithSwappedGui(boolean duelEnabled, UUID swappedTarget) {
+        assertTrue(duelEnabled, "本夹具只用于 duel.enabled=true 的守卫场景");
+        when(dataStore.getPlayerStats(TARGET_ID))
+                .thenReturn(new PlayerDataStore.PlayerStats());
+        DatabaseManager databaseManager = mock(DatabaseManager.class);
+        when(plugin.isEnabled()).thenReturn(true);
+        when(plugin.getDatabaseManager()).thenReturn(databaseManager);
+        when(databaseManager.getDuelStats(any(UUID.class)))
+                .thenReturn(new DatabaseManager.DuelStats(4, 1));
+        when(databaseManager.getDuelWinStreak(any(UUID.class))).thenReturn(0);
+
+        BukkitScheduler scheduler = mock(BukkitScheduler.class);
+        when(scheduler.runTaskAsynchronously(eq(plugin), any(Runnable.class))).thenAnswer(inv -> {
+            inv.<Runnable>getArgument(1).run();
+            return null;
+        });
+        when(scheduler.runTask(eq(plugin), any(Runnable.class))).thenAnswer(inv -> {
+            inv.<Runnable>getArgument(1).run();
+            return null;
+        });
+
+        // open() 交出的那张界面（回填<b>不该</b>写它）；写入表与替身界面各自独立，
+        // 这样「写在哪儿」才是可判定的。
+        Map<Integer, List<ItemStack>> ownWrites = new HashMap<>();
+        // 替身界面（回填时玩家真正看着的那张）。
+        Map<Integer, List<ItemStack>> swapped = new HashMap<>();
+        this.swappedWrites = swapped;
+
+        Inventory swappedTop = mock(Inventory.class);
+        Map<Integer, ItemStack> swappedSlots = new HashMap<>();
+        // lenient：守卫 1 / 2 正常工作时这些交互根本不会发生（这正是被测目标）。
+        // 一旦守卫被削弱，它们就会被消费并留下写入证据 —— 所以「未消费」是正确结果，
+        // 不该由 STRICT_STUBS 判成多余代码。
+        lenient().when(swappedTop.getSize()).thenReturn(PROFILE_SIZE);
+        lenient().when(swappedTop.getItem(anyInt()))
+                .thenAnswer(i -> swappedSlots.get((Integer) i.getArgument(0)));
+        lenient().doAnswer(i -> {
+            int slot = i.getArgument(0);
+            ItemStack item = i.getArgument(1);
+            swappedSlots.put(slot, item);
+            swapped.computeIfAbsent(slot, k -> new ArrayList<>()).add(item);
+            return null;
+        }).when(swappedTop).setItem(anyInt(), any());
+        // 替身界面的 holder：与 open() 里那张同 key 同 payload，但<b>实例不同</b>
+        // （或 payload 换了人 —— 那正是「界面被换成别人的主页」）。
+        InventoryHolder swappedHolder = com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder
+                .of(com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey.PROFILE,
+                        new com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder
+                                .GuiPayload.Target(swappedTarget));
+        lenient().when(swappedTop.getHolder()).thenReturn(swappedHolder);
+        InventoryView view = mock(InventoryView.class);
+        when(view.getTopInventory()).thenReturn(swappedTop);
+        when(viewer.getOpenInventory()).thenReturn(view);
+
+        java.util.concurrent.atomic.AtomicReference<Inventory> created =
+                new java.util.concurrent.atomic.AtomicReference<>();
+
+        try (MockedStatic<Bukkit> bukkit = mockStatic(Bukkit.class);
+             MockedConstruction<ItemStack> ignored = itemStackMock()) {
+            bukkit.when(Bukkit::getScheduler).thenReturn(scheduler);
+            bukkit.when(() -> Bukkit.createInventory(any(), anyInt(), anyString()))
+                    .thenAnswer(invocation -> {
+                        Inventory inv = statefulInventory(ownWrites, invocation.getArgument(0));
+                        created.set(inv);
+                        return inv;
+                    });
+            new ProfileGUI(plugin).open(viewer, TARGET_ID);
+        }
+
+        // 判别力自检：占位确实写进了 open() 交出的那张界面（证明链路真的跑过），
+        // 而守卫拒掉了回填 —— 替身界面一次都没被写。
+        assertTrue(ownWrites.getOrDefault(DUEL_SLOT, List.of()).size() == 1,
+                "前置条件：主线程占位应写进 open() 交出的界面且只写 1 次（实际="
+                        + ownWrites.getOrDefault(DUEL_SLOT, List.of()).size() + " → 夹具失效）");
+        assertTrue(swapped.isEmpty(),
+                "回填不得写进替身界面：守卫必须拦住（实际写了 " + swapped.size() + " 个槽位："
+                        + swapped.keySet() + "）");
+    }
+
+    // ------------------------------------------------------------------
+    // 共用夹具
+    // ------------------------------------------------------------------
 
     /**
      * 在「静态 Bukkit + ItemStack 构造」双拦截窗口内执行
@@ -358,13 +523,19 @@ class ProfileDuelRowGuardTest {
      */
     private OpenCapture captureProfileOpen(boolean duelEnabled) {
         BukkitScheduler scheduler = mock(BukkitScheduler.class);
-        AtomicReference<Inventory> createdInventory = new AtomicReference<>();
-        AtomicReference<InventoryHolder> createdHolder = new AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<Inventory> createdInventory =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<InventoryHolder> createdHolder =
+                new java.util.concurrent.atomic.AtomicReference<>();
         Map<Integer, List<ItemStack>> writes = new HashMap<>();
         Map<ItemStack, Material> materials = new IdentityHashMap<>();
         QueryProbe probe = new QueryProbe();
 
         if (duelEnabled) {
+            // L21：统计也走同一个异步任务（scheduleProfileBackfill），所以这两个 stub
+            // 只在「真的派发了回填」的用例里才存在。
+            when(dataStore.getPlayerStats(TARGET_ID))
+                    .thenReturn(new PlayerDataStore.PlayerStats());
             DatabaseManager databaseManager = mock(DatabaseManager.class);
             when(plugin.isEnabled()).thenReturn(true);
             when(plugin.getDatabaseManager()).thenReturn(databaseManager);
@@ -372,10 +543,16 @@ class ProfileDuelRowGuardTest {
                 probe.value = inv.getArgument(0);
                 return new DatabaseManager.DuelStats(4, 1);
             });
-            // lenient：这是「回填链路成立」的前置条件，不是被测对象。若 placeDuelRow 的
-            // 在线守卫被删，本用例应当只因「slot 16 被写了第 3 次」而红 —— 断言直接指向
-            // 缺陷本身，而不是被 STRICT_STUBS 的「stub 变死代码」噪音抢先。
-            lenient().when(viewer.isOnline()).thenReturn(true);
+            // L4：连胜与战绩同批取。显式给 0 —— 本类只关心「有没有按时查、查的是谁」。
+            when(databaseManager.getDuelWinStreak(any(UUID.class))).thenAnswer(inv -> {
+                probe.streakQueried = true;
+                return 0;
+            });
+            // lenient：这是「回填链路成立」的前置条件，不是被测对象。若守卫 1 被删，
+            // 本用例应当只因「slot 16 被写了第 3 次」而红 —— 断言直接指向缺陷本身，
+            // 而不是被 STRICT_STUBS 的「stub 变死代码」噪音抢先。
+            // 注意：<b>不要</b>在这里再 stub isOnline(true)。夹具在用例之后执行，
+            // 后写的 stub 会覆盖用例的 false，守卫 1 的用例当场失去判别力。
             when(scheduler.runTaskAsynchronously(eq(plugin), any(Runnable.class))).thenAnswer(inv -> {
                 inv.<Runnable>getArgument(1).run();
                 return null;
@@ -387,10 +564,7 @@ class ProfileDuelRowGuardTest {
         }
 
         try (MockedStatic<Bukkit> bukkit = mockStatic(Bukkit.class);
-             MockedConstruction<ItemStack> ignored = mockConstruction(ItemStack.class,
-                     withSettings().defaultAnswer(invocation -> "clone".equals(invocation.getMethod().getName())
-                             ? invocation.getMock()
-                             : Answers.RETURNS_DEFAULTS.answer(invocation)),
+             MockedConstruction<ItemStack> ignored = itemStackMock(
                      (mockItem, ctx) -> materials.put(mockItem, (Material) ctx.arguments().get(0)))) {
 
             if (duelEnabled) {
@@ -398,27 +572,18 @@ class ProfileDuelRowGuardTest {
             }
             bukkit.when(() -> Bukkit.createInventory(any(), anyInt(), anyString()))
                     .thenAnswer(invocation -> {
-                        Inventory inv = mock(Inventory.class);
-                        createdInventory.set(inv);
                         createdHolder.set(invocation.getArgument(0));
-                        Map<Integer, ItemStack> slots = new HashMap<>();
-                        when(inv.getSize()).thenReturn(PROFILE_SIZE);
-                        when(inv.getItem(anyInt()))
-                                .thenAnswer(i -> slots.get((Integer) i.getArgument(0)));
-                        doAnswer(i -> {
-                            int slot = i.getArgument(0);
-                            ItemStack item = i.getArgument(1);
-                            slots.put(slot, item);
-                            writes.computeIfAbsent(slot, k -> new ArrayList<>()).add(item);
-                            return null;
-                        }).when(inv).setItem(anyInt(), any());
+                        Inventory inv = statefulInventory(writes, invocation.getArgument(0));
+                        createdInventory.set(inv);
                         if (duelEnabled) {
-                            // 只有回填链会读 holder（placeDuelRow 守卫 2）；模块关闭时
+                            // 只有回填链会读 holder（stillViewing 守卫 2）；模块关闭时
                             // 铺了就是 STRICT_STUBS 下的多余 stub。
-                            when(inv.getHolder()).thenAnswer(i -> createdHolder.get());
+                            // lenient：守卫 1 / 守卫 2 的拒绝用例里回填在拿到界面前就
+                            // return 了，这两条 stub 会变成「未消费」—— 它们是回填链的
+                            // 前置条件，不是被测对象，不该由 STRICT_STUBS 报红。
                             InventoryView view = mock(InventoryView.class);
-                            when(view.getTopInventory()).thenAnswer(i -> createdInventory.get());
-                            when(viewer.getOpenInventory()).thenReturn(view);
+                            lenient().when(view.getTopInventory()).thenAnswer(i -> createdInventory.get());
+                            lenient().when(viewer.getOpenInventory()).thenReturn(view);
                         }
                         return inv;
                     });
@@ -427,6 +592,58 @@ class ProfileDuelRowGuardTest {
         }
 
         verify(viewer, times(1)).openInventory(same(createdInventory.get()));
-        return new OpenCapture(createdInventory.get(), writes, materials, scheduler, probe.value);
+        return new OpenCapture(createdInventory.get(), writes, materials, scheduler,
+                probe.value, probe.streakQueried);
+    }
+
+    /**
+     * 状态化 Inventory mock：{@code getItem}/{@code setItem} 背后挂一张 Map，且每次写入
+     * 都记进 {@code writes}（同一槽位保留写入序列，用来数「占位 / 回填 / fillEmpty」）。
+     *
+     * <p>{@code getHolder()} 一律返回 {@code holder} —— 生产里 {@code createInventory}
+     * 挂的就是同一个实例，守卫 2 的引用比较靠它成立。
+     */
+    private static Inventory statefulInventory(Map<Integer, List<ItemStack>> writes,
+                                               InventoryHolder holder) {
+        Inventory inv = mock(Inventory.class);
+        Map<Integer, ItemStack> slots = new HashMap<>();
+        when(inv.getSize()).thenReturn(PROFILE_SIZE);
+        when(inv.getItem(anyInt())).thenAnswer(i -> slots.get((Integer) i.getArgument(0)));
+        doAnswer(i -> {
+            int slot = i.getArgument(0);
+            ItemStack item = i.getArgument(1);
+            slots.put(slot, item);
+            writes.computeIfAbsent(slot, k -> new ArrayList<>()).add(item);
+            return null;
+        }).when(inv).setItem(anyInt(), any());
+        lenient().when(inv.getHolder()).thenReturn(holder);
+        return inv;
+    }
+
+    private static MockedConstruction<ItemStack> itemStackMock() {
+        return itemStackMock(null);
+    }
+
+    /**
+     * ItemStack 构造拦截：纯 JVM 无 RegistryAccess，且 {@code clone()} 必须返回自身。
+     *
+     * <p>{@code onConstruct} 可选：用来记录「每个 ItemStack 是用什么 Material 造的」，
+     * 从而区分占位 / 回填（IRON_SWORD）与 {@code fillEmpty} 的灰玻璃。
+     */
+    private static MockedConstruction<ItemStack> itemStackMock(
+            org.mockito.MockedConstruction.MockInitializer<ItemStack> onConstruct) {
+        if (onConstruct == null) {
+            return mockConstruction(ItemStack.class,
+                    withSettings().defaultAnswer(invocation ->
+                            "clone".equals(invocation.getMethod().getName())
+                                    ? invocation.getMock()
+                                    : Answers.RETURNS_DEFAULTS.answer(invocation)));
+        }
+        return mockConstruction(ItemStack.class,
+                withSettings().defaultAnswer(invocation ->
+                        "clone".equals(invocation.getMethod().getName())
+                                ? invocation.getMock()
+                                : Answers.RETURNS_DEFAULTS.answer(invocation)),
+                onConstruct);
     }
 }

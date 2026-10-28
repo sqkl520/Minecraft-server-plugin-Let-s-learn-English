@@ -23,6 +23,9 @@ import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.Arrays;
+import java.util.Deque;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.BiConsumer;
@@ -121,10 +124,13 @@ class ChatFeedbackLearningLoopTest {
     /**
      * {@code deliverEnd} → {@code deliverEndMain} 的展示链最小依赖。
      *
-     * <p>刻意<b>不</b>在这里 stub {@code plugin.getDatabaseManager()} 或
-     * {@code plugin.isEnabled()}：主线程路径下本地行落库走 {@code CompletableFuture}，
-     * 未 stub 的 {@code isEnabled()} 默认 false 会在写任务入口直接短路 —— 于是展示组
-     * 不需要 DB，也不会留下「没人消费」的 stub。
+     * <p>L1 之后这里必须铺 {@code getDatabaseManager()}：{@code writeTask} 的守卫已从
+     * {@code plugin.isEnabled()} 改成「本类的 accepting/draining 双闸」，因此写任务不再在
+     * 未启用态短路 —— 不铺 DB 时它会 NPE（被 catch 吞掉，但日志噪音 + 断言不再聚焦）。
+     *
+     * <p>用 {@code lenient()}：写任务在 commonPool 上异步执行，「是否已被消费」由调度时刻
+     * 决定，不是本类用例的断言对象。STRICT_STUBS 若在这里报多余 stub，只会是时序抖动，
+     * 而不是「测试写了死代码」。
      */
     private void stubDeliverBasics() {
         when(plugin.getConfigManager()).thenReturn(configManager);
@@ -132,6 +138,7 @@ class ChatFeedbackLearningLoopTest {
         when(plugin.getMessageUtil()).thenReturn(messageUtil);
         when(messageUtil.getPlayerMessage(any(Player.class), anyString(), any(String[].class)))
                 .thenReturn("msg");
+        lenient().when(plugin.getDatabaseManager()).thenReturn(databaseManager);
     }
 
     /** 玩家在线 + UUID（mock 的 {@code isOnline()} 默认是 false，不 stub 会静默早退成假绿）。 */
@@ -382,13 +389,14 @@ class ChatFeedbackLearningLoopTest {
         void quitPersistsLocalRow() {
             when(plugin.getConfigManager()).thenReturn(configManager);
             when(configManager.getMainConfig()).thenReturn(mainConfig);
-            when(plugin.isEnabled()).thenReturn(true);
             when(plugin.getDatabaseManager()).thenReturn(databaseManager);
             when(player.getUniqueId()).thenReturn(PLAYER_ID);
 
             feedbackManager.persistOnQuit(player, qualifiedSummary());
 
-            // 落库在 CompletableFuture 上：用 timeout 等，不 sleep
+            // 落库在 CompletableFuture 上：用 timeout 等，不 sleep。
+            // L1 起不再 stub plugin.isEnabled()：writeTask 的守卫已换成 accepting/draining
+            // 双闸（isEnabled 在 onDisable 之前就是 false，正是 L1 的本体缺陷）。
             verify(databaseManager, timeout(2000)).upsertChatFeedback(
                     eq(PLAYER_ID), eq(SESSION_ID), eq("village_trade"), eq("medium"),
                     eq(3), eq(2), eq(42), eq("local"), isNull());
@@ -407,6 +415,110 @@ class ChatFeedbackLearningLoopTest {
             verify(databaseManager, never()).upsertChatFeedback(
                     any(), anyString(), anyString(), anyString(),
                     anyInt(), anyInt(), anyInt(), anyString(), any());
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // B'. 目标词快照的清空语义（L5）
+    // ------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("组 B' —— L5：空场次必须清掉上一场的目标词")
+    class FocusWordsAreCleared {
+
+        /**
+         * 两场连打的回调装配：同一次 stub 按<b>调用顺序</b>依次回放给定 feedback。
+         *
+         * <p>为什么不调两次 {@code stubSummaryCallback}：对「同方法 + 同 matcher」重复 stub
+         * 在 STRICT_STUBS 下会让前一次变成「从未被消费」，掩盖真正的死代码；而且两场的
+         * {@code SessionSummary} 不同，{@code eq(summary)} 匹配本就需要两次 stub —— 队列写法
+         * 一次覆盖 N 场，并把「回调次数超出预置」变成显式断言。
+         */
+        private void stubSummarySequence(ConversationFeedback... feedbacks) {
+            Deque<ConversationFeedback> queue = new ArrayDeque<>(Arrays.asList(feedbacks));
+            when(aiChatManager.canRequestConversationSummary(player)).thenReturn(true);
+            when(aiChatManager.getScenarioDisplayName(player, "village_trade"))
+                    .thenReturn("Village Trade");
+            doAnswer(invocation -> {
+                BiConsumer<ConversationFeedback, String> callback = invocation.getArgument(2);
+                ConversationFeedback next = queue.poll();
+                assertTrue(next != null, "AI 点评回放次数超过预置的 feedback 队列长度");
+                callback.accept(next, null);
+                return null;
+            }).when(aiChatManager).requestConversationSummary(eq(player), any(), any());
+        }
+
+        /** 第二场快照（sessionId 与第一场不同，避免与去重/落库语义纠缠）。 */
+        private AIChatManager.SessionSummary secondSummary() {
+            return new AIChatManager.SessionSummary(
+                    "sess0002", "village_trade", "medium", 3, 2, true, 2_000L, 30L, List.of());
+        }
+
+        /**
+         * L5 回归：某场「没有任何纠错词与推荐词」时，上一场的目标词必须被清空。
+         *
+         * <p>原实现是 {@code if (!focusWords.isEmpty()) put(...)} —— 空场次什么都不做，
+         * 于是 {@code suggestedFocusWords} 里残留着<b>更早</b>一场的值，被下一场 prompt
+         * 当成本场目标词注入。玩家看到的 TARGET WORDS 与刚结束的那场毫无关系，
+         * 「重点练什么」这条信号彻底失真。
+         *
+         * <p>为什么必须走两次 {@code deliverEnd}（而不是直接反射写 map）：L5 的缺陷在
+         * 「写入点少了 else 分支」，只有完整跑一遍 applyToLearningLoop 才能覆盖真实路径；
+         * 直接改 map 只测到测试自己。
+         */
+        @Test
+        @DisplayName("第一场有 focus words、第二场为空 → 旧值必须被清空")
+        void emptySessionClearsPreviousFocusWords() {
+            stubDeliverBasics();
+            stubLearningLoopTargets();
+            stubOnlinePlayer();
+            stubLogger();
+            when(configManager.isWordSystemEnabled()).thenReturn(true);
+            stubWordBank("go", "pear");
+            when(dataStore.incrementWrongCount(PLAYER_ID, "go")).thenReturn(1);
+            stubSummarySequence(
+                    new ConversationFeedback("Good", List.of(
+                            new ConversationFeedback.Correction("goes", "go", "三单")), List.of("pear")),
+                    new ConversationFeedback("Nice", List.of(), List.of()));
+
+            // 第一场：一条词级纠错 + 一个推荐词 → 快照 [go, pear]
+            deliverEndOnPrimaryThread(qualifiedSummary());
+            assertEquals(List.of("go", "pear"), feedbackManager.getSuggestedFocusWords(PLAYER_ID),
+                    "前置条件不成立：第一场没有写入目标词，本用例测不到清空语义");
+
+            // 第二场：既无纠错、也无推荐词 → 快照必须变成空表
+            deliverEndOnPrimaryThread(secondSummary());
+
+            assertTrue(feedbackManager.getSuggestedFocusWords(PLAYER_ID).isEmpty(),
+                    "空场次没有清掉上一场的目标词 —— 下一场 prompt 会注入两场前的词（L5 回归）");
+        }
+
+        /**
+         * 反向护栏：清空只影响「本场没有产出」这一情形，有产出的场次照常覆盖。
+         *
+         * <p>没有这条，把实现改成「无条件 remove」也能让上一条变绿 —— 那会让目标词注入
+         * 整个失效（每次都只剩空表）。
+         */
+        @Test
+        @DisplayName("反向：有产出的第二场必须覆盖（不是无条件清空）")
+        void nonEmptySessionOverwritesPreviousFocusWords() {
+            stubDeliverBasics();
+            stubLearningLoopTargets();
+            stubOnlinePlayer();
+            stubLogger();
+            when(configManager.isWordSystemEnabled()).thenReturn(true);
+            stubWordBank("trade", "emerald");
+            stubSummarySequence(
+                    new ConversationFeedback("Good", List.of(), List.of("trade")),
+                    new ConversationFeedback("Nice", List.of(), List.of("emerald")));
+
+            deliverEndOnPrimaryThread(qualifiedSummary());
+            assertEquals(List.of("trade"), feedbackManager.getSuggestedFocusWords(PLAYER_ID));
+
+            deliverEndOnPrimaryThread(secondSummary());
+
+            assertEquals(List.of("emerald"), feedbackManager.getSuggestedFocusWords(PLAYER_ID),
+                    "第二场的目标词没有覆盖第一场 —— 玩家会被引导去练旧的词");
         }
     }
 
@@ -432,6 +544,8 @@ class ChatFeedbackLearningLoopTest {
             when(plugin.getPlayerLanguage(player)).thenReturn("en");
             when(player.getUniqueId()).thenReturn(PLAYER_ID);
             when(plugin.getDatabaseManager()).thenReturn(databaseManager);
+            // L1 起 writeTask 不再看 plugin.isEnabled()，但 AIChatManager 的
+            // isShuttingDownOrDisabled() 仍然看 —— 不铺 true 会在写 system prompt 前短路。
             when(plugin.isEnabled()).thenReturn(true);
 
             AIChatManager ai = new AIChatManager(plugin);

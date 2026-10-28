@@ -103,7 +103,29 @@ public class DailyChallengeManager {
     private final LetsLearnEnglish plugin;
     private final WordManagerImpl wordManager;
     private final DailyChallengeRepository repository;
-    private final Set<UUID> wordChallengeClaimedToday;
+
+    /**
+     * "已付"内存快路径：玩家 → 已确认发过奖的挑战日集合（{@code yyyy-MM-dd}）。
+     *
+     * <p><b>L18 修复</b>：原实现是无日期维度的 {@code Set<UUID>}。而
+     * {@link #hasPendingWordRewardForDate(UUID, String)} 的入参 {@code date} 是"要结算的
+     * 那一天"（rollover 传昨日），第一道门却只问"这个玩家今天有没有付过"——
+     * rollover 延迟（服务器卡顿 / 定时任务被推迟到下一个 tick 周期之后）时，玩家在
+     * rollover 真正执行前已经领了<b>今天</b>的奖励，{@code contains} 命中 → 判定<b>昨日</b>
+     * "已付" → 昨日的 pending 奖励被误判成已发，实际从未发放且不会再补发（永久丢奖）。</p>
+     *
+     * <p>故改为按日期记录：查询"某日是否已付"必须命中<b>该日</b>，别的日期的标记不再
+     * 干扰判定。为什么是"玩家 → 日期集合"而不是"玩家 → 单个日期"：rollover 补发写的是
+     * 昨日，而玩家可能已经在同一进程内领过今日 —— 单个日期字段会被覆盖，进而让
+     * {@link #isRewardSettled} 误判"今日未付"、重复发钱（DB 台账 INSERT 幂等，但 Vault
+     * 转账不幂等）。集合同时容纳两三天，正好覆盖这个窗口。</p>
+     *
+     * <p>内存有界：每个玩家每天最多新增 1 个日期，午夜 rollover 由
+     * {@link #clearAllWordChallengeClaims()} 全量清空；两个日期并存是上限级常量。
+     * 线程安全：外层 map 与内层集合均为并发实现（与改造前同一线程纪律，读写点分布在
+     * 主线程/异步 rollover 段）。</p>
+     */
+    private final Map<UUID, Set<String>> wordChallengeClaimedDates;
 
     /**
      * R7-B ③：per-player 单词挑战当日缓存（答对路径去重查询）。
@@ -135,7 +157,7 @@ public class DailyChallengeManager {
      *
      * <p>可变字段只有 {@code completedWords} / {@code rewardPaid} /
      * {@code completedConfirmedByDb}，且写入全部发生在 {@link #onWordCorrect} 与发奖路径上
-     * （主线程 / stripe lock 内，与既有 {@code wordChallengeClaimedToday} 同一线程纪律）；
+     * （主线程 / stripe lock 内，与既有 {@code wordChallengeClaimedDates} 同一线程纪律）；
      * 读取侧（{@link #getTodayWordDetails} 等 GUI 路径）只做遍历与包含判断。集合本身用
      * 并发实现，避免 GUI 线程遍历时与答题线程写入相互踩踏。</p>
      */
@@ -205,8 +227,9 @@ public class DailyChallengeManager {
         // 数据访问已收编到仓储（纯机械搬家；stripe lock 仍在本类，见 checkAndAssign /
         // claimReward）。DatabaseManager 在构造本类之前已完成 initialize()，tablePrefix 可用。
         this.repository = new DailyChallengeRepository(plugin.getDatabaseManager(), plugin.getLogger());
-        // M8 附带 + F1-10：已领取标记集合（Phase 1 流 C 在用，不能删），换线程安全实现
-        this.wordChallengeClaimedToday = ConcurrentHashMap.newKeySet();
+        // M8 附带 + F1-10：已领取标记（Phase 1 流 C 在用，不能删），换线程安全实现。
+        // L18：Set<UUID> → Map<UUID, Set<String>>，按挑战日记录"已付"，见字段 javadoc。
+        this.wordChallengeClaimedDates = new ConcurrentHashMap<>();
         for (int i = 0; i < claimStripeLocks.length; i++) {
             claimStripeLocks[i] = new Object();
         }
@@ -675,7 +698,7 @@ public class DailyChallengeManager {
      *
      * <p>只看两个进程内标志，<b>零查库</b>：{@link #hasPendingWordReward} 在返回 false
      * 之前若命中 DB 台账，会同步置 {@code state.rewardPaid} 并回填
-     * {@code wordChallengeClaimedToday}。所以在 {@code onWordCorrect} 里、
+     * {@code wordChallengeClaimedDates}。所以在 {@code onWordCorrect} 里、
      * {@code hasPendingWordReward} 刚返回 false 之后，这两位即"已付"的等价判据。</p>
      *
      * <p>为什么新调用点必须复判：{@code hasPendingWordReward} 返回 false 有两种含义——
@@ -688,7 +711,37 @@ public class DailyChallengeManager {
      * @return true = 今日奖励已结算，不得再发
      */
     private boolean isRewardSettled(UUID playerId, DailyWordChallengeState state) {
-        return state.rewardPaid || wordChallengeClaimedToday.contains(playerId);
+        return state.rewardPaid || isWordChallengeClaimedOn(playerId, state.date);
+    }
+
+    /**
+     * L18：某玩家在<b>指定挑战日</b>是否已确认发过奖（内存快路径，零查库）。
+     *
+     * <p>日期维度是本次修复的核心：调用方传哪一天，就只回答那一天的已付状态。</p>
+     *
+     * @param playerId 玩家
+     * @param date     挑战日 {@code yyyy-MM-dd}
+     * @return true = 该日的单词挑战奖励已发放（或已终态标记）
+     */
+    private boolean isWordChallengeClaimedOn(UUID playerId, String date) {
+        Set<String> dates = wordChallengeClaimedDates.get(playerId);
+        return dates != null && dates.contains(date);
+    }
+
+    /**
+     * L18：标记某玩家<b>指定挑战日</b>的单词挑战奖励已处理（到账成功 / 经济禁用终态）。
+     *
+     * <p>只能在 {@code markDailyWordRewardClaimed} 之后调用（与 DB 台账同序；台账是防重启
+     * 真源，内存位只是快路径）。rollover 补发传的是昨日 —— 这正是必须按日期记录的理由：
+     * 标昨日不能连今日一起标，否则会误封今日奖励。</p>
+     *
+     * @param playerId 玩家
+     * @param date     本次发放归属的挑战日 {@code yyyy-MM-dd}
+     */
+    private void markWordChallengeClaimedOn(UUID playerId, String date) {
+        wordChallengeClaimedDates
+                .computeIfAbsent(playerId, k -> ConcurrentHashMap.newKeySet())
+                .add(date);
     }
 
     /**
@@ -767,7 +820,7 @@ public class DailyChallengeManager {
      * R7-B：quit 清理钩子（与 {@code PlayerDataStore.unloadPlayerData} 同模式）——
      * 下线即丢弃该玩家的当日单词挑战缓存，防缓存随在线玩家数无量增长。
      *
-     * <p>只清缓存、<strong>不动</strong> {@code wordChallengeClaimedToday}：后者是
+     * <p>只清缓存、<strong>不动</strong> {@code wordChallengeClaimedDates}：后者是
      * "已付"的内存快路径，清掉虽安全（DB 台账兜底）但非必要，保持原语义不变。</p>
      *
      * <p>R7-D（P1-1）：失效点有两个 —— ① 玩家 quit（本方法，{@code PlayerJoinListener}
@@ -789,7 +842,7 @@ public class DailyChallengeManager {
      * R7-D（P1-1）：{@code /lea reset} 的内存态失效点 —— 清当日单词挑战缓存<b>与</b>
      * "今日已付"内存位。
      *
-     * <p>与 {@link #unloadPlayer(UUID)} 的唯一差别是多清 {@code wordChallengeClaimedToday}，
+     * <p>与 {@link #unloadPlayer(UUID)} 的唯一差别是多清 {@code wordChallengeClaimedDates}，
      * 原因：reset 经 {@code DatabaseManager.deletePlayerData} 删掉
      * {@code daily_challenge_words} / {@code daily_word_reward_claims} 两表的玩家行，DB 侧
      * 回到"今日未分配、未发奖"；若只清 {@code dailyWordStateCache}，内存里的已付位仍在
@@ -807,7 +860,7 @@ public class DailyChallengeManager {
      */
     public void resetPlayer(UUID playerId) {
         dailyWordStateCache.remove(playerId);
-        wordChallengeClaimedToday.remove(playerId);
+        wordChallengeClaimedDates.remove(playerId);
     }
 
     /**
@@ -826,9 +879,11 @@ public class DailyChallengeManager {
      * @return true if today's word reward money has arrived
      */
     public boolean isWordRewardPaidToday(UUID playerId) {
-        return wordChallengeClaimedToday.contains(playerId)
-                || plugin.getDatabaseManager().isDailyWordRewardClaimed(
-                        playerId, LocalDate.now().toString());
+        // 只取一次「今天」：跨午夜瞬间两次 LocalDate.now() 可能落在不同日期，
+        // 那会让内存判定查今日、DB 判定查昨日（或反之），得出自相矛盾的结论。
+        String today = LocalDate.now().toString();
+        return isWordChallengeClaimedOn(playerId, today)
+                || plugin.getDatabaseManager().isDailyWordRewardClaimed(playerId, today);
     }
 
     /**
@@ -841,7 +896,7 @@ public class DailyChallengeManager {
      * completed=true → 每答对一题重复发钱。
      *
      * <p><strong>R7-B ③：判定顺序/真源不变，只把"查什么"换成当日缓存</strong>——
-     * ① 仍是 {@code wordChallengeClaimedToday}（不缓存）；② 缓存 {@code rewardPaid}
+     * ① 仍是 {@code wordChallengeClaimedDates} 里<b>今日</b>的那一位（不缓存）；② 缓存 {@code rewardPaid}
      * 为 true 时短路（它只可能在 {@code markDailyWordRewardClaimed} 之后置位），为 false 时
      * <strong>照旧回查 DB 台账</strong>（绝不把"未付"当"已付"）；③ 用缓存的
      * {@code completedWords} 作快判。R7-D（P1-2）：③ 的 {@code allCompleted()} 现在还多认得
@@ -855,19 +910,22 @@ public class DailyChallengeManager {
      * @return true if payout is pending and should be retried
      */
     private boolean hasPendingWordReward(UUID playerId, String today, DailyWordChallengeState state) {
-        if (wordChallengeClaimedToday.contains(playerId)) {
+        // L18：第一道门带日期 —— 只认"今天"的已付标记。旧实现是无日期 Set，
+        // 会把别的日期的已付错当今日已付（反向地，rollover 判定昨日时也会把今天的
+        // 已付错当昨日已付，见 hasPendingWordRewardForDate）。
+        if (isWordChallengeClaimedOn(playerId, today)) {
             return false;
         }
         if (state.rewardPaid) {
             // 缓存已确认写过台账（markDailyWordRewardClaimed 之后置位）→ 等价原 DB 命中。
-            wordChallengeClaimedToday.add(playerId); // 回填内存，后续走快路径
+            markWordChallengeClaimedOn(playerId, today); // 回填内存，后续走快路径
             return false;
         }
         // 注意：rewardPaid 为 false 有两种含义 —— "确认未付"与"查询失败" —— 两者都
         // 必须回查 DB（失败时回查同样失败 → 仍按未付处理，与原降级语义一致）。
         if (plugin.getDatabaseManager().isDailyWordRewardClaimed(playerId, today)) {
-            state.rewardPaid = true;                  // 缓存同步 DB 真源
-            wordChallengeClaimedToday.add(playerId); // 回填内存，后续走快路径
+            state.rewardPaid = true;                        // 缓存同步 DB 真源
+            markWordChallengeClaimedOn(playerId, today);    // 回填内存，后续走快路径
             return false;
         }
         return state.allCompleted();
@@ -877,7 +935,7 @@ public class DailyChallengeManager {
      * Called when all word challenges for today are completed.
      * Deposits the flat reward and sends the celebration chat.
      *
-     * <p>M12: deposit-then-mark. The claimed flag ({@link #wordChallengeClaimedToday})
+     * <p>M12: deposit-then-mark. The claimed flag ({@link #wordChallengeClaimedDates})
      * is set only AFTER the Vault transfer succeeds. If the deposit fails, the
      * celebration is withheld, the player gets a retry hint, and the next
      * {@link #onWordCorrect} invocation (any correct answer) retries — so the
@@ -911,7 +969,8 @@ public class DailyChallengeManager {
                 // 恒 true 导致每答对一题重入刷屏；发一次 economy-disabled 说明，不承诺"稍后补发"。
                 // 修复批 A（R10-H1）：终态同样写 DB 标记 —— 防重启后内存清空、
                 // 每答对一题重复刷 economy-disabled 提示。
-                wordChallengeClaimedToday.add(playerId);
+                // L18：内存位按 claimDate 记录（rollover 补发传昨日，不能连今日一起标）。
+                markWordChallengeClaimedOn(playerId, claimDate);
                 plugin.getDatabaseManager().markDailyWordRewardClaimed(playerId, claimDate);
                 syncCachedRewardPaid(playerId, claimDate); // R7-B ③：台账写后同步缓存
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
@@ -926,7 +985,8 @@ public class DailyChallengeManager {
 
         // Success: mark claimed only after money arrived.
         // 修复批 A（R10-H1）：DB 台账同步标记（SQLException 静默降级记 WARNING，不阻断庆祝）。
-        wordChallengeClaimedToday.add(playerId);
+        // L18：内存位按 claimDate 记录 —— rollover 补发传昨日，只标昨日。
+        markWordChallengeClaimedOn(playerId, claimDate);
         plugin.getDatabaseManager().markDailyWordRewardClaimed(playerId, claimDate);
         syncCachedRewardPaid(playerId, claimDate); // R7-B ③：台账写后同步缓存
 
@@ -1038,9 +1098,15 @@ public class DailyChallengeManager {
      * 本就会失效重建，此处主动清是防"离线玩家条目"在 map 里滞留（与
      * {@link #unloadPlayer} 双保险，两者都不影响已付/未付判定真源：缓存 {@code rewardPaid}
      * 为 false 时仍回查 DB 台账）。</p>
+     *
+     * <p>L18：语义仍是<b>全清</b>（所有玩家、所有日期的内存"已付"位），不是"清某天"。
+     * 按日期记录后本可以只裁掉早于昨日的日期，但这里保持原有"全清"时序 ——
+     * 调用点在补发之后，清掉后安全性由 DB 台账（{@code daily_word_reward_claims}）兜底：
+     * 内存未命中只会让下次判定多一条 SELECT，绝不会误判"未付"（DB 先被查、命中即回填）。
+     * 全清还能顺带释放离线玩家条目，避免长期运行下 map 只增不减。</p>
      */
     public void clearAllWordChallengeClaims() {
-        wordChallengeClaimedToday.clear();
+        wordChallengeClaimedDates.clear();
         dailyWordStateCache.clear();
     }
 
@@ -1060,7 +1126,7 @@ public class DailyChallengeManager {
      * "已完成但未付"，就地补发（{@link #onAllWordChallengesComplete} 发放 flat 奖励并标记已付），
      * 补发成功即返回 false（不再算作废）。安全性关键：本方法<strong>只在午夜 rollover 的
      * per-online-player 循环里被调用</strong>（见 LetsLearnEnglish.scheduleMidnightRollover），
-     * 此刻服务器自上个午夜起连续在线、{@code wordChallengeClaimedToday} 标记仍有效（尚未
+     * 此刻服务器自上个午夜起连续在线、{@code wordChallengeClaimedDates} 标记仍有效（尚未
      * {@link #clearAllWordChallengeClaims} 全清），因此"已付昨日"会命中 contains 直接返回 false、
      * 绝不会重复补发；重启跨午夜时该定时任务本就不触发，故也不会在重启后误补（无双发风险）。
      * 修复批 A（R10-H1）：DB 台账（{@code daily_word_reward_claims}）按日查重为第二道
@@ -1068,13 +1134,21 @@ public class DailyChallengeManager {
      * 补发走主线程（rollover 非异步），对在线玩家发币安全。
      * <p>调用约束：必须在 {@link #clearAllWordChallengeClaims()} 之前调用（rollover 时序），否则 pending 判定失真。</p>
      *
+     * <p><b>L18 修复</b>：第一道门原本是无日期 {@code Set<UUID>} 的 {@code contains}，
+     * 只问"这个玩家今天付过没有"，与本方法的 {@code date}（要结算的那一天）无关。
+     * rollover 延迟到玩家已领今日奖励之后执行时，今日的标记会让昨日 pending 被误判为
+     * 已付 → 昨日奖励永久丢失。现内存标记按日期记录，三次判定（首门 / DB 台账 / 补发后
+     * 复判）全部对齐 {@code date}。</p>
+     *
      * @param playerId the player
      * @param date the day to settle (rollover 传昨日)
      * @return true 仅当该日仍"已完成但未补发成功"（真正作废，用于作废提示）
      */
     public boolean hasPendingWordRewardForDate(UUID playerId, String date) {
-        if (wordChallengeClaimedToday.contains(playerId)) {
-            return false; // 已付，无 pending
+        // L18：只认"该结算日"的已付标记。绝不能只问"这个玩家是否有任何已付记录"——
+        // rollover 延迟时玩家可能已在同一进程内领过今日奖励，那与昨日是否已付无关。
+        if (isWordChallengeClaimedOn(playerId, date)) {
+            return false; // 该日已付，无 pending
         }
         if (plugin.getDatabaseManager().isDailyWordRewardClaimed(playerId, date)) {
             return false; // 该日已付（DB 真源；重启后内存清空亦不重复补发）
@@ -1087,8 +1161,9 @@ public class DailyChallengeManager {
         if (player != null && player.isOnline()) {
             // 修复批 A（R10-H1）：补发按"昨日"标记（不能标成今日，否则误封今日挑战奖励）。
             onAllWordChallengesComplete(player, date);
-            // 补发成功则 wordChallengeClaimedToday 已含该玩家 → 不再算作废。
-            return !wordChallengeClaimedToday.contains(playerId);
+            // L18：补发把 {@code date} 写进了按日期记录的内存位，故这里同日期复判 ——
+            // 若发币失败（仍 pending）则返回 true（真正作废，用于作废提示）。
+            return !isWordChallengeClaimedOn(playerId, date);
         }
         // 玩家不在线（rollover 循环理论上只遍历在线玩家，兜底）——无法发币，仍算作废。
         return true;
