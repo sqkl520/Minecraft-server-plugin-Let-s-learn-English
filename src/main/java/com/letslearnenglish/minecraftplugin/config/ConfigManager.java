@@ -35,7 +35,7 @@ import java.util.logging.Level;
  */
 public class ConfigManager {
 
-    private static final int MESSAGE_CONFIG_VERSION = 21;
+    private static final int MESSAGE_CONFIG_VERSION = 26;
 
     /**
      * P0-2：合并递归深度上限。语言文件实际只有 2~3 层，这里留足余量；上限只防

@@ -46,7 +46,7 @@ const en = leafKeys('src/main/resources/messages/en.yml');
 const sections = new Set(['general','module','ai-chat','error','word','review','dialogue','achievement','achievement-wall',
  'leaderboard','progress','admin','wordbank','placeholder','join','update','language','help','checkin','scenario','duel',
  'admin-help','plugin-info','gui','main-menu','daily','daily-challenge','word-learning-gui','progress-gui','square',
- 'word-bank','calendar','profile','chat-history','wrong-book','onboarding','report','dialogue-gui','season','class']);
+ 'word-bank','calendar','profile','chat-history','wrong-book','onboarding','report','dialogue-gui','season','class','server']);
 const missing = [];
 // R10-L5：以 '-' 或 '.' 结尾的键是代码里的前缀拼接串（如 "achievement-wall.category-" +
 // 枚举名），不是完整字面键 —— 跳过并单独计数，消除假阳性。

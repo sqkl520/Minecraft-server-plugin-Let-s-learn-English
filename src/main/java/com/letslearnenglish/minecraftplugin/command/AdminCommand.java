@@ -3,6 +3,7 @@ package com.letslearnenglish.minecraftplugin.command;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.ProxyMessenger;
 import com.letslearnenglish.minecraftplugin.core.manager.DataExporter;
+import com.letslearnenglish.minecraftplugin.core.manager.HotReloadManager;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -58,10 +59,9 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
         // 子服总开关（server.enabled=false）：除 /lea reload 外一律拒绝。
         // 位置刻意在权限检查**之后** —— 未授权玩家先吃 no-permission，探测不到本服
         // 开关状态（否则任何人执行 /lea 就能得知这台子服是否装了英语学习功能）。
-        // 放行 reload 的理由：服主改完 server.enabled 需要它把配置读进来；reload 本身
-        // 只刷新配置（HotReloadManager 内部对各 Manager 有 null 守卫），不会因缺 Manager
-        // 而 NPE。注意 reload **不能**让本开关即时完整生效（监听器/任务不会动态装卸），
-        // 见 config.yml 顶部注释与 /lea reload 的输出提示。
+        // 放行 reload 的理由：它是开关的**装配闸门本身** —— reloadAll() 会用
+        // RuntimeModules.classify 判断「该装 / 该拆 / 只刷配置」，改完 server.enabled
+        // 执行一次 reload 就能双向生效，无需重启（见 HotReloadManager 与 config.yml 顶部注释）。
         if (!plugin.isFullyEnabled() && !"reload".equals(subCommand)) {
             sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "server.disabled"));
             return true;
@@ -74,9 +74,14 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
 
         switch (subCommand) {
             case "reload":
-                plugin.getHotReloadManager().reloadAll();
+                // 用返回的 ReloadResult 选文案，而不是 requery 一次 isFullyEnabled()：
+                // reload 现在有五种结局（装上了 / 拆掉了 / 完整重载 / 只刷配置 / 失败），
+                // 二元判据必然把其中至少两种成功折叠成同一个提示 —— 上一轮「绿字说已加载、
+                // 玩家却发现功能没恢复」的谎报就是这么来的。命令层只管映射，不猜状态。
+                HotReloadManager.ReloadResult reloadResult =
+                        plugin.getHotReloadManager().reloadAll();
                 sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
-                        "general.reload-success"));
+                        reloadMessageKey(reloadResult)));
                 break;
             case "export":
                 // R9-H1：主线程仅取快照（UUID+名字），文件 IO 与 cache-miss 查库全异步。
@@ -186,6 +191,37 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
         }
 
         return true;
+    }
+
+    /**
+     * {@code /lea reload} 的结局 → i18n 键。抽成静态纯函数是为了能被单测直接钉住：
+     * 任何一个枚举值漏映射都会退回「配置已重新加载」这条绿字，而绿字正是上一轮谎报的载体。
+     *
+     * <p>五分支说明：
+     * <ul>
+     *   <li>{@code ENABLED} —— 开关刚由 false 改成 true，运行时已装好，功能此刻可用；</li>
+     *   <li>{@code DISABLED} —— 开关刚由 true 改成 false，运行时已拆掉，数据已落盘；</li>
+     *   <li>{@code FULL} —— 本来就开着，常规完整重载；</li>
+     *   <li>{@code CONFIG_ONLY} —— 运行时未装配，只读了配置。文案必须与「需重启」脱钩：
+     *       reload 已能装卸，此状态的含义是「本服 server.enabled=false」或「上次装配失败」；</li>
+     *   <li>{@code FAILED} —— 装配/拆解抛了异常，必须明确说「已回滚到关闭态，看控制台」，
+     *       不能让服主误以为功能还在。</li>
+     * </ul>
+     *
+     * <p>{@code null} 落到 {@code FAILED}：{@code reloadAll()} 正常不会返回 null，
+     * 但旧版 HotReloadManager（或 mock 未打桩）会 —— 宁可报失败让人查，也不假装成功。
+     */
+    static String reloadMessageKey(HotReloadManager.ReloadResult result) {
+        if (result == null) {
+            return "server.enable-failed";
+        }
+        return switch (result) {
+            case ENABLED -> "server.reload-enabled";
+            case DISABLED -> "server.reload-disabled";
+            case FULL -> "general.reload-success";
+            case CONFIG_ONLY -> "server.reload-restart-required";
+            case FAILED -> "server.enable-failed";
+        };
     }
 
     private void handleReset(CommandSender sender, String playerName) {

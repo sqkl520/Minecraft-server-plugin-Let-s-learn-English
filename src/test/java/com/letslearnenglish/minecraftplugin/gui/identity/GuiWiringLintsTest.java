@@ -366,7 +366,11 @@ class GuiWiringLintsTest {
         @Test
         @DisplayName("RT-F-b：clearAllSessions 被 try/catch(Throwable) 包住且不重抛")
         void clearAllSessionsGuardedByTryCatch() {
-            String body = methodBody("LetsLearnEnglish.java", "public void onDisable()");
+            // 锚点变更（/lea reload 动态装卸）：停用流程的主体从 onDisable 搬进了
+            // disableAll()（onDisable 收敛成 disableAll + 语言落盘 + 关库）。
+            // 语义未变，而且要求更强了 —— 现在同一个方法要在两倍的调用场景下扛住异常：
+            // onDisable（Bukkit 兜底）与 /lea reload 的 DISABLE 分支（没有任何兜底）。
+            String body = methodBody("LetsLearnEnglish.java", "public void disableAll()");
 
             int call = body.indexOf("clearAllSessions()");
             assertTrue(call >= 0,

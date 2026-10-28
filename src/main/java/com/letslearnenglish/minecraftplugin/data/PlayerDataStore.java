@@ -503,6 +503,12 @@ public class PlayerDataStore {
                 : "INSERT INTO " + tablePrefix + "player_sessions (uuid, session_date, words_count, correct_count, score, mode, review_words) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE words_count = words_count + VALUES(words_count), correct_count = correct_count + VALUES(correct_count), score = score + VALUES(score), review_words = review_words + VALUES(review_words)";
 
         synchronized (databaseManager.getConnectionLock()) {
+        // K：取连接纳入 try。DatabaseManager.getConnection() 在重连失败时抛 RuntimeException
+        // （DatabaseManager 的 initialize 失败路径），旧 catch(SQLException) 接不住，
+        // 会沿 WordLearningManager 的会话结算路径冒出去，把后续结算步骤整段截断。
+        // 本方法 void：会话记录写失败只丢这一条统计（已由下面 WARNING 留痕），
+        // 不向上抛、不伪造任何数据。
+        try {
         Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
@@ -513,7 +519,8 @@ public class PlayerDataStore {
             stmt.setString(6, mode);
             stmt.setInt(7, reviewWords);
             stmt.executeUpdate();
-        } catch (SQLException e) {
+        }
+        } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to record session: " + playerId, e);
         }
         }
@@ -529,7 +536,14 @@ public class PlayerDataStore {
         String sql = "SELECT session_date, words_count FROM " + tablePrefix + "player_sessions WHERE uuid = ? AND session_date >= ? ORDER BY session_date ASC";
 
         java.time.LocalDate since = java.time.LocalDate.now().minusDays(daysBack);
+        // K：取连接纳入 try（RuntimeException 也要接住，理由同 recordSession）。
+        // 返回类型 Map：失败时返回已收集到的 result（正常路径下为空 map）。空 map 的语义
+        // 与「该玩家 35 天内确实没有学习记录」相同 —— 上层会画成一整片灰色日历，
+        // 这是本方法在当前签名下能给出的最安全空值（绝不伪造任何 words_count）。
+        // 剩余风险见报告：调用方 LearningCalendarGUI 的 catch 只能接住未被吞掉的异常，
+        // 想区分「读失败」与「确实没学」需要上层加三态，不在本文件范围。
         synchronized (databaseManager.getConnectionLock()) {
+        try {
         Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, playerId.toString());
@@ -539,8 +553,10 @@ public class PlayerDataStore {
                     result.put(rs.getString("session_date"), rs.getInt("words_count"));
                 }
             }
-        } catch (SQLException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to load session days: " + playerId, e);
+        }
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to load session days (calendar will render as empty): " + playerId, e);
         }
         }
         return result;
@@ -563,9 +579,12 @@ public class PlayerDataStore {
         String sql = "SELECT word, mastery, correct_count, incorrect_count, last_review_time, review_count FROM "
                 + tablePrefix + "word_progress WHERE uuid = ?";
 
-        Connection conn;
+        // K：取连接纳入 try 内。连接在重连失败时抛 RuntimeException（见 DatabaseManager），
+        // 旧 catch(SQLException) 接不住 → 一次 DB 抖动会从 getPlayerStats → AI/成就/GUI 的
+        // 调用链上冒出去。方法 void：失败只记 WARNING，沿用原有「补空缓存」的兜底。
         synchronized (databaseManager.getConnectionLock()) {
-        conn = databaseManager.getConnection();
+        try {
+        Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setString(1, playerId.toString());
@@ -593,7 +612,8 @@ public class PlayerDataStore {
                 incorrectCountCache.put(playerId, incorrectMap);
             }
 
-        } catch (SQLException e) {
+        }
+        } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load player data: " + playerId, e);
             wordMasteryCache.putIfAbsent(playerId, new ConcurrentHashMap<>());
             lastReviewTimeCache.putIfAbsent(playerId, new ConcurrentHashMap<>());
@@ -602,7 +622,6 @@ public class PlayerDataStore {
             incorrectCountCache.putIfAbsent(playerId, new ConcurrentHashMap<>());
         }
         }
-
         // 从 word_progress 表重建玩家统计数据
         PlayerStats stats = new PlayerStats();
         Map<String, Integer> correctMap = correctCountCache.get(playerId);
@@ -621,8 +640,10 @@ public class PlayerDataStore {
         // F1-20：本块与上方锁块之间已释放过锁——重连（initialize）可能已替换
         // Connection 引用，原实现在此处复用锁外取得的 conn。照 DatabaseManager
         // E-04 范式：上个锁块已释放，重连可能已替换引用，此处锁内重取。
+        // K：重取同样纳入 try（连接获取可能抛 RuntimeException）。
         synchronized (databaseManager.getConnectionLock()) {
-        conn = databaseManager.getConnection();
+        try {
+        Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(statsSql)) {
             stmt.setString(1, playerId.toString());
             try (ResultSet rs = stmt.executeQuery()) {
@@ -635,7 +656,8 @@ public class PlayerDataStore {
                     wrongBookCleared = rs.getInt("wrong_book_cleared"); // Phase 3 S-A（H11）
                 }
             }
-        } catch (SQLException e) {
+        }
+        } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load player stats: " + playerId, e);
         }
         }
@@ -929,7 +951,19 @@ public class PlayerDataStore {
         String upsertSql = buildUpsertSql(tablePrefix);
 
         synchronized (databaseManager.getConnectionLock()) {
-        Connection conn = databaseManager.getConnection();
+        // K：取连接单独设 try/catch(Exception)。不能把整个事务体一起扩到 catch(Exception)：
+        // 那会把事务体内真正的编程错误（NPE/越界）也吞成一条 WARNING，让"没保存"看起来
+        // 像"保存了"。这里只兜住 getConnection 的 RuntimeException，失败时<b>不清脏标记</b>
+        // 直接 return —— 下一轮 saveDirty 会用同样的词重试（UPSERT 幂等），数据不丢。
+        Connection conn;
+        try {
+            conn = databaseManager.getConnection();
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to acquire connection while saving player data (dirty flags kept, will retry): "
+                            + playerId, e);
+            return;
+        }
         // R7-C（P1-3）：<b>所有取值都必须在这里、持锁之后做</b>。
         // 原实现把 masteryMap 与 player_data 快照都在锁外读，等于在"取值"与"抢锁写库"
         // 之间留了一个任意长的排队窗口：
@@ -2086,12 +2120,18 @@ public class PlayerDataStore {
         }
 
         synchronized (databaseManager.getConnectionLock()) {
+            // K：此处 getConnection() 已写在 try-with-resources 的资源初始化位置 ——
+            // 资源初始化抛出的异常<b>会</b>被本语句的 catch 接住（JLS 14.20.3.1），
+            // 所以"位置"本身没问题；真正的问题是 catch 只声明了 SQLException，而
+            // DatabaseManager.getConnection() 重连失败抛的是 RuntimeException —— 接不住。
+            // 因此只把 catch 扩到 Exception，不动结构（内联形式本身是受保护的）。
+            // 方法 void：streak 落盘失败只丢这一次最大值更新，不向上抛。
             try (PreparedStatement stmt = databaseManager.getConnection().prepareStatement(sql)) {
                 stmt.setString(1, playerId.toString());
                 stmt.setInt(2, streak);
                 stmt.setLong(3, System.currentTimeMillis());
                 stmt.executeUpdate();
-            } catch (SQLException e) {
+            } catch (Exception e) {
                 plugin.getLogger().log(Level.WARNING, "Failed to persist longest_streak: " + playerId, e);
             }
         }
@@ -2177,7 +2217,11 @@ public class PlayerDataStore {
 
         // Step 1: collect raw rows while ResultSet is open — no nested queries
         List<Object[]> rawRows = new ArrayList<>();
+        // K：取连接纳入 try（DatabaseManager 重连失败抛 RuntimeException）。
+        // 返回 List：失败时返回空列表 —— 榜单最坏显示为空，绝不编造名次/分数。
+        // 注意这是"失败"与"确实没人上榜"的同一可观察值（见报告「发现但没修的问题」）。
         synchronized (databaseManager.getConnectionLock()) {
+        try {
         Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, count);
@@ -2191,7 +2235,8 @@ public class PlayerDataStore {
                     });
                 }
             }
-        } catch (SQLException e) {
+        }
+        } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load ranked players", e);
             return entries;
         }
@@ -2248,7 +2293,11 @@ public class PlayerDataStore {
                 + "AND COALESCE(w.correct_sum, 0) + COALESCE(w.incorrect_sum, 0) > 0 "
                 + "ORDER BY d.total_score DESC LIMIT ?";
 
+        // K：取连接纳入 try（重连失败会抛 RuntimeException，旧 catch(SQLException) 接不住）。
+        // 返回 List：失败时空列表 —— 广场最坏显示"暂无玩家"，不伪造任何行。
+        // 同 getRankedPlayers：与"确实无人答过题"不可区分，见报告。
         synchronized (databaseManager.getConnectionLock()) {
+        try {
         Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, limit);
@@ -2268,7 +2317,8 @@ public class PlayerDataStore {
                             rs.getInt("total_sessions"), rank++));
                 }
             }
-        } catch (SQLException e) {
+        }
+        } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load active square entries", e);
             return entries;
         }
@@ -2297,7 +2347,10 @@ public class PlayerDataStore {
 
         // Step 1: collect raw rows while ResultSet is open — no nested queries
         List<Object[]> rawRows = new ArrayList<>();
+        // K：取连接纳入 try（重连失败抛 RuntimeException）。周/月榜失败返回空列表，
+        // 不编造名次；与"该周期确实无人学习"同形，见报告。
         synchronized (databaseManager.getConnectionLock()) {
+        try {
         Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, since.toString());
@@ -2314,7 +2367,8 @@ public class PlayerDataStore {
                     });
                 }
             }
-        } catch (SQLException e) {
+        }
+        } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load ranked players for period", e);
             return entries;
         }
@@ -2377,7 +2431,9 @@ public class PlayerDataStore {
 
         // Step 1: collect raw rows while ResultSet is open — no nested queries
         List<Object[]> rawRows = new ArrayList<>();
+        // K：取连接纳入 try（重连失败抛 RuntimeException）。班级榜失败同样返回空列表。
         synchronized (databaseManager.getConnectionLock()) {
+        try {
         Connection conn = databaseManager.getConnection();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             int idx = 1;
@@ -2398,7 +2454,8 @@ public class PlayerDataStore {
                     });
                 }
             }
-        } catch (SQLException e) {
+        }
+        } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load ranked class players for period", e);
             return entries;
         }

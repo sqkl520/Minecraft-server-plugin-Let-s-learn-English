@@ -332,7 +332,25 @@ public class ProfileGUI {
                 PluginGuiHolder.of(GuiViewKey.PROFILE_SETTINGS), GUI_SIZE, title);
 
         UUID playerId = viewer.getUniqueId();
-        PlayerDataStore.ProfileSettings ps = plugin.getPlayerDataStore().getProfileSettings(playerId);
+        // P1-1 联动（红队 L）：<b>纯渲染读，绝不能走写路径</b>。
+        //
+        // 旧实现用 getProfileSettings —— 它内部是 computeIfAbsent，缓存 miss 时会合成一份
+        // new ProfileSettings()（showResults / showInSquare 全 true）并<b>写进缓存</b>。
+        // 设置页是「看一眼」的最短路径，于是最坏链条是：
+        //   打开设置页（此处种下全公开条目）→ 玩家什么都不改直接退出
+        //   → onInventoryClose / quit 触发 unloadProfileSettings
+        //   → 它先 saveProfileSettings（整对象 UPSERT）再删键
+        //   → show_in_square=true 被<b>永久写回 DB</b>，玩家关掉的隐身开关不可撤销地丢了。
+        //
+        // 改只读后 miss 返回 unresolvedFallback()（隐私位 false）。但那样玩家会看到
+        // 「所有开关都是关」的假象，所以这里先确保缓存里是真实值：命中零 IO，
+        // 未命中则同步读一次库（本方法本就在主线程、本就由玩家主动触发，单条主键 SELECT）。
+        // 读不到就按最严渲染 —— 宁可显示「关」，也不能伪造「开」。
+        PlayerDataStore settingStore = plugin.getPlayerDataStore();
+        if (settingStore.getCachedProfileSettings(playerId) == null) {
+            settingStore.loadProfileSettings(playerId); // 失败保持 miss，读侧 fail-closed
+        }
+        PlayerDataStore.ProfileSettings ps = settingStore.getProfileSettingsReadOnly(playerId);
 
         // Fill border
         ItemStack border = createItem(Material.BLACK_STAINED_GLASS_PANE, " ", Collections.emptyList());
