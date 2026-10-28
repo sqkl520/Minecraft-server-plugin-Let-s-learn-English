@@ -499,7 +499,15 @@ public class SocialListener implements Listener {
                 backGui.open(player, cp, cmode);
                 squareGuis.put(player.getUniqueId(), backGui);
             });
-            PlayerDataStore.ProfileSettings ps = store.getProfileSettings(targetId);
+            // P1-1（红队验收）：这是<b>纯读</b>判定，必须走只读版。
+            // 旧实现用 getProfileSettings —— 它内部是 computeIfAbsent，缓存 miss 时会
+            // 合成一份 new ProfileSettings()（showInSquare=true）并<b>写进缓存</b>。
+            // 后果不是「这一次判断错了」，而是：① 离线隐身玩家被当成公开、主页被放行；
+            // ② 这条伪造的「公开」条目留在 profileSettingsCache 里，而
+            // getActivePlayerIds() = cache.keySet ∪ 在线玩家 —— 隐身离线玩家被重新带回
+            // 广场候选集，兜底重建用只读版读到的正是这份 public，一次点击泄漏到重启。
+            // 只读版 miss 时返回 unresolvedFallback()（fail-closed）且绝不写缓存。
+            PlayerDataStore.ProfileSettings ps = store.getProfileSettingsReadOnly(targetId);
             if (ps.isShowInSquare()) {
                 new ProfileGUI(plugin).open(player, targetId);
             } else {
@@ -564,9 +572,13 @@ public class SocialListener implements Listener {
                 // 但"打开主页时可见 → 查看期间主人改隐身"的陈旧界面窗口可绕过——
                 // 成就墙点击前复核一次。口径与广场/榜单点击分支逐字同款：看自己不受
                 // 影响（targetId == 查看者时放行），隐身者进 openHidden 笑话页。
+                // P1-1（红队验收）：纯读判定必须走只读版。getProfileSettings 是写路径
+                // （computeIfAbsent）：缓存 miss 时会合成一份「公开」默认值并写进
+                // profileSettingsCache，既让离线隐身玩家的主页被放行，又经
+                // getActivePlayerIds()（cache.keySet ∪ 在线）把该玩家带回广场候选集。
                 PlayerDataStore store = plugin.getPlayerDataStore();
                 if (targetId.equals(player.getUniqueId())
-                        || store.getProfileSettings(targetId).isShowInSquare()) {
+                        || store.getProfileSettingsReadOnly(targetId).isShowInSquare()) {
                     UUID backToTarget = targetId;
                     // 返回帧只在放行路径压入（成就墙返回键消费它回本人主页）。
                     // 隐身路径不压 —— 否则笑话页返回（F3-02 popBack）会立刻重开刚被
@@ -613,6 +625,8 @@ public class SocialListener implements Listener {
      */
     public void openLeaderboardWithSnapshot(Player player) {
         LeaderboardGUI gui = new LeaderboardGUI(plugin);
+        // L25：无参入口落到 LeaderboardGUI.DEFAULT_TAB（单词榜）；显式重载保留给
+        // 「需要指定 tab 才正常」的调用方（当前无 —— tab 切换与返回栈都自己 new GUI）。
         gui.open(player);
         leaderboardGuis.put(player.getUniqueId(), gui);
     }

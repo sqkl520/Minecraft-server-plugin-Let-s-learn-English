@@ -148,10 +148,19 @@ public class DuelGUI {
         int score1 = room.getScore1();
         int score2 = room.getScore2();
 
-        // --- Player 1 score display (left side, slots 10-12) ---
-        // Score visualization: fill slots based on score
-        int[] p1Slots = {10, 11, 12, 19, 20}; // up to 5 slots
-        for (int i = 0; i < DuelRoom.WIN_SCORE; i++) {
+        // --- Player 1 score display (left side, slots 10-12 + 19-20) ---
+        // Score visualization: fill slots based on score.
+        //
+        // L11：槽位数组与循环上界不可再耦合。`DuelRoom.WIN_SCORE` 是「胜负判定」的
+        // 业务常量（连打满分的语义），而槽位数组长度是本界面的<b>布局容量</b>——
+        // 两者一旦被当成同一个数，把 WIN_SCORE 从 5 调到 6 就会在渲染路径上直接抛
+        // ArrayIndexOutOfBoundsException（开界面即崩，且只有打到第 6 分的玩家能看到）。
+        // 这里用 Math.min 显式表达「能画几分画几分」：WIN_SCORE 大于布局容量时，
+        // 超出部分不做任何视觉补偿（见下方注释），大于 5 分的比分仍以 slot 9 / 17
+        // 头像物品的 lore 文本为准（{@code player-score} 的 {score} 不受布局限制）。
+        int[] p1Slots = {10, 11, 12, 19, 20}; // 布局容量 = 5，独立于 WIN_SCORE
+        int p1Dots = Math.min(DuelRoom.WIN_SCORE, p1Slots.length);
+        for (int i = 0; i < p1Dots; i++) {
             int slot = p1Slots[i];
             Material mat = i < score1 ? Material.GREEN_WOOL : Material.GRAY_STAINED_GLASS;
             String label = ChatColor.translateAlternateColorCodes('&',
@@ -166,10 +175,11 @@ public class DuelGUI {
                         .replace("{score}", String.valueOf(score1)));
         inv.setItem(9, createSkullItem(room.getPlayer1(), p1Label));
 
-        // --- Player 2 score display (right side, slots 14-16) ---
-        // Score visualization: fill slots based on score
-        int[] p2Slots = {14, 15, 16, 23, 24}; // up to 5 slots
-        for (int i = 0; i < DuelRoom.WIN_SCORE; i++) {
+        // --- Player 2 score display (right side, slots 14-16 + 23-24) ---
+        // Score visualization: fill slots based on score（同上，L11 同款上界）。
+        int[] p2Slots = {14, 15, 16, 23, 24}; // 布局容量 = 5，独立于 WIN_SCORE
+        int p2Dots = Math.min(DuelRoom.WIN_SCORE, p2Slots.length);
+        for (int i = 0; i < p2Dots; i++) {
             int slot = p2Slots[i];
             Material mat = i < score2 ? Material.RED_WOOL : Material.GRAY_STAINED_GLASS;
             String label = ChatColor.translateAlternateColorCodes('&',

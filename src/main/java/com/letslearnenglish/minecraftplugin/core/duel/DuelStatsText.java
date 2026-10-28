@@ -40,10 +40,22 @@ public final class DuelStatsText {
     /**
      * 连胜行模板，占位符 {@code {streak}}。
      *
-     * <p><b>本键当前不在 {@code messages/zh.yml} / {@code en.yml} 里</b>（R10 不修改
-     * 语言文件）。查不到时生产侧注入的 {@code msg} 返回空串，{@link #render} 据此
-     * 跳过该行 —— 宁可少一行，也不把 {@code [?profile.stats-duel-streak]} 这种
-     * 调试占位符吐给玩家。键一旦落地，无需改代码即自动生效。
+     * <p><b>接线现状（L4 之后）</b>：{@code ProfileGUI} 的异步段在同一批里调用
+     * {@code DatabaseManager#getDuelWinStreak(target)}（从最近一场往回数、遇负即停，
+     * 最多扫 50 场），然后把结果作为 {@code streak} 形参传进 {@link #render}。
+     * 因此本键一旦写进 {@code messages/zh.yml} / {@code en.yml} 就会<b>立刻显示</b>，
+     * 无需再动代码 —— 但"显示"的前提仍是上面那条查询链存在：删掉
+     * {@code ProfileGUI} 里那次查询，键还在也只会得到 {@code streak == 0}，这一行照旧跳过。
+     *
+     * <p><b>键已落地</b>：{@code messages/zh.yml:584}（{@code stats-duel-streak: "&6连胜 &f{streak} 场"}）
+     * 与 {@code messages/en.yml:586}（{@code stats-duel-streak: "&6Win streak &f{streak}"}）均已写入，
+     * 因此 {@code streak > 0} 时该行会实际显示；{@code streak == 0} 时 {@link #render} 跳过该行。
+     * 键仍按「可选」处理：若被删掉，生产侧注入的 {@code msg} 返回空串，{@link #render} 同样跳过 ——
+     * 宁可少一行，也不把 {@code [?profile.stats-duel-streak]} 这种调试占位符吐给玩家。
+     *
+     * <p><b>隐私</b>：{@code hideValues == true} 时 {@link #render} 在<b>任何</b>数值行
+     * 之前就返回，连胜行同样不渲染 —— 连胜透露的是"最近在打、而且在赢"，
+     * 与胜负/胜率同属学习结果，必须同口径隐藏。
      */
     public static final String KEY_STREAK = "profile.stats-duel-streak";
 

@@ -84,6 +84,17 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        // 子服总开关（server.enabled=false）：/le 及全部别名、全部子命令无条件拒绝。
+        // 控制台在上一行就被挡下（本命令本就只服务玩家），因此这里只需覆盖玩家侧。
+        // 拦在 args 判空**之前**：无参 /le 原本会直接 openMainMenu，而关闭态下
+        // MainMenu 依赖的 wordManager / socialManager 等一律为 null，必须在这里截住。
+        // 提示用 server.disabled（i18n 键，见 messages/zh.yml + en.yml）。
+        if (!plugin.isFullyEnabled()) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "server.disabled"));
+            return true;
+        }
+
         if (args.length == 0) {
             openMainMenu(player);
             return true;
@@ -1120,6 +1131,14 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         List<String> completions = new ArrayList<>();
+
+        // 子服总开关（server.enabled=false）：补全是**独立于 onCommand 的入口**，Bukkit
+        // 会在玩家敲 Tab 时直接调用本方法。关闭态下 wordManager / aiChatManager /
+        // adminCommandHandler 等一律为 null，不拦就会在 getAvailableDifficulties() 处 NPE。
+        // 返回空列表（不是 null）：Bukkit 契约要求非 null，返回 null 会让客户端补全报错。
+        if (!plugin.isFullyEnabled()) {
+            return completions;
+        }
 
         // 二级补全：与 SUBCOMMANDS 中有参数的子命令一一对应
         // word [难度] [模式] / dialogue [场景] / duel <玩家名|accept|quit|gui>

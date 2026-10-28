@@ -38,6 +38,20 @@ public class HotReloadManager {
      */
     public void reloadAll() {
         configManager.reloadAllConfigs();
+        // 子服总开关（server.enabled=false）：本方法在关闭态下**仍会被 /lea reload 调用**
+        // （那是关闭态唯一放行的管理命令）。判据刻意用 `playerDataStore == null` 而不是
+        // `!isServerEnabled()`——因为刚刚 reloadAllConfigs() 已经把配置换成新值，两种情形
+        // 都需要这条守卫：
+        //   a) 启动时就是 false：Manager 全为 null，下面每一步裸调用都会 NPE；
+        //   b) 启动时 false、本次 reload 改成 true：配置读到 true，但 Manager 仍然全为 null
+        //      （动态装配本轮不实现），同样会 NPE。
+        // 反过来「启动时 true、本次改成 false」时 Manager 是齐的，走完整 reload 无害，
+        // 也符合"reload 只保证配置值已更新"的承诺。见 config.yml 顶部注释。
+        if (plugin.getPlayerDataStore() == null) {
+            plugin.getLogger().info("server.enabled=false — hot reload refreshed config files only"
+                    + " (no runtime managers are loaded on this server).");
+            return;
+        }
         // P0-3：AI 段依赖 reloadAllConfigs() 已刷新的 mainConfig（AIChatManager.loadConfig()
         // 直接读 getMainConfig() 的 ai-chat.* / scenario.max-prompt-length，并重读磁盘
         // ai_config.yml 的 api-key），故必须紧跟在配置重载之后。

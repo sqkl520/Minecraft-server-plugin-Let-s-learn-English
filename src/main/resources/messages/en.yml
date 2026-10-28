@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 19
+config-version: 21
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -574,9 +574,16 @@ profile:
   stats-coins-value: "&f{coins}"
   stats-achievements-label: "Achievements"
   stats-achievements-value: "&f{unlocked}/{total}"
+  # L21: shared placeholder shown while the profile data loads asynchronously
+  # (stat cards / coins / achievement count / duel record all use it)
+  stats-loading: "&7Loading…"
   # Duel record (only fully completed matches are counted; quitting mid-match, disconnects and admin disbands are not)
   stats-duel-label: "Duel Record"
   stats-duel-value: "&a{wins}W &7/ &c{losses}L &7({rate} win rate)"
+  # L4: win streak line. {streak} = consecutive wins counted back from the latest match,
+  # stopping at the first loss. Not rendered when 0 (no wins, or the latest match was a loss),
+  # nor when the target player has hidden their results.
+  stats-duel-streak: "&6Win streak &f{streak}"
   stats-duel-loading: "&7Loading…"
   stats-duel-none: "&7No duels yet"
   stats-duel-note: "&8Completed duels only"
@@ -809,3 +816,12 @@ class:
   usage: "{prefix}&7Usage: /lea class create|delete|add|remove|list"
   list-header: "{prefix}&6===== Class {class} ({count} members) ====="
   list-entry: "{prefix}&e#{rank} &f{player} &7- &b{score} pts"
+
+# ============================================================
+#  Per-server master switch (config.yml server.enabled=false)
+# ============================================================
+#  Must sit at top level (two-space indent is for keys inside a section).
+#  Writing `server.disabled:` inside another section nests it as
+#  `<section>.server.disabled`, and the code's lookup of `server.disabled` fails.
+server:
+  disabled: "{prefix}&cEnglish learning is not enabled on this server."

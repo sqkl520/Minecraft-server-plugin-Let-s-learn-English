@@ -135,6 +135,23 @@ daily-reminder:
 
 > 例外补充：`daily-reminder.enabled` 与 `word-system.review.enabled` 只能在启动时已排定任务的前提下用 reload 关闭；若启动时就是 `false`（任务未排程），再改回 `true` 需要重启。详见 `DEPLOYMENT_WIKI.md` 5.7.1。
 
+### SQLite 数据库整理（长期运行的服务器）
+
+SQLite 的 `DELETE` / `UPDATE` 只把页面标记为可复用，**不会把空间还给磁盘**。`ai_chat_history`、`social_feed`、`word_progress` 这类持续增删的表跑久了，`playerdata.db` 会只涨不缩，碎片化还会拖慢查询。自动备份用的是 `VACUUM INTO`，它只是**生成一份快照副本**，主库一个字节都不会变，因此不能解决这个问题。
+
+插件为此提供了 `DatabaseManager.runMaintenance()`（`PRAGMA optimize` + `VACUUM`），**当前版本尚未暴露为游戏内命令**，是给未来的 `/lea maintenance` 与运维脚本预留的入口。手动整理的做法：
+
+1. 停服（或至少确认没有备份任务在跑）
+2. 进入 `plugins/LetsLearnEnglish/`，先备份：`cp playerdata.db playerdata.db.bak`
+3. 用 SQLite 命令行整理，再校验：
+   ```bash
+   sqlite3 playerdata.db "PRAGMA optimize; VACUUM;"
+   sqlite3 playerdata.db "PRAGMA quick_check;"   # 期望输出 ok
+   ```
+4. 重启服务器
+
+> 若通过代码/命令入口调用 `runMaintenance()`，**必须放到异步线程**——`VACUUM` 会持有写锁且耗时与库体积成正比，在主线程执行会直接卡服。
+
 ## 依赖
 
 - Paper 1.21+（开发与测试基于 1.21.4；不保证 Spigot 兼容）

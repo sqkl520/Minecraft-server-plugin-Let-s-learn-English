@@ -148,6 +148,9 @@ public final class LetsLearnEnglish extends JavaPlugin {
         this.configManager = new ConfigManager(this);
         this.configManager.loadAllConfigs();
 
+        // 位置刻意保持在总开关判定**之前**：onDisable 会无条件调用 savePlayerLanguages()
+        // 把内存里的 playerLanguage 全量写回 player_lang.yml。若关闭态下跳过这一步加载，
+        // 内存表为空 → 停用瞬间会把玩家已选的语言偏好整文件清空。读文件本身零副作用。
         loadPlayerLanguages();
 
         this.messageUtil = new MessageUtil(this, configManager);
@@ -158,6 +161,48 @@ public final class LetsLearnEnglish extends JavaPlugin {
         this.databaseManager = new DatabaseManager(this, configManager);
         this.databaseManager.initialize();
 
+        // ---------------- 子服总开关（server.enabled）----------------
+        // 语义见 config.yml 顶部注释。关闭时**只**保留 configManager / messageUtil /
+        // databaseManager 三件套，其余全部不构造、不注册、不排程：
+        //   · 不构造 playerDataStore 与任何 Manager —— 顺带保证 WordLearningManager /
+        //     OnboardingManager 这两个「构造即自注册监听器」的类不会偷偷注册事件；
+        //   · 不注册 proxyMessenger —— 不向网络广播任何本插件消息；
+        //   · 不排程任何周期任务 —— 零事件/零 tick 开销；
+        //   · 不跑启动预热（榜单 / 广场 / 赛季结算 / 统计 HTTP）。
+        // 保留 databaseManager 的理由：/lea reload 的收尾路径会用到它（HotReloadManager），
+        // 且玩家数据在共享 MySQL 里由其它子服维护，本服不读不写也不影响。
+        // 保留 registerCommands()：/lea reload 必须可用，否则服主改完开关只能重启。
+        // 正因为放行了 reload，hotReloadManager 也必须在这里构造 —— 它只持有
+        // plugin + configManager 两个引用、构造零副作用，而 AdminCommand 的 reload 分支是
+        // `plugin.getHotReloadManager().reloadAll()` 的裸调用，不构造就是 NPE。它内部的
+        // reloadAll 在 playerDataStore 为 null 时会短路成「只刷配置 + 语言文件」。
+        // 其余 Manager 一律不构造（这也是 WordLearningManager / OnboardingManager 这类
+        // 「构造即自注册监听器」的类在关闭态下不会偷偷注册事件的唯一保证）。
+        // 注意判定位置：必须在 loadAllConfigs() 之后（才有配置可读），在
+        // databaseManager.initialize() 之后（reload 需要可用连接）。
+        if (!configManager.isServerEnabled()) {
+            this.hotReloadManager = new HotReloadManager(this, configManager);
+            registerCommands();
+            getLogger().info("server.enabled=false — English learning is DISABLED on this server: "
+                    + "no listeners, no scheduled tasks, no proxy channel, no startup warmup.");
+            getLogger().info("Only '/lea reload' is available. Changing this key requires a full"
+                    + " server restart (or a plugin reload) to take effect.");
+            return;
+        }
+
+        enableFullFeatures(startTime);
+    }
+
+    /**
+     * 完整功能启动路径（{@code server.enabled=true} 时由 {@link #onEnable()} 调用）。
+     *
+     * <p>本方法体是 {@code onEnable} 原有逻辑<b>逐字搬移</b>的结果（含全部注释），除
+     * {@code startTime} 改为入参外无任何逻辑改动 —— 这样「子服总开关」那次改动的 diff
+     * 只剩一行分支加一次方法抽取，审查时不需要重读一遍启动顺序。
+     *
+     * @param startTime {@code onEnable} 入口的计时起点，用于末尾打印加载耗时
+     */
+    private void enableFullFeatures(long startTime) {
         // Clean up old AI chat history (older than 30 days) asynchronously
         getServer().getScheduler().runTaskAsynchronously(this, () -> {
             databaseManager.cleanupOldChatHistory(30);
@@ -174,26 +219,17 @@ public final class LetsLearnEnglish extends JavaPlugin {
         // 所以这里绝不能用 getMasteredWords / loadPlayerData（缓存 miss 时会主线程同步
         // 查库并等 connectionLock）。两路数据源都是纯内存：
         //   1) getSuggestedFocusWords —— ChatFeedbackManager 的 ConcurrentHashMap（上一场纠错/推荐词，已按词库过滤）；
-        //   2) getDueReviewWords —— ReviewScheduler 的 30s TTL 内存缓存（缓存内也是纯 map 读）。
+        //   2) getDueReviewWords —— ReviewScheduler 的 30s TTL 内存缓存（缓存内也是纯 map 读，且默认不启用，见 L6）。
         // 用 Function 注入而非直接持有 ChatFeedbackManager：本类先构造 aiChatManager 再构造
         // chatFeedbackManager，反向引用会成环。
-        this.aiChatManager.setFocusWordProvider(id -> {
-            if (id == null) {
-                return java.util.List.of();
-            }
-            // null 守卫只为防御"DI 半初始化"被外部提前调用；正常路径两者此时均已构造。
-            if (chatFeedbackManager == null) {
-                return java.util.List.of();
-            }
-            List<String> suggested = chatFeedbackManager.getSuggestedFocusWords(id);
-            if (suggested != null && !suggested.isEmpty()) {
-                return suggested;
-            }
-            // 兜底：艾宾浩斯到期复习词（同样只在内存缓存/内存 map 上读）。
-            return (wordManager != null && wordManager.getReviewScheduler() != null)
-                    ? wordManager.getReviewScheduler().getDueReviewWords(id)
-                    : java.util.List.of();
-        });
+        //
+        // 决策体抽到 {@link #resolveFocusWords}（包级可见的纯函数）：L6 的开关语义
+        // （默认不回落到复习词）必须能被纯 JVM 单测钉住，而 onEnable 整段依赖 Bukkit
+        // server，跑不起来。lambda 保持一行转发，配置仍在<b>每次调用时</b>读取
+        // （{@code getMainConfig()} 作为实参在调用点求值，reload 换对象后即刻生效）。
+        this.aiChatManager.setFocusWordProvider(id ->
+                resolveFocusWords(id, chatFeedbackManager, wordManager,
+                        configManager != null ? configManager.getMainConfig() : null));
         this.chatScenarioListener = new ChatScenarioListener(this, aiChatManager);
         this.guiNavigationManager = new GuiNavigationManager();
         this.dailyChallengeManager = new DailyChallengeManager(this, wordManager);
@@ -437,6 +473,37 @@ public final class LetsLearnEnglish extends JavaPlugin {
             aiChatManager.shutdown();
         }
 
+        // L1（P1·关服丢数据）：排空 ChatFeedbackManager 的在途落库任务。
+        //
+        // 为什么位置在这里（aiChatManager.shutdown() 之后、databaseManager.shutdown() 之前）：
+        //   1) 必须在 databaseManager.shutdown() <b>之前</b> —— 排在它之后时，flush 要写的
+        //      正是已经关闭的连接，等于把「静默丢弃」换成「一屏异常」，一条都救不回来；
+        //   2) 必须在 aiChatManager.shutdown() <b>之后</b> —— shutdown 置 shuttingDown 标志，
+        //      让所有在途 AI 回调短路，因此 flush 窗口里不会再有 AI 点评回调提交新的
+        //      覆写任务，「排空」才真的有终点（否则 flush 与回调赛跑）；
+        //   3) 为什么不是更早（例如紧接 clearAllSessions）：那之后还有 savePlayerData 等
+        //      纯写库步骤，提前 flush 会白白占掉 5s 预算却让后面的等待变长。
+        //
+        // 为什么必须 flush：落库走 CompletableFuture.runAsync（ForkJoinPool.commonPool），
+        // Paper 的 waitForAsyncTasksShutdown() 只等 BukkitScheduler 的异步任务，管不到它。
+        // 不 flush 时，onDisable 期间排队中的 chat_feedback 写会在 writeTask 的 accepting
+        // 守卫处被丢 —— 而玩家此时已经看过点评，事后无从察觉。
+        //
+        // 异常与超时都只记 WARNING：onDisable 没有上层可补救，绝不能因为排空失败而跳过
+        // 下面的关库（跳过 = 连接不关、SQLite 可能留锁）。null 守卫覆盖「DI 半初始化」
+        // 这一情形（chatFeedbackManager 在 onEnable 里构造，理论上非 null，但 onDisable
+        // 可能在 enable 中途被调用）。
+        if (chatFeedbackManager != null) {
+            try {
+                chatFeedbackManager.flushPending(5000L);
+            } catch (Throwable t) {
+                // 用 Throwable 而非 Exception，理由同本方法其余兜底段：停用路径要防的
+                // 正是 LinkageError / NoClassDefFoundError 这类换 ClassLoader 才会冒出来的 Error。
+                getLogger().log(java.util.logging.Level.WARNING,
+                        "Failed to flush pending chat feedback writes during shutdown", t);
+            }
+        }
+
         // R5-15：这里只包 statisticsHttpServer.stop() **一个**，不是漏了上面那四个 ——
         //   * achievementManager.clearCache() / aiChatManager.shutdown() 是纯内存 clear，
         //     不碰 DB / IO，也没有会抛的调用；
@@ -462,6 +529,68 @@ public final class LetsLearnEnglish extends JavaPlugin {
         }
 
         getLogger().info("Let's Learn English! plugin has been safely disabled.");
+    }
+
+    /**
+     * B1（R12）+ L6（P1·隐私）：本场「目标词」的取数决策体。
+     *
+     * <p>为什么抽成独立静态方法：{@code onEnable} 整段依赖 Bukkit server，纯 JVM 单测跑不起来，
+     * 而 L6 的开关语义（默认<b>不</b>回落到复习词）恰恰是最需要被钉死的一条 —— 它是隐私
+     * 边界，不是功能偏好。方法不带任何实例状态，三个入参由调用点注入，因此可被
+     * {@code FocusWordReviewToggleTest} 直接调用。
+     *
+     * <p>数据源优先级：
+     * <ol>
+     *   <li>{@code ChatFeedbackManager#getSuggestedFocusWords} —— 上一场 AI 点评产出的
+     *       纠错词 + 推荐词。这些词玩家<b>已经见过</b>，且已在点评里明示，不构成泄题；</li>
+     *   <li><b>可选</b>：{@code ReviewScheduler#getDueReviewWords} —— 艾宾浩斯到期复习词，
+     *       由 {@code ai-chat.focus-words-from-review} 控制，<b>默认 false</b>。</li>
+     * </ol>
+     *
+     * <p><b>为什么第 2 路默认关闭（L6）</b>：到期复习词 = 玩家尚未掌握、即将被考的单词。
+     * 把它们写进 system prompt 的 TARGET WORDS 段，等于直接告诉 AI「请用这些词引导对话」——
+     * 玩家下一场就会从 AI 的台词里看到自己复习队列里的正确答案。零成本（开一次对话即可）、
+     * 可批量（一轮刷一批）、可复现（{@code /le history} 还能回看原句），把「考」变成「泄题」。
+     * 上一场纠错词不受影响（已见过 + 已明示）。
+     *
+     * <p>为什么是 {@code public static} 而不是私有：这是给 {@code FocusWordReviewToggleTest}
+     * 的<b>纯函数测试缝</b>。{@code onEnable} 依赖 Bukkit server，纯 JVM 跑不起来，而
+     * 「默认不回落到复习词」是隐私边界、必须被断言住。把它做成静态纯函数后，测试不需要
+     * mockStatic(Bukkit) 也不需要任何 DI 桩，直接传三个入参即可 —— 这是刻意的取舍：
+     * 多一个 public 方法，换一条隐私边界可测。方法无实例状态、无副作用，外部误用的风险
+     * 仅限于「读到一份与本类当前状态不一致的快照」，不影响插件行为。
+     *
+     * <p>线程：只在主线程的 {@code buildSystemPrompt} 里被调用，两路数据源都必须是<b>纯内存</b>
+     * 读（ConcurrentHashMap / 30s TTL 缓存）—— 绝不许在这里查库（会主线程阻塞等 connectionLock）。
+     *
+     * @param playerId            玩家；null 直接返回空表
+     * @param chatFeedbackManager 上一场点评快照源；null（DI 半初始化）时跳过该路
+     * @param wordManager         词库管理器；null 时复习词一路不可用
+     * @param mainConfig          主配置。<b>每次调用传入</b>（不在字段里缓存）——本插件没有配置
+     *                            迁移机制，老配置文件缺键时靠「读点默认值」兜住；缓存会让
+     *                            {@code /lea reload} 后的改动不生效
+     * @return 不可变列表，永不为 null
+     */
+    public static List<String> resolveFocusWords(UUID playerId,
+                                                 ChatFeedbackManager chatFeedbackManager,
+                                                 WordManagerImpl wordManager,
+                                                 FileConfiguration mainConfig) {
+        if (playerId == null) {
+            return List.of();
+        }
+        if (chatFeedbackManager != null) {
+            List<String> suggested = chatFeedbackManager.getSuggestedFocusWords(playerId);
+            if (suggested != null && !suggested.isEmpty()) {
+                return suggested;
+            }
+        }
+        // L6：默认 false —— 未配置的老服务器也不会因为升级而开始泄题。
+        boolean allowReviewFallback = mainConfig != null
+                && mainConfig.getBoolean("ai-chat.focus-words-from-review", false);
+        if (!allowReviewFallback || wordManager == null || wordManager.getReviewScheduler() == null) {
+            return List.of();
+        }
+        return wordManager.getReviewScheduler().getDueReviewWords(playerId);
     }
 
     /**
@@ -985,6 +1114,23 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     public WordManagerImpl getWordManager() {
         return wordManager;
+    }
+
+    /**
+     * 本服的英语学习功能是否<b>真的</b>可用：配置门开 <b>且</b> 运行时已经装配。
+     *
+     * <p>命令入口用它而不是直接读 {@link ConfigManager#isServerEnabled()}，因为两者会在
+     * 一个窗口里分叉：启动时 {@code server.enabled=false}，服主随后 {@code /lea reload}
+     * 把它改成 true —— 配置文件读出来是 true，但监听器/Manager 一个都没装（动态装配
+     * 本轮不实现），此时若按配置值放行，命令会一路走到 null Manager 上 NPE。
+     * 用「配置 + 已装配」双条件，这个窗口里命令继续拒绝，直到重启真正装好为止。
+     *
+     * <p>判据选 {@code playerDataStore != null}：它是 {@code enableFullFeatures()} 里
+     * 第一个被赋值的运行时依赖，也是 {@code HotReloadManager} 短路用的同一个标记，
+     * 两处语义一致（见该类 reloadAll 的注释）。
+     */
+    public boolean isFullyEnabled() {
+        return configManager != null && configManager.isServerEnabled() && playerDataStore != null;
     }
 
     public AIChatManager getAIChatManager() {

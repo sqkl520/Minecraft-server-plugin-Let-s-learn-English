@@ -2,7 +2,6 @@ package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
-import com.letslearnenglish.minecraftplugin.core.achievement.AchievementManager;
 import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard;
 import com.letslearnenglish.minecraftplugin.core.progress.ProgressManagerImpl;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
@@ -410,10 +409,14 @@ class GuiOpenIdentityTest {
             // openSettings() 同款 —— 不铺会拿到 null 并在 translateAlternateColorCodes 里 NPE。
             // 单参 stub 已在公共 setUp（4 个 GUI 都消费），双参只有本组用，故放这里。
             when(messages.getString(anyString(), anyString())).thenReturn("");
-            when(dataStore.getPlayerStats(TARGET_ID)).thenReturn(new PlayerDataStore.PlayerStats());
             when(dataStore.getProfileSettingsReadOnly(TARGET_ID))
                     .thenReturn(new PlayerDataStore.ProfileSettings());
-            when(plugin.getAchievementManager()).thenReturn(mock(AchievementManager.class));
+            // L21：getPlayerStats / getUnlockedCount 已从 open() 主线程挪进异步段
+            // （scheduleProfileBackfill）。本类用 mockStatic(Bukkit.class)、
+            // Bukkit.getScheduler() 返回 null，异步段根本不派发 —— 因此<b>不能</b>
+            // 再铺这两条 stub：STRICT_STUBS 会把它们判成 UnnecessaryStubbingException。
+            // 这条「不铺」本身就是 L21 的回归信号：一旦有人把取数搬回主线程，本类会
+            // 以 NPE（mock 默认返回 null 的 stats）立即变红。
         }
     }
 

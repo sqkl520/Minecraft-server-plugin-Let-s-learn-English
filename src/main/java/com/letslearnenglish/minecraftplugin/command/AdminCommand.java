@@ -55,6 +55,18 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        // 子服总开关（server.enabled=false）：除 /lea reload 外一律拒绝。
+        // 位置刻意在权限检查**之后** —— 未授权玩家先吃 no-permission，探测不到本服
+        // 开关状态（否则任何人执行 /lea 就能得知这台子服是否装了英语学习功能）。
+        // 放行 reload 的理由：服主改完 server.enabled 需要它把配置读进来；reload 本身
+        // 只刷新配置（HotReloadManager 内部对各 Manager 有 null 守卫），不会因缺 Manager
+        // 而 NPE。注意 reload **不能**让本开关即时完整生效（监听器/任务不会动态装卸），
+        // 见 config.yml 顶部注释与 /lea reload 的输出提示。
+        if (!plugin.isFullyEnabled() && !"reload".equals(subCommand)) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "server.disabled"));
+            return true;
+        }
+
         if (args.length == 0) {
             sendHelpMessage(sender);
             return true;
@@ -344,6 +356,19 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         List<String> completions = new ArrayList<>();
+
+        // 子服总开关（server.enabled=false）：补全是独立于 onCommand 的入口，
+        // Bukkit 在玩家敲 Tab 时直接调用本方法。关闭态下绝大多数子命令会被 onCommand 拒，
+        // 补全列表就只保留真正可用的那一个（reload）—— 既避免误导（补全出按了会被拒的
+        // 子命令），也顺手绕开 args≥2 分支对 adminCommandHandler / wordManager /
+        // duelManager 等 null Manager 的访问（那些分支在关闭态会 NPE）。
+        if (!plugin.isFullyEnabled()) {
+            if (args.length == 1 && sender.hasPermission("letslearnenglish.admin")
+                    && "reload".startsWith(args[0].toLowerCase(Locale.ROOT))) {
+                completions.add("reload");
+            }
+            return completions;
+        }
 
         if (args.length == 1) {
             boolean isAdmin = sender.hasPermission("letslearnenglish.admin");

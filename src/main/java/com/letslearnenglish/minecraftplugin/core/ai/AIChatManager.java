@@ -1738,7 +1738,27 @@ public class AIChatManager {
         openingCounters.computeIfPresent(playerId, (k, v) -> v.isStale() ? null : v);
     }
 
-    /** §3.2：总结请求体 —— [system(总结指令), user(transcript + 收尾指令)]，temperature 0.3。 */
+    /**
+     * §3.2：总结请求体 —— [system(总结指令), user(transcript + 收尾指令)]，temperature 0.3。
+     *
+     * <p><b>踩过的坑（L7）</b>：这里曾有一句 "prefer words already listed in TARGET WORDS if any"
+     * —— 而本请求体<b>根本没有</b> TARGET WORDS 段（那段只存在于 {@code PromptComposer} 拼的
+     * 对话 prompt 里，是另一条 AI 调用）。模型被要求「优先从一张它看不到的表里挑」，
+     * 纯噪声，还会诱导它幻想出一份词表。裁决：<b>删掉这层引用</b>而不是把目标词注入进来——
+     * 理由有两条：
+     * <ol>
+     *   <li>点评阶段注入目标词会污染两条语义：「目标词」是<b>下一场该练什么</b>（由上一场
+     *       点评的产出决定），「推荐词」是<b>这一场学什么</b>。把它们喂进同一次请求后，
+     *       模型会倾向复述目标词以"显得一致"，推荐词退化成目标词的影子，
+     *       下一场的目标词又由这些推荐词生成 —— 闭环自噬，词表越来越窄。</li>
+     *   <li>summary 路径拿不到 {@code collectFocusWords} 的语境：那是对话 prompt 的取数
+     *       逻辑（provider → 上一场纠错词/复习词），本方法与它没有共享状态；硬注入就得
+     *       在这里再查一次 provider，等于把一条纯点评请求变成「依赖学习闭环内部状态」的
+     *       请求，耦合方向反了。</li>
+     * </ol>
+     * 保留下来的是一句<b>自洽</b>的引导：「reuse words the student has already met in this
+     * conversation」—— 依据就在同一份请求的 transcript 里，模型看得见、可执行。
+     */
     private JsonObject buildSummaryRequestBody(Player player, SessionSummary summary, String lang) {
         boolean zh = "zh".equalsIgnoreCase(lang);
         String language = zh ? "Chinese" : "English";
@@ -1761,8 +1781,8 @@ public class AIChatManager {
                 + " Keep \"original\" and \"corrected\" in English; write \"note\" briefly in " + language + "."
                 + " Use an empty array if there is no meaningful mistake.\n"
                 + "- \"words\": up to 3 English words or phrases related to this scenario that the student"
-                + " could learn next. When recommending words in \"words\", prefer words already listed in"
-                + " TARGET WORDS if any, and keep them simple and common enough for a learner.\n"
+                + " could learn next. Prefer simple, common words, and reuse words the student has"
+                + " already met in this conversation when they fit.\n"
                 + "- Every string must stay under 120 characters.";
 
         String userPrompt = "TRANSCRIPT:\n" + renderTranscript(summary.transcript())

@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 19
+config-version: 21
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -574,9 +574,14 @@ profile:
   stats-coins-value: "&f{coins}"
   stats-achievements-label: "成就"
   stats-achievements-value: "&f{unlocked}/{total}"
+  # L21：主页异步取数期间的通用占位行（统计三卡 / 金币 / 成就数 / 决斗战绩共用）
+  stats-loading: "&7加载中…"
   # 决斗战绩（仅统计正常打满的对局；中途退出 / 掉线 / 管理员解散不计入）
   stats-duel-label: "决斗战绩"
   stats-duel-value: "&a{wins} 胜 &7/ &c{losses} 负 &7(胜率 {rate})"
+  # L4：连胜行。{streak} = 从最近一场往回数、遇负即停的连续胜场数；
+  # 为 0（无胜绩或最近一场为负）时不渲染本行。他人关闭"公开成绩"时同样不渲染。
+  stats-duel-streak: "&6连胜 &f{streak} 场"
   stats-duel-loading: "&7加载中…"
   stats-duel-none: "&7暂无战绩"
   stats-duel-note: "&8仅统计完整对局"
@@ -808,3 +813,12 @@ class:
   usage: "{prefix}&7用法: /lea class create|delete|add|remove|list"
   list-header: "{prefix}&6===== 班级 {class}（{count} 人）====="
   list-entry: "{prefix}&e#{rank} &f{player} &7- &b{score} 分"
+
+# ============================================================
+#  子服总开关提示（config.yml 的 server.enabled=false）
+# ============================================================
+#  注意：本段必须与其它顶层段同级（两个空格缩进是段内键）。
+#  YAML 里写成 `server.disabled:` 会被解析成当前所在段的嵌套键
+#  `admin.server.disabled`，代码按 `server.disabled` 查会取不到 —— 必须真嵌套。
+server:
+  disabled: "{prefix}&c本服未启用英语学习功能。"
