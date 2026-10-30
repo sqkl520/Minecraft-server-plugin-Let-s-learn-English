@@ -140,7 +140,7 @@ Plugins 目录加载顺序（由 Bukkit 自动处理）:
 - GitHub Releases: `https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/releases`
 - 自行编译: `mvn clean verify`（源码仓库中；含测试与 JaCoCo 覆盖率门禁。仅想快速打包可用 `mvn clean package -DskipTests`，但不要用它验证改动）
 
-文件名为: `Let's Learn English!-{版本号}.jar`（如 `Let's Learn English!-1.0.7-SNAPSHOT.jar`）
+文件名为: `Let's Learn English!-{版本号}.jar`（如 `Let's Learn English!-1.0.7.jar`）
 
 #### 步骤 2：放置 JAR 文件
 
@@ -149,7 +149,7 @@ Plugins 目录加载顺序（由 Bukkit 自动处理）:
 ```
 服务器根目录/
 ├── plugins/
-│   ├── Let's Learn English!-1.0.7-SNAPSHOT.jar  ← 放这里
+│   ├── Let's Learn English!-1.0.7.jar  ← 放这里
 │   ├── Vault.jar (可选)
 │   ├── PlaceholderAPI.jar (可选)
 │   └── ...
@@ -178,7 +178,7 @@ plugman load LetsLearnEnglish
 
 ```
 [LetsLearnEnglish] ============================================
-[LetsLearnEnglish]   Let's Learn English! v1.0.7-SNAPSHOT
+[LetsLearnEnglish]   Let's Learn English! v1.0.7
 [LetsLearnEnglish]   Plugin enabled successfully! (Time: XXXms)
 [LetsLearnEnglish] ============================================
 [LetsLearnEnglish] Vault economy integration enabled.         (如果安装了 Vault)
@@ -195,7 +195,7 @@ plugman load LetsLearnEnglish
 应看到:
 ```
 ===== 英语学习 信息 =====
-版本: 1.0.7-SNAPSHOT
+版本: 1.0.7
 服务端版本: 1.21.4
 版本兼容性: true
 数据库: sqlite
@@ -977,7 +977,7 @@ cp -r plugins/LetsLearnEnglish/ ~/lle_backup_$(date +%Y%m%d)/
 rm "plugins/Let's Learn English!"-*.jar
 
 # 放置新 JAR
-cp ~/downloads/"Let's Learn English!"-1.0.7-SNAPSHOT.jar plugins/
+cp ~/downloads/"Let's Learn English!"-1.0.7.jar plugins/
 ```
 
 #### 步骤 3: 检查配置文件
