@@ -2,6 +2,7 @@ package com.letslearnenglish.minecraftplugin.core.word;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -132,7 +133,41 @@ public class WordBank {
                 "[LetsLearnEnglish] 跳过坏词条 " + entryId + "： " + reason + "，已跳过不加载。");
     }
 
+    /**
+     * 旧 2 参入口（无近期已答词排除）。
+     *
+     * <p>B2b（R3-b）：实现整体迁入 3 参重载，本方法只补一个空排除集 ——
+     * 既保证「排除集为空 == 改造前行为」是<b>同一条代码路径</b>（而不是两套
+     * 需要人工对照的等价实现），也让 {@code cachedMasteredKey} 分桶逻辑保持单一真相。
+     */
     public List<Word> selectWordsForSession(int count, Set<String> masteredWords) {
+        return selectWordsForSession(count, masteredWords, Set.of());
+    }
+
+    /**
+     * B2b（R3-b）：带「近期已答词」排除的开局抽词。
+     *
+     * <p><b>排除语义</b>：{@code excluded} 里的词（大小写不敏感，内部统一
+     * {@code toLowerCase} 归一 —— 与 {@code masteredWords} 的键口径同源）在<b>每次调用时</b>
+     * 对候选池做一次过滤。开销 O(n)，每会话一次，词库 n ≤ 1000，可忽略。
+     *
+     * <p><b>缓存</b>：{@code cachedMasteredKey} 分桶逻辑与改造前逐字一致，且
+     * <b>不</b>把 {@code excluded} 掺进缓存键 —— 缓存只按「已掌握集合」分桶，
+     * 排除集每次调用现算，所以不会因为窗口滑动而产生脏缓存。
+     *
+     * <p><b>降级链（绝不返回空 / 绝不少于 {@code min(count, 词库总数)}）</b>：
+     * ① 未掌握且非排除 → ② 未掌握（被排除也收）→ ③ 已掌握且非排除 → ④ 已掌握（被排除也收）。
+     * 四级池两两互斥（未掌握/已掌握按 english 划分，排除/非排除是同一集合的二分），
+     * 并集恰好是整个词库，因此只要 {@code count ≤ 词库总数} 就一定能凑满。
+     *
+     * <p>为什么降级链要把「被排除的未掌握词」排在「未排除的已掌握词」之前：
+     * 排除的目的是「别马上重出同一题」，而不是「宁可给已掌握的词」。当未掌握池被排除光时，
+     * 重复一道刚答过的未掌握词仍比抽一道玩家早已掌握的词更有学习价值；而
+     * {@code WordManagerImpl.startSession} 有 {@code isEmpty → IllegalStateException}
+     * 的硬约定，所以最后两档必须兜住「词库全被排除」这种极端输入。
+     */
+    public List<Word> selectWordsForSession(int count, Set<String> masteredWords,
+                                            Set<String> excluded) {
         List<Word> unmastered;
         List<Word> mastered;
 
@@ -155,21 +190,63 @@ public class WordBank {
             cachedMasteredKey = masteredWords;
         }
 
-        List<Word> selected = new ArrayList<>();
+        // count ≤ 0 → 空结果（与旧实现 count=0 的 subList(0,0) 一致，且不会因负数抛异常）。
+        // count > 词库总数 → 词库全量；两级池并集就是整个词库，循环自然凑满。
+        int want = Math.max(0, Math.min(count, words.size()));
+        if (want == 0) {
+            return new ArrayList<>();
+        }
 
-        if (unmastered.size() >= count) {
-            List<Word> shuffledUnmastered = new ArrayList<>(unmastered);
-            Collections.shuffle(shuffledUnmastered, random);
-            selected.addAll(shuffledUnmastered.subList(0, count));
-        } else {
-            selected.addAll(unmastered);
+        // 大小写归一：词库侧用 w.getEnglish().toLowerCase() 作键（与分桶、dirtyWords 同口径），
+        // 排除集来自 PlayerDataStore（写入时已 toLowerCase），但调用方可能传原始大小写，
+        // 这里统一归一 —— "Book" 与词库里的 "book" 视为同一个词。
+        Set<String> excludedLower = new HashSet<>();
+        if (excluded != null) {
+            for (String w : excluded) {
+                if (w != null && !w.isEmpty()) {
+                    excludedLower.add(w.toLowerCase());
+                }
+            }
+        }
 
-            List<Word> shuffledMastered = new ArrayList<>(mastered);
-            Collections.shuffle(shuffledMastered, random);
+        List<Word> tierUnmasteredClean = new ArrayList<>();
+        List<Word> tierUnmasteredExcluded = new ArrayList<>();
+        for (Word w : unmastered) {
+            if (excludedLower.contains(w.getEnglish().toLowerCase())) {
+                tierUnmasteredExcluded.add(w);
+            } else {
+                tierUnmasteredClean.add(w);
+            }
+        }
+        List<Word> tierMasteredClean = new ArrayList<>();
+        List<Word> tierMasteredExcluded = new ArrayList<>();
+        for (Word w : mastered) {
+            if (excludedLower.contains(w.getEnglish().toLowerCase())) {
+                tierMasteredExcluded.add(w);
+            } else {
+                tierMasteredClean.add(w);
+            }
+        }
 
-            int remaining = count - selected.size();
-            int toAdd = Math.min(remaining, shuffledMastered.size());
-            selected.addAll(shuffledMastered.subList(0, toAdd));
+        // 每档独立打乱后按优先级依次取：与旧实现「先洗未掌握、再洗已掌握、最后整体再洗」
+        // 的随机性质量相同，只是多了两档只在降级时才有元素的池。
+        Collections.shuffle(tierUnmasteredClean, random);
+        Collections.shuffle(tierUnmasteredExcluded, random);
+        Collections.shuffle(tierMasteredClean, random);
+        Collections.shuffle(tierMasteredExcluded, random);
+
+        List<Word> selected = new ArrayList<>(want);
+        for (List<Word> tier : List.of(tierUnmasteredClean, tierUnmasteredExcluded,
+                tierMasteredClean, tierMasteredExcluded)) {
+            for (Word w : tier) {
+                if (selected.size() >= want) {
+                    break;
+                }
+                selected.add(w);
+            }
+            if (selected.size() >= want) {
+                break;
+            }
         }
 
         Collections.shuffle(selected, random);
@@ -194,14 +271,6 @@ public class WordBank {
     public void addWord(Word word) {
         words.add(word);
         invalidateCache();
-    }
-
-    public boolean removeWord(String english) {
-        boolean removed = words.removeIf(w -> w.getEnglish().equalsIgnoreCase(english));
-        if (removed) {
-            invalidateCache();
-        }
-        return removed;
     }
 
     private void invalidateCache() {

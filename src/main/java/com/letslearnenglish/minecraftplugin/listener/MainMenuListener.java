@@ -8,21 +8,27 @@ import com.letslearnenglish.minecraftplugin.gui.DuelChallengeGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.WordBankSelectGUI;
 import com.letslearnenglish.minecraftplugin.gui.WrongBookGUI;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiIdentity;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.inventory.InventoryView;
 
 /**
  * Listener for Main Menu, Language Switch, and Confirmation GUI interactions.
+ *
+ * <p>R5-11：界面识别<b>只认 holder</b>。{@link MainMenu}
+ * 与 {@link ConfirmationGUI} 打开时已挂 {@link PluginGuiHolder}，标题判定（配置等值 /
+ * 客户端截断前缀 / 品牌词）已整体删除 —— {@code onDisable()} 会先关掉所有在线玩家的
+ * 插件 GUI，跨 ClassLoader 的陈旧 holder 不可能残留，标题不再是必要兜底。
  */
 public class MainMenuListener implements Listener {
-
-    /** 标题被截断时，至少要这么长才允许做「前缀即命中」的宽松比对 */
-    private static final int MIN_TITLE_MATCH = 4;
 
     private final LetsLearnEnglish plugin;
 
@@ -32,19 +38,36 @@ public class MainMenuListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        String title = event.getView().getTitle();
-        if (title == null) return;
-
-        boolean isMainMenu = isMainMenuTitle(title);
-        if (!isMainMenu && !ConfirmationGUI.isConfirmGUI(title)) {
-            return;
-        }
+        GuiViewKey key = resolveOwnedView(event.getView());
+        if (key == null) return;
 
         // R-01/R-22: 只处理上半区（Top 容器）点击。玩家背包（下半区）直接 return
         // 且不 cancel，玩家开着 GUI 也能正常整理背包。
         if (event.getClickedInventory() == null) return;
         int topSize = event.getView().getTopInventory().getSize();
         int rawSlot = event.getRawSlot();
+
+        // FIX-C2：下半区 shift-click（MOVE_TO_OTHER_INVENTORY）与双击收集
+        //（COLLECT_TO_CURSOR）的前置例外，照 SocialListener / MiscGUIListener 同式。
+        //
+        // 位置铁律：必须在下面 rawSlot 越界 return 之前 —— 这两类 action 的 rawSlot 落在
+        // 下半区（玩家背包），一旦让越界 return 先吃掉就永远走不到本分支。
+        //
+        // 为什么必需：MOVE_TO_OTHER_INVENTORY 会把玩家背包物品合并进上半区同类堆叠
+        //（不依赖空槽）；COLLECT_TO_CURSOR 会把上半区展示物扫进光标（反向失窃）。
+        // 本页虽靠自铺满维持无空槽，但合堆与收集两条路径都不经过空槽。
+        //
+        // 为什么不含 PICKUP_ALL：Paper 1.21.4 把「光标空着、左键拾取整叠」映射为
+        // PICKUP_ALL（点玩家自己背包的格子也走这个），拦它等于把「开着 GUI 整理背包」
+        // 一并吞掉，与 R-01/R-22 冲突；双击收集的落点是 COLLECT_TO_CURSOR，已在本守卫内。
+        // 归属判定已在更早（key == null 直接 return），这里只需 cancel。
+        if (rawSlot >= topSize
+                && (event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY
+                        || event.getAction() == InventoryAction.COLLECT_TO_CURSOR)) {
+            event.setCancelled(true);
+            return;
+        }
+
         if (rawSlot < 0 || rawSlot >= topSize) return;
 
         event.setCancelled(true);
@@ -53,11 +76,27 @@ public class MainMenuListener implements Listener {
 
         int slot = event.getSlot();
 
-        if (isMainMenu) {
+        if (key == GuiViewKey.MAIN_MENU) {
             handleMainMenu(player, slot);
         } else {
             handleConfirmGUI(player, slot);
         }
+    }
+
+    /**
+     * R5-11：解析「本 listener 负责的界面」—— <b>只认 holder</b>。
+     *
+     * <p>holder 是唯一可信身份：{@code MainMenu} / {@code ConfirmationGUI} 打开时
+     * 已挂 {@link PluginGuiHolder}。holder 认出别的 key 或认不出（{@code null}，
+     * 即不是本插件的界面）时一律不归本类管。
+     *
+     * @param view 事件界面，可为 null
+     * @return {@link GuiViewKey#MAIN_MENU}、{@link GuiViewKey#CONFIRMATION}，或 null（不归本类管）
+     */
+    private GuiViewKey resolveOwnedView(InventoryView view) {
+        GuiViewKey key = GuiIdentity.resolve(view);
+        if (key == GuiViewKey.MAIN_MENU || key == GuiViewKey.CONFIRMATION) return key;
+        return null;
     }
 
     /**
@@ -68,9 +107,8 @@ public class MainMenuListener implements Listener {
      */
     @EventHandler
     public void onInventoryDrag(InventoryDragEvent event) {
-        String title = event.getView().getTitle();
-        if (title == null) return;
-        if (!isMainMenuTitle(title) && !ConfirmationGUI.isConfirmGUI(title)) return;
+        // R5-11：与点击同一套纯 holder 判定。
+        if (resolveOwnedView(event.getView()) == null) return;
 
         int topSize = event.getView().getTopInventory().getSize();
         for (int rawSlot : event.getRawSlots()) {
@@ -79,28 +117,6 @@ public class MainMenuListener implements Listener {
                 return;
             }
         }
-    }
-
-    /**
-     * 判定标题是否为主菜单。
-     *
-     * 优先与配置中的 gui.main-menu-title 比对（标题可被自定义，硬编码子串会漂移），
-     * 配置读不到时回退到中英关键词，与 GUIUtils 的白名单保持一致。
-     */
-    private boolean isMainMenuTitle(String title) {
-        if (title == null || title.isEmpty()) return false;
-
-        for (String lang : new String[]{"zh", "en"}) {
-            String configured = plugin.getConfigManager().getMessageConfig(lang)
-                    .getString("gui.main-menu-title");
-            if (configured == null || configured.isEmpty()) continue;
-            String expected = ChatColor.translateAlternateColorCodes('&', configured);
-            if (title.equals(expected)) return true;
-            // 客户端可能把标题截断，因此「标题是配置标题的前缀」也算命中（避免过短误配）
-            if (title.length() >= MIN_TITLE_MATCH && expected.startsWith(title)) return true;
-        }
-
-        return title.contains("Let's Learn English") || title.contains("一起学英语");
     }
 
     /**
@@ -128,6 +144,17 @@ public class MainMenuListener implements Listener {
             if (!cm.isAIChatEnabled()) {
                 SoundManager.playSound(player, "menu-click");
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "module.disabled"));
+                return;
+            }
+            // R1/R11 兜底：渲染侧已把"无 API Key"画成灰态，但仍可能出现渲染与点击不同步
+            //（管理员热改 ai_config 后菜单未重开、或旧版残留的僵尸界面）。这里显式拦一次并给
+            //玩家可读反馈，不再依赖 /le dialogue 命令路径里的预检 —— 否则玩家看到的是
+            //"点了按钮、结果什么也没发生"的观感。判 null 同渲染侧：管理器缺失即视为不可用。
+            var aiChatManager = plugin.getAIChatManager();
+            if (aiChatManager == null || !aiChatManager.isAvailable()) {
+                SoundManager.playSound(player, "menu-click");
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "dialogue.ai-not-configured"));
                 return;
             }
             SoundManager.playSound(player, "menu-click");

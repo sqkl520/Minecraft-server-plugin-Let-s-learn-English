@@ -5,6 +5,7 @@ import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
+import com.letslearnenglish.minecraftplugin.data.repository.ReportRepository;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -13,13 +14,11 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -73,6 +72,8 @@ public class ReportGenerator {
     private final LetsLearnEnglish plugin;
     private final DatabaseManager databaseManager;
     private final WordManagerImpl wordManager;
+    /** R6-A：报告只读查询仓储（SQL 与参数绑定已收口；日期边界换算仍在本类）。 */
+    private final ReportRepository reportRepository;
 
     /**
      * 惰性清理闸：首次生成报告时清理一次过期的 report_*.txt（keep-days）。
@@ -86,6 +87,7 @@ public class ReportGenerator {
         this.plugin = plugin;
         this.databaseManager = databaseManager;
         this.wordManager = wordManager;
+        this.reportRepository = new ReportRepository(databaseManager, plugin.getLogger());
     }
 
     // ============================================================
@@ -306,14 +308,13 @@ public class ReportGenerator {
     }
 
     // ============================================================
-    //  数据采集（全部在异步线程执行；每个查询自持 connectionLock）
+    //  数据采集（全部在异步线程执行；SQL 与参数绑定在 ReportRepository，
+    //  每个仓储方法内部自持 connectionLock；日期边界换算仍在本类）
     // ============================================================
 
     private SingleData collectSingle(UUID playerId, String displayName, ReportPeriod period,
                                      ReportSettings settings, CumulativeSnapshot snapshot) {
-        String prefix = databaseManager.getTablePrefix();
-
-        List<DailyRow> daily = queryDailyRows(prefix, playerId, period);
+        List<DailyRow> daily = queryDailyRows(playerId, period);
 
         // 终身汇总 + 库内名字（Q2）
         String dbName = null;
@@ -321,24 +322,13 @@ public class ReportGenerator {
         long cumSessions = 0L;
         long cumScore = 0L;
         int cumConversations = 0;
-        String sql2 = "SELECT player_name, total_words_learned, total_sessions, total_score,"
-                + " conversation_count FROM " + prefix + "player_data WHERE uuid = ?";
-        synchronized (databaseManager.getConnectionLock()) {
-            try (PreparedStatement stmt = databaseManager.getConnection().prepareStatement(sql2)) {
-                stmt.setString(1, playerId.toString());
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        dbName = rs.getString("player_name");
-                        cumCorrect = rs.getLong("total_words_learned");
-                        cumSessions = rs.getLong("total_sessions");
-                        cumScore = rs.getLong("total_score");
-                        cumConversations = rs.getInt("conversation_count");
-                    }
-                }
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to query player_data for report: " + playerId, e);
-            }
+        ReportRepository.LifetimeRow lifetime = reportRepository.fetchLifetime(playerId);
+        if (lifetime != null) {
+            dbName = lifetime.playerName();
+            cumCorrect = lifetime.totalCorrect();
+            cumSessions = lifetime.sessions();
+            cumScore = lifetime.score();
+            cumConversations = lifetime.conversations();
         }
         // 在线玩家以主线程快照覆盖（与 /le stats 同源；plan §1.5）
         if (snapshot != null) {
@@ -355,91 +345,54 @@ public class ReportGenerator {
                 .toInstant().toEpochMilli();
         int unlockedDb = 0;
         int recentAchievements = 0;
-        String sql3 = "SELECT COUNT(*) AS total,"
-                + " SUM(CASE WHEN unlocked_at >= ? AND unlocked_at < ? THEN 1 ELSE 0 END) AS recent"
-                + " FROM " + prefix + "achievements WHERE uuid = ?";
-        synchronized (databaseManager.getConnectionLock()) {
-            try (PreparedStatement stmt = databaseManager.getConnection().prepareStatement(sql3)) {
-                stmt.setLong(1, windowStart);
-                stmt.setLong(2, windowEndExclusive);
-                stmt.setString(3, playerId.toString());
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        unlockedDb = rs.getInt("total");
-                        recentAchievements = rs.getInt("recent");
-                    }
-                }
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to query achievements for report: " + playerId, e);
-            }
+        ReportRepository.AchievementCounts ach =
+                reportRepository.countAchievements(playerId, windowStart, windowEndExclusive);
+        if (ach != null) {
+            unlockedDb = ach.total();
+            recentAchievements = ach.recent();
         }
         int unlocked = snapshot != null ? snapshot.unlockedCount() : unlockedDb;
 
-        // AI 对话：窗口内完成的对话会话数（Q4）。timestamp 为
-        // yyyy-MM-dd HH:mm:ss 文本/时间戳列，用同格式字符串边界比较
-        // （SQLite 文本比较与 CURRENT_TIMESTAMP 写入格式一致；MySQL 自动转 TIMESTAMP 比较）。
-        int recentConversations = 0;
-        String sql4 = "SELECT COUNT(DISTINCT session_id) FROM " + prefix
-                + "ai_chat_history WHERE player_uuid = ? AND timestamp >= ? AND timestamp <= ?";
-        synchronized (databaseManager.getConnectionLock()) {
-            try (PreparedStatement stmt = databaseManager.getConnection().prepareStatement(sql4)) {
-                stmt.setString(1, playerId.toString());
-                stmt.setString(2, period.from() + " 00:00:00");
-                stmt.setString(3, period.to() + " 23:59:59");
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        recentConversations = rs.getInt(1);
-                    }
-                }
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to query AI chat count for report: " + playerId, e);
-            }
+        // AI 对话：窗口内完成的对话会话数（Q4）。R9-H2（读取侧换算）：SQLite 的
+        // timestamp 是 CURRENT_TIMESTAMP 写入的 UTC 字符串（P3-12 时区统一只统了
+        // Java 侧、未统 DB 默认值——本处收口该裂缝的新缝口，写入侧不改）；边界按
+        // "本地日 → UTC 区间 [start, nextDayStart)" 换算后比较。MySQL 侧 TIMESTAMP
+        // 列自动按会话时区转换，维持本地字符串边界（含 23:59:59 上界）。
+        String lowerBound;
+        String upperBound;
+        boolean exclusiveUpper;
+        if (databaseManager.isSQLite()) {
+            DateTimeFormatter utcFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+            ZoneId sys = ZoneId.systemDefault();
+            lowerBound = period.from().atStartOfDay(sys)
+                    .withZoneSameInstant(ZoneOffset.UTC).format(utcFmt);
+            upperBound = period.to().plusDays(1).atStartOfDay(sys)
+                    .withZoneSameInstant(ZoneOffset.UTC).format(utcFmt);
+            exclusiveUpper = true;
+        } else {
+            lowerBound = period.from() + " 00:00:00";
+            upperBound = period.to() + " 23:59:59";
+            exclusiveUpper = false;
         }
+        // R6-A：SQL 片段选择（< / <=）已收口进仓储的两套完整 SQL；边界换算与
+        // isSQLite 判定仍在本类。
+        int recentConversations =
+                reportRepository.countAiConversations(playerId, lowerBound, upperBound, exclusiveUpper);
 
         // 错题本 Top N（Q5，当前状态）
-        List<WeakWord> weak = queryWeakWords(prefix, playerId, settings.weakLimit());
+        List<WeakWord> weak = queryWeakWords(playerId, settings.weakLimit());
 
         // 当前连续签到（Q6）
-        int streak = 0;
-        String sql6 = "SELECT streak_count FROM " + prefix
-                + "checkin_data WHERE player_uuid = ?";
-        synchronized (databaseManager.getConnectionLock()) {
-            try (PreparedStatement stmt = databaseManager.getConnection().prepareStatement(sql6)) {
-                stmt.setString(1, playerId.toString());
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        streak = rs.getInt("streak_count");
-                    }
-                }
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to query check-in streak for report: " + playerId, e);
-            }
-        }
+        int streak = reportRepository.fetchCheckinStreak(playerId);
 
         // 每日挑战完成度（Q8，窗口；完成行数/总行数）
         int challengeDone = 0;
         int challengeTotal = 0;
-        String sql8 = "SELECT SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) AS done,"
-                + " COUNT(*) AS total FROM " + prefix + "daily_challenges"
-                + " WHERE uuid = ? AND challenge_date >= ? AND challenge_date <= ?";
-        synchronized (databaseManager.getConnectionLock()) {
-            try (PreparedStatement stmt = databaseManager.getConnection().prepareStatement(sql8)) {
-                stmt.setString(1, playerId.toString());
-                stmt.setString(2, period.from().toString());
-                stmt.setString(3, period.to().toString());
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        challengeDone = rs.getInt("done");
-                        challengeTotal = rs.getInt("total");
-                    }
-                }
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to query daily challenges for report: " + playerId, e);
-            }
+        ReportRepository.ChallengeProgress challenge = reportRepository.countDailyChallenges(
+                playerId, period.from().toString(), period.to().toString());
+        if (challenge != null) {
+            challengeDone = challenge.done();
+            challengeTotal = challenge.total();
         }
 
         // 名字优先级：在线（有快照）= 实时 Bukkit 名；离线 = player_data 的落盘名
@@ -454,57 +407,28 @@ public class ReportGenerator {
     }
 
     /** Q1：窗口逐日会话行（UNIQUE(uuid, session_date) 保证一天一行）。 */
-    private List<DailyRow> queryDailyRows(String prefix, UUID playerId, ReportPeriod period) {
+    private List<DailyRow> queryDailyRows(UUID playerId, ReportPeriod period) {
         List<DailyRow> rows = new ArrayList<>();
-        String sql = "SELECT session_date, words_count, correct_count, score FROM " + prefix
-                + "player_sessions WHERE uuid = ? AND session_date >= ? AND session_date <= ?"
-                + " ORDER BY session_date ASC";
-        synchronized (databaseManager.getConnectionLock()) {
-            try (PreparedStatement stmt = databaseManager.getConnection().prepareStatement(sql)) {
-                stmt.setString(1, playerId.toString());
-                stmt.setString(2, period.from().toString());
-                stmt.setString(3, period.to().toString());
-                try (ResultSet rs = stmt.executeQuery()) {
-                    while (rs.next()) {
-                        rows.add(new DailyRow(LocalDate.parse(rs.getString("session_date")),
-                                rs.getInt("words_count"), rs.getInt("correct_count"),
-                                rs.getLong("score")));
-                    }
-                }
-            } catch (SQLException | java.time.format.DateTimeParseException e) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to query session rows for report: " + playerId, e);
-            }
+        for (ReportRepository.DailyRow row : reportRepository.queryDailyRows(
+                playerId, period.from().toString(), period.to().toString())) {
+            rows.add(new DailyRow(row.date(), row.answered(), row.correct(), row.score()));
         }
         return rows;
     }
 
     /** Q5：当前错题本 Top N（按错误次数降序；附内存词库中文义与难度，已删词回落纯英文）。 */
-    private List<WeakWord> queryWeakWords(String prefix, UUID playerId, int limit) {
+    private List<WeakWord> queryWeakWords(UUID playerId, int limit) {
         List<WeakWord> out = new ArrayList<>();
-        String sql = "SELECT word, wrong_count FROM " + prefix + "difficult_words"
-                + " WHERE player_uuid = ? ORDER BY wrong_count DESC, word ASC LIMIT ?";
-        synchronized (databaseManager.getConnectionLock()) {
-            try (PreparedStatement stmt = databaseManager.getConnection().prepareStatement(sql)) {
-                stmt.setString(1, playerId.toString());
-                stmt.setInt(2, limit);
-                try (ResultSet rs = stmt.executeQuery()) {
-                    while (rs.next()) {
-                        String word = rs.getString("word");
-                        int wrongCount = rs.getInt("wrong_count");
-                        // 词库内存索引（ConcurrentHashMap）只读查询，异步安全（plan §3.4）
-                        Word entry = wordManager != null
-                                ? wordManager.getWord(word) : null;
-                        String chinese = (entry != null && entry.getChinese() != null
-                                && !entry.getChinese().isBlank()) ? entry.getChinese() : null;
-                        String difficulty = entry != null ? entry.getDifficulty() : null;
-                        out.add(new WeakWord(word, wrongCount, chinese, difficulty));
-                    }
-                }
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to query weak words for report: " + playerId, e);
-            }
+        for (ReportRepository.WeakWordRow row : reportRepository.queryWeakWords(playerId, limit)) {
+            String word = row.word();
+            int wrongCount = row.wrongCount();
+            // 词库内存索引（ConcurrentHashMap）只读查询，异步安全（plan §3.4）
+            Word entry = wordManager != null
+                    ? wordManager.getWord(word) : null;
+            String chinese = (entry != null && entry.getChinese() != null
+                    && !entry.getChinese().isBlank()) ? entry.getChinese() : null;
+            String difficulty = entry != null ? entry.getDifficulty() : null;
+            out.add(new WeakWord(word, wrongCount, chinese, difficulty));
         }
         return out;
     }
@@ -516,50 +440,23 @@ public class ReportGenerator {
      */
     private List<BatchRow> queryBatchRows(ReportPeriod period, ReportSettings settings) {
         List<BatchRow> rows = new ArrayList<>();
-        String prefix = databaseManager.getTablePrefix();
-        // MAX(player_name) 包法兼容 MySQL ONLY_FULL_GROUP_BY（沿 R-05/周榜惯例）
-        String sql = "SELECT s.uuid AS uuid, MAX(p.player_name) AS player_name,"
-                + " COUNT(*) AS active_days,"
-                + " COALESCE(SUM(s.words_count), 0) AS total_answered,"
-                + " COALESCE(SUM(s.correct_count), 0) AS total_correct,"
-                + " COALESCE(SUM(s.score), 0) AS total_score"
-                + " FROM " + prefix + "player_sessions s"
-                + " LEFT JOIN " + prefix + "player_data p ON p.uuid = s.uuid";
-        if (settings.respectPrivacy()) {
-            sql += " LEFT JOIN " + prefix + "player_profiles pf ON pf.uuid = s.uuid";
-        }
-        sql += " WHERE s.session_date >= ? AND s.session_date <= ?";
-        if (settings.respectPrivacy()) {
-            sql += " AND COALESCE(pf.show_in_square, 1) <> 0";
-        }
-        sql += " GROUP BY s.uuid ORDER BY total_correct DESC, s.uuid ASC LIMIT ?";
-
-        synchronized (databaseManager.getConnectionLock()) {
-            try (PreparedStatement stmt = databaseManager.getConnection().prepareStatement(sql)) {
-                stmt.setString(1, period.from().toString());
-                stmt.setString(2, period.to().toString());
-                stmt.setInt(3, settings.batchMax() + 1);
-                try (ResultSet rs = stmt.executeQuery()) {
-                    while (rs.next()) {
-                        String uuidStr = rs.getString("uuid");
-                        String name = rs.getString("player_name");
-                        UUID uuid;
-                        try {
-                            uuid = UUID.fromString(uuidStr);
-                        } catch (IllegalArgumentException e) {
-                            continue; // 脏 uuid 行跳过，不拖垮整批
-                        }
-                        if (name == null || name.isBlank()) {
-                            name = uuid.toString().substring(0, 8);
-                        }
-                        rows.add(new BatchRow(uuid, name,
-                                rs.getInt("active_days"), rs.getInt("total_answered"),
-                                rs.getInt("total_correct"), rs.getLong("total_score")));
-                    }
-                }
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING, "Failed to query batch report rows", e);
+        // R6-A：SQL 组装（含隐私 LEFT JOIN 分支）已收口进仓储；UUID 解析、脏行
+        // 跳过与名字回落仍在本类判定。
+        for (ReportRepository.BatchStatRow stat : reportRepository.queryBatchStats(
+                period.from().toString(), period.to().toString(),
+                settings.batchMax() + 1, settings.respectPrivacy())) {
+            UUID uuid;
+            try {
+                uuid = UUID.fromString(stat.uuid());
+            } catch (IllegalArgumentException e) {
+                continue; // 脏 uuid 行跳过，不拖垮整批
             }
+            String name = stat.playerName();
+            if (name == null || name.isBlank()) {
+                name = uuid.toString().substring(0, 8);
+            }
+            rows.add(new BatchRow(uuid, name, stat.activeDays(), stat.answered(),
+                    stat.correct(), stat.score()));
         }
         return rows;
     }
@@ -569,23 +466,7 @@ public class ReportGenerator {
      * 无行 = 从未改过开关 = 默认可见（COALESCE(...,1) 口径）。
      */
     private boolean isHiddenInSquare(UUID playerId) {
-        String sql = "SELECT show_in_square FROM "
-                + databaseManager.getTablePrefix()
-                + "player_profiles WHERE uuid = ?";
-        synchronized (databaseManager.getConnectionLock()) {
-            try (PreparedStatement stmt = databaseManager.getConnection().prepareStatement(sql)) {
-                stmt.setString(1, playerId.toString());
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        return !rs.getBoolean("show_in_square");
-                    }
-                }
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to check privacy flag for report: " + playerId, e);
-            }
-        }
-        return false;
+        return reportRepository.isHiddenInSquare(playerId);
     }
 
     // ============================================================
@@ -823,7 +704,6 @@ public class ReportGenerator {
         }
 
         // 逐人小节（精简版：概览 + 错题 Top3，不回放每日明细，plan §1.7）
-        String prefix = databaseManager.getTablePrefix();
         for (BatchRow row : rows) {
             sb.append('\n').append(t(settings, "report.batch-student-header",
                     "player", row.name())).append('\n');
@@ -837,7 +717,7 @@ public class ReportGenerator {
                     "total", String.valueOf(row.answered()))).append('\n');
             sb.append("  ").append(t(settings, "report.overview-score",
                     "score", scoreText(row.score()))).append('\n');
-            List<WeakWord> weak = queryWeakWords(prefix, row.uuid(), BATCH_WEAK_LIMIT);
+            List<WeakWord> weak = queryWeakWords(row.uuid(), BATCH_WEAK_LIMIT);
             if (!weak.isEmpty()) {
                 StringBuilder items = new StringBuilder();
                 for (int i = 0; i < weak.size(); i++) {
@@ -1105,6 +985,10 @@ public class ReportGenerator {
     //  线程调度守卫
     // ============================================================
 
+    /**
+     * D2-5：同型帮助器见 util.SchedulerGuard（语义微差：本处带 fine 日志级别），
+     * 本批未迁移。
+     */
     private void runAsync(Runnable task) {
         try {
             plugin.getServer().getScheduler().runTaskAsynchronously(plugin, task);

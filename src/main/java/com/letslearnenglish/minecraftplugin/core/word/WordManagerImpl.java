@@ -132,7 +132,16 @@ public class WordManagerImpl {
         }
 
         Set<String> masteredWords = playerDataStore.getMasteredWords(player.getUniqueId());
-        List<Word> sessionWords = bank.selectWordsForSession(wordCount, masteredWords);
+
+        // B2b（R3-b）：近期已答词排除 —— 开新学习会话时跳过窗口内刚答过的词，
+        // 避免「刚答错就重抽同一题」。配置 0 = 关闭（getRecentlyAnsweredWords 收到
+        // <= 0 直接返回空集，所以这里不做条件分支，保持单一取值路径）。
+        // 只作用于普通学习会话；复习会话（startReviewSession）刻意不排除 —— 复习就是要重考。
+        Set<String> excluded = playerDataStore.getRecentlyAnsweredWords(
+                player.getUniqueId(),
+                configManager.getMainConfig()
+                        .getInt("word-system.recent-word-exclusion-minutes", 30) * 60_000L);
+        List<Word> sessionWords = bank.selectWordsForSession(wordCount, masteredWords, excluded);
 
         if (sessionWords.isEmpty()) {
             throw new IllegalStateException("No words available for session in difficulty: " + difficulty);
@@ -140,6 +149,9 @@ public class WordManagerImpl {
 
         LearningSession session = new LearningSession(player.getUniqueId(), difficulty, mode, sessionWords);
         activeSessions.put(player.getUniqueId(), session);
+        // R13-L2：公共 API isPlayerLearning 的真相标记（原 setPlayerInSession 零调用，
+        // activeSessionPlayers 恒空 → API 恒 false）。startSession/endSession 成对维护。
+        plugin.getPlayerDataStore().setPlayerInSession(player.getUniqueId(), true);
         return session;
     }
 
@@ -157,6 +169,9 @@ public class WordManagerImpl {
      */
     public void endSession(UUID playerId) {
         LearningSession session = activeSessions.remove(playerId);
+        // R13-L2：与 startSession/startReviewSession 的置位成对（清理完成处；
+        // 无会话时调用亦安全——幂等清位，防 API 卡在 true）。
+        playerDataStore.setPlayerInSession(playerId, false);
         if (session != null) {
             playerDataStore.updateWordProgress(playerId, session.getResults());
             playerDataStore.getPlayerStats(playerId).addScore(session.getScore());
@@ -179,8 +194,18 @@ public class WordManagerImpl {
                 }
             } else {
                 for (LearningSession.WordResult result : session.getResults().values()) {
-                    // 只有实际答过的词才播种子：未作答的词（stop 残留）不进复习池
-                    if (result.getCorrectCount() + result.getIncorrectCount() > 0) {
+                    // 只有实际答过的词才碰复习状态：未作答的词（stop 残留）不进复习池
+                    if (result.getCorrectCount() + result.getIncorrectCount() == 0) {
+                        continue;
+                    }
+                    if (result.getIncorrectCount() > 0) {
+                        // B2b（R3-c）：普通会话答错也必须把间隔打回起点。此前普通分支只调
+                        // seedReview，而 seedReview 对已有种子的词是 no-op
+                        // （PlayerDataStore 的 seedReview 在 lastReviewTime 已存在时直接 return），
+                        // 所以"学过的词答错后复习间隔分毫不动"，下次提醒仍按旧的长间隔走。
+                        // resetReview：lastReviewTime=now、reviewCount=0 → 下次 due = now + intervals[0]。
+                        reviewScheduler.resetReview(playerId, result.getWord().getEnglish());
+                    } else {
                         reviewScheduler.seedReview(playerId, result.getWord().getEnglish());
                     }
                 }
@@ -261,6 +286,8 @@ public class WordManagerImpl {
 
         LearningSession session = new LearningSession(player.getUniqueId(), "review", "review", reviewWords);
         activeSessions.put(player.getUniqueId(), session);
+        // R13-L2：复习会话同走 endSession 收尾，开局侧成对置位（否则 API 在复习中恒 false）。
+        plugin.getPlayerDataStore().setPlayerInSession(player.getUniqueId(), true);
         return session;
     }
 

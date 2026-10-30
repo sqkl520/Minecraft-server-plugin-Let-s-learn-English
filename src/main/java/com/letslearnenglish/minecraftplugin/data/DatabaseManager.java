@@ -14,11 +14,15 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 
 /**
@@ -35,6 +39,11 @@ public class DatabaseManager {
     private volatile Connection connection;
     private String tablePrefix;
     private boolean isSQLite;
+    /**
+     * L24：维护任务（{@code VACUUM}）的非阻塞去重闸。维护调用方在异步线程执行，
+     * 若玩家/管理员连续触发两次，第二次直接返回，避免排队堆积重复的全库重建。
+     */
+    private final AtomicBoolean maintenanceInProgress = new AtomicBoolean(false);
 
     public DatabaseManager(LetsLearnEnglish plugin, ConfigManager configManager) {
         this.plugin = plugin;
@@ -81,6 +90,18 @@ public class DatabaseManager {
     }
 
     private void initializeMySQL(FileConfiguration config) throws SQLException {
+        // P0-1：驱动已随包 shade（pom 的 maven-shade-plugin），但 Bukkit/Paper 用独立的
+        // 插件 ClassLoader，JDBC 4 的服务自动发现依赖线程上下文类加载器，未必能看见
+        // META-INF/services/java.sql.Driver。显式加载一次可把失败点从晦涩的
+        // "No suitable driver found" 提前成一条可读的错误。
+        try {
+            Class.forName("com.mysql.cj.jdbc.Driver");
+        } catch (ClassNotFoundException e) {
+            throw new SQLException("MySQL JDBC driver (com.mysql.cj.jdbc.Driver) is not available. "
+                    + "It should be bundled in this plugin's jar; if you built the plugin yourself, "
+                    + "check that the maven-shade-plugin execution ran (see README 'Build').", e);
+        }
+
         String host = config.getString("database.mysql.host", "localhost");
         int port = config.getInt("database.mysql.port", 3306);
         String database = config.getString("database.mysql.database", "letslearnenglish");
@@ -190,11 +211,14 @@ public class DatabaseManager {
                         "  show_answers BOOLEAN DEFAULT 0," +
                         "  show_results BOOLEAN DEFAULT 1," +
                         "  show_in_square BOOLEAN DEFAULT 1," +
-                        "  sounds_enabled BOOLEAN DEFAULT 1" +
+                        "  sounds_enabled BOOLEAN DEFAULT 1," +
+                        "  reminders_enabled BOOLEAN DEFAULT 1" +
                         ")"
         );
         // Phase 3 S-A：per-player 音效开关（默认开；plan-audio-feedback §3.1）
         addColumnIfMissing(tablePrefix + "player_profiles", "sounds_enabled", "BOOLEAN DEFAULT 1");
+        // R1/R4：per-player 提醒总开关（默认开 —— 保持既有玩家上线行为不变；老库零迁移补列）
+        addColumnIfMissing(tablePrefix + "player_profiles", "reminders_enabled", "BOOLEAN DEFAULT 1");
 
         executeUpdate(
                 "CREATE TABLE IF NOT EXISTS " + tablePrefix + "player_achievements (" +
@@ -228,6 +252,64 @@ public class DatabaseManager {
                         "  UNIQUE(player_uuid, challenge_date, word_id)" +
                         ")"
         );
+
+        // 修复批 A（R10-H1）：单词挑战奖励"已付"台账 —— 内存 Set（wordChallengeClaimedToday）
+        // 之外的重启防重复真源：内存清空后按日期查库防同日重发。幂等写入
+        // （INSERT OR IGNORE / INSERT IGNORE），UNIQUE(player_uuid, challenge_date)
+        // 兜底"每人每日至多一行"；/lea reset 清收随 deletePlayerData 的 player_uuidTables。
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "daily_word_reward_claims (" +
+                        "  player_uuid VARCHAR(36) NOT NULL," +
+                        "  challenge_date DATE NOT NULL," +
+                        "  claimed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
+                        "  UNIQUE(player_uuid, challenge_date)" +
+                        ")"
+        );
+
+        // Block C2（R2-M2）：今日 AI 轮次计数器持久化 —— 原内存 TodayCounter 重启/换服/
+        // quit-rejoin 即清零，daily-round-limit（默认 30）可无限绕过（API 成本面）。
+        // 与 daily_word_reward_claims 同式"重启后真源"：UNIQUE(player_uuid, round_date)
+        // 兜底每人每日至多一行；/lea reset 清收随 deletePlayerData 的 player_uuidTables。
+        // 旧行由 cleanupOldChatHistory 同窗口清理。
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "ai_round_counters (" +
+                        "  player_uuid VARCHAR(36) NOT NULL," +
+                        "  round_date DATE NOT NULL," +
+                        "  rounds INT NOT NULL DEFAULT 0," +
+                        "  UNIQUE(player_uuid, round_date)" +
+                        ")"
+        );
+
+        // R10 战略锐评（决斗零持久化）：决斗战绩台账 —— 一场一行的追加式事实表。
+        // 原实现只有内存 DuelRoom，赢家只拿一个成就、无战绩/胜率/连胜可查，
+        // 也无"复仇"的对手关系可回溯。本表只追加（无 UPDATE/DELETE 业务路径），
+        // 保留期 365 天（决斗数据量极小，见 cleanupOldChatHistory）。
+        // 双后端 DDL 分支：SQLite INTEGER PRIMARY KEY AUTOINCREMENT /
+        // MySQL BIGINT AUTO_INCREMENT PRIMARY KEY（同 word_progress 等表的 isSQLite 分支写法）。
+        // duel_date 存 yyyy-MM-dd 字符串（与 daily_word_reward_claims 的 DATE 列不同：
+        // 本表由 recordDuelResult 用 LocalDate.now() 显式写入，字符串在两后端可精确比较）。
+        executeUpdate(
+                "CREATE TABLE IF NOT EXISTS " + tablePrefix + "duel_stats (" +
+                        "  id " + (isSQLite()
+                                ? "INTEGER PRIMARY KEY AUTOINCREMENT"
+                                : "BIGINT AUTO_INCREMENT PRIMARY KEY") + "," +
+                        "  winner_uuid VARCHAR(36) NOT NULL," +
+                        "  loser_uuid VARCHAR(36) NOT NULL," +
+                        "  winner_score INT NOT NULL," +
+                        "  loser_score INT NOT NULL," +
+                        "  duel_date VARCHAR(10) NOT NULL," +
+                        "  created_at BIGINT NOT NULL" +
+                        ")"
+        );
+        // 赢/输两侧各一条 (uuid, duel_date) 复合索引 —— 供"我的战绩/胜率/连胜"
+        // 按人 + 日期窗查询（含 OR 两列的战绩聚合走 index merge / 两次索引扫）。
+        // 经 createIndexIfMissing（PF-SEA-02：MySQL 不支持 CREATE INDEX IF NOT EXISTS）。
+        createIndexIfMissing("idx_duel_winner_date",
+                "duel_stats(winner_uuid, duel_date)");
+        createIndexIfMissing("idx_duel_loser_date",
+                "duel_stats(loser_uuid, duel_date)");
+        createIndexIfMissing("idx_duel_created",
+                "duel_stats(created_at)");
 
         executeUpdate(
                 "CREATE TABLE IF NOT EXISTS " + tablePrefix + "ai_chat_history (" +
@@ -397,6 +479,13 @@ public class DatabaseManager {
         // 一人一班反查（getPlayerClassId 按 uuid 查；PK 前导 class_id 非前缀）
         createIndexIfMissing("idx_class_members_uuid",
                 "class_members(uuid)");
+
+        // Block C2（A6/R9-M4）：player_data(player_name) 索引 —— getKnownPlayerNames
+        // （AdminCommandHandler tab 补全）按 player_name LIKE 前缀查，无索引则主线程
+        // 全表扫 + 持锁阻塞（每次按键）。createIndexIfMissing 已处理双后端查重与
+        // 失败静默（索引非致命）。
+        createIndexIfMissing("idx_player_data_name",
+                "player_data(player_name)");
     }
 
     /**
@@ -518,41 +607,6 @@ public class DatabaseManager {
                         "Failed to insert chat history for player " + playerUuid, e);
             }
         }
-    }
-
-    /**
-     * Get paginated chat history entries for a player, most recent first.
-     */
-    public List<ChatHistoryEntry> getChatHistory(UUID playerUuid, int page, int pageSize) {
-        List<ChatHistoryEntry> entries = new ArrayList<>();
-        String sql = "SELECT id, player_uuid, session_id, role, content, timestamp"
-                + " FROM " + tablePrefix + "ai_chat_history"
-                + " WHERE player_uuid = ?"
-                + " ORDER BY timestamp DESC"
-                + " LIMIT ? OFFSET ?";
-        synchronized (connectionLock) {
-            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-                stmt.setString(1, playerUuid.toString());
-                stmt.setInt(2, pageSize);
-                stmt.setInt(3, (page - 1) * pageSize);
-                try (ResultSet rs = stmt.executeQuery()) {
-                    while (rs.next()) {
-                        entries.add(new ChatHistoryEntry(
-                                rs.getInt("id"),
-                                rs.getString("player_uuid"),
-                                rs.getString("session_id"),
-                                rs.getString("role"),
-                                rs.getString("content"),
-                                rs.getTimestamp("timestamp")
-                        ));
-                    }
-                }
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to get chat history for player " + playerUuid, e);
-            }
-        }
-        return entries;
     }
 
     /**
@@ -684,18 +738,43 @@ public class DatabaseManager {
 
     /**
      * Delete chat history records older than the specified number of days.
+     *
+     * <p>修复批 B（R3-H2 清理侧）：同窗口一并清 {@code ai_chat_feedback}
+     * （created_at 与 ai_chat_history.timestamp 同为 CURRENT_TIMESTAMP 写入，
+     * 同一 {@code dateExpr} 阈值可直接套用），防该表无限增长。保留期窗口语义 =
+     * "早于阈值行"（非精确边界）：两后端各自按库内时钟自洽，SQLite（UTC 字符串）与
+     * MySQL（会话时区 TIMESTAMP）间的 8h 级偏移可接受，不断言被删行的时区精确性。
+     *
+     * <p>修复批 D（R3-L2）：天数经占位符绑定（原为字符串拼接；唯一调用传常量 30
+     * 无注入面，此处对齐全仓参数化惯例）——SQLite 绑字符串 modifier（"-N days"）、
+     * MySQL 绑 int，见 {@link #bindKeepDays}。
      */
     public void cleanupOldChatHistory(int daysToKeep) {
         String dateExpr;
         if (isSQLite()) {
-            dateExpr = "datetime('now', '-" + daysToKeep + " days')";
+            dateExpr = "datetime('now', ?)";
         } else {
-            dateExpr = "DATE_SUB(NOW(), INTERVAL " + daysToKeep + " DAY)";
+            dateExpr = "DATE_SUB(NOW(), INTERVAL ? DAY)";
         }
         String sql = "DELETE FROM " + tablePrefix + "ai_chat_history"
                 + " WHERE timestamp < " + dateExpr;
+        String sql2 = "DELETE FROM " + tablePrefix + "ai_chat_feedback WHERE created_at < " + dateExpr;
+        // Block C2（A1/R2-M2）：ai_round_counters 旧行同窗口清理（round_date 为纯日期，
+        // 与日期阈值精确字典序可比——SQLite date('now') / MySQL CURDATE() 两后端对照）
+        // ——新表必须有清理者，先例 R3-H2。
+        String roundDateExpr = isSQLite()
+                ? "date('now', ?)"
+                : "DATE_SUB(CURDATE(), INTERVAL ? DAY)";
+        String sql3 = "DELETE FROM " + tablePrefix + "ai_round_counters"
+                + " WHERE round_date < " + roundDateExpr;
+        // R10：决斗战绩台账保留期固定 365 天（不随调用方 daysToKeep 走——唯一调用点
+        // 传的是 AI 历史的 30 天）。created_at 是 epoch 毫秒，阈值在 Java 侧算好直接
+        // 绑 long，天然免去两后端日期函数的方言差异与库内时区偏移。
+        String sql4 = "DELETE FROM " + tablePrefix + "duel_stats WHERE created_at < ?";
+        long duelCutoff = System.currentTimeMillis() - DUEL_STATS_RETENTION_DAYS * 24L * 60L * 60L * 1000L;
         synchronized (connectionLock) {
             try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                bindKeepDays(stmt, daysToKeep);
                 int deleted = stmt.executeUpdate();
                 if (deleted > 0) {
                     plugin.getLogger().info("Cleaned up " + deleted
@@ -704,6 +783,40 @@ public class DatabaseManager {
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING,
                         "Failed to clean up old chat history", e);
+            }
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql2)) {
+                bindKeepDays(stmt, daysToKeep);
+                int deletedFeedback = stmt.executeUpdate();
+                if (deletedFeedback > 0) {
+                    plugin.getLogger().info("Cleaned up " + deletedFeedback
+                            + " old AI chat feedback records (older than " + daysToKeep + " days).");
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to clean up old chat feedback", e);
+            }
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql3)) {
+                bindKeepDays(stmt, daysToKeep);
+                int deletedRounds = stmt.executeUpdate();
+                if (deletedRounds > 0) {
+                    plugin.getLogger().info("Cleaned up " + deletedRounds
+                            + " old AI round counter records (older than " + daysToKeep + " days).");
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to clean up old AI round counters", e);
+            }
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql4)) {
+                stmt.setLong(1, duelCutoff);
+                int deletedDuels = stmt.executeUpdate();
+                if (deletedDuels > 0) {
+                    plugin.getLogger().info("Cleaned up " + deletedDuels
+                            + " old duel stats records (older than "
+                            + DUEL_STATS_RETENTION_DAYS + " days).");
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to clean up old duel stats", e);
             }
         }
     }
@@ -1039,6 +1152,490 @@ public class DatabaseManager {
         return new int[]{0, 0};
     }
 
+    /**
+     * 修复批 A（R10-H1）：标记玩家某日的单词挑战奖励已发放（幂等，双后端对照）。
+     *
+     * <p>SQLite {@code INSERT OR IGNORE} / MySQL {@code INSERT IGNORE}（同
+     * {@link #assignDailyChallengeWords} 惯例），UNIQUE(player_uuid, challenge_date)
+     * 兜底重复标记为 no-op。该表是"已付"的重启后真源——内存
+     * {@code wordChallengeClaimedToday} 重启即空，同日重启不再据此重复发钱。
+     *
+     * <p>静默降级：SQLException 只记 WARNING（标记失败最坏后果 = 重启后可能重复
+     * 发放一次，与修复前行为持平，不崩、不阻断发钱主流程）。
+     *
+     * @param playerId the player
+     * @param date     the challenge date (yyyy-MM-dd；rollover 补发传昨日)
+     */
+    public void markDailyWordRewardClaimed(UUID playerId, String date) {
+        String insertSql;
+        if (isSQLite()) {
+            insertSql = "INSERT OR IGNORE INTO " + tablePrefix
+                    + "daily_word_reward_claims (player_uuid, challenge_date) VALUES (?, ?)";
+        } else {
+            insertSql = "INSERT IGNORE INTO " + tablePrefix
+                    + "daily_word_reward_claims (player_uuid, challenge_date) VALUES (?, ?)";
+        }
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(insertSql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to mark daily word reward claimed for " + playerId
+                                + " / " + date, e);
+            }
+        }
+    }
+
+    /**
+     * 修复批 A（R10-H1）：玩家某日的单词挑战奖励是否已发放（{@code daily_word_reward_claims}
+     * 台账查询）。异常 → false + WARNING（降级语义同 {@link #markDailyWordRewardClaimed}：
+     * 查不到就按未付处理，最坏后果与修复前持平）。
+     *
+     * @param playerId the player
+     * @param date     the challenge date (yyyy-MM-dd)
+     * @return true if a claim row exists for this player on this date
+     */
+    public boolean isDailyWordRewardClaimed(UUID playerId, String date) {
+        String sql = "SELECT COUNT(*) FROM " + tablePrefix + "daily_word_reward_claims"
+                + " WHERE player_uuid = ? AND challenge_date = ?";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    return rs.next() && rs.getInt(1) > 0;
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to check daily word reward claim for " + playerId
+                                + " / " + date, e);
+                return false;
+            }
+        }
+    }
+
+    /**
+     * R7-B ③：一次查询取回「今日挑战词集合 + 已完成集合 + 奖励台账是否已发」三份数据，
+     * 供 {@code DailyChallengeManager} 的 per-player 每日缓存加载（把答对路径上原本
+     * 每题 4 条 SELECT 压成"每次缓存加载 2 条"）。
+     *
+     * <p>语义与 {@link #getDailyChallengeWords}、{@link #isDailyChallengeWordsCompleted}、
+     * {@link #isDailyWordRewardClaimed} 三者组合完全一致，但拆成两次最小查询：
+     * 第一次只读 {@code daily_challenge_words}（绝不在 JOIN 后再查
+     * {@code daily_word_reward_claims} —— 后者多行会产生笛卡尔积），第二次单行 COUNT。</p>
+     *
+     * <p><strong>失败降级</strong>（与原三方法逐条一致）：单词查询异常 → 返回空快照
+     * （words 空集 + rewardPaid=false，调用方据此视为"今日无可挑战词"）；台账查询异常 →
+     * 只把 rewardPaid 置 false（记 WARNING），单词集合照常返回。</p>
+     *
+     * <p><strong>R6-E</strong>：本方法不再计算"是否全完成"。那个字段原先算出来
+     * <b>从未被任何调用方读取</b>（调用方一律用缓存的
+     * {@code DailyWordChallengeState.allCompleted()}），属于审计噪音；
+     * "有词且全部完成"的判定规则仍在两处活着的实现里：
+     * {@link #isDailyChallengeWordsCompleted}（SQL 口径，rollover 补发仍走它）
+     * 与 {@code DailyChallengeManager.DailyWordChallengeState#allCompleted()}（缓存口径）。
+     * 两者语义等价（都要求"至少一个词"且"完成数 ≥ 总数"，DB 侧因 {@code completed ⊆ words}
+     * 可写成 {@code ==}）。</p>
+     *
+     * @param playerId 玩家
+     * @param date     {@code yyyy-MM-dd}
+     * @return 不可变快照（详见 {@link WordChallengeSnapshot}）
+     */
+    public WordChallengeSnapshot loadWordChallengeSnapshot(UUID playerId, String date) {
+        String wordsSql = "SELECT word_id, completed FROM " + tablePrefix
+                + "daily_challenge_words WHERE player_uuid = ? AND challenge_date = ?";
+        Set<String> words = new HashSet<>();
+        Set<String> completedWords = new HashSet<>();
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(wordsSql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        String wordId = rs.getString("word_id");
+                        words.add(wordId);
+                        if (rs.getBoolean("completed")) {
+                            completedWords.add(wordId);
+                        }
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to load daily challenge words for " + playerId, e);
+                // 与 getDailyChallengeWords 的降级一致：读失败 → 空集合
+                return new WordChallengeSnapshot(Collections.<String>emptySet(),
+                        Collections.<String>emptySet(), false);
+            }
+        }
+        return new WordChallengeSnapshot(words, completedWords,
+                isDailyWordRewardClaimed(playerId, date));
+    }
+
+    /**
+     * R7-B ②：单条 UPDATE 推进行为挑战进度并判定完成位（合并原
+     * {@code DailyChallengeRepository.findState} SELECT + {@code updateProgress} UPDATE）。
+     *
+     * <p><strong>返回值语义是本方法的关键契约</strong>：返回受影响行数，
+     * {@code 0} 表示"该玩家今日没有这一行挑战"——这正是原实现
+     * {@code loadChallengeState(...) == null} 的触发条件，调用方据此走 R-32 补分配，
+     * 因此本方法<strong>必须</strong>返回 {@code executeUpdate()} 的原值，不能改成 boolean。</p>
+     *
+     * <p>SQL 层面的等价替换（原两步的全部判定下推到一条语句；<strong>赋值顺序见实现注释</strong>）：</p>
+     * <pre>
+     * completed = CASE WHEN claimed = 0 AND completed = 0 AND progress + inc &gt;= target
+     *                  THEN 1 ELSE completed END                       -- 只置不撤
+     * progress  = CASE WHEN claimed = 0 THEN
+     *                 CASE WHEN progress + inc &gt;= target THEN target      -- R-79 clamp
+     *                      ELSE progress + inc END
+     *                 ELSE progress END
+     * </pre>
+     *
+     * <p><strong>方言关键陷阱</strong>：MySQL 单表 UPDATE 按从左到右求值、后续赋值看到的是
+     * 前面刚写入的新值；SQLite 一律用旧行值。故 {@code completed} 必须写在 {@code progress}
+     * <em>之前</em>，否则 MySQL 会把 {@code progress + inc} 算成 {@code (旧+inc)+inc}，
+     * 差一格提前完成。此顺序下两方言行为完全一致。</p>
+     *
+     * <p><strong>方言核对</strong>：<em>不</em>使用 {@code MIN(a, b)} —— 虽然 SQLite 与 MySQL
+     * 在双参数形式下都会解析为标量函数，但 MySQL 的 {@code MIN} 同时是聚合函数名，
+     * 可读性与工具链（SQL 高亮/静态检查）歧义都不值得省一个 {@code CASE}。此处统一用
+     * {@code CASE WHEN ... THEN ... ELSE ... END}，两方言逐字同义。</p>
+     *
+     * <p>{@code progress} 列在 {@code schema.sql} 与 {@code createTables()} 中均为
+     * {@code INT DEFAULT 0}，但存量库若为 NULL 会传染成 NULL 写回 —— 故每次读取都用
+     * {@code COALESCE(progress, 0)} 包住（与既有 {@code adjustCoins} 的惯例一致）。</p>
+     *
+     * <p><strong>并发</strong>：整条语句在 MySQL 默认 REPEATABLE READ 下对目标行加排他锁，
+     * 读-改-写原子；调用方仍在未变的 {@code connectionLock} 临界区内，无新增锁。</p>
+     *
+     * <p><strong>{@code claimed = 1} 为什么放进 CASE 而不是 WHERE</strong>：原实现在
+     * {@code alreadyClaimed} 时直接 return、<em>不写库</em>，但行仍存在。若把它写进 WHERE，
+     * 已领取行会返回 {@code 0} 行，调用方会把"已领取"误判成"今日未分配"并触发一次无谓的
+     * R-32 补分配。放进 SET 的 CASE 里则：行被命中（返回 1，不触发补分配）、两列原样写回
+     * （与原 return 的可观察状态一致）。</p>
+     *
+     * <p>与原实现逐条等价（无放宽、无收紧）：{@code increment} 恒 &gt; 0，故
+     * {@code progress >= target} 时 {@code progress + inc >= target} 必然成立 ——
+     * 原实现"已达标的畸形旧行也判完成"的行为被完整保留。</p>
+     *
+     * @param playerId     玩家
+     * @param date         {@code yyyy-MM-dd}
+     * @param challengeId  挑战 id
+     * @param increment    本次增量（恒 &gt; 0，调用方保证）
+     * @param target       完成阈值（挑战类型不同而不同，<strong>必须参数绑定</strong>）
+     * @return 受影响行数；写失败返回 {@code -1}（区别于"今日无行"的 0）
+     */
+    public int advanceChallengeProgress(UUID playerId, String date, String challengeId,
+                                        int increment, int target) {
+        // 每个 ? 都独立绑定（不用同名参数复用）：明确、可读、与既有 SQL 风格一致。
+        //
+        // 【赋值顺序是正确性的一部分，不可交换】MySQL 的单表 UPDATE 按**从左到右**求值，
+        // 后面的赋值会看到前面刚写入的新值（官方示例：SET col1 = col1+1, col2 = col1 里
+        // col2 拿到的是新 col1）；SQLite 则一律用旧行值。若把 progress 写在前面，MySQL 下
+        // completed 的 `progress + inc >= target` 会变成 `(旧值+inc) + inc >= target`，
+        // 导致差一格就提前置 completed=1（如 8/10 答对一次就被判完成）。故 completed
+        // **必须写在 progress 之前**：此时两方言看到的都是旧 progress，语义一致。
+        //
+        // completed 分支带 `completed = 0` 前提：只置位、绝不撤销 —— 等价原实现的
+        // `if (alreadyCompleted) nowCompleted = true;`，也兜住"completed 由 completeChallenge
+        // 二进制置 1、progress 仍为 0"的行（COMBO_5 这类），不会被本条 UPDATE 打回 0。
+        String sql = "UPDATE " + tablePrefix
+                + "daily_challenges SET "
+                + "completed = CASE WHEN claimed = 0 AND completed = 0 AND COALESCE(progress, 0) + ? >= ? "
+                + "THEN 1 ELSE completed END, "
+                + "progress = CASE WHEN claimed = 0 THEN "
+                + "CASE WHEN COALESCE(progress, 0) + ? >= ? THEN ? ELSE COALESCE(progress, 0) + ? END "
+                + "ELSE progress END "
+                + "WHERE uuid = ? AND challenge_date = ? AND challenge_id = ?";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                int idx = 1;
+                // completed 分支：+inc 与 target 比较（必须在 progress 之前求值）
+                stmt.setInt(idx++, increment);
+                stmt.setInt(idx++, target);
+                // progress 分支：+inc 与 target 比较，封顶 target，否则累加
+                stmt.setInt(idx++, increment);
+                stmt.setInt(idx++, target);
+                stmt.setInt(idx++, target);
+                stmt.setInt(idx++, increment);
+                stmt.setString(idx++, playerId.toString());
+                stmt.setString(idx++, date);
+                stmt.setString(idx, challengeId);
+                return stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to advance daily challenge progress for " + playerId, e);
+                return -1;
+            }
+        }
+    }
+
+    /**
+     * Block C2（R2-M2）：今日 AI 有效轮次 +1 落库（UPSERT，双后端对照）。
+     *
+     * <p>SQLite {@code ON CONFLICT(player_uuid, round_date) DO UPDATE} /
+     * MySQL {@code ON DUPLICATE KEY UPDATE}（同 {@link #incrementWrongCount} 惯例）。
+     * 该表是 daily-round-limit 的重启后真源——内存 TodayCounter 重启/quit-rejoin
+     * 即清，按 {@link #getAiRoundCount} 回读真值闭合绕过路径。
+     *
+     * <p>静默降级：SQLException 只记 WARNING（写失败最坏后果 = 重启后计数可重复，
+     * 与修复前行为持平，不崩、不阻断聊天主流程）。
+     *
+     * @param playerId the player
+     * @param date     the round date (yyyy-MM-dd)
+     */
+    public void incrementAiRound(UUID playerId, String date) {
+        String upsertSql;
+        if (isSQLite()) {
+            upsertSql = "INSERT INTO " + tablePrefix
+                    + "ai_round_counters (player_uuid, round_date, rounds) VALUES (?, ?, 1)"
+                    + " ON CONFLICT(player_uuid, round_date) DO UPDATE SET rounds = rounds + 1";
+        } else {
+            upsertSql = "INSERT INTO " + tablePrefix
+                    + "ai_round_counters (player_uuid, round_date, rounds) VALUES (?, ?, 1)"
+                    + " ON DUPLICATE KEY UPDATE rounds = rounds + 1";
+        }
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(upsertSql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to increment AI round counter for " + playerId
+                                + " / " + date, e);
+            }
+        }
+    }
+
+    /**
+     * P0-4 红队补丁（R-P1-1）：今日 AI 轮次 -1 落库（退还预扣）。
+     *
+     * <p>用途单一：开场白在"发请求前"预扣轮次（堵 sameSession 绕过），但若请求在
+     * <b>确定已到达上游之前</b>就失败（超时 / 连接失败 / 5xx / 429），这次请求并没有
+     * 产生上游计费，应当退还——否则上游持续故障时，玩家反复点场景会把当天的
+     * daily-round-limit 与 opening-daily-cap 全部耗光，当天连正常聊天都被拒且
+     * 重启/重登都无法恢复（DB 已落库），属于可用性锁死。
+     *
+     * <p>{@code WHERE rounds > 0} 保证不会写出负值（并发下重复退还的最坏结果是
+     * 少退一次，上限仍由内存 TodayCounter 约束）。
+     *
+     * <p>静默降级：SQLException 只记 WARNING（退还失败最坏后果 = 玩家多耗一轮，
+     * 与不退还持平，不崩、不阻断主流程）。
+     *
+     * @param playerId the player
+     * @param date     the round date (yyyy-MM-dd)
+     */
+    public void decrementAiRound(UUID playerId, String date) {
+        String sql = "UPDATE " + tablePrefix + "ai_round_counters"
+                + " SET rounds = rounds - 1 WHERE player_uuid = ? AND round_date = ? AND rounds > 0";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to decrement AI round counter for " + playerId
+                                + " / " + date, e);
+            }
+        }
+    }
+
+    /**
+     * Block C2（R2-M2）：玩家某日的 AI 有效轮次累计（{@code ai_round_counters} 查询）。
+     * 无行 → 0；异常 → 0 + WARNING（降级语义同 {@link #incrementAiRound}：查不到
+     * 就按 0 处理，最坏后果 = 重启后防刷上限可重复，与修复前持平）。
+     *
+     * @param playerId the player
+     * @param date     the round date (yyyy-MM-dd)
+     * @return rounds recorded for this player on this date, 0 if none
+     */
+    public int getAiRoundCount(UUID playerId, String date) {
+        String sql = "SELECT rounds FROM " + tablePrefix + "ai_round_counters"
+                + " WHERE player_uuid = ? AND round_date = ?";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, playerId.toString());
+                stmt.setString(2, date);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getInt("rounds");
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to get AI round count for " + playerId
+                                + " / " + date, e);
+            }
+        }
+        return 0;
+    }
+
+    // ============================================================
+    //  Duel Stats（R10 战略锐评：决斗战绩持久化）
+    // ============================================================
+
+    /**
+     * 决斗战绩保留天数。决斗数据量极小（一场一行，全服日均个位数到几十行），
+     * 一年足够支撑"胜率/连胜/复仇"类查询；更老的明细没有展示价值。
+     */
+    private static final int DUEL_STATS_RETENTION_DAYS = 365;
+
+    /** 连胜扫描窗口：最多回看最近多少场（有界查询，防重度玩家全表扫）。 */
+    private static final int DUEL_STREAK_SCAN_LIMIT = 50;
+
+    /**
+     * 一名玩家的决斗累计战绩（{@code duel_stats} 聚合投影）。
+     *
+     * @param wins   作为 winner_uuid 的行数
+     * @param losses 作为 loser_uuid 的行数
+     */
+    public static record DuelStats(int wins, int losses) {
+
+        /** 总场次。 */
+        public int total() {
+            return wins + losses;
+        }
+
+        /**
+         * 胜率（0.0~1.0）；总场次为 0 时返回 0.0（不返回 NaN，调用方免判空）。
+         */
+        public double winRate() {
+            int total = total();
+            return total == 0 ? 0.0 : (double) wins / total;
+        }
+    }
+
+    /**
+     * R10：落一场决斗战绩（追加写，一场一行）。
+     *
+     * <p>静默降级：SQLException 只记 WARNING（写失败最坏后果 = 少一条历史战绩，
+     * 玩家当场看到的胜负播报/成就/奖励均已先行完成，绝不因落库失败打断结算）。
+     *
+     * <p>线程契约：同步阻塞在调用线程；{@code DuelManager.endDuel} 在主线程结算，
+     * 因此调用方必须自带异步派发（见 DuelManager 的 runAsync 帮助方法），
+     * 与 {@code AchievementManager.checkHelpAchievement} 的"主线程调用方 + 内部
+     * 异步派发"纪律同源。
+     *
+     * @param winner     胜者 UUID
+     * @param loser      败者 UUID
+     * @param winnerScore 胜者得分（正常路径恒等于 {@code DuelRoom.WIN_SCORE}）
+     * @param loserScore  败者得分
+     */
+    public void recordDuelResult(UUID winner, UUID loser, int winnerScore, int loserScore) {
+        String sql = "INSERT INTO " + tablePrefix
+                + "duel_stats (winner_uuid, loser_uuid, winner_score, loser_score,"
+                + " duel_date, created_at) VALUES (?, ?, ?, ?, ?, ?)";
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, winner.toString());
+                stmt.setString(2, loser.toString());
+                stmt.setInt(3, winnerScore);
+                stmt.setInt(4, loserScore);
+                // duel_date 与全仓既有日期口径一致（LocalDate.now() → yyyy-MM-dd）
+                stmt.setString(5, LocalDate.now().toString());
+                stmt.setLong(6, System.currentTimeMillis());
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to record duel result winner=" + winner
+                                + " loser=" + loser, e);
+            }
+        }
+    }
+
+    /**
+     * R10：玩家累计胜负场次（赢/输两列各一次 COUNT，同一连接内顺序执行）。
+     *
+     * <p>索引支撑：两个 COUNT 分别命中 {@code idx_duel_winner_date} /
+     * {@code idx_duel_loser_date} 的前导列，均为索引覆盖计数，非全表扫。
+     * 异常 → 空战绩（wins=0, losses=0）+ WARNING（降级：展示层显示"暂无战绩"，
+     * 不是"显示为全败"）。
+     *
+     * @param player the player
+     * @return 累计战绩（永不为 null）
+     */
+    public DuelStats getDuelStats(UUID player) {
+        String winSql = "SELECT COUNT(*) FROM " + tablePrefix
+                + "duel_stats WHERE winner_uuid = ?";
+        String lossSql = "SELECT COUNT(*) FROM " + tablePrefix
+                + "duel_stats WHERE loser_uuid = ?";
+        synchronized (connectionLock) {
+            try {
+                int wins = 0;
+                int losses = 0;
+                try (PreparedStatement stmt = getConnection().prepareStatement(winSql)) {
+                    stmt.setString(1, player.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            wins = rs.getInt(1);
+                        }
+                    }
+                }
+                try (PreparedStatement stmt = getConnection().prepareStatement(lossSql)) {
+                    stmt.setString(1, player.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            losses = rs.getInt(1);
+                        }
+                    }
+                }
+                return new DuelStats(wins, losses);
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to get duel stats for " + player, e);
+                return new DuelStats(0, 0);
+            }
+        }
+    }
+
+    /**
+     * R10：当前连胜场数（从最近一场往回数，直到遇到一场失败或扫描窗口用尽）。
+     *
+     * <p>实现说明：SQL 取该玩家参与（赢或输）的最近 {@value #DUEL_STREAK_SCAN_LIMIT}
+     * 行，按 {@code created_at DESC, id DESC} 排序后在 Java 里数前缀连胜。
+     * 为什么不在 SQL 里算：窗口函数（{@code ROW_NUMBER}）两后端语法/版本门槛不一致
+     * （MySQL 8 才有，SQLite 3.25+ 才有），而"最多 50 行"的扫描成本可忽略；
+     * {@code id DESC} 作次序键兜底同毫秒写入（自增主键单调，双后端均成立）。
+     *
+     * <p>语义边界：窗口内全胜且恰好用满 50 行时，返回值会是 50（可能低估真实连胜，
+     * 不虚报）；30 场以内完全精确。异常 → 0 + WARNING。
+     *
+     * <p>线程契约：同步阻塞读，禁止主线程调用（与 {@link #getDuelStats} 同）。
+     *
+     * @param player the player
+     * @return 当前连胜场数（0 = 无胜绩或最近一场为负）
+     */
+    public int getDuelWinStreak(UUID player) {
+        String sql = "SELECT winner_uuid FROM " + tablePrefix + "duel_stats"
+                + " WHERE winner_uuid = ? OR loser_uuid = ?"
+                + " ORDER BY created_at DESC, id DESC LIMIT ?";
+        String id = player.toString();
+        synchronized (connectionLock) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                stmt.setString(1, id);
+                stmt.setString(2, id);
+                stmt.setInt(3, DUEL_STREAK_SCAN_LIMIT);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    int streak = 0;
+                    while (rs.next()) {
+                        if (!id.equals(rs.getString("winner_uuid"))) {
+                            break; // 最近一场参与但没赢 → 连胜中断
+                        }
+                        streak++;
+                    }
+                    return streak;
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to get duel win streak for " + player, e);
+                return 0;
+            }
+        }
+    }
+
     // ============================================================
     //  Difficult Words / Wrong Book
     // ============================================================
@@ -1140,11 +1737,21 @@ public class DatabaseManager {
     }
 
     /**
-     * Reset the wrong count for a word to 0 (used when practicing correctly).
-     * Returns true if the row was updated (word existed), false otherwise.
+     * Decrement the wrong count for a word (used when practicing correctly).
+     *
+     * <p>Block C2（A3/R3-M2）：原子化边界 —— 条件改为 {@code wrong_count > 1}
+     * （纯标准 UPDATE，无后端差异），单条 SQL 同时完成"减 1"与"是否应删行"的判定，
+     * 消除原先"decrement → getWrongCount 读回 → removeDifficultWord"三段独立取锁
+     * 之间被并发 increment 插入导致的状态漂移。
+     *
+     * <p>返回语义变更：{@code false} = 计数已达 1（或行不存在）——调用方应删行
+     * （{@link #removeDifficultWord}，幂等）；{@code true} = 已减 1 且仍 &gt; 0。
+     * 残余乱序窗口（同一玩家的 increment 异步任务整体晚于本 decrement 执行）在
+     * 调用方 {@code PlayerDataStore.decrementWrongCount} 注明，最坏结果 = 词留书
+     * （可重试清除，无数据损坏）。
      */
     public boolean decrementWrongCount(UUID playerId, String word) {
-        String sql = "UPDATE " + tablePrefix + "difficult_words SET wrong_count = wrong_count - 1 WHERE player_uuid = ? AND word = ? AND wrong_count > 0";
+        String sql = "UPDATE " + tablePrefix + "difficult_words SET wrong_count = wrong_count - 1 WHERE player_uuid = ? AND word = ? AND wrong_count > 1";
         synchronized (connectionLock) {
             Connection conn = getConnection();
             try (PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -1160,27 +1767,34 @@ public class DatabaseManager {
         }
     }
 
-    /**
-     * Clear wrong count to 0 for a word (reset without removing).
-     */
-    public void clearWrongCount(UUID playerId, String word) {
-        String sql = "UPDATE " + tablePrefix + "difficult_words SET wrong_count = 0 WHERE player_uuid = ? AND word = ?";
-        synchronized (connectionLock) {
-            Connection conn = getConnection();
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, playerId.toString());
-                stmt.setString(2, word.toLowerCase());
-                stmt.executeUpdate();
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to clear wrong count for " + playerId + " / " + word, e);
-            }
-        }
-    }
-
     // ============================================================
     //  Statistics HTTP Dashboard queries
     // ============================================================
+
+    /**
+     * R7-B ③：单词挑战的当日快照（{@link #loadWordChallengeSnapshot} 的返回体）。
+     *
+     * <p><strong>R6-E</strong>：原先的 {@code allCompleted} 字段已删除——它算出来后
+     * 从未被任何调用方读取（调用方一律用缓存的
+     * {@code DailyWordChallengeState.allCompleted()}），留着只会误导"业务规则只存在一处"
+     * 的判断。业务判定请走缓存侧的 {@code allCompleted()}；SQL 口径的等价判定见
+     * {@link #isDailyChallengeWordsCompleted}（rollover 补发路径仍在用）。</p>
+     *
+     * <p>集合均为不可变快照（调用方不得写入；缓存侧自行复制）。</p>
+     *
+     * @param words          今日分配的全部挑战词 id
+     * @param completedWords 其中已完成的词 id
+     * @param rewardPaid     当日奖励台账（{@code daily_word_reward_claims}）是否已有行
+     */
+    public record WordChallengeSnapshot(Set<String> words, Set<String> completedWords,
+                                        boolean rewardPaid) {
+
+        /** 防御性复制 + 只读包装：调用方持有的可变集合不会反向影响快照。 */
+        public WordChallengeSnapshot {
+            words = Collections.unmodifiableSet(new HashSet<>(words));
+            completedWords = Collections.unmodifiableSet(new HashSet<>(completedWords));
+        }
+    }
 
     /**
      * Daily statistics record for the 7-day trend chart.
@@ -1236,6 +1850,12 @@ public class DatabaseManager {
      * <p>P3-02 收口：原查 learning_log（历史遗留表，全库零写入），现改走
      * player_sessions。口径为"总学习日次"（per-player per-day 行数；
      * player_sessions 受 UNIQUE(uuid, session_date) UPSERT 合并，每人每日一行）。
+     *
+     * <p>Block C2（A5/R3-M4）双口径说明：本方法返回 player_sessions 行数
+     * （**天数口径**）——管理报表/统计 HTTP 消费。如需**局数口径**（每次会话结束
+     * +1、同日多局累计）走 {@code player_data.total_sessions}（内存侧
+     * {@code PlayerDataStore.PlayerStats.getTotalSessions}，成就判定以该口径为准）。
+     * 两值同屏展示（如 ProfileGUI 与统计面板）数值可不同，属既定口径差，非缺陷。
      */
     public int getTotalSessions() {
         String sql = "SELECT COUNT(*) FROM " + tablePrefix + "player_sessions";
@@ -1569,22 +2189,6 @@ public class DatabaseManager {
                 plugin.getLogger().log(Level.WARNING,
                         "Failed to update check-in data for " + playerId, e);
                 return false;
-            }
-        }
-    }
-
-    /**
-     * Reset a player's check-in streak to 0.
-     */
-    public void resetCheckInStreak(UUID playerId) {
-        String sql = "UPDATE " + tablePrefix + "checkin_data SET streak_count = 0 WHERE player_uuid = ?";
-        synchronized (connectionLock) {
-            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
-                stmt.setString(1, playerId.toString());
-                stmt.executeUpdate();
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to reset check-in streak for " + playerId, e);
             }
         }
     }
@@ -2170,6 +2774,72 @@ public class DatabaseManager {
     }
 
     /**
+     * Block C2（A7/R7-M1 配对，供 C2-C 结算批量发放消费）：多名玩家全部未领取的
+     * 台账行，按 player_uuid 分组（仅含至少一行 pending 的玩家）。
+     *
+     * <p>IN 占位符展开照 {@code PlayerDataStore.getRankedPlayersForPeriodFiltered}
+     * 先例；{@code claimed} 条件与 {@link #getPendingSeasonRewards} 同式。
+     * SQLite 变量上限 999 —— 集合 &gt; 500 时分批查询合并（每批独立 SELECT，
+     * 结果并集语义与单查等价）。空集合 → 空 map。
+     *
+     * <p>异常 → 空 map + WARNING（静默降级 = 发放推迟到 join 路径，与
+     * deliverPending 现有"秒退留待下次"语义同族）。
+     *
+     * @param playerIds 待查玩家（在线 UUID 快照；null/空 → 空 map）
+     * @return player_uuid → 该玩家 pending 行列表（按赛季升序，与单查排序一致）
+     */
+    public Map<UUID, List<SeasonRewardRow>> getPendingSeasonRewardsFor(Collection<UUID> playerIds) {
+        Map<UUID, List<SeasonRewardRow>> byPlayer = new LinkedHashMap<>();
+        if (playerIds == null || playerIds.isEmpty()) {
+            return byPlayer;
+        }
+        // SQLite 999 变量上限防御：>500 分批（每批一次 SELECT，并集合并）
+        List<UUID> idList = new ArrayList<>(playerIds);
+        final int batchSize = 500;
+        for (int start = 0; start < idList.size(); start += batchSize) {
+            List<UUID> batch = idList.subList(start, Math.min(start + batchSize, idList.size()));
+            StringBuilder inClause = new StringBuilder();
+            for (int i = 0; i < batch.size(); i++) {
+                if (i > 0) {
+                    inClause.append(", ");
+                }
+                inClause.append("?");
+            }
+            String sql = "SELECT season_id, uuid, rank_position, score, reward_coins"
+                    + " FROM " + tablePrefix + "season_rewards"
+                    + " WHERE uuid IN (" + inClause + ") AND claimed = 0"
+                    + " ORDER BY season_id ASC";
+            synchronized (connectionLock) {
+                try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+                    int idx = 1;
+                    for (UUID id : batch) {
+                        stmt.setString(idx++, id.toString());
+                    }
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        while (rs.next()) {
+                            UUID uuid = UUID.fromString(rs.getString("uuid"));
+                            byPlayer.computeIfAbsent(uuid, k -> new ArrayList<>())
+                                    .add(new SeasonRewardRow(
+                                            rs.getInt("season_id"),
+                                            uuid,
+                                            rs.getInt("rank_position"),
+                                            rs.getLong("score"),
+                                            rs.getLong("reward_coins")
+                                    ));
+                        }
+                    }
+                } catch (SQLException e) {
+                    plugin.getLogger().log(Level.WARNING,
+                            "Failed to batch load pending season rewards (" + batch.size()
+                                    + " players in batch)", e);
+                    return new LinkedHashMap<>(); // 静默降级：推迟到 join 路径
+                }
+            }
+        }
+        return byPlayer;
+    }
+
+    /**
      * 条件标记已领取：{@code WHERE season_id=? AND uuid=? AND claimed=0}。
      * {@code executeUpdate()==1} = 本路径抢到发放权（调用方随后才发钱——对齐
      * CheckInManager "先标记后付款"先例，R-02 双击重发教训）。
@@ -2339,7 +3009,9 @@ public class DatabaseManager {
         // US-FB（Wave 3 批次 3B）：ai_chat_feedback 一并清收（防 reset 残行）。
         String[] playerUuidTables = {
             "daily_challenge_words", "ai_chat_history", "difficult_words", "checkin_data",
-            "ai_chat_feedback"
+            "ai_chat_feedback",
+            "daily_word_reward_claims", // 修复批 A（R10-H1）：挑战奖励已付台账（player_uuid 系，防后建表盲区）
+            "ai_round_counters" // Block C2（R2-M2）：今日 AI 轮次计数器（player_uuid 系，防后建表盲区）
         };
         String id = playerId.toString();
         synchronized (connectionLock) {
@@ -2396,6 +3068,22 @@ public class DatabaseManager {
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING,
                         "Failed to delete social_feed rows of " + playerId, e);
+            }
+            // R10（决斗战绩）：duel_stats 的玩家列是**第四套**形态 —— 同一行里有
+            // winner_uuid / loser_uuid 两列都可能指向本人（本人可能是赢家或输家），
+            // 不能塞进上面任一数组（单列模板），故单列一条 OR 删除。
+            // 语义取舍：删的是"本人参与过的场次"，对手那侧的战绩记录随之一起消失
+            // （对方少算一场）——这是 /lea reset 的既有语义（删净本人痕迹优先于
+            // 对手统计完整性），与 social_cheers 的"删系他人的行"同款取舍。
+            try (PreparedStatement stmt = conn.prepareStatement(
+                    "DELETE FROM " + tablePrefix + "duel_stats"
+                            + " WHERE winner_uuid = ? OR loser_uuid = ?")) {
+                stmt.setString(1, id);
+                stmt.setString(2, id);
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to delete duel_stats rows of " + playerId, e);
             }
         }
     }
@@ -2712,32 +3400,512 @@ public class DatabaseManager {
     /**
      * Expose the serialization monitor that guards the single shared Connection.
      *
-     * <p>M16 band-aid: every method in this class that touches the shared
-     * connection now runs inside {@code synchronized (connectionLock)}, so all
-     * access routed through DatabaseManager is serialized. However, several
-     * classes still obtain the raw connection via {@link #getConnection()} and
-     * run their own SQL off this lock (PlayerDataStore, DailyChallengeManager,
+     * <p>M16 band-aid（<b>历史说明</b>）: every method in this class that touches
+     * the shared connection runs inside {@code synchronized (connectionLock)}, so
+     * all access routed through DatabaseManager is serialized. At M16 several
+     * classes still obtained the raw connection via {@link #getConnection()} and
+     * ran their own SQL off this lock (PlayerDataStore, DailyChallengeManager,
      * AchievementManager, AdminCommandHandler, ProgressManagerImpl,
-     * LLEPapiExpansion). Until those are migrated (Phase 1+), they MUST wrap
-     * their statement execution in
-     * {@code synchronized (databaseManager.getConnectionLock()) { ... }} on this
-     * same monitor to fully guarantee single-threaded connection use.
+     * LLEPapiExpansion); those call sites had to wrap their statement execution
+     * in {@code synchronized (databaseManager.getConnectionLock()) { ... }} on
+     * this same monitor. <b>That era is over</b> — see the R6-F paragraph below.
      *
-     * <p>Phase 1 流 E（F0-01/F0-02）：外部裸用点已收编完毕（PlayerDataStore 8 处、
-     * DailyChallengeManager 8 处、AchievementManager 3 处、AdminCommandHandler 2 处、
-     * ProgressManagerImpl 1 处、LLEPapiExpansion 1 处、LetsLearnEnglish 备份任务 2 处
-     * 共 25 处），新代码继续遵循此约定。
+     * <p>Phase 1 流 E（F0-01/F0-02）曾登记"外部裸用点已收编完毕，共 25 处"。
+     * <b>该账本已过期</b>。2026-10-25（R6-D）逐文件实测的开工基线为：
+     * PlayerDataStore 12 处、DailyChallengeManager 10 处、ReportGenerator 9 处、
+     * AchievementManager 4 处、AdminCommandHandler 3 处、LLEPapiExpansion 1 处、
+     * LetsLearnEnglish 1 处，<b>共 40 处</b>；R6-D 将入口类备份任务的 1 处上收进
+     * {@link #backupTo(String)} 后为 <b>39 处</b>。
+     * （注：AdminCommandHandler 旧账登记 2 处，实测为 3 处，已按实测更正。）
+     *
+     * <p><b>R6 重构进行中</b>：上述裸用点正陆续迁入 {@code data/repository/*}
+     * （DailyChallengeRepository / AchievementRepository / ReportRepository 等，
+     * 仓储内部同样持本锁，约定不变），因此数字会实时变动——本注释记录的是
+     * R6-D 开工基线而非终值。迁移完成后请重新统计并更新本段。
+     *
+     * <p><b>R6-F 进展</b>：{@code AdminCommandHandler} 的最后一处（{@code applyClassAdd}
+     * 的"查班 → 判满员 → 退旧班 → 进新班"原子段）已下沉到
+     * {@code data/repository/ClassRepository#addMemberAtomic}，该类的裸用点归零。
+     * 至此 {@code data/} 之外（{@code core/}、{@code gui/}、{@code listener/}、
+     * {@code command/}、{@code api/}、{@code expansion/}、入口类）对本锁与
+     * {@link #getConnection()} 的引用<b>全部为零</b>；剩余引用只在 {@code data/} 之内
+     * （{@code PlayerDataStore} 的 12 处 + 各 {@code data/repository/*} 仓储）。
+     * 复核命令：{@code grep -rn "getConnectionLock()" src/main/java}，所有命中都应落在
+     * {@code data/} 下（含 javadoc 提及）。
+     *
+     * <p>因此"新代码仍必须包在 synchronized 内"的要求只对 <b>data 层内部</b>生效；
+     * 层外新代码请改用 {@link #withConnection(SqlFunction)} 或走现成仓储方法，
+     * 不要直接取连接或取锁。
      */
     public Object getConnectionLock() {
         return connectionLock;
     }
 
+    /**
+     * R3-L4：幂等补列 —— 先以元数据查询判"列是否已存在"再决定 ALTER
+     * （SQLite {@code PRAGMA table_info}、MySQL {@code information_schema.columns}，
+     * 与 {@link #createIndexIfMissing} 的 MySQL 侧做法同源）。原实现按异常消息
+     * 含 "duplicate"/"already exists" 判定，locale/驱动消息差异下口径不稳。
+     */
     private void addColumnIfMissing(String table, String column, String definition) throws SQLException {
+        if (columnAlreadyExists(table, column)) {
+            return; // 已存在（或查询故障的保守跳过，见 helper）——跳过 ALTER
+        }
         try {
             executeUpdate("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
         } catch (SQLException e) {
+            // 查后改的 TOCTOU 残余窗口（多服共享 MySQL 并发启动同时补同一列，
+            // 败者报 duplicate）仍按旧口径吞掉；其余真实错误（权限/磁盘/语法）
+            // 照旧上抛，由 initialize 记 SEVERE。
             String message = e.getMessage() == null ? "" : e.getMessage().toLowerCase(java.util.Locale.ROOT);
             if (!message.contains("duplicate") && !message.contains("already exists")) throw e;
+        }
+    }
+
+    /**
+     * R3-L4：列存在性元数据查询。返回 true = 已存在或查询故障（保守跳过 ALTER）——
+     * 查询故障（连接/权限等）记 WARNING 后按"已存在"处理，与旧实现"不因补列失败
+     * 打断建表主流程"的容错口径一致，仅明确"列不存在"才返回 false 放行 ALTER。
+     */
+    private boolean columnAlreadyExists(String table, String column) {
+        synchronized (connectionLock) {
+            try {
+                if (isSQLite()) {
+                    try (PreparedStatement stmt = getConnection().prepareStatement(
+                            "PRAGMA table_info(" + table + ")")) {
+                        try (ResultSet rs = stmt.executeQuery()) {
+                            while (rs.next()) {
+                                if (column.equals(rs.getString("name"))) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    return false;
+                }
+                String checkSql = "SELECT COUNT(*) FROM information_schema.columns "
+                        + "WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?";
+                try (PreparedStatement stmt = getConnection().prepareStatement(checkSql)) {
+                    stmt.setString(1, table);
+                    stmt.setString(2, column);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        return rs.next() && rs.getInt(1) > 0;
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to check existence of column " + column + " on " + table
+                                + " — skipping ALTER (conservative)", e);
+                return true;
+            }
+        }
+    }
+
+    /**
+     * 修复批 D（R3-L2）：把保留天数绑到唯一占位符——
+     * SQLite 的 {@code datetime('now', ?)} / {@code date('now', ?)} 需字符串
+     * modifier（{@code "-N days"}），MySQL 的 {@code INTERVAL ? DAY} 需 int。
+     */
+    private void bindKeepDays(PreparedStatement stmt, int daysToKeep) throws SQLException {
+        if (isSQLite()) {
+            stmt.setString(1, "-" + daysToKeep + " days");
+        } else {
+            stmt.setInt(1, daysToKeep);
+        }
+    }
+
+    // ============================================================
+    //  R6-D: 供仓储与入口类使用（2026-10-25）
+    //
+    //  本节只做"加法"：以上 92 个 public 方法的签名与实现均未改动。
+    //  新增方法集中追加在文件末尾，避免与并行流（data/repository/*、core 各管理器）
+    //  的改动面重叠，减少合并冲突。
+    // ============================================================
+
+    /**
+     * R6-D：受检 SQL 操作的函数式载体。
+     *
+     * <p>作为 {@link DatabaseManager} 的嵌套接口定义，不新建顶层文件——避免与其他
+     * 并行流在包扫描/白名单式检查上产生冲突。
+     *
+     * @param <T> 返回值类型
+     */
+    @FunctionalInterface
+    public interface SqlFunction<T> {
+        /**
+         * 在 connectionLock 内对共享连接执行操作。
+         *
+         * @param conn 由 {@link #getConnection()} 提供的共享连接（调用期间持有锁）
+         * @return 操作结果
+         * @throws SQLException SQL 失败时抛出，由 {@link #withConnection} 统一记录
+         */
+        T apply(Connection conn) throws SQLException;
+    }
+
+    /**
+     * R6-D：在 connectionLock 内取连接并执行一段 SQL 操作，失败记 WARNING 后返回 {@code null}。
+     *
+     * <p><b>当前无生产调用方（R6-E 审计说明）</b>：本重载目前只被同文件的
+     * {@link #countRows(String)} 间接使用，<b>不是</b> R6 搬迁遗漏的死代码，而是为
+     * 后续仓储化批次预留的标准形态——它就是"锁内取连接 + 异常兜底"这段样板的
+     * 唯一收口点，后续新仓储应当直接用它，而不是各写一份 synchronized 模板。
+     * 下次审计请勿按"零调用方"删除。</p>
+     *
+     * <p><b>这是可选工具，不是强制入口。</b>R6 的 5 个仓储流是并行开发的，
+     * 它们可能不知道本方法存在——那没有任何问题：新仓储完全可以直接沿用既有范式
+     *
+     * <pre>{@code
+     * synchronized (db.getConnectionLock()) {
+     *     try (PreparedStatement ps = db.getConnection().prepareStatement(sql)) { ... }
+     * }
+     * }</pre>
+     *
+     * <p>本方法只是把"加锁 + 取连接 + catch SQLException + 记 WARNING + 返回兜底值"
+     * 这段重复样板收拢一次，语义与手写完全一致，可按需选用。
+     *
+     * <p>锁语义：内部先 {@code synchronized (connectionLock)} 再调用
+     * {@link #getConnection()}（后者自身也同步同一把锁）。Java 的 synchronized 是
+     * <b>可重入</b>的，同一线程二次进入不会自锁，因此不存在"嵌套加锁造成死锁"的问题；
+     * 反过来说，仓储若已在外层持有该锁，再调用本方法同样安全（重入计数 +1 后退出）。
+     * 请勿在持锁期间做消息投递/调度器调用等阻塞动作（R9-L5 约定）。
+     *
+     * <p>异常口径：只捕获 {@link SQLException}。连接自愈失败时 {@link #getConnection()}
+     * 抛出的 {@link RuntimeException} 会原样上抛——那属于"数据库整体不可用"，应让调用方
+     * 明确感知，而不是被兜底值静默吞掉。
+     *
+     * @param fn 要执行的操作，不可为 null
+     * @param <T> 返回值类型
+     * @return 操作结果；{@code fn} 为 null 或抛出 SQLException 时返回 {@code null}
+     */
+    public <T> T withConnection(SqlFunction<T> fn) {
+        return withConnection(fn, null);
+    }
+
+    /**
+     * R6-D：{@link #withConnection(SqlFunction)} 的带兜底值重载。
+     *
+     * <p><b>当前无生产调用方（R6-E 审计说明）</b>：目前仅被 {@link #countRows(String)}
+     * 与上面那个重载内部使用，为后续仓储化批次预留（带兜底值的变体是"读失败降级"
+     * 的通用形态）。下次审计请勿按"零调用方"删除。</p>
+     *
+     * @param fn       要执行的操作，不可为 null
+     * @param fallback 失败（或被传入 null 函数）时返回的默认值
+     * @param <T>      返回值类型
+     * @return 操作结果，或 {@code fallback}
+     */
+    public <T> T withConnection(SqlFunction<T> fn, T fallback) {
+        if (fn == null) {
+            return fallback;
+        }
+        synchronized (connectionLock) {
+            try {
+                return fn.apply(getConnection());
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Database operation failed (withConnection) — returning fallback", e);
+                return fallback;
+            }
+        }
+    }
+
+    /**
+     * R6-D：诊断用行数统计。
+     *
+     * <p>表名<b>只接受白名单内的 22 张逻辑表名</b>（不含 table-prefix，如
+     * {@code player_data}；若传入已带前缀的完整名也会被识别并剥掉前缀），
+     * 其余一律拒绝并返回 -1——杜绝把外部输入拼进 SQL 造成注入/误查。
+     * 前缀取自配置 {@code database.mysql.table-prefix}（SQLite 同样生效）。
+     *
+     * <p>R6-E（当前无生产调用方，为后续诊断/运维命令预留）：前缀与表名的剥离比较
+     * 改为大小写不敏感——运维手工输入 {@code LLE_player_data} 时不该被拒。安全性不变：
+     * 剥离<b>之后</b>仍要过 {@link #COUNTABLE_TABLES} 精确白名单，比对大小写不敏感
+     * 只会让"已带前缀的完整名"这一输入形态更宽容，不会放宽白名单本身；
+     * 实际拼进 SQL 的仍是白名单内的字面量，且 SQL 标识符在 SQLite/MySQL 默认配置下
+     * 本身大小写不敏感。</p>
+     *
+     * @param table 逻辑表名，见 {@code COUNTABLE_TABLES}（私有常量，Javadoc 无法链接）
+     * @return 行数；表名非法或查询失败返回 -1（与"0 行"区分）
+     */
+    public int countRows(String table) {
+        if (table == null) {
+            return -1;
+        }
+        String prefix = tablePrefix == null ? "" : tablePrefix;
+        String logical = table.trim();
+        // R6-E：剥离前缀用大小写不敏感比较；白名单校验仍用原值精确匹配。
+        if (!prefix.isEmpty()
+                && logical.regionMatches(true, 0, prefix, 0, prefix.length())) {
+            logical = logical.substring(prefix.length());
+        }
+        if (!COUNTABLE_TABLES.contains(logical)) {
+            plugin.getLogger().warning("countRows rejected unknown table: " + table);
+            return -1;
+        }
+        final String counted = logical;
+        Integer rows = withConnection(conn -> {
+            try (PreparedStatement stmt = conn.prepareStatement(
+                    "SELECT COUNT(*) FROM " + prefix + counted);
+                 ResultSet rs = stmt.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }, Integer.valueOf(-1));
+        // 显式判 null：即便日后有人改动 fallback 传参，也不会因自动拆箱抛 NPE。
+        return rows == null ? -1 : rows;
+    }
+
+    /**
+     * R6-D：允许 {@link #countRows(String)} 统计的逻辑表名白名单（22 张，与
+     * {@code createTables()} 的建表清单一一对应）。
+     *
+     * <p>新增表时必须同步补进本集合，否则诊断统计会安全地拒绝该表名。
+     */
+    private static final Set<String> COUNTABLE_TABLES = Set.of(
+            "player_data",
+            "word_progress",
+            "achievements",
+            "learning_log",
+            "player_sessions",
+            "player_profiles",
+            "player_achievements",
+            "daily_challenges",
+            "daily_challenge_words",
+            "daily_word_reward_claims",
+            "ai_round_counters",
+            "duel_stats",
+            "ai_chat_history",
+            "ai_chat_feedback",
+            "difficult_words",
+            "checkin_data",
+            "social_feed",
+            "social_cheers",
+            "seasons",
+            "season_rewards",
+            "classes",
+            "class_members"
+    );
+
+    /**
+     * R6-D：SQLite 数据库文件的绝对路径，供诊断/运维显示与备份路径推演。
+     *
+     * <p><b>当前无生产调用方（R6-E 审计说明）</b>：这是诊断能力的基础件，为后续
+     * {@code /lea} 诊断命令等批次预留，<b>不是</b> R6 搬迁的死代码。下次审计请勿
+     * 按"零调用方"删除。</p>
+     *
+     * <p>与 {@code initializeSQLite()} 同源取值：数据目录 + 配置
+     * {@code database.sqlite.filename}（默认 {@code playerdata.db}）。
+     *
+     * <p>后端判定读 {@code isSQLite} 字段（与既有 {@link #isSQLite()} 同源）。
+     * 诊断命令在主线程调用，此时 initialize() 早已完成，无需额外同步。
+     *
+     * @return 绝对路径；当前后端为 MySQL（或尚未 initialize）时返回 {@code null}
+     */
+    public String getSqliteFilePath() {
+        if (!isSQLite) {
+            return null;
+        }
+        File dbFile = new File(plugin.getDataFolder(),
+                configManager.getMainConfig().getString("database.sqlite.filename", "playerdata.db"));
+        return dbFile.getAbsolutePath();
+    }
+
+    /**
+     * R6-D：只读探活——不触发重连、不修改任何状态，供 /lea 诊断命令使用。
+     *
+     * <p><b>当前无生产调用方（R6-E 审计说明）</b>：这是诊断能力的基础件，为后续
+     * {@code /lea} 诊断命令等批次预留，<b>不是</b> R6 搬迁的死代码。下次审计请勿
+     * 按"零调用方"删除。</p>
+     *
+     * <p>直接读 volatile 字段而非走 {@link #getConnection()}：后者在连接缺失时会
+     * 同步加锁并尝试 initialize()，那是"自愈"而不是"探活"，诊断命令不应有副作用，
+     * 也不应为了报告一个状态而阻塞主线程等锁。
+     *
+     * @return true 表示当前持有可用连接；false 表示连接为 null、已关闭或状态不可读
+     */
+    public boolean isConnectionHealthy() {
+        Connection conn = connection;
+        if (conn == null) {
+            return false;
+        }
+        try {
+            return !conn.isClosed();
+        } catch (SQLException e) {
+            // isClosed 本身极少失败；失败时按"不健康"报告，不抛给诊断调用方。
+            return false;
+        }
+    }
+
+    /**
+     * R6-D：SQLite 热备快照（{@code VACUUM INTO}）。
+     *
+     * <p>自 {@code LetsLearnEnglish.backupDatabase} 上收：原有
+     * {@code synchronized (getConnectionLock())} + {@link #getConnection()} + 路径单引号
+     * 转义逻辑<b>逐字保留</b>。
+     *
+     * <p>为什么仍是字符串拼接：SQLite 的 {@code VACUUM INTO} 只接受字面量文件名，
+     * <b>不接受绑定参数</b>（{@code VACUUM INTO ?} 会报语法错误），因此只能拼接；
+     * 调用方传入的是内部构造路径（数据目录 + 时间戳），单引号转义作为纵深防御保留。
+     *
+     * <p>异常口径与原实现一致：SQL 失败原样抛出 {@link SQLException}，由调用方
+     * （备份任务）负责删除可能的残缺产物并记日志——本方法<b>不</b>做文件清理，
+     * 以免与调用方的清理职责重叠。
+     *
+     * <p>后端约束：仅对 SQLite 有意义（MySQL 无 {@code VACUUM INTO}）。是否调用由
+     * 调用方按 {@code database.type} 判断——与原入口类 {@code backupDatabase} 的
+     * 前置检查保持同一职责划分，本方法<b>不</b>重复判断，以免在"部分初始化"等
+     * 边缘状态下引入原本不存在的失败路径。
+     *
+     * @param absolutePath 目标文件的绝对路径（不可为 null/空）
+     * @throws SQLException 目标路径为空，或 VACUUM INTO 执行失败
+     */
+    public void backupTo(String absolutePath) throws SQLException {
+        if (absolutePath == null || absolutePath.isEmpty()) {
+            throw new SQLException("Backup target path is empty");
+        }
+        synchronized (connectionLock) {
+            String target = absolutePath.replace("'", "''");
+            try (PreparedStatement stmt = getConnection()
+                    .prepareStatement("VACUUM INTO '" + target + "'")) {
+                stmt.execute();
+            }
+        }
+    }
+
+    /**
+     * R6-D：备份产物完整性校验（{@code PRAGMA quick_check}）。
+     *
+     * <p>自 {@code LetsLearnEnglish.checkBackupIntegrity} 上收。关键点：必须使用
+     * <b>独立只读连接</b>直连备份文件——查活连接等于查错对象（R3-H1 第二修）。
+     * 因此本方法<b>不经过</b> {@link #getConnection()}，也不持有 connectionLock。
+     *
+     * <p>R6-D 加固：显式 {@code Class.forName("org.sqlite.JDBC")}（照
+     * {@link #initializeMySQL} 的写法）。Bukkit/Paper 的插件 ClassLoader 与 JDBC 4
+     * 的服务自动发现（依赖线程上下文类加载器）不总是能互相看见，显式加载可把失败点
+     * 从晦涩的 "No suitable driver found" 提前成一条可读的 WARNING。加载失败时
+     * <b>不直接判负</b>，而是记 WARNING 后继续尝试 DriverManager（若驱动经
+     * ServiceLoader 可见仍可成功），保持与原实现相同的成功率。
+     *
+     * @param backupFile 备份文件
+     * @return true 表示 quick_check 返回 "ok"；文件缺失、驱动缺失且无法连接、
+     *         或校验结果非 ok 时返回 false
+     */
+    public boolean checkBackupIntegrity(File backupFile) {
+        if (backupFile == null || !backupFile.isFile()) {
+            plugin.getLogger().warning("Backup integrity check skipped: file not found"
+                    + (backupFile == null ? "" : " (" + backupFile.getAbsolutePath() + ")"));
+            return false;
+        }
+        try {
+            Class.forName("org.sqlite.JDBC");
+        } catch (ClassNotFoundException e) {
+            // 不提前返回：DriverManager 的服务发现仍可能成功，降级为提示。
+            plugin.getLogger().warning("SQLite JDBC driver (org.sqlite.JDBC) not found by name; "
+                    + "falling back to JDBC ServiceLoader discovery: " + e.getMessage());
+        }
+        String url = "jdbc:sqlite:" + backupFile.getAbsolutePath();
+        try (Connection conn = DriverManager.getConnection(url);
+             PreparedStatement stmt = conn.prepareStatement("PRAGMA quick_check");
+             ResultSet rs = stmt.executeQuery()) {
+            return rs.next() && "ok".equalsIgnoreCase(rs.getString(1));
+        } catch (SQLException e) {
+            plugin.getLogger().warning("Backup integrity check failed to run: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * L24：SQLite 维护性整理（{@code PRAGMA optimize} + {@code VACUUM}）。
+     *
+     * <p><b>它解决什么问题</b>：SQLite 的 {@code DELETE}/{@code UPDATE} 只把页面标记为
+     * 可复用，<b>不归还操作系统</b>；{@code ai_chat_history}、{@code social_feed}、
+     * {@code word_progress} 这类持续增删的表长期运行后文件只涨不缩，空闲页碎片化还会
+     * 拖慢全表扫描。{@code VACUUM} 会重建整库文件，把空闲页真正释放并把行/索引重新
+     * 紧凑排布。{@code PRAGMA optimize} 先按需刷新查询规划器统计信息（等价于一次
+     * 有条件的 {@code ANALYZE}），两者搭配才是完整的"整理"。
+     *
+     * <p><b>与 {@link #backupTo(String)} 的区别</b>：{@code VACUUM INTO} 是<b>热备快照</b>
+     * ——生成一个新的副本文件，主库一个字节都不会变，因此不能用来回收空洞；本方法才是
+     * 就地整理。
+     *
+     * <p><b>线程契约（调用方必须保证）</b>：<b>绝不可在主线程（Bukkit tick 线程）调用</b>。
+     * {@code VACUUM} 会持有写锁且耗时与库体积成正比（大库可达数秒到数十秒），
+     * 在主线程执行会直接造成服务器卡顿甚至看门狗超时。调用方应自行丢到
+     * {@code Bukkit.getScheduler().runTaskAsynchronously(...)} 或独立线程池里执行；
+     * 本方法<b>不会</b>替你切换线程，也<b>不会</b>自动排程——它只是一个可被
+     * 未来的 {@code /lea maintenance} 命令或停机维护脚本调用的一次性入口。
+     *
+     * <p><b>并发</b>：内部持 {@code connectionLock}（与全类同一把锁），因此执行期间所有
+     * 其它数据库读写都会阻塞等待——这正是必须异步调用的第二个理由。为防止两次维护
+     * 请求叠加把队列越排越长，这里用一个 {@link java.util.concurrent.atomic.AtomicBoolean}
+     * 做非阻塞去重：已有维护在跑时直接返回 {@code false}。
+     *
+     * <p><b>事务状态</b>：SQLite 禁止在显式事务内执行 {@code VACUUM}（会报
+     * "cannot VACUUM from within a transaction"）。本类所有事务段都在
+     * {@code connectionLock} 内成对 {@code setAutoCommit(false/true)}，因此正常路径下
+     * 进来时必为 autocommit。这里仍做一次防御性检查：若发现 autocommit 已被关闭
+     * （说明有别处遗留了未提交事务），先恢复 autocommit 再执行。既然本方法全程持锁，
+     * 此刻不可能有别的线程正处于事务中，该分支只会在异常/缺陷路径下命中——此时
+     * <b>不</b>把 autocommit=false 还原回去：遗留的关闭状态本身才是 bug，让连接停在
+     * autocommit=true 比让它继续"写进去永不提交"更安全（后者是静默丢数据）。
+     *
+     * <p><b>异常口径</b>：任何 {@link SQLException}（含库被占用、文件只读、磁盘满）都
+     * <b>不</b>抛给调用方，只记 WARNING + 堆栈并返回 {@code false}。维护失败绝不该
+     * 影响主流程——最坏情况只是"这次没整理成"。
+     *
+     * <p><b>后端约束</b>：MySQL 没有 {@code VACUUM}（对应能力是 {@code OPTIMIZE TABLE}，
+     * 语义与代价都不同，未实现）。当前后端不是 SQLite 时直接记 FINE 并返回 {@code false}。
+     *
+     * <p><b>前置条件</b>：必须在 {@link #initialize()} 完成之后调用。后端判定读的是
+     * {@code isSQLite} 字段，该字段只由 {@code initialize()} 赋值；在初始化之前调用会
+     * 看到一个默认的 {@code false}，本方法按"非 SQLite"安全跳过（漏做一次整理，
+     * 不会误在 MySQL 上执行 VACUUM）。
+     *
+     * <p><b>手动执行</b>（服务器停机维护）：见仓库 {@code README.md}「SQLite 数据库整理」
+     * 与 {@code DEPLOYMENT_WIKI.md} 7.2.1。核心是三条 {@code sqlite3} 命令：
+     * {@code PRAGMA optimize; VACUUM;} 再 {@code PRAGMA quick_check;} 校验。
+     *
+     * @return {@code true} 表示确实执行了 {@code PRAGMA optimize} + {@code VACUUM}；
+     *         {@code false} 表示后端是 MySQL、已有维护在跑，或执行失败（已记日志）
+     */
+    public boolean runMaintenance() {
+        if (!isSQLite) {
+            plugin.getLogger().fine("Database maintenance skipped: not a SQLite backend.");
+            return false;
+        }
+        if (!maintenanceInProgress.compareAndSet(false, true)) {
+            plugin.getLogger().warning("Database maintenance skipped: another maintenance run is still in progress.");
+            return false;
+        }
+        synchronized (connectionLock) {
+            try {
+                Connection conn = getConnection();
+                if (!conn.getAutoCommit()) {
+                    // VACUUM 不能处于事务内；持锁期间不应存在进行中的事务，属防御分支。
+                    // 不还原：遗留 autocommit=false 会让之后所有写入永不提交（静默丢数据）。
+                    plugin.getLogger().warning("Database maintenance found autocommit disabled; "
+                            + "forcing autocommit=true so VACUUM can run (a caller left a transaction open).");
+                    conn.setAutoCommit(true);
+                }
+                // 先刷新查询规划器统计（按需 ANALYZE），再重建文件回收空闲页。
+                try (PreparedStatement optimize = conn.prepareStatement("PRAGMA optimize")) {
+                    optimize.execute();
+                }
+                try (PreparedStatement vacuum = conn.prepareStatement("VACUUM")) {
+                    vacuum.execute();
+                }
+                plugin.getLogger().info("Database maintenance finished (PRAGMA optimize + VACUUM).");
+                return true;
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Database maintenance failed (VACUUM/PRAGMA optimize); the database is left untouched", e);
+                return false;
+            } catch (RuntimeException e) {
+                // getConnection() 自愈失败会抛 RuntimeException（连接不可用）——同样不得外泄。
+                plugin.getLogger().log(Level.WARNING,
+                        "Database maintenance aborted: database connection unavailable", e);
+                return false;
+            } finally {
+                maintenanceInProgress.set(false);
+            }
         }
     }
 }

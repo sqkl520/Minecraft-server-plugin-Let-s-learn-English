@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.core.manager;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.LeaderboardEntry;
 import com.letslearnenglish.minecraftplugin.core.season.SeasonManager;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordBank;
@@ -8,6 +9,8 @@ import com.letslearnenglish.minecraftplugin.core.word.WordBankValidator;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import com.letslearnenglish.minecraftplugin.data.repository.ClassRepository;
+import com.letslearnenglish.minecraftplugin.data.repository.PlayerDirectoryRepository;
 
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -16,29 +19,54 @@ import org.bukkit.entity.Player;
 
 import java.io.File;
 import java.io.IOException;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 public class AdminCommandHandler {
 
     private final LetsLearnEnglish plugin;
 
+    /** R6-A：player_data 目录查询（名字↔UUID、前缀补全名源）仓储。 */
+    private final PlayerDirectoryRepository playerDirectory;
+
+    /** R6-F：班级成员原子编排（换班 = 查当前班 + 判满员 + 退旧班 + 进新班）。 */
+    private final ClassRepository classRepository;
+
+    /**
+     * R6-A：tab 补全名源短 TTL 缓存 —— 按前缀缓存 30 秒，上限 64 条（简单整体
+     * clear 防无界增长）。补全在主线程每次按键都会触发，缓存把"每次按键一次主
+     * 线程查库"降为"每前缀每 30 秒一次"。写路径（reset/join 落盘名）最迟 30 秒
+     * 后可见，补全场景可接受。用 ConcurrentHashMap 而非普通 HashMap：现有唯一
+     * 调用方在主线程，但该类无显式线程契约，避免将来被异步调用时踩坏普通 map。
+     */
+    private static final long NAME_CACHE_TTL_MILLIS = 30_000L;
+    private static final int NAME_CACHE_MAX_ENTRIES = 64;
+    private final Map<String, CachedNames> knownNamesCache = new ConcurrentHashMap<>();
+
+    private static final class CachedNames {
+        final List<String> names;
+        final long expiresAt;
+
+        CachedNames(List<String> names, long expiresAt) {
+            this.names = names;
+            this.expiresAt = expiresAt;
+        }
+    }
+
     public AdminCommandHandler(LetsLearnEnglish plugin) {
         this.plugin = plugin;
+        this.playerDirectory = new PlayerDirectoryRepository(plugin.getDatabaseManager(),
+                plugin.getLogger());
+        this.classRepository = new ClassRepository(plugin.getDatabaseManager(), plugin.getLogger());
     }
 
     /**
@@ -66,8 +94,27 @@ public class AdminCommandHandler {
         dataStore.unloadPlayerData(playerId);
         dataStore.unloadProfileSettings(playerId);
         plugin.getAchievementManager().unloadPlayer(playerId);
+        // R7-D（P1-1）：每日挑战的 per-player 内存态必须一起失效。deletePlayerData 会删掉
+        // daily_challenge_words 与 daily_word_reward_claims 两表的本玩家行，而
+        // DailyChallengeManager 的 dailyWordStateCache（挑战词集合 / 已完成集合 / 已付位）
+        // 与 wordChallengeClaimedToday（"今日已付"内存快路径）都是进程内状态，删表不会碰。
+        // 不清理的后果（在线玩家 reset 后真实可复现）：缓存日期仍是今日 → getOrLoadWordState
+        // 命中旧缓存不重建 → 旧 completedWords 短路 onWordCorrect 的写入分支（DB 行已删，
+        // 该词当天永远不再落库）；同时 getTodayWordProgress 经 ensureWordChallengesAssigned
+        // 给 DB 分配一批新词，而 onWordCorrect 仍拿旧 challengeWords 做 contains → 新词
+        // 永不命中，GUI 显示 5 词、进度恒 0/5。已付内存位则会造成"DB 台账已删、内存仍说已付"，
+        // 重刷完挑战当天也拿不到奖励。故这里调 resetPlayer（清缓存 + 清已付内存位），
+        // 而不是只调 unloadPlayer（后者刻意不动已付位，见其 javadoc 的 quit 语义）。
+        // 顺序：与 dataStore.unloadPlayerData 同理，内存清理必须先于删表；resetPlayer 只做
+        // 两次进程内集合 remove（不落盘、不查库），所以不存在"把旧态写回刚删的
+        // 表"的风险，放在 deletePlayerData 之前只是保持与其他 unload 一致的时序纪律。
+        plugin.getDailyChallengeManager().resetPlayer(playerId);
 
         plugin.getDatabaseManager().deletePlayerData(playerId);
+
+        // R9-L3：删表后立即刷榜单缓存，/lea class list 等不等到 5 分钟周期才更新。
+        // 同步 DB 读，与本命令既有主线程删表同量级（照 LetsLearnEnglish :225/:425 先例）。
+        plugin.getProgressManager().getLeaderboard().refreshCache();
 
         plugin.getLogger().info("Admin: Player data reset complete for: " + playerName);
         return true;
@@ -90,22 +137,9 @@ public class AdminCommandHandler {
             return target.getUniqueId();
         }
 
-        String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
-        String sql = "SELECT uuid FROM " + tablePrefix
-                + "player_data WHERE player_name = ?";
-        Connection conn = plugin.getDatabaseManager().getConnection();
-        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, playerName);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return UUID.fromString(rs.getString("uuid"));
-                }
-            }
-        } catch (SQLException | IllegalArgumentException e) {
-            plugin.getLogger().log(Level.WARNING,
-                    "Failed to lookup player UUID: " + playerName, e);
-        }
+        UUID fromDb = playerDirectory.resolveUuidByName(playerName);
+        if (fromDb != null) {
+            return fromDb;
         }
 
         // F5-01：表里查不到（已被删过一次的行不会再出现在 player_data）时，
@@ -206,81 +240,28 @@ public class AdminCommandHandler {
 
     /**
      * US-RPT-3：/lea report 第二参数的 tab 补全名源 —— player_data.player_name
-     * 前缀查（最多 limit 条）。plan §3.3 将该查询画在 DatabaseManager；本批
-     * DatabaseManager 为并行兄弟流文件白名单，方法宿于本 Handler 以免文件重叠，
-     * SQL 与 plan 草案逐字一致。单表小查询，主线程调用量级可接受（既有 reset
-     * 补全同样在主线程做在线玩家遍历）。
+     * 前缀查（最多 limit 条）。R6-A 起 SQL 收口在 {@link PlayerDirectoryRepository}，
+     * 并在本类加 30 秒内存缓存（按前缀分键，上限 64 条）——补全每次按键都在主线程
+     * 触发，缓存把主线程查库降为"每前缀每 30 秒最多一次"。
      *
      * @param prefix 已输入前缀（空串全量前缀）
      * @param limit  最大返回条数
      * @return 名字列表（无命中返回空列表）
      */
     public List<String> getKnownPlayerNames(String prefix, int limit) {
-        List<String> names = new ArrayList<>();
-        String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
-        String sql = "SELECT DISTINCT player_name FROM " + tablePrefix
-                + "player_data WHERE player_name IS NOT NULL AND player_name LIKE ? LIMIT ?";
-        Connection conn = plugin.getDatabaseManager().getConnection();
-        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, prefix + "%");
-                stmt.setInt(2, limit);
-                try (ResultSet rs = stmt.executeQuery()) {
-                    while (rs.next()) {
-                        String name = rs.getString("player_name");
-                        if (name != null && !name.isBlank()) {
-                            names.add(name);
-                        }
-                    }
-                }
-            } catch (SQLException e) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to query known player names for tab completion", e);
-            }
+        String key = prefix + "|" + limit;
+        long now = System.currentTimeMillis();
+        CachedNames cached = knownNamesCache.get(key);
+        if (cached != null && cached.expiresAt > now) {
+            return new ArrayList<>(cached.names);
         }
+        List<String> names = playerDirectory.findNamesByPrefix(prefix, limit);
+        if (knownNamesCache.size() >= NAME_CACHE_MAX_ENTRIES) {
+            knownNamesCache.clear(); // 简单整体清空：条目少、重建代价低
+        }
+        knownNamesCache.put(key, new CachedNames(new ArrayList<>(names),
+                now + NAME_CACHE_TTL_MILLIS));
         return names;
-    }
-
-    public void addWord(String difficulty, String english, String chinese) {
-        plugin.getLogger().info("Admin: Adding word '" + english + "' to " + difficulty);
-
-        WordManagerImpl wordManager = plugin.getWordManager();
-        WordBank bank = wordManager.getWordBank(difficulty);
-        if (bank == null) {
-            plugin.getLogger().warning("Admin: Unknown difficulty level: " + difficulty);
-            return;
-        }
-
-        Word word = new Word(english, chinese, null, null, null,
-                Collections.emptyList(), Collections.emptyList(), difficulty, 1);
-        bank.addWord(word);
-
-        saveWordBankToYaml(difficulty, bank);
-        plugin.getLogger().info("Admin: Word '" + english
-                + "' added successfully to " + difficulty);
-    }
-
-    public void removeWord(String difficulty, String english) {
-        plugin.getLogger().info("Admin: Removing word '" + english
-                + "' from " + difficulty);
-
-        WordManagerImpl wordManager = plugin.getWordManager();
-        WordBank bank = wordManager.getWordBank(difficulty);
-        if (bank == null) {
-            plugin.getLogger().warning("Admin: Unknown difficulty level: " + difficulty);
-            return;
-        }
-
-        boolean removed = bank.removeWord(english);
-        if (!removed) {
-            plugin.getLogger().warning("Admin: Word '" + english
-                    + "' not found in " + difficulty);
-            return;
-        }
-
-        saveWordBankToYaml(difficulty, bank);
-        plugin.getLogger().info("Admin: Word '" + english
-                + "' removed successfully from " + difficulty);
     }
 
     /**
@@ -637,7 +618,13 @@ public class AdminCommandHandler {
         String className = args[2];
         int maxLen = plugin.getConfigManager().getMainConfig()
                 .getInt("class-system.max-name-length", 32);
-        if (className.isBlank() || className.length() > maxLen || className.contains(" ")) {
+        // R7-M2：拒绝 &/§/换行——班名会进 ClassBoardGUI 标题并走
+        // translateAlternateColorCodes，染色注入面在写入点收口（全仓 create 是唯一
+        // 班名写入面，无 rename/setClassName 入口）。存量含 & 的班名不迁移（展示层
+        // 原样翻译，接受）。
+        if (className.isBlank() || className.length() > maxLen || className.contains(" ")
+                || className.contains("&") || className.contains("§")
+                || className.contains("\n") || className.contains("\r")) {
             sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                     "class.name-invalid", "max", String.valueOf(maxLen)));
             return;
@@ -707,43 +694,37 @@ public class AdminCommandHandler {
 
     /**
      * 成员行变更（异步线程执行）：一人一班编排 —— 已在本班幂等回 member-added；
-     * 换班先判新班满员（满则拒绝，防丢班）再退旧班进新班；Data 层只做单班成员行。
+     * 换班先判新班满员（满则拒绝，防丢班）再退旧班进新班。
+     *
+     * <p>R6-F：四条语句的原子段（查当前班 → 判同班 → 判满员 → 退旧班 + 进新班）
+     * 已整体下沉到 {@link ClassRepository#addMemberAtomic}，本方法<b>不再持有</b>
+     * {@code connectionLock} —— {@code data/} 之外对连接锁的引用归零。这里只做
+     * "按结果投递消息"，且投递仍在锁外（R9-L5：锁内零消息投递）。
      */
     private void applyClassAdd(org.bukkit.command.CommandSender sender,
                                DatabaseManager.ClassRow classRow, UUID playerId,
                                String playerName, int maxMembers) {
-        DatabaseManager db = plugin.getDatabaseManager();
-        boolean reassigned;
-        boolean full;
-        // 满员判定 + 换班（退旧进新）整段持 connectionLock（可重入，内层 DB 方法
-        // 同锁嵌套安全）——防两笔并发 add 抢最后一个名额时本地超额加入。
-        synchronized (db.getConnectionLock()) {
-            Integer currentClassId = db.getPlayerClassId(playerId);
-            if (currentClassId != null && currentClassId == classRow.classId()) {
-                // 已在本班：幂等提示（冻结键无"重复加入"专键，复用 member-added）
+        ClassRepository.AddResult result = classRepository.addMemberAtomic(
+                classRow.classId(), playerId, System.currentTimeMillis(), maxMembers);
+        switch (result) {
+            case ALREADY_MEMBER:
+            case ADDED:
+                // 幂等提示与首次加入共用 member-added（冻结键无"重复加入"专键）
                 sendOnMain(sender, "class.member-added",
                         "player", playerName, "class", classRow.className());
-                return;
-            }
-            full = db.getClassMemberCount(classRow.classId()) >= maxMembers;
-            reassigned = currentClassId != null;
-            if (!full) {
-                if (reassigned) {
-                    db.removeClassMember(currentClassId, playerId);
-                }
-                db.addClassMember(classRow.classId(), playerId, System.currentTimeMillis());
-            }
-        }
-        if (full) {
-            sendOnMain(sender, "class.member-full", "max", String.valueOf(maxMembers));
-            return;
-        }
-        if (reassigned) {
-            sendOnMain(sender, "class.reassigned",
-                    "player", playerName, "class", classRow.className());
-        } else {
-            sendOnMain(sender, "class.member-added",
-                    "player", playerName, "class", classRow.className());
+                break;
+            case FULL:
+                sendOnMain(sender, "class.member-full", "max", String.valueOf(maxMembers));
+                break;
+            case REASSIGNED:
+                sendOnMain(sender, "class.reassigned",
+                        "player", playerName, "class", classRow.className());
+                break;
+            default:
+                // 枚举封闭，不可达；防御性兜底走 member-added（与旧行为同义）
+                sendOnMain(sender, "class.member-added",
+                        "player", playerName, "class", classRow.className());
+                break;
         }
     }
 
@@ -781,11 +762,14 @@ public class AdminCommandHandler {
     }
 
     /**
-     * {@code /lea class list <班名>}：全量成员（管理路径，含隐身穿透——plan §1.5
-     * 明示不受 show_in_square 过滤）。分数列读赛季榜内存快照
-     * （{@link SeasonManager#getCurrentTopCached(int)}，零查库）反查成员分数，
-     * 榜外显示 0；SeasonManager 为 null 或赛季未启用时分数全 0 但列表照常。
-     * 行序按分数降序（同分按名字），与 4A-2 班级榜 GUI 的展示口径一致。
+     * {@code /lea class list <班名>}：成员列表 + 赛季窗口分数。R7-L5 起与 /le class
+     * 班级榜 GUI 同源——班级过滤聚合查询 {@code getRankedPlayersForPeriodFiltered}
+     * 按行返回真实分数，取代旧"赛季榜前 50 快照反查"：榜外/窗口内无会话成员不再
+     * 误显 0 分，而是不列入（对齐 GUI"只渲染查询返回者"口径；查询随带的
+     * show_in_square 过滤与 GUI 一致，旧快照路径的数据同为过滤后口径）。
+     * 查询在异步段执行（成员名单天然 ≤ max-members，有界）；season 未启用时保持
+     * 既有降级（{@code entries=null}，渲染侧全成员 0 分按名字序列出，命令侧不拒
+     * ——与 GUI 的 season.disabled 门不矛盾）。行序按赛季分降序（查询侧 ORDER BY）。
      */
     private void handleClassList(org.bukkit.command.CommandSender sender, String[] args) {
         if (args.length < 3) {
@@ -794,6 +778,15 @@ public class AdminCommandHandler {
         }
         String className = args[2];
         DatabaseManager db = plugin.getDatabaseManager();
+        // R7-L5：赛季窗口在主线程先算好（纯函数零 IO，读内存配置，照 LearnCommand
+        // /le class 先例）；未启用（null / season 休眠）→ window=null 走降级路径。
+        SeasonManager season = plugin.getSeasonManager();
+        final SeasonManager.SeasonWindow window;
+        if (season != null && season.isEnabled()) {
+            window = season.windowOf(season.currentSeasonId(java.time.LocalDate.now()));
+        } else {
+            window = null;
+        }
         runClassAsync(() -> {
             DatabaseManager.ClassRow classRow = db.getClassByName(className);
             if (classRow == null) {
@@ -801,40 +794,62 @@ public class AdminCommandHandler {
                 return;
             }
             List<DatabaseManager.ClassMemberRow> members = db.getClassMembers(classRow.classId());
-            runOnMain(() -> sendClassList(sender, classRow, members));
+            // R7-L5：分数查询移入异步段（不在主线程跑 DB）。
+            final List<LeaderboardEntry> entries;
+            if (window != null) {
+                List<UUID> memberIds = new ArrayList<>(members.size());
+                for (DatabaseManager.ClassMemberRow member : members) {
+                    memberIds.add(member.uuid());
+                }
+                entries = plugin.getPlayerDataStore().getRankedPlayersForPeriodFiltered(
+                        members.size(), window.start(), window.end(), memberIds);
+            } else {
+                entries = null; // 赛季未启用：渲染侧保留既有降级（全成员 0 分）
+            }
+            runOnMain(() -> sendClassList(sender, classRow, members, entries));
         });
     }
 
-    /** list 渲染（主线程）：赛季缓存反查分数 + 排序 + 逐行发送。 */
+    /**
+     * list 渲染（主线程零查库）：赛季启用时直接遍历异步段取回的班级过滤榜
+     * （分数随行返回、rank 为查询名次——与 GUI 同源同序）；窗口内无会话的成员
+     * 不被查询返回、不列出（对齐 GUI 口径）。{@code count} 为班级真实成员数
+     * （非展示行数）。赛季未启用降级（{@code entries == null}）：保留既有
+     * "空 scoreByUuid"行为——全成员列出、分数 0、按名排序。
+     */
     private void sendClassList(org.bukkit.command.CommandSender sender,
                                DatabaseManager.ClassRow classRow,
-                               List<DatabaseManager.ClassMemberRow> members) {
-        Map<UUID, Long> scoreByUuid = new HashMap<>();
-        SeasonManager season = plugin.getSeasonManager();
-        if (season != null && season.isEnabled()) {
-            for (SeasonManager.SeasonRankRow row : season.getCurrentTopCached(50)) {
-                scoreByUuid.put(row.uuid(), row.score());
-            }
-        }
-        List<DatabaseManager.ClassMemberRow> sorted = new ArrayList<>(members);
-        sorted.sort(Comparator
-                .comparingLong((DatabaseManager.ClassMemberRow m) ->
-                        scoreByUuid.getOrDefault(m.uuid(), 0L))
-                .reversed()
-                .thenComparing(DatabaseManager.ClassMemberRow::playerName,
-                        String.CASE_INSENSITIVE_ORDER));
+                               List<DatabaseManager.ClassMemberRow> members,
+                               List<LeaderboardEntry> entries) {
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "class.list-header",
-                "class", classRow.className(), "count", String.valueOf(sorted.size())));
+                "class", classRow.className(), "count", String.valueOf(members.size())));
+        if (entries != null) {
+            for (LeaderboardEntry entry : entries) {
+                sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "class.list-entry",
+                        "rank", String.valueOf(entry.rank),
+                        "player", entry.playerName,
+                        "score", String.valueOf(entry.score)));
+            }
+            return;
+        }
+        // 赛季未启用降级：既有"空 scoreByUuid"行为原样（队伍成员 0 分 + 名字序）
+        List<DatabaseManager.ClassMemberRow> sorted = new ArrayList<>(members);
+        sorted.sort(Comparator.comparing(DatabaseManager.ClassMemberRow::playerName,
+                String.CASE_INSENSITIVE_ORDER));
         int rank = 1;
         for (DatabaseManager.ClassMemberRow member : sorted) {
             sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "class.list-entry",
                     "rank", String.valueOf(rank++),
                     "player", member.playerName(),
-                    "score", String.valueOf(scoreByUuid.getOrDefault(member.uuid(), 0L))));
+                    "score", "0"));
         }
     }
 
-    /** 异步执行（调度器关闭/插件停用时静默放弃，对齐 ReportGenerator.runAsync）。 */
+    /**
+     * 异步执行（调度器关闭/插件停用时静默放弃，对齐 ReportGenerator.runAsync）。
+     * D2-5：同型帮助器见 util.SchedulerGuard（语义微差：本处带 fine 日志级别），
+     * 本批未迁移（薄委托面只收 SocialManager/SeasonManager 两处）。
+     */
     private void runClassAsync(Runnable task) {
         try {
             plugin.getServer().getScheduler().runTaskAsynchronously(plugin, task);
@@ -843,7 +858,11 @@ public class AdminCommandHandler {
         }
     }
 
-    /** 回主线程执行（Bukkit API / sendMessage 前置；调度器关闭时静默放弃）。 */
+    /**
+     * 回主线程执行（Bukkit API / sendMessage 前置；调度器关闭时静默放弃）。
+     * D2-5：同型帮助器见 util.SchedulerGuard（语义微差：本处带 isEnabled 预检），
+     * 本批未迁移。
+     */
     private void runOnMain(Runnable action) {
         if (!plugin.isEnabled()) {
             return;

@@ -103,23 +103,15 @@ public class Leaderboard {
             }
             case ALL_TIME_COINS -> entries = store.getRankedPlayers(count);
             case ALL_PLAYERS -> {
-                List<UUID> activeIds = store.getActivePlayerIds();
-                entries = new ArrayList<>();
-                int rank = 1;
-                for (UUID id : activeIds) {
-                    // R-05 补漏：隐身玩家（show_in_square=false）不上榜。
-                    // L-05 fan-in：改走只读 getProfileSettingsReadOnly，枚举不写副作用建条目。
-                    if (!store.getProfileSettingsReadOnly(id).isShowInSquare()) continue;
-                    PlayerDataStore.PlayerStats stats = store.getPlayerStats(id);
-                    String name = store.getPlayerName(id);
-                    entries.add(new LeaderboardEntry(id, name, stats.getTotalScore(),
-                            stats.getTotalCorrect(), stats.getTotalIncorrect(),
-                            stats.getTotalSessions(), rank++));
-                }
-                entries.sort((a, b) -> Long.compare(b.score, a.score));
-                List<LeaderboardEntry> reranked = new ArrayList<>();
-                for (int i = 0; i < entries.size(); i++) {
-                    reranked.add(entries.get(i).withRank(i + 1));
+                // F3（R13-M3）：聚合单查替换 N+1 装配 —— getActiveSquareEntries 单条 SQL
+                // 完成隐身过滤（COALESCE show_in_square）+ 答过题过滤（word_progress 聚合 >0）
+                // + correct/incorrect 求和；旧路径逐 cache-miss 玩家 getPlayerStats 查库。
+                // 保留"再排序+重排行号"语义零漂移（SQL 已按 score DESC 取 count 行，
+                // 重排循环对同分次序稳定）。
+                List<LeaderboardEntry> active = store.getActiveSquareEntries(count);
+                List<LeaderboardEntry> reranked = new ArrayList<>(active.size());
+                for (int i = 0; i < active.size(); i++) {
+                    reranked.add(active.get(i).withRank(i + 1));
                 }
                 entries = reranked;
             }
@@ -147,7 +139,10 @@ public class Leaderboard {
      */
     public int getPlayerRank(UUID playerId) {
         List<Map.Entry<UUID, Long>> sorted = new ArrayList<>(scores.entrySet());
-        sorted.sort(Map.Entry.<UUID, Long>comparingByValue().reversed());
+        // R4-L2：并列分数以 UUID 自然序为 secondary key —— 确定性、全序的 tie-break，
+        // 保证同分两玩家多次查询 rank 恒定（不引入需持久化的"首上榜时间"字段）。
+        sorted.sort(Map.Entry.<UUID, Long>comparingByValue().reversed()
+                .thenComparing(Map.Entry.comparingByKey()));
 
         for (int i = 0; i < sorted.size(); i++) {
             if (sorted.get(i).getKey().equals(playerId)) {

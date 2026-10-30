@@ -23,6 +23,8 @@ import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.RankingMod
 import com.letslearnenglish.minecraftplugin.core.social.FeedTextFormatter;
 import com.letslearnenglish.minecraftplugin.core.social.SocialManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 
 /**
@@ -90,6 +92,27 @@ public class EnglishSquareGUI {
         return "all".equalsIgnoreCase(raw) ? RankingMode.ALL_PLAYERS : RankingMode.FEED;
     }
 
+    /**
+     * R5-4：{@link RankingMode} → holder payload 的模式键。
+     *
+     * <p>契约见 {@link PluginGuiHolder.GuiPayload.SquarePage}：只认
+     * {@code "weekly"}/{@code "monthly"}/{@code "alltime"}/{@code "all"}/{@code "feed"}
+     * 五个小写串（gui.identity 包刻意不依赖 {@code core.progress.RankingMode}）。
+     * 调用点只有一个（{@link #open(Player, int, RankingMode)}），且 mode 此时已走完全部
+     * 回落（null → 默认落点、榜单门/social 门 → ALL_PLAYERS），所以这里拿到的是
+     * <b>真正渲染的模式</b> —— 点击侧读 payload 得到的模式必然与屏幕一致，不会再
+     * 出现「标题说 A、列表是 B」。
+     */
+    private static String modeKeyOf(RankingMode mode) {
+        return switch (mode) {
+            case WEEKLY -> "weekly";
+            case MONTHLY -> "monthly";
+            case ALL_TIME_COINS -> "alltime";
+            case FEED -> "feed";
+            default -> "all";
+        };
+    }
+
     public void open(Player viewer, int page, RankingMode mode) {
         ConfigManager cm = plugin.getConfigManager();
         String lang = plugin.getPlayerLanguage(viewer);
@@ -128,17 +151,18 @@ public class EnglishSquareGUI {
         } else if (mode == RankingMode.ALL_PLAYERS) {
             currentFeedItems = Collections.emptyList();
             // Original mode: show active players (include self if answered at least once).
-            // R-05 补漏：隐身玩家（show_in_square=false）不列出。
-            List<UUID> allPlayers = store.getActivePlayerIds();
-            currentPlayerIds = new ArrayList<>();
-            for (UUID id : allPlayers) {
-                if (!store.getProfileSettingsReadOnly(id).isShowInSquare()) continue;
-                PlayerDataStore.PlayerStats s = store.getPlayerStats(id);
-                if (s.getTotalCorrect() + s.getTotalIncorrect() > 0) {
-                    currentPlayerIds.add(id);
-                }
+            // F3（R13-M3）：聚合单查替换 N+1 装配 —— getActiveSquareEntries 单条 SQL
+            // 完成隐身过滤（COALESCE show_in_square）+ 答过题过滤（word_progress 聚合 >0）
+            // + correct/incorrect 求和；旧路径逐 cache-miss 玩家 getPlayerStats 查库。
+            // 顺序 = score DESC（确定性）；数据源 = DB 真值（自动保存窗口内的最新答题
+            // 延迟可见，见 PlayerDataStore.getActiveSquareEntries javadoc）。
+            // 渲染与点击共用本快照（currentPlayerIds 与 rankedEntries 同源同序契约）。
+            List<LeaderboardEntry> allEntries = store.getActiveSquareEntries(Integer.MAX_VALUE);
+            rankedEntries = allEntries;
+            currentPlayerIds = new ArrayList<>(allEntries.size());
+            for (LeaderboardEntry e : allEntries) {
+                currentPlayerIds.add(e.playerId);
             }
-            rankedEntries = Collections.emptyList();
         } else {
             currentFeedItems = Collections.emptyList();
             // Ranking mode: query leaderboard (include self if has activity)
@@ -155,7 +179,8 @@ public class EnglishSquareGUI {
         if (page < 1) page = 1;
         if (page > totalPages) page = totalPages;
 
-        // Title always contains "English Square" / "英语广场" so listener always matches
+        // R5-4：标题只做展示（仍保留「英语广场 / English Square」与模式后缀，玩家可读）；
+        // 点击侧的身份与状态（页码/模式）已改由下方 holder + payload 提供，不再依赖文案。
         String baseTitle = MessageUtil.getGuiMsg(messages, "square.title");
         String modeLabel = switch (mode) {
             case WEEKLY -> MessageUtil.getGuiMsg(messages, "leaderboard.mode-weekly");
@@ -168,7 +193,16 @@ public class EnglishSquareGUI {
                 (modeLabel.isEmpty() ? baseTitle : baseTitle + " | " + modeLabel)
                         .replace("{page}", currentPlayerIds.isEmpty() && currentFeedItems.isEmpty()
                                 ? "1/1" : page + "/" + totalPages));
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-4：挂结构身份 holder —— key 区分 54 格主页（SQUARE）；payload 携带
+        // 「页码 + 模式」两件点击侧必须知道的事实。标题时代的做法是二者都从标题反解
+        // （页码靠抓标题里第一个整数，模式名/玩家名里出现数字就会抓错；模式靠逐条
+        // 子串匹配模式标签文案，管理员改文案即静默失效）——R5-11/14 已把标题层整体
+        // 删除，payload 是唯一来源。
+        // page 已在上面 clamp 到 [1, totalPages]，SquarePage 的构造校验不会抛。
+        Inventory inv = Bukkit.createInventory(
+                PluginGuiHolder.of(GuiViewKey.SQUARE,
+                        new PluginGuiHolder.GuiPayload.SquarePage(page, modeKeyOf(mode))),
+                GUI_SIZE, title);
 
         // ---- Mode toggle buttons (slots 2-5) ----
         // MC-2（S-H）：leaderboard.enabled=false 时周/月/总三榜按钮回落灰色玻璃占位
@@ -254,13 +288,25 @@ public class EnglishSquareGUI {
         }
 
         // Viewer's own head — slot 0
-        PlayerDataStore.PlayerStats ownStats = store.getPlayerStats(viewer.getUniqueId());
         String ownInfo;
         if (mode == RankingMode.ALL_PLAYERS) {
+            // F3（R13-M3）：自己头像统计优先读聚合行（零额外查库）；聚合行不含自己
+            //（隐身/未答过题）时回落 getPlayerStats（单人次、通常缓存命中，展示与旧一致）。
+            LeaderboardEntry ownEntry = findEntry(rankedEntries, viewer.getUniqueId());
+            int ownCorrect;
+            int ownIncorrect;
+            if (ownEntry != null) {
+                ownCorrect = ownEntry.correct;
+                ownIncorrect = ownEntry.incorrect;
+            } else {
+                PlayerDataStore.PlayerStats ownStats = store.getPlayerStats(viewer.getUniqueId());
+                ownCorrect = ownStats.getTotalCorrect();
+                ownIncorrect = ownStats.getTotalIncorrect();
+            }
             ownInfo = ChatColor.translateAlternateColorCodes('&',
                     MessageUtil.getGuiMsg(messages, "square.player-info")
-                            .replace("{correct}", String.valueOf(ownStats.getTotalCorrect()))
-                            .replace("{incorrect}", String.valueOf(ownStats.getTotalIncorrect())));
+                            .replace("{correct}", String.valueOf(ownCorrect))
+                            .replace("{incorrect}", String.valueOf(ownIncorrect)));
         } else if (mode == RankingMode.FEED) {
             // 动态页上的自己头像只做入口提示（鼓励名单走自己条目左键，见 SocialListener）
             ownInfo = ChatColor.translateAlternateColorCodes('&',
@@ -288,6 +334,7 @@ public class EnglishSquareGUI {
         }
         inv.setItem(0, ownHead);
 
+        GUIUtils.fillEmpty(inv); // R12-M3：空槽填灰玻璃（防拖纵深；全部 setItem 之后）
         viewer.openInventory(inv);
     }
 
@@ -303,7 +350,17 @@ public class EnglishSquareGUI {
         for (int i = startIdx; i < endIdx; i++) {
             int slot = PLAYER_SLOTS[i - startIdx];
             UUID targetId = currentPlayerIds.get(i);
+            // F3（R13-M3）：全量模式的统计直接读聚合行（word_progress 聚合值随
+            // getActiveSquareEntries 单查一次带回）——旧实现逐人 getPlayerStats 查库
+            //（N+1 热源）。名字优先读行内 player_name（DB 真值），行值缺失（uuid 兜底）
+            // 时回落既有主线程名册路径（缓存→名册，非 DB 查询），展示不降级。
+            LeaderboardEntry rowEntry = mode == RankingMode.ALL_PLAYERS
+                    ? findEntry(rankedEntries, targetId) : null;
             String targetName = store.getPlayerName(targetId);
+            if (rowEntry != null && !rowEntry.playerName.isEmpty()
+                    && !rowEntry.playerName.equals(targetId.toString())) {
+                targetName = rowEntry.playerName;
+            }
             if (targetName == null) targetName = MessageUtil.getGuiMsg(messages, "profile.unknown-player");
 
             ItemStack head = new ItemStack(Material.PLAYER_HEAD);
@@ -313,11 +370,12 @@ public class EnglishSquareGUI {
                 List<String> lore = new ArrayList<>();
 
                 if (mode == RankingMode.ALL_PLAYERS) {
-                    PlayerDataStore.PlayerStats stats = store.getPlayerStats(targetId);
-                    lore.add(ChatColor.translateAlternateColorCodes('&',
-                            MessageUtil.getGuiMsg(messages, "square.player-info")
-                                    .replace("{correct}", String.valueOf(stats.getTotalCorrect()))
-                                    .replace("{incorrect}", String.valueOf(stats.getTotalIncorrect()))));
+                    if (rowEntry != null) {
+                        lore.add(ChatColor.translateAlternateColorCodes('&',
+                                MessageUtil.getGuiMsg(messages, "square.player-info")
+                                        .replace("{correct}", String.valueOf(rowEntry.correct))
+                                        .replace("{incorrect}", String.valueOf(rowEntry.incorrect))));
+                    }
                 } else {
                     // Find the entry for this player
                     LeaderboardEntry entry = findEntry(rankedEntries, targetId);
@@ -451,8 +509,15 @@ public class EnglishSquareGUI {
         ConfigManager cm = plugin.getConfigManager();
         FileConfiguration messages = cm.getMessageConfig(plugin.getPlayerLanguage(viewer));
         String title = ChatColor.translateAlternateColorCodes('&',
-                MessageUtil.getGuiMsg(messages, "square.title"));
-        Inventory inv = Bukkit.createInventory(null, 27, title);
+                MessageUtil.getGuiMsg(messages, "square.title")
+                        // R11-L1：补 {page} 替换（照 open() 的标题构造；笑话页无分页语义，
+                        // 取 open() 空列表同款的 "1/1" —— 标题残留 {page} 视觉破绽）。
+                        .replace("{page}", "1/1"));
+        // R5-4：笑话页与 54 格主页共用 square.title（{page} 都填 "1/1"），标题逐字相同
+        // —— holder key 是唯一能区分两者的结构事实。点击侧因此不再靠
+        // 「top size <= 27」猜这是不是笑话页。
+        Inventory inv = Bukkit.createInventory(
+                PluginGuiHolder.of(GuiViewKey.SQUARE_HIDDEN), 27, title);
 
         String jokeName = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "square.hidden-title"));
@@ -476,6 +541,7 @@ public class EnglishSquareGUI {
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
                         MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
 
+        GUIUtils.fillEmpty(inv); // R12-M3：空槽填灰玻璃（防拖纵深）
         viewer.openInventory(inv);
     }
 

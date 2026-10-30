@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.listener;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.gui.ConfirmationGUI;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -90,7 +91,18 @@ public class PlayerJoinListener implements Listener {
         // isEnabled()（season.enabled 默认 false）与空结果双守卫，未开启时零输出。
         plugin.getSeasonManager().claimPendingRewards(joining);
 
-        plugin.getDailyChallengeManager().checkAndAssign(event.getPlayer().getUniqueId());
+        // R13-M1：DB 分配移出主线程（stripe lock 内幂等；午夜路径已证异步安全）。
+        // UUID 先取为 final，闭包不捕 Player 对象（防 quit 竞态）；调度守卫照同文件
+        // quit 段与 SocialManager 风格。前序 join 提醒/摘要/赛季补发顺序不变。
+        final UUID joiningId = event.getPlayer().getUniqueId();
+        try {
+            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+                if (!plugin.isEnabled()) return;
+                plugin.getDailyChallengeManager().checkAndAssign(joiningId);
+            });
+        } catch (IllegalStateException ignored) {
+            // 插件停用窗口（调度器已关闭）：放弃本次分配（R-32 补分配兜底）
+        }
     }
 
     @EventHandler
@@ -105,6 +117,10 @@ public class PlayerJoinListener implements Listener {
         plugin.getWordLearningManager().cancelPractice(playerId);
         plugin.getPlayerDataStore().unloadPlayerData(playerId);
         plugin.getAchievementManager().unloadPlayer(playerId);
+        // R7-B：每日挑战的 per-player 每日缓存（今日挑战词集合 / 已完成集合 / 已付标记）。
+        // 不接也不泄漏（跨天 + 午夜 rollover 双兜底），但长期不重启 + 大量离线玩家时
+        // map 会只增不减；与上面几个服务的 quit 编排点保持同一致。
+        plugin.getDailyChallengeManager().unloadPlayer(playerId);
         plugin.getPlayerDataStore().unloadProfileSettings(playerId);
         // S5 quit 编排点：各服务的内存卫生统一在此收口（方向 Listener → 服务，
         // 无反向依赖、不成环；PlayerDataStore 只管自己的 map，不反向调这些服务）：
@@ -126,6 +142,14 @@ public class PlayerJoinListener implements Listener {
         // clearPendingSummary 调用点同源语义；崩溃丢条目的极端窗口由
         // requestConversationSummary 的 dedup 下次请求自然刷新（宽容语义）。
         plugin.getAIChatManager().clearPendingSummary(playerId);
+        // R13-M4 quit 清理（同编排点）：AI 难度偏好条目 + 复习 due 词缓存
+        // （两 map 原为只增不删，历史玩家条目永留；rejoin 重查/回落默认值重建）。
+        plugin.getAIChatManager().unloadPlayer(playerId);
+        plugin.getWordManager().getReviewScheduler().unloadPlayer(playerId);
         plugin.getChatFeedbackManager().unloadPlayer(playerId);
+        // R8-L1 quit 清理：语言二确流程的静态阶段 map（ConfirmationGUI.confirmStages）
+        // —— quit 不清理会让"确认页 1 → 下线 → 重登"的玩家从阶段 1 残留状态继续，
+        // 跳过二段确认。quit 事件有 Player 对象，直接走 resetStage。
+        ConfirmationGUI.resetStage(event.getPlayer());
     }
 }

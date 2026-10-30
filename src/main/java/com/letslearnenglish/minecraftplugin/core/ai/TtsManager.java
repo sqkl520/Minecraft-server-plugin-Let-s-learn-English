@@ -28,12 +28,21 @@ import java.util.logging.Level;
  */
 public class TtsManager {
 
+    /**
+     * D2-7（照抄 AIChatManager R-20 同构）：400/401/403 后熔断时长（毫秒）——
+     * 期间不再打 API，到期自动探测恢复（Key 修正后无需重载即可自愈）。
+     */
+    private static final long KEY_INVALID_COOLDOWN_MS = 5 * 60 * 1000L;
+
     private final LetsLearnEnglish plugin;
     private final File cacheDir;
     private final int cacheDays;
     private boolean enabled;
-    // API Key：构造时由主线程写入，下载失败时可能被 commonPool 线程置 null，故用 volatile 保证跨线程可见性
+    // API Key：构造时由主线程写入，之后只读消费（下载失败不再置 null——D2-7 起
+    // 改用 keyInvalidUntil 熔断），volatile 保证跨线程可见性
     private volatile String apiKey;
+    /** D2-7：Key 失效熔断"开启至"时间戳（毫秒）；&gt; now 即熔断中。200 成功时清零。 */
+    private volatile long keyInvalidUntil = 0L;
 
     public TtsManager(LetsLearnEnglish plugin) {
         this.plugin = plugin;
@@ -63,6 +72,11 @@ public class TtsManager {
         return apiKey != null && !apiKey.isEmpty();
     }
 
+    /** D2-7：Key 失效熔断是否开启（期间不打 TTS API，照 AIChatManager.isAuthCircuitOpen 同构）。 */
+    private boolean isKeyCircuitOpen() {
+        return System.currentTimeMillis() < keyInvalidUntil;
+    }
+
     /**
      * Download TTS audio from VoiceRSS API and cache it to disk.
      * Returns the cached .wav file on success, or null on failure.
@@ -78,7 +92,7 @@ public class TtsManager {
             return future;
         }
 
-        if (!hasApiKey()) {
+        if (!hasApiKey() || isKeyCircuitOpen()) {
             future.complete(null);
             return future;
         }
@@ -157,11 +171,18 @@ public class TtsManager {
                         }
                     }
                     plugin.getLogger().fine("TTS audio cached for word: " + word);
+                    // D2-7：音频真正落盘 = Key 可用实锤（200 + 通过内容校验），
+                    // 清掉熔断（照 AIChatManager 成功 200 清零同构）；错误文本体
+                    // 在下方各 guard 早退，到不了这里，不会误清。
+                    keyInvalidUntil = 0L;
                     future.complete(outputFile);
                 } else if (responseCode == 400 || responseCode == 401 || responseCode == 403) {
+                    // D2-7（照抄 AIChatManager R-20 同构）：开启熔断而非置 apiKey=null——
+                    // 保留原 key 供到期自动探测恢复；Key 修正后无需重载即可自愈。
+                    this.keyInvalidUntil = System.currentTimeMillis() + KEY_INVALID_COOLDOWN_MS;
                     plugin.getLogger().warning("TTS VoiceRSS API returned " + responseCode
-                            + " — API key may be invalid. Disabling audio downloads for this session.");
-                    this.apiKey = null;
+                            + " — API key may be invalid. Pausing audio downloads for "
+                            + (KEY_INVALID_COOLDOWN_MS / 60000) + " minute(s), then auto-probing again.");
                     future.complete(null);
                 } else {
                     plugin.getLogger().warning("TTS VoiceRSS API returned unexpected status: " + responseCode);

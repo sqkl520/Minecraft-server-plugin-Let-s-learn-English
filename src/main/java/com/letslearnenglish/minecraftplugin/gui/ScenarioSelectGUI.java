@@ -3,6 +3,8 @@ package com.letslearnenglish.minecraftplugin.gui;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager.DifficultyConfig;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager.ScenarioConfig;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -59,7 +61,10 @@ public class ScenarioSelectGUI {
         String title = MessageUtil.getGuiMsg(msg, "dialogue.scenario-title");
         title = ChatColor.translateAlternateColorCodes('&', title);
 
-        Inventory gui = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-7：挂结构身份 holder（无 payload —— 本页只回答"是谁"，无分页/模式上下文）。
+        // 与 ScenarioSelectListener 的 holder 判定必须同批：只改一侧该页会失去身份（holder 是唯一判定依据）。
+        Inventory gui = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.SCENARIO_SELECT),
+                GUI_SIZE, title);
 
         // 背景
         ItemStack bg = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);

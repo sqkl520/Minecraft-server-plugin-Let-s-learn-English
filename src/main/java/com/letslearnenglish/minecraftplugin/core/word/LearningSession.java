@@ -165,10 +165,6 @@ public class LearningSession {
         return completed.get();
     }
 
-    public long getStartTime() {
-        return startTime;
-    }
-
     /**
      * Inner class representing the result for a single word.
      */

@@ -3,6 +3,9 @@ package com.letslearnenglish.minecraftplugin.gui;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.duel.DuelRoom;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiIdentity;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -10,6 +13,7 @@ import org.bukkit.Material;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
@@ -30,8 +34,11 @@ import java.util.UUID;
  */
 public class DuelGUI {
 
-    /** 打开界面时会把标题截断到这个长度（Minecraft 标题上限）；标题匹配侧做同样的截断，两处必须一致。 */
+    /** 打开界面时会把标题截断到这个长度（Minecraft 标题上限，纯显示约束，与身份判定无关）。 */
     private static final int MAX_TITLE_LENGTH = 32;
+
+    /** 界面尺寸（open 的唯一来源，避免魔法数字）。 */
+    private static final int GUI_SIZE = 27;
 
     private final LetsLearnEnglish plugin;
 
@@ -46,7 +53,14 @@ public class DuelGUI {
         String title = truncateTitleSafe(
                 MessageUtil.getGuiMsg(messages, "duel.gui-title"));
 
-        Inventory inv = Bukkit.createInventory(null, 27, title);
+        // R5-6：挂结构身份 holder（NoPayload —— 对手身份已由 DuelChallengeGUI 的 PDC 承担，
+        // 本界面无 per-view 上下文）。R5-13 起这是本界面身份判定的【唯一】依据：
+        // DuelManager.refreshBothGUIs 经 isViewingDuelGUI 只认 holder，标题层已删除。
+        //
+        // 收益点：本界面标题被 truncateTitleSafe 截到 32 个可见字符，配置标题较长时
+        // "Word Duel"/"单词对决" 可能整段被截掉，标题兜底认不回自己；
+        // holder 不受文案/截断影响，是对决刷新闸门唯一可靠的判定。
+        Inventory inv = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.DUEL), GUI_SIZE, title);
         buildInventory(inv, room, messages);
         player.openInventory(inv);
     }
@@ -58,9 +72,9 @@ public class DuelGUI {
      * 客户端显示乱码。新流程：stripColor 取可见文本 → 截 32 → 再 translate，
      * 保证永远不在 § 中间下刀。
      *
-     * <p>界面识别侧（本类的 matchesTitle，DuelGUIListener 委托到
-     * {@link #isDuelGUITitle}）已同步改用同一截断口径，长标题下 open 后仍能认回自己；
-     * 短标题（当前默认配置）下与旧口径输出恒一致。
+     * <p><b>R5-13 起本方法纯属显示逻辑</b>：身份判定已完全走 holder
+     * （{@link #isViewingDuelGUI}），没有任何标题匹配代码依赖本方法的截断口径。
+     * 保留是为了遵守客户端标题上限、不破坏打开时的显示。
      *
      * @param rawTitle duel.gui-title 原始值（可含 & 颜色码；缺键时为 [?key] 占位）
      * @return translate 后的最终标题，绝不劈开颜色码
@@ -97,68 +111,56 @@ public class DuelGUI {
     }
 
     /**
-     * R-23: 玩家当前是否正看着对决 GUI。
+     * R-23 / R5-6: 玩家当前是否正看着对决 GUI。
      *
      * <p>供 DuelManager.refreshBothGUIs 调用：只刷新仍在看界面的玩家，
      * ESC 关掉界面的玩家不再被每题强制弹回，靠 /le duel gui 手动回来。
      * 必须在主线程调用（读 openInventory）。
+     *
+     * <p><b>R5-13：已改为纯 holder 判定</b>（{@link GuiIdentity#resolve(InventoryView)}），
+     * 标题层彻底不参与。这一层能删得掉，正是因为本界面旧标题判定本来就不可靠：标题会被
+     * {@link #truncateTitleSafe} 截到 32 个可见字符，配置标题较长时 "Word Duel"/"单词对决"
+     * 可能整段被截掉，标题兜底反而认不回自己 —— 而本方法正是「每回合刷新双方界面」的
+     * 唯一闸门，误判 false 会让玩家看着冻结的比分打完整局。holder 是本界面唯一可靠的
+     * 判定依据，也是 R5-6 起的主路径。{@code plugin} 参数保留是为了不动
+     * {@code DuelManager} 的调用签名（本流只改判定实现，不改调用点）。
      */
     public static boolean isViewingDuelGUI(LetsLearnEnglish plugin, Player player) {
         if (plugin == null || player == null) return false;
-        return isDuelGUITitle(plugin, player, player.getOpenInventory().getTitle());
-    }
-
-    /**
-     * R-23: 对决界面标题匹配（唯一真相源，DuelGUIListener 委托到这里）。
-     *
-     * <p>标题取自 duel.gui-title，中英文案不同（中文「单词对决」/ 英文「Word Duel」），
-     * 因此同时接受玩家当前语言与中英两种配置标题；配置读不到时回退到关键词匹配。
-     */
-    public static boolean isDuelGUITitle(LetsLearnEnglish plugin, Player player, String title) {
-        if (plugin == null || player == null || title == null) return false;
-
-        if (matchesTitle(title, getConfiguredTitle(plugin, plugin.getPlayerLanguage(player)))) return true;
-        if (matchesTitle(title, getConfiguredTitle(plugin, "zh"))
-                || matchesTitle(title, getConfiguredTitle(plugin, "en"))) {
-            return true;
-        }
-
-        return title.contains("Word Duel") || title.contains("单词对决");
-    }
-
-    /**
-     * 读取配置中的对决标题原始值（& 颜色码，未 translate）；未配置时返回 null。
-     * R-51：截断 + translate 统一走 truncateTitleSafe，与 open() 同口径。
-     */
-    private static String getConfiguredTitle(LetsLearnEnglish plugin, String lang) {
-        FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
-        String raw = messages == null ? null : messages.getString("duel.gui-title");
-        if (raw == null || raw.isEmpty()) return null;
-        return raw;
-    }
-
-    /**
-     * R-51：与 open() 同口径截断后做前缀比对（open() 打开界面时会把标题截断到 32 个
-     * 可见字符，因此比对前做同样的截断，否则长标题会被误判为非对决界面）。
-     * 短标题下与旧 substring 口径输出恒一致。
-     */
-    private static boolean matchesTitle(String title, String expectedRaw) {
-        if (expectedRaw == null) return false;
-        return title.startsWith(truncateTitleSafe(expectedRaw));
+        InventoryView view = player.getOpenInventory();
+        if (view == null) return false;
+        // R5-13：纯 holder，无标题兜底 —— holder 是唯一真相源。
+        return GuiIdentity.resolve(view) == GuiViewKey.DUEL;
     }
 
     private void buildInventory(Inventory inv, DuelRoom room, FileConfiguration messages) {
         inv.clear();
+
+        // R5V-1：灰色玻璃铺满全部槽位 —— 根因封堵 shift-click 塞入（原版无落点），
+        // 保持与 DuelChallengeGUI 全格填充同模式（该界面因此天然免疫）。
+        ItemStack filler = createItem(Material.GRAY_STAINED_GLASS_PANE, " ");
+        for (int i = 0; i < inv.getSize(); i++) {
+            inv.setItem(i, filler.clone());
+        }
 
         String p1Name = room.getPlayer1Name();
         String p2Name = room.getPlayer2Name();
         int score1 = room.getScore1();
         int score2 = room.getScore2();
 
-        // --- Player 1 score display (left side, slots 10-12) ---
-        // Score visualization: fill slots based on score
-        int[] p1Slots = {10, 11, 12, 19, 20}; // up to 5 slots
-        for (int i = 0; i < DuelRoom.WIN_SCORE; i++) {
+        // --- Player 1 score display (left side, slots 10-12 + 19-20) ---
+        // Score visualization: fill slots based on score.
+        //
+        // L11：槽位数组与循环上界不可再耦合。`DuelRoom.WIN_SCORE` 是「胜负判定」的
+        // 业务常量（连打满分的语义），而槽位数组长度是本界面的<b>布局容量</b>——
+        // 两者一旦被当成同一个数，把 WIN_SCORE 从 5 调到 6 就会在渲染路径上直接抛
+        // ArrayIndexOutOfBoundsException（开界面即崩，且只有打到第 6 分的玩家能看到）。
+        // 这里用 Math.min 显式表达「能画几分画几分」：WIN_SCORE 大于布局容量时，
+        // 超出部分不做任何视觉补偿（见下方注释），大于 5 分的比分仍以 slot 9 / 17
+        // 头像物品的 lore 文本为准（{@code player-score} 的 {score} 不受布局限制）。
+        int[] p1Slots = {10, 11, 12, 19, 20}; // 布局容量 = 5，独立于 WIN_SCORE
+        int p1Dots = Math.min(DuelRoom.WIN_SCORE, p1Slots.length);
+        for (int i = 0; i < p1Dots; i++) {
             int slot = p1Slots[i];
             Material mat = i < score1 ? Material.GREEN_WOOL : Material.GRAY_STAINED_GLASS;
             String label = ChatColor.translateAlternateColorCodes('&',
@@ -173,10 +175,11 @@ public class DuelGUI {
                         .replace("{score}", String.valueOf(score1)));
         inv.setItem(9, createSkullItem(room.getPlayer1(), p1Label));
 
-        // --- Player 2 score display (right side, slots 14-16) ---
-        // Score visualization: fill slots based on score
-        int[] p2Slots = {14, 15, 16, 23, 24}; // up to 5 slots
-        for (int i = 0; i < DuelRoom.WIN_SCORE; i++) {
+        // --- Player 2 score display (right side, slots 14-16 + 23-24) ---
+        // Score visualization: fill slots based on score（同上，L11 同款上界）。
+        int[] p2Slots = {14, 15, 16, 23, 24}; // 布局容量 = 5，独立于 WIN_SCORE
+        int p2Dots = Math.min(DuelRoom.WIN_SCORE, p2Slots.length);
+        for (int i = 0; i < p2Dots; i++) {
             int slot = p2Slots[i];
             Material mat = i < score2 ? Material.RED_WOOL : Material.GRAY_STAINED_GLASS;
             String label = ChatColor.translateAlternateColorCodes('&',

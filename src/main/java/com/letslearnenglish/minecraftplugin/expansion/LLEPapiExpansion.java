@@ -5,6 +5,7 @@ import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.season.SeasonManager;
 import com.letslearnenglish.minecraftplugin.data.CheckInData;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import com.letslearnenglish.minecraftplugin.data.repository.PlayerDirectoryRepository;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
@@ -67,6 +68,9 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
 
     private final LetsLearnEnglish plugin;
 
+    /** R6-A：player_data 单列读取仓储（SQL 与参数绑定已收口）。 */
+    private final PlayerDirectoryRepository playerDirectory;
+
     /** R-43: key = targetUuid + "|" + params + "|" + selfFlag + "|" + lang. */
     private final Map<String, CachedValue> cache = new ConcurrentHashMap<>();
 
@@ -82,6 +86,8 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
 
     public LLEPapiExpansion(LetsLearnEnglish plugin) {
         this.plugin = plugin;
+        this.playerDirectory = new PlayerDirectoryRepository(plugin.getDatabaseManager(),
+                plugin.getLogger());
     }
 
     @Override
@@ -181,7 +187,15 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
         PlayerDataStore store = plugin.getPlayerDataStore();
 
         // L-05：展示路径走只读版，不建缓存条目。
-        PlayerDataStore.ProfileSettings ps = store.getProfileSettingsReadOnly(playerId);
+        // P1-3（红队验收）：只读版的 miss 语义是「隐私最严」，但本类的 isSelfView 只在
+        // 目标<b>在线</b>时为 true —— 目标离线 → 永远「非本人」→ miss 的 fail-closed 让
+        // %lle_score% / %lle_words% / %lle_rank% / %lle_streak% 全部返回「已隐藏」。
+        // 榜单全息字、计分板、别的插件 /papi parse 只要玩家不在线就整块变「已隐藏」；
+        // 而这些玩家本就是从 COALESCE(show_in_square,1)<>0 的 SQL 里筛出来的。
+        // 改用 loadProfileSettingsForDisplay：缓存命中零 IO；miss 时同步查一行
+        // player_profiles（与本方法已有的 getPlayerStats / getCoinsEarned 同级成本），
+        // 只有查询失败才落 unresolvedFallback()。同样绝不写本质缓存。
+        PlayerDataStore.ProfileSettings ps = store.loadProfileSettingsForDisplay(playerId);
 
         // plan-season §2.5：三个赛季占位符在隐私门禁之前解析 ——
         // ① season.enabled=false 或赛季未开启（锚点在未来，id≤0）→ 空串真 gating，
@@ -354,25 +368,10 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
     /**
      * longest_streak = 答题会话连击峰值（PlayerDataStore.persistLongestStreak 写入
      * player_data.longest_streak，只增不减），与签到连击是两个不同语义，保持直查该列。
-     * 走 DatabaseManager 的 connectionLock 同步姿势（PAPI 可在任意线程被调用）。
+     * R6-A：SQL 收口到 {@link PlayerDirectoryRepository#findLongestStreak}（锁内取
+     * 连接）；异常语义原样保留——静默返回 0，不记日志（PAPI 每秒可能被调多次）。
      */
     private int getLongestStreak(UUID playerId) {
-        String column = "longest_streak";
-        String tablePrefix = plugin.getDatabaseManager().getTablePrefix();
-        String sql = "SELECT " + column + " FROM " + tablePrefix + "player_data WHERE uuid = ?";
-        java.sql.Connection conn = plugin.getDatabaseManager().getConnection();
-        synchronized (plugin.getDatabaseManager().getConnectionLock()) {
-        try (java.sql.PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, playerId.toString());
-            try (java.sql.ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt(column);
-                }
-            }
-        } catch (java.sql.SQLException e) {
-            // Silently return 0 on error
-        }
-        }
-        return 0;
+        return playerDirectory.findLongestStreak(playerId);
     }
 }

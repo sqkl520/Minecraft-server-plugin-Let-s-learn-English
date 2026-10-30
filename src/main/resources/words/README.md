@@ -31,7 +31,7 @@ words:                       # 词条列表
 | example_sentence | string | 模板必填 / loader 可选 | 例句，应包含该单词 |
 | synonyms | list<string> | 可选（缺省 `[]`） | 同义词；无则 `[]` |
 | antonyms | list<string> | 可选（缺省 `[]`） | 反义词；无则 `[]` |
-| difficulty_level | int | 模板必填 / loader 可选（缺省 1） | 数字难度 1~9；三档各占连续 3 级：beginner 1~3（255/36/26）、intermediate 4~6（134/146/69）、advanced 7~9（125/134/70） |
+| difficulty_level | int | 模板必填 / loader 可选（缺省 1） | 数字难度 1~9；三档各占连续 3 级：beginner 1~3（285/36/26）、intermediate 4~6（134/146/69）、advanced 7~9（125/134/70） |
 | reward | number | 可选（缺省 0.0=用全局配置） | 单词自定义奖励；**现有词库未使用**，sample 也不写 |
 
 说明：
@@ -44,7 +44,35 @@ words:                       # 词条列表
 - `difficulty_level` 语义：1=最基础，数字越大越难；beginner 内 2 级为略抽象/略低频词
   （family/money/know/open 等）。各档区间与分布见上表（与三档实际数据一致）。
 
-## 词表来源与许可
+## 词表来源、分级与许可
+
+**选词参考 NGSL / GSL / 中国课标，但未逐词校验词频排名。** 具体地：
+
+- 选词时参考了 **NGSL（New General Service List）**、公有领域 **GSL** 与中国《义务教育
+  英语课程标准（2022）》词汇表的**头部高频词印象**，用于决定“收哪些词”；但**没有任何
+  一条词条保存或校对过它在上述词表中的真实排名**，也没有按排名做全库排序或裁剪。因此
+  “本词库按词频选词”这一说法**只能理解为选词来源参考，不能理解为逐词词频校验**。
+- 词条**没有 `freq_rank` / `cefr` 字段**。当前 8 字段模板（english / chinese /
+  part_of_speech / phonetic / example_sentence / synonyms / antonyms /
+  difficulty_level）不包含任何外部词频或 CEFR 等级信息。若后续要做“按词频加权出题”
+  或“按 CEFR 对齐”，属于**新增字段 + 消费端接线**的独立改动，不是改几个 YAML 值即可。
+- **`difficulty_level` 当前是人工标注，且运行时尚未被消费。** `WordBank` 会把该字段
+  读进 `Word`（缺省 1，见 `WordBank.java` 的 `difficultyLevel` 解析），`Word` 也提供了
+  `getDifficultyLevel()`，但全仓仅 `AdminCommandHandler` 在**导出词库**时把它写回 YAML
+  （`words[...].difficulty_level`），**没有任何出题/选词/复习/结算逻辑按它筛选或加权**。
+  换言之：该字段目前只影响“数据是否原样保留”，不影响玩家体验。出题难度实际由**玩家
+  选择的词库档位（beginner / intermediate / advanced 文件级 `difficulty`）**决定。
+  三档内的 1~3 / 4~6 / 7~9 分级是**人工难度标注**，不是运行时分层。
+- `beginner.yml` 内 `difficulty_level` 的实际分布为 1 级 285 / 2 级 36 / 3 级 26
+  （功能词一律标注为 1，因为它们是初学者最先接触的词）。
+- **同义/反义字段**：功能词（冠词、代词、助动词、介词）通常没有可靠的同反义词，统一
+  写 `[]`，不硬凑。
+- **撞车释义**：`AnswerChecker.buildChoiceOptions()` 会按 `;；,，、` 切分中文释义做
+  “义项撞车”判定，任一分段相同即视为撞车并把该候选从正常干扰项池剔除。因此**释义里
+  用分号堆多个义项会放大撞车面**（如 `能；会` 会和 `将；会` 撞“会”）。新增功能词时
+  已按此规则收敛：只用**一个主释义 + 括号用法提示**，括号内不再用分号/逗号堆义项。
+
+**许可与内容来源：**
 
 - **选词依据**：高频通用英语词汇，参考以下公开/开放许可词表（仅用于“选哪些词”）：
   - **NGSL（New General Service List）**，Browne, Culligan & Phillips，许可
@@ -81,7 +109,32 @@ words:                       # 词条列表
 - 注意：脚本做的是自包含结构 + 往返校验；**最终权威校验仍以插件 SnakeYAML 加载为准**
   （由编排者在汇总时随 Java 构建执行）。
 
+### 释义撞车扫描：`scripts/check-word-collisions.js`
+
+`gen-words.js` **不检查**中文释义是否互相撞车，而 `AnswerChecker.buildChoiceOptions()`
+在 choice 模式下会按 `[;；,，、]` 把 `chinese` 切成义项集合，任一义项相同就把该候选
+从正常干扰项池剔除（退到 soft/hard 兜底）。因此释义撞车会造成干扰项“悄悄变少”，
+极端情况下才触发兜底、出现两个都对的选项。
+
+```bash
+node scripts/check-word-collisions.js                    # 扫三档（默认档内），完整报告
+node scripts/check-word-collisions.js beginner.yml       # 只扫指定文件
+node scripts/check-word-collisions.js --cross            # 附带跨档撞车
+node scripts/check-word-collisions.js --quiet            # 只输出计数
+```
+
+- 归一化与切分规则**逐条对齐 `AnswerChecker`**（NFKC / 去零宽 / 折叠空白 / 去末尾标点 /
+  按 `;；,，、` 切义项）。
+- 分类：`[HARD]` = 整条释义归一化后完全相同（必然双正确，最该修）；`[soft]` = 仅某个
+  义项重叠（多半是真实近义，酌情保留）。
+- 退出码：0 = 无 HARD 撞车；1 = 存在 HARD；2 = 读文件失败。可用于 CI 门禁。
+- 现状：`beginner.yml` HARD=0 / soft=5（5 对均为真实近义，见 CONTENT-03 一节）；
+  三档合并扫描仍有 HARD 撞车（主要在 intermediate/advanced 内部），属后续批次范围。
+
 ## 本次扩充产出（CONTENT-02，三档 ≥300 词）
+
+> 以下数字为 CONTENT-02 时点的快照；beginner 档已在 CONTENT-03 增至 347 词
+> （见下一节）。
 
 - `beginner.yml`：**317 词**（原有 10 词逐字节保留 + `sample-beginner.yml` 50 词全数合并 + 新增 257 词）。
   自检 `node scripts/gen-words.js check`：**0 error / 0 warning**。
@@ -114,6 +167,40 @@ words:                       # 词条列表
   全部释义、音标、例句为原创编写；音标采用 Cambridge 英式风格（rhotic-r 惯例与
   现有文件一致）。
 - `sample-beginner.yml` 已全数并入 `beginner.yml` 并删除（此前 pom 已将其排除出 JAR）。
+
+## 功能词补充（CONTENT-03）
+
+- 问题：CONTENT-02 的 995 词里，NGSL 头部 30 个功能词 **29 个全库 0 命中**（仅 `our`
+  已在库），词库“号称按 NGSL 选词”与事实不符。本批次补 **30 个**。
+- `beginner.yml`：317 → **347 词**，自检 **0 error / 0 warning**（插入后重新按字母序
+  验证 0 处乱序，全库 0 重复词头）。`difficulty_level` 分布变为 1 级 285 / 2 级 36 /
+  3 级 26。
+- 新增词（按字母序）：a / about / be / been / can / different / do / have / if /
+  important / its / just / more / only / out / over / people / said / see / such /
+  than / the / them / then / think / time / up / us / want / will。
+- 词性：冠词 a / the 归入既有 `determiner`（未新增 `article` 枚举）；be / been / do /
+  have / can / will 归入 `verb`（未新增 `auxiliary`）。全部为初学者最先接触的词，
+  统一 `difficulty_level: 1`；功能词不硬凑同反义词，除 `different` 反义词 `same` 外
+  均为空数组。
+- 释义写法：一个主释义 + 括号内用法提示，且**括号内不用 `，` / `；` / `、`**（改用
+  `：` 分隔），例如 `the: 这个/那个（定冠词：指双方都知道或特定的人或事物）`。
+  原因见下条：`AnswerChecker` 会把括号里的分句也切成一个义项。
+- 同批次修复 beginner 内释义撞车（`AnswerChecker` 义项级判定口径）：
+  - 既有精确重复：`little` / `small` 同为“小的” → `little` 改“小巧的；少量的”；
+    `clever` / `smart` 同为“聪明的” → `clever` 改“机灵的；巧妙的”。
+  - 跨档重复：`talk` 释义“交谈”与 advanced 的 `converse` 完全同义 → `talk` 改“谈话”。
+  - 新增词自检撞车：`can` 原写“能；会”与 `will` 的“将；会”撞“会” →
+    `can` 改“能够（情态动词：表示能力）”、`will` 改“将要（情态动词：表示将来）”；
+    `have` 原写“有；吃，喝”与 `eat` 的“吃”撞 → 改“拥有（表示所属：第三人称单数
+    用 has）”；`them` 原写“他们；她们；它们”与 `they` 的“他们”撞 → 改“他们（宾格：
+    作动词或介词的宾语）”。
+  - 顺带修复同文件内重复例句：`four` 与 `leg` 都用了 “The table has four legs.” →
+    `four` 改 “There are four seasons in a year.”。
+  - 剩余 5 对分词级同义（非完全重复，按设计落入 softFallback 兜底，未改动）：
+    `also`/`too`（也）、`any`/`some`（一些）、`for`/`give`（给）、`no`/`not`（不）、
+    `no`/`without`（没有）。这些是真实的近义关系，强行改写会牺牲释义准确性，故保留。
+- 新增只读校验脚本 `scripts/check-word-collisions.js`（见“生成脚本”一节），
+  按 `AnswerChecker` 同一套归一化/切分规则扫描释义撞车。
 
 ## 同义词级别审查（低危批次内容调优）
 

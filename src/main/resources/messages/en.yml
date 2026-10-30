@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 14
+config-version: 26
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -42,6 +42,8 @@ word:
   invalid-mode: "{prefix}&cUnknown learning mode: &e{mode}&c. Valid modes: &espelling&c, &echoice&c, &efill_blank"
   invalid-difficulty: "{prefix}&cInvalid difficulty! Available: &e{options}"
   no-words-available: "{prefix}&cNo words available for this difficulty yet. Try another one!"
+  session-in-progress: "{prefix}&cYou already have a learning session in progress! Finish it (or press Stop) before starting a new one."
+  practice-in-progress: "{prefix}&cYou're practicing a wrong-book word! Type &fcancel &cin chat to stop, then start the quiz."
   difficulty-beginner: "Beginner"
   difficulty-intermediate: "Intermediate"
   difficulty-advanced: "Advanced"
@@ -94,7 +96,7 @@ dialogue:
   rate-limited: "{prefix}&eAI requests are too frequent and the service is busy. Please try again shortly~"
   timeout: "{prefix}&eThe AI response timed out. Please try again later~"
   more-scenarios: "&e&lMore scenarios…"
-  more-scenarios-lore: "&7{count} more scenario(s) not shown, paging coming soon"
+  more-scenarios-lore: "&7{count} more scenario(s) not shown — use &e/le dialogue <name> &7to open directly (Tab-completes)"
   more-difficulties: "&e&lMore difficulties…"
   more-difficulties-lore: "&7{count} more difficultie(s) not shown, paging coming soon"
   finish-quiz-first: "{prefix}&cYou're in a quiz! Finish or stop it first before starting AI dialogue."
@@ -174,6 +176,7 @@ progress:
 admin:
   export-complete: "{prefix}&aData export complete! File: &e{file}"
   player-reset: "{prefix}&aReset learning data for player &e{player}"
+  reset-confirm: "{prefix}&cDANGER: This deletes ALL data for &e{player} &c(15 tables). To confirm, run &e/lea reset {player} confirm"
   usage-reset: "Usage: /lea reset <player>"
   usage-exportwordbank: "{prefix}&cUsage: /lea exportwordbank <difficulty>"
   available-difficulties: "{prefix}&7Available difficulties: &e{list}"
@@ -185,6 +188,7 @@ admin:
   broadcast-hint: "{prefix}&7Sends a message to all servers via the proxy."
   broadcast-sent: "{prefix}&aGlobal broadcast sent to all servers."
   broadcast-prefix: "&8[&bLE&8] &eServer Announcement: &f"
+  broadcast-too-long: "{prefix}&cBroadcast too long (30000 bytes max). Please shorten it and try again."
   unknown-command: "Unknown subcommand. Use /lea help for help."
   usage-duel-cancel: "{prefix}&cUsage: /lea duel cancel <player>"
   duel-cancel-offline: "{prefix}&cPlayer &e{player} &cis not online!"
@@ -260,6 +264,7 @@ help:
 checkin:
   success: "{prefix}&aCheck-in successful! Streak: &e{streak} &adays, earned &e{coins} &acoins!"
   already: "{prefix}&eYou've already checked in today! Come back tomorrow~"
+  storage-failed: "{prefix}&cCheck-in could not be saved! It was NOT recorded — please try again in a moment."
   streak-broken: "{prefix}&cStreak broken... &7The old streak is now &e0&7; today's check-in starts a new streak at &e1&7."
   economy-disabled: "{prefix}&7Coin economy is disabled on this server, so this check-in pays no coins, but your streak is recorded normally~"
 
@@ -301,7 +306,7 @@ duel:
   usage: "{prefix}&eUsage: /le duel <player> &7challenge | /le duel accept &7accept | /le duel quit &7quit | /le duel gui &7reopen GUI | /le duel cancel <player> &7(admin)"
   request-sent: "{prefix}&aYou sent a word duel challenge to &e{player}!"
   request-received: "{prefix}&6★ &e{player} &6has challenged you to a word duel!"
-  accept-hint: "&6Click here or type &e/le duel accept &6to accept!"
+  accept-hint: "&6Type &e/le duel accept &6to accept!"
   request-expired: "{prefix}&7Your duel invitation to &e{player} &7has expired!"
   request-expired-target: "{prefix}&7Duel invitation from &e{player} &7has expired!"
   sender-chatting: "{prefix}&cYou're in an AI chat! Type bye to end it first, then send the duel request."
@@ -309,6 +314,8 @@ duel:
   started: "{prefix}&aWord Duel started! Opponent: &e{player} &aFirst to 5 wins! &c⚠ Warning: all chat counts as answers during the duel!"
   cancelled: "{prefix}&cThe duel has been cancelled!"
   cancelled-by-gm: "{prefix}&cThis duel was dismissed by an admin. No winner declared."
+  # Dismissing in-progress duels when /lea reload disables the plugin (no winner, no stats)
+  dismissed-server-off: "{prefix}&eEnglish learning was disabled on this server; the duel has been cancelled."
   word-timeout: "{prefix}&e⏱ Time's up! The answer is &f{word}&e. No points — next word!"
   round-bossbar: "&e⚔ {seconds}s left"
   round-bossbar-urgent: "&c&l⚔ {seconds}s!"
@@ -360,6 +367,7 @@ admin-help:
   duel-cancel: "&e/lea duel cancel <player> &7- Force-dismiss that player's word duel (no winner)"
   footer: "&6======================================"
   report: "&e/lea report <player|all> [week|lastweek|<N>d] &7- Generate a learning report (TXT in exports/reports/)"
+  class: "&e/lea class <create|add|remove|list|delete> ... &7- Class management"
 
 plugin-info:
   header: "&6===== Let's Learn English! Info ====="
@@ -396,6 +404,7 @@ main-menu:
 
 daily:
   title: "&6&lDaily Challenges"
+  load-failed: "{prefix}&cFailed to load the interface data. Please try again in a moment."
   claimed: "&aClaimed!"
   completed: "&6Click to claim!"
   in-progress: "&7In progress"
@@ -528,6 +537,8 @@ word-bank:
 
 calendar:
   title: "&a&lStudy History"
+  viewing-title: "&a&lStudy History - {player}"
+  not-public: "{prefix}&7This player hasn't shared their learning calendar."
   back: "Back"
   back-lore: "&7Return to source page"
   legend-no-activity: "No activity"
@@ -565,6 +576,19 @@ profile:
   stats-coins-value: "&f{coins}"
   stats-achievements-label: "Achievements"
   stats-achievements-value: "&f{unlocked}/{total}"
+  # L21: shared placeholder shown while the profile data loads asynchronously
+  # (stat cards / coins / achievement count / duel record all use it)
+  stats-loading: "&7Loading…"
+  # Duel record (only fully completed matches are counted; quitting mid-match, disconnects and admin disbands are not)
+  stats-duel-label: "Duel Record"
+  stats-duel-value: "&a{wins}W &7/ &c{losses}L &7({rate} win rate)"
+  # L4: win streak line. {streak} = consecutive wins counted back from the latest match,
+  # stopping at the first loss. Not rendered when 0 (no wins, or the latest match was a loss),
+  # nor when the target player has hidden their results.
+  stats-duel-streak: "&6Win streak &f{streak}"
+  stats-duel-loading: "&7Loading…"
+  stats-duel-none: "&7No duels yet"
+  stats-duel-note: "&8Completed duels only"
   achievements-hint: "&7Click to view achievements"
   achievement-unlocked: "&6✔ Unlocked"
   achievement-locked: "&8🔒 Locked"
@@ -573,6 +597,9 @@ profile:
   settings-locked: "&8Settings (Locked)"
   settings-locked-lore: "&7You can only change your own settings"
   settings-title: "&ePrivacy Settings"
+  # Shown when the settings page cannot read from DB (cache miss + load failed):
+  # refuse the change rather than write fabricated public defaults back.
+  settings-load-failed: "&cFailed to load your settings. Please try again."
   settings-show-answers: "Answers visible to others"
   settings-show-answers-on: "&aCurrent: Visible"
   settings-show-answers-off: "&7Current: Hidden"
@@ -586,6 +613,9 @@ profile:
   settings-sounds: "Sound feedback"
   settings-sounds-on: "&aCurrent: On"
   settings-sounds-off: "&7Current: Off"
+  settings-reminders: "Study reminders"
+  settings-reminders-on: "&aCurrent: On"
+  settings-reminders-off: "&7Current: Off"
   settings-toggle-hint: "&7Click to toggle"
   hidden: "{prefix}&7That player is hidden and their profile cannot be viewed right now."
   stats-hidden-value: "&7Hidden"
@@ -786,8 +816,31 @@ class:
   member-full: "{prefix}&cClass is full (max {max} members)"
   name-exists: "{prefix}&cA class with that name already exists"
   not-found: "{prefix}&cClass &e{name} &cnot found"
-  name-invalid: "{prefix}&cInvalid class name (1-{max} chars, no spaces)"
+  name-invalid: "{prefix}&cInvalid class name (1-{max} chars, no spaces or color codes)"
   player-not-found: "{prefix}&cPlayer not found"
   usage: "{prefix}&7Usage: /lea class create|delete|add|remove|list"
   list-header: "{prefix}&6===== Class {class} ({count} members) ====="
   list-entry: "{prefix}&e#{rank} &f{player} &7- &b{score} pts"
+
+# ============================================================
+#  Per-server master switch (config.yml server.enabled=false)
+# ============================================================
+#  Must sit at top level (two-space indent is for keys inside a section).
+#  Writing `server.disabled:` inside another section nests it as
+#  `<section>.server.disabled`, and the code's lookup of `server.disabled` fails.
+server:
+  disabled: "{prefix}&cEnglish learning is not enabled on this server."
+  # Sent to players whose quiz is force-ended while /lea reload tears down the runtime.
+  # Must state that correct answers still count, or players think the session was wasted.
+  quiz-interrupted: "{prefix}&eEnglish learning is being disabled on this server; your session has ended. Correct answers were counted — no progress is lost."
+  # Outcome messages for /lea reload (five branches, see HotReloadManager.ReloadResult).
+  # reload-enabled / reload-disabled are the two success paths where THIS reload flipped
+  # server.enabled: listeners, scheduled tasks and the proxy channel are really (un)loaded.
+  reload-enabled: "{prefix}&aRuntime enabled: listeners, scheduled tasks and proxy channel are now active."
+  reload-disabled: "{prefix}&eRuntime disabled: listeners, tasks and channels were torn down; data has been saved."
+  # enableAll()/disableAll() threw (enableAll already rolled back to the disabled state).
+  enable-failed: "{prefix}&cFailed to enable; rolled back to disabled state. See console for details."
+  # Runtime modules are not loaded (server.enabled=false, or the previous enable attempt failed).
+  # Key name is historical (restart-required) but the text no longer mentions restarts: reload
+  # can now load and unload the runtime both ways.
+  reload-restart-required: "{prefix}&eConfig reloaded, but runtime is not loaded (server.enabled=false on this server)."

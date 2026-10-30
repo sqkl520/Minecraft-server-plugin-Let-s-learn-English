@@ -13,12 +13,27 @@
     <name>Let's Learn English!</name>
     <description>A Minecraft server plugin for gamified English learning</description>
 
+    <!-- 许可与仓库根目录 LICENSE（GPL v3 全文）保持一致，并与 README / README-EN
+         的许可证声明同步。 -->
+    <licenses>
+        <license>
+            <name>GPL-3.0-only</name>
+            <url>https://www.gnu.org/licenses/gpl-3.0.txt</url>
+            <distribution>repo</distribution>
+            <comments>GNU General Public License v3.0 only; full text in the repository LICENSE file.</comments>
+        </license>
+    </licenses>
+
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <java.version>21</java.version>
         <paper.api.version>1.21.4-R0.1-SNAPSHOT</paper.api.version>
         <junit.version>5.10.1</junit.version>
         <mockito.version>5.8.0</mockito.version>
+        <!-- 仅测试用：真 SQLite 驱动（DatabaseManager 的维护/迁移测试需要真库）。
+             运行期由 Paper 自带的 sqlite-jdbc（META-INF/libraries 内）提供，
+             scope=test 保证不会进入插件 JAR，也不会与 shade 的 mysql 驱动同包。 -->
+        <sqlite.jdbc.version>3.45.1.0</sqlite.jdbc.version>
     </properties>
 
     <repositories>
@@ -71,6 +86,24 @@
             <artifactId>mockito-junit-jupiter</artifactId>
             <version>${mockito.version}</version>
             <scope>test</scope>
+        </dependency>
+
+        <!-- 真 SQLite 驱动（仅测试）。运行期由 Paper 服务端自带的 sqlite-jdbc 提供，
+             插件 JAR 不 shade 它——因此必须显式 test scope，否则会打进产物并
+             与服务端版本产生类冲突（两套 native 库）。
+             排除 slf4j-api：sqlite-jdbc 3.x 传递依赖 1.7.36，会与 paper-api 带来的
+             2.0.x 在测试 classpath 上抢版本（当前靠声明顺序压住，改序即翻转）。 -->
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>${sqlite.jdbc.version}</version>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-api</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- Vault API (optional, for economy integration) -->
@@ -126,8 +159,16 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.3</version>
                 <configuration>
+                    <!-- L19：显式 includes 会【覆盖】surefire 默认的四条模式，而不是追加。
+                         原配置只留 **/*Test.java，等于把 Test*.java / *Tests.java /
+                         *TestCase.java 三类命名静默排除在我们的构建之外（CI 与本地都不跑，
+                         且不报错）。当前仓库全部测试都以 Test 结尾所以没漏，但只要有人按
+                         Maven 惯例新建 TestXxx，就会被无声跳过。这里补回默认模式。 -->
                     <includes>
                         <include>**/*Test.java</include>
+                        <include>**/Test*.java</include>
+                        <include>**/*Tests.java</include>
+                        <include>**/*TestCase.java</include>
                     </includes>
                 </configuration>
             </plugin>
@@ -197,6 +238,67 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>3.3.0</version>
+            </plugin>
+
+            <!--
+                Shade 只打包 MySQL JDBC 驱动（P0-1：服主把 database.type 改成 mysql 后
+                出现 ClassNotFoundException: com.mysql.cj.jdbc.Driver）。
+                paper-api / VaultAPI / placeholderapi 均为 provided，不进入产物。
+                不配置 relocations：驱动类名必须保持 com.mysql.cj.jdbc.Driver，
+                且 META-INF/services/java.sql.Driver 内的服务声明也依赖原类名。
+                本 execution 绑定 package，声明在 maven-jar-plugin 之后，故先由 jar 插件
+                产出原始 jar（含 plugin.yml 与资源过滤结果），再由 shade 覆盖为该 jar。
+                finalName 未改动，产物路径保持 target/${project.name}-${project.version}.jar。
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.1</version>
+                <executions>
+                    <execution>
+                        <id>shade-mysql-driver</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <artifactSet>
+                                <includes>
+                                    <include>com.mysql:mysql-connector-j</include>
+                                </includes>
+                            </artifactSet>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <filters>
+                                <filter>
+                                    <artifact>com.mysql:mysql-connector-j</artifact>
+                                    <excludes>
+                                        <!-- 签名文件并入 fat jar 会触发 SecurityException -->
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <!-- 依赖自带索引在合并后失效，保留会误导类加载 -->
+                                        <exclude>META-INF/INDEX.LIST</exclude>
+                                        <exclude>module-info.class</exclude>
+                                        <!-- 依赖的清单/构建元数据不得覆盖插件自己的 MANIFEST.MF -->
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
+                                        <exclude>INFO_BIN</exclude>
+                                        <exclude>INFO_SRC</exclude>
+                                        <!-- R-P2-6：驱动 jar 根的 LICENSE/README 会被置于产物根目录，
+                                             语义上抢占"本插件许可证"位置（内容却是 Oracle 的）。
+                                             排除之，改由 src/main/resources 内的项目 LICENSE /
+                                             THIRD-PARTY-NOTICES.md 承担声明职责。 -->
+                                        <exclude>LICENSE</exclude>
+                                        <exclude>README</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <transformers>
+                                <!-- 保留并合并 META-INF/services/*（java.sql.Driver 自动注册依赖它） -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

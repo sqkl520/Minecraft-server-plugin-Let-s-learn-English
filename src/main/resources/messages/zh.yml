@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 14
+config-version: 26
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -42,6 +42,8 @@ word:
   invalid-mode: "{prefix}&c未知的学习模式: &e{mode}&c，可用模式: &espelling &7/ &echoice &7/ &efill_blank"
   invalid-difficulty: "{prefix}&c无效的难度喵~ 可用难度: &e{options}"
   no-words-available: "{prefix}&c该难度暂时没有可学习的单词喵~ 换个难度试试吧"
+  session-in-progress: "{prefix}&c你还有一场学习会话正在进行中喵~ 请先答完它，或点停止按钮结束本局后再开新局"
+  practice-in-progress: "{prefix}&c你正在错题练习中喵~ 请在聊天栏输入 &fcancel &c结束练习后再开始答题"
   difficulty-beginner: "初级"
   difficulty-intermediate: "中级"
   difficulty-advanced: "高级"
@@ -94,7 +96,7 @@ dialogue:
   rate-limited: "{prefix}&eAI 请求过于频繁，服务器正忙，请稍后再试喵~"
   timeout: "{prefix}&eAI 响应超时了，请稍后再试喵~"
   more-scenarios: "&e&l更多场景…"
-  more-scenarios-lore: "&7还有 {count} 个场景未显示，翻页功能即将上线"
+  more-scenarios-lore: "&7还有 {count} 个场景未显示，输入 &e/le dialogue <场景名> &7可直接进入（支持 Tab 补全）"
   more-difficulties: "&e&l更多难度…"
   more-difficulties-lore: "&7还有 {count} 个难度未显示，翻页功能即将上线"
   finish-quiz-first: "{prefix}&c你正在答题中喵~ 请先完成或结束当前答题，再开始 AI 对话"
@@ -174,6 +176,7 @@ progress:
 admin:
   export-complete: "{prefix}&a数据导出完成！文件: &e{file}"
   player-reset: "{prefix}&a已重置玩家 &e{player} &a的学习数据"
+  reset-confirm: "{prefix}&c危险：这将删除玩家 &e{player} &c的全部数据（15 张表）。确认请再执行 &e/lea reset {player} confirm"
   usage-reset: "用法: /lea reset <玩家名>"
   usage-exportwordbank: "{prefix}&c用法: /lea exportwordbank <难度>"
   available-difficulties: "{prefix}&7可选难度: &e{list}"
@@ -185,6 +188,7 @@ admin:
   broadcast-hint: "{prefix}&7通过代理向所有子服发送消息。"
   broadcast-sent: "{prefix}&a全局广播已发送到所有子服。"
   broadcast-prefix: "&8[&bLE&8] &e服务器公告: &f"
+  broadcast-too-long: "{prefix}&c广播内容过长（上限 30000 字节），请缩短后重试喵~"
   unknown-command: "未知子命令。输入 /lea help 查看帮助。"
   usage-duel-cancel: "{prefix}&c用法: /lea duel cancel <玩家名>"
   duel-cancel-offline: "{prefix}&c玩家 &e{player} &c不在线或不存在喵~"
@@ -260,6 +264,7 @@ help:
 checkin:
   success: "{prefix}&a签到成功! 连续签到 &e{streak} &a天，获得 &e{coins} &a金币!"
   already: "{prefix}&e你今天已经签到过了喵~ 明天再来吧!"
+  storage-failed: "{prefix}&c签到写入失败喵~ 本次签到没有记录成功，请稍后再试一次"
   streak-broken: "{prefix}&c发生断签... &7旧连续签到已归零，今天签到后重新计为 &e1 &7天"
   economy-disabled: "{prefix}&7本服未启用金币经济，本次签到不发放金币，签到天数正常记录~"
 
@@ -301,7 +306,7 @@ duel:
   usage: "{prefix}&e用法: /le duel <玩家名> &7发起对决 | /le duel accept &7接受 | /le duel quit &7退出 | /le duel gui &7重开界面 | /le duel cancel <玩家名> &7（管理员）"
   request-sent: "{prefix}&a你向 &e{player} &a发起了单词对决挑战喵~"
   request-received: "{prefix}&6★ &e{player} &6向你发起了单词对决挑战！"
-  accept-hint: "&6点击这里或输入 &e/le duel accept &6接受挑战！"
+  accept-hint: "&6输入 &e/le duel accept &6接受挑战！"
   request-expired: "{prefix}&7你对 &e{player} &7的对决邀请已过期喵~"
   request-expired-target: "{prefix}&7来自 &e{player} &7的对决邀请已过期喵~"
   sender-chatting: "{prefix}&c你正在 AI 对话中喵~ 请先输入 bye 结束对话，再发起对决"
@@ -309,6 +314,8 @@ duel:
   started: "{prefix}&a单词对决开始！对手: &e{player} &a先得5分者获胜！&c⚠ 注意：决斗中所有聊天都算作答案喵~"
   cancelled: "{prefix}&c对决已取消喵~"
   cancelled-by-gm: "{prefix}&c本次对决已被管理员解散，不判胜负喵~"
+  # /lea reload 关闭本插件时解散进行中的对局（不判胜负、不记战绩）
+  dismissed-server-off: "{prefix}&e本服已关闭英语学习功能，对局已取消。"
   word-timeout: "{prefix}&e⏱ 时间到！正确答案是 &f{word}&e，双方都不加分，下一题！"
   round-bossbar: "&e⚔ 本题剩余 {seconds}s"
   round-bossbar-urgent: "&c&l⚔ {seconds}s！"
@@ -360,6 +367,7 @@ admin-help:
   duel-cancel: "&e/lea duel cancel <玩家名> &7- 强制解散该玩家的单词对决（不判胜负）"
   footer: "&6======================================"
   report: "&e/lea report <玩家名|all> [week|lastweek|<N>d] &7- 生成学习报告（TXT，落 exports/reports/）"
+  class: "&e/lea class <create|add|remove|list|delete> ... &7- 班级管理"
 
 plugin-info:
   header: "&6===== 英语学习 信息 ====="
@@ -396,6 +404,7 @@ main-menu:
 
 daily:
   title: "&6&l每日挑战"
+  load-failed: "{prefix}&c界面数据加载失败喵~ 请稍后再试一次"
   claimed: "&a已领取！"
   completed: "&6点击领取奖励！"
   in-progress: "&7进行中"
@@ -528,6 +537,8 @@ word-bank:
 
 calendar:
   title: "&a&l过往学习"
+  viewing-title: "&a&l过往学习 - {player}"
+  not-public: "{prefix}&7对方未公开学习日历"
   back: "返回"
   back-lore: "&7返回来源页面"
   legend-no-activity: "无学习记录"
@@ -565,6 +576,17 @@ profile:
   stats-coins-value: "&f{coins}"
   stats-achievements-label: "成就"
   stats-achievements-value: "&f{unlocked}/{total}"
+  # L21：主页异步取数期间的通用占位行（统计三卡 / 金币 / 成就数 / 决斗战绩共用）
+  stats-loading: "&7加载中…"
+  # 决斗战绩（仅统计正常打满的对局；中途退出 / 掉线 / 管理员解散不计入）
+  stats-duel-label: "决斗战绩"
+  stats-duel-value: "&a{wins} 胜 &7/ &c{losses} 负 &7(胜率 {rate})"
+  # L4：连胜行。{streak} = 从最近一场往回数、遇负即停的连续胜场数；
+  # 为 0（无胜绩或最近一场为负）时不渲染本行。他人关闭"公开成绩"时同样不渲染。
+  stats-duel-streak: "&6连胜 &f{streak} 场"
+  stats-duel-loading: "&7加载中…"
+  stats-duel-none: "&7暂无战绩"
+  stats-duel-note: "&8仅统计完整对局"
   achievements-hint: "&7点击查看成就列表"
   achievement-unlocked: "&6✔ 已解锁"
   achievement-locked: "&8🔒 未解锁"
@@ -573,6 +595,8 @@ profile:
   settings-locked: "&8设置 (已锁定)"
   settings-locked-lore: "&7只能修改自己的设置"
   settings-title: "&e隐私设置"
+  # 设置页读库失败时拒绝改动的提示（缓存缺失且 load 失败 → 不允许写回，防伪造公开值落盘）
+  settings-load-failed: "&c设置读取失败，请稍后重试。"
   settings-show-answers: "答题记录对他人可见"
   settings-show-answers-on: "&a当前: 可见"
   settings-show-answers-off: "&7当前: 隐藏"
@@ -586,6 +610,9 @@ profile:
   settings-sounds: "音效反馈"
   settings-sounds-on: "&a当前: 开启"
   settings-sounds-off: "&7当前: 关闭"
+  settings-reminders: "学习提醒"
+  settings-reminders-on: "&a当前: 接收"
+  settings-reminders-off: "&7当前: 不接收"
   settings-toggle-hint: "&7点击切换"
   hidden: "{prefix}&7对方开启了隐身，暂时无法查看其主页。"
   stats-hidden-value: "&7已隐藏"
@@ -785,8 +812,31 @@ class:
   member-full: "{prefix}&c班级人数已满（上限 {max} 人）"
   name-exists: "{prefix}&c已存在同名班级"
   not-found: "{prefix}&c找不到班级 &e{name}"
-  name-invalid: "{prefix}&c班名无效（1-{max} 字符，不能含空格）"
+  name-invalid: "{prefix}&c班名无效（1-{max} 字符，不能含空格或颜色符号）"
   player-not-found: "{prefix}&c找不到该玩家"
   usage: "{prefix}&7用法: /lea class create|delete|add|remove|list"
   list-header: "{prefix}&6===== 班级 {class}（{count} 人）====="
   list-entry: "{prefix}&e#{rank} &f{player} &7- &b{score} 分"
+
+# ============================================================
+#  子服总开关提示（config.yml 的 server.enabled=false）
+# ============================================================
+#  注意：本段必须与其它顶层段同级（两个空格缩进是段内键）。
+#  YAML 里写成 `server.disabled:` 会被解析成当前所在段的嵌套键
+#  `admin.server.disabled`，代码按 `server.disabled` 查会取不到 —— 必须真嵌套。
+server:
+  disabled: "{prefix}&c本服未启用英语学习功能。"
+  # 运行时被 /lea reload 拆掉时，发给「正在答题」的玩家——必须说清已答的题算数，
+  # 否则玩家会以为白练一局（红队 B 指出的体验缺口）。
+  quiz-interrupted: "{prefix}&e本服正在关闭英语学习功能，当前练习已结束。已答对的题目均正常计入，进度不会丢失。"
+  # /lea reload 的结局文案（五分支见 HotReloadManager.ReloadResult）。
+  # reload-enabled / reload-disabled 是「本次 reload 把 server.enabled 拔动了」的两条成功提示：
+  # 监听器、定时任务、代理通道已实际装卸，无需重启。
+  reload-enabled: "{prefix}&a已启用运行时：监听器、定时任务、代理通道已装配。"
+  reload-disabled: "{prefix}&e已停用运行时：监听器/任务/通道已撤销，数据已落盘。"
+  # 装配或拆解抛异常（enableAll 内部已回滚到关闭态）。必须明确「已回滚」，不能让服主以为功能还在。
+  enable-failed: "{prefix}&c装配失败，已回滚到关闭态。详见控制台。"
+  # /lea reload 在「运行时模块未装配」时的提示（配置为 server.enabled=false，或上次装配失败）。
+  # 与 general.reload-success 的区别：那条是纯绿成功，这条必须讲清「配置读了但运行时没装」。
+  # 注意：本键名保留历史写法（restart-required），但文案已与「需重启」脱钩 —— reload 现在能完整装卸。
+  reload-restart-required: "{prefix}&e配置已重新加载，但运行时未装配（本服 server.enabled=false）。"

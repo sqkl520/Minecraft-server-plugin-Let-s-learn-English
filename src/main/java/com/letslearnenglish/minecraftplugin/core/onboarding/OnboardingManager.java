@@ -132,7 +132,12 @@ public class OnboardingManager implements Listener {
         }
 
         if (step == STEP_IN_PROGRESS || step == STEP_SESSION_DONE) {
-            if (reminderOnJoinEnabled()) {
+            // P1-RT-5：玩家侧"提醒总开关"同样管辖引导提醒——否则在设置里关掉提醒的玩家
+            // 仍会在每次进服时收到"新手引导还没完成哦"，与开关语义相悖。
+            // 门放在 reminderSent 写入之前：关闭者不该占掉当日去重位。
+            boolean remindersAllowed = plugin.getPlayerDataStore()
+                    .getProfileSettingsReadOnly(playerId).isRemindersEnabled();
+            if (remindersAllowed && reminderOnJoinEnabled()) {
                 LocalDate today = LocalDate.now();
                 if (!today.equals(reminderSent.get(playerId))) {
                     reminderSent.put(playerId, today);
@@ -228,10 +233,21 @@ public class OnboardingManager implements Listener {
      * complete 文案 + complete 音效 + （默认）收回手册。step==1 提前打开不计数
      * （no-op），顺序刚性、无法跳步。
      *
-     * <p>不做 enabled 门（同 {@link #onTutorialSessionComplete(Player)}：在途引导
-     * 的收尾允许自然完成；已发手册在关闭期间由 onInteract 快闸退回普通可读书）。
+     * <p><b>E-P1-1（红队 E）订正</b>：原实现刻意<b>不做</b> enabled 门（理由：在途引导的收尾
+     * 允许自然完成）。但模块关闭时 {@code stepCache} 的唯一预热点 {@link #handleJoin} 第一行
+     * 就 return、quit 还 {@code stepCache.remove}，于是 {@link #getStep} 恒 miss ——
+     * 玩家<b>每次</b>打开本人主页都会在主线程跑一次
+     * {@code SELECT onboarding_step FROM player_data}，还持有全局 connectionLock，
+     * 且发生在 {@code createInventory}/{@code openInventory} 之前，直接顶 TPS。
+     * 现在按 {@link #tryUnlock} 同款模块门短路：关闭即零查询。
+     *
+     * <p>功能性权衡：关闭期间打开主页不再完成第 3 步（step 停在 2）。这是可接受的 ——
+     * 模块关闭时 step 本就不会被任何入口推进，重新开启后玩家再开一次主页即可正常收尾。
      */
     public void onProfileOpened(Player viewer) {
+        if (!plugin.getConfigManager().isOnboardingEnabled()) {
+            return;
+        }
         if (getStep(viewer.getUniqueId()) != STEP_SESSION_DONE) {
             return;
         }
