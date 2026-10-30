@@ -1,6 +1,8 @@
 package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -38,7 +40,8 @@ public class WordBankSelectGUI {
 
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "word-bank.title"));
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-3/R5-16：挂结构身份（holder），holder 是唯一身份，标题仅作显示。
+        Inventory inv = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.WORD_BANK), GUI_SIZE, title);
 
         String clickHint = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "word-bank.click-hint"));
@@ -76,23 +79,37 @@ public class WordBankSelectGUI {
         inv.setItem(8, createItem(Material.RED_STAINED_GLASS_PANE, backLabel,
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
                         MessageUtil.getGuiMsg(messages, "gui.back-lore")))));
+        GUIUtils.fillEmpty(inv); // R12-M3：空槽填灰玻璃（防拖纵深）
 
         player.openInventory(inv);
     }
 
     /**
-     * 词库显示名：先查 messages 里的 {@code word-bank.difficulty-<key>}，
+     * 词库显示名：先查 messages 里的 {@code word-bank.difficulty-<key>}（R1-L1：
+     * 先原样、后小写两次查键 —— 自定义词库 {@code MyBank.yml} 配
+     * {@code difficulty-MyBank} 与 {@code difficulty-mybank} 均可命中），
      * 缺失时回退到「首字母大写化」的 key（纯装饰性兜底，不构成硬编码文案）。
      * S7：保留原 getString + null 判语义（回退文案比 [?key] 占位更好），仅补 messages
      * 自身为 null 时的防护（此前会在词库按钮渲染处 NPE）。
      */
     private String getDisplayName(String bankKey, FileConfiguration messages) {
-        String lower = bankKey.toLowerCase();
-        String key = "word-bank.difficulty-" + lower;
-        String configured = messages == null ? null : messages.getString(key);
+        if (messages == null) {
+            return prettifyBankKey(bankKey);
+        }
+        // R1-L1：原样键优先（键值可能带大写），未命中再小写化（历史键约定）
+        String configured = messages.getString("word-bank.difficulty-" + bankKey);
+        if (configured == null || configured.isEmpty()) {
+            configured = messages.getString(
+                    "word-bank.difficulty-" + bankKey.toLowerCase(Locale.ROOT));
+        }
         if (configured != null && !configured.isEmpty()) {
             return configured;
         }
+        return prettifyBankKey(bankKey);
+    }
+
+    /** 兜底显示名：下划线分段首字母大写化（原 getDisplayName 尾部逻辑抽出）。 */
+    private static String prettifyBankKey(String bankKey) {
         String[] parts = bankKey.split("_");
         StringBuilder sb = new StringBuilder();
         for (String p : parts) {

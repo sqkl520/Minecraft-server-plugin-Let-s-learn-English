@@ -2,6 +2,8 @@ package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -52,7 +54,9 @@ public class ChallengeCompleteGUI {
 
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "daily-challenge.complete-title"));
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-3/R5-16：挂结构身份（holder），holder 是唯一身份，标题仅作显示。
+        Inventory inv = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.CHALLENGE_COMPLETE),
+                GUI_SIZE, title);
 
         // Fill with decorative glass
         ItemStack glass = createItem(Material.YELLOW_STAINED_GLASS_PANE, " ", Collections.emptyList());
@@ -117,6 +121,9 @@ public class ChallengeCompleteGUI {
                         MessageUtil.getGuiMsg(messages, "gui.back-lore"))));
         inv.setItem(8, backBtn);
 
+        // R12-M3：空槽兜底填灰玻璃 —— 当前布局 27 格全有物品（本调用为 no-op），
+        // 作为未来布局改动漏格时的防拖纵深防线。
+        GUIUtils.fillEmpty(inv);
         SoundManager.playSound(player, "complete");
         player.openInventory(inv);
     }

@@ -4,12 +4,16 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.gui.ChatHistoryGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiIdentity;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataContainer;
@@ -33,24 +37,51 @@ public class ChatHistoryListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        String title = event.getView().getTitle();
+        // ── R5-5 判定顺序（四条铁律，顺序不可调整）────────────────────────────
+        // 1) 先判窗外：getClickedInventory() 只在点到界面之外时为 null。
+        if (event.getClickedInventory() == null) return;
 
-        if (!ChatHistoryGUI.isChatHistoryGUI(title)) {
+        // 2) 再判下半区（玩家背包）：rawSlot 落在 top 之外一律不处理、也不 cancel，
+        //    玩家开着 GUI 仍能正常整理背包。
+        int topSize = event.getView().getTopInventory().getSize();
+        int rawSlot = event.getRawSlot();
+
+        // FIX-C2：下半区 shift-click（MOVE_TO_OTHER_INVENTORY）与双击收集
+        //（COLLECT_TO_CURSOR）的前置例外，照 SocialListener / MiscGUIListener 同式。
+        //
+        // 位置铁律：必须在下面 rawSlot 越界 return 之前 —— 这两类 action 的 rawSlot 落在
+        // 下半区（玩家背包），一旦让越界 return 先吃掉就永远走不到本分支。
+        //
+        // 为什么必需：MOVE_TO_OTHER_INVENTORY 会把玩家背包物品合并进上半区同类堆叠
+        //（不依赖空槽）；COLLECT_TO_CURSOR 会把上半区展示物扫进光标（反向失窃）。
+        // 本页虽靠自铺满维持无空槽，但合堆与收集两条路径都不经过空槽。
+        //
+        // 为什么不含 PICKUP_ALL：Paper 1.21.4 把「光标空着、左键拾取整叠」映射为
+        // PICKUP_ALL（点玩家自己背包的格子也走这个），拦它等于把「开着 GUI 整理背包」
+        // 一并吞掉，与 R-01/R-22 语义冲突；双击收集的落点是 COLLECT_TO_CURSOR，已在守卫内。
+        // 归属判定必须写在这里（holder 判定在第 3 步、位于越界 return 之后）。
+        if (rawSlot >= topSize
+                && (event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY
+                        || event.getAction() == InventoryAction.COLLECT_TO_CURSOR)) {
+            if (resolveOwnedView(event.getView()) != null) {
+                event.setCancelled(true);
+            }
             return;
         }
 
-        // R-01 补漏：只处理上半区（Top 容器）点击。玩家背包（下半区）直接 return
-        // 且不 cancel，玩家开着 GUI 也能正常整理背包。
-        if (event.getClickedInventory() == null) return;
-        int topSize = event.getView().getTopInventory().getSize();
-        int rawSlot = event.getRawSlot();
         if (rawSlot < 0 || rawSlot >= topSize) return;
 
+        // 3) 然后才做身份判定：只认 holder（结构身份）。
+        GuiViewKey key = resolveOwnedView(event.getView());
+        if (key == null) return;
+
+        // 4) 只有「本类辖管界面的上半区点击」才 cancel —— 绝不允许只判 holder 就 cancel
+        //    （event.getInventory() 恒为上半区，与玩家实际点击的位置无关）。
         event.setCancelled(true);
         if (event.getCurrentItem() == null) return;
         if (!(event.getWhoClicked() instanceof Player player)) return;
 
-        handleClick(player, event.getSlot(), event.getCurrentItem(), title);
+        handleClick(player, key, event.getSlot(), event.getCurrentItem());
     }
 
     /**
@@ -58,16 +89,12 @@ public class ChatHistoryListener implements Listener {
      *
      * 拖拽是独立事件，点击的 setCancelled(true) 拦不住它 —— 不拦的话
      * AI 对话历史/会话详情页的会话条目（BOOK）/导航箭头/页码标记可被拖进玩家背包。
-     * 标题判定与 {@link #onInventoryClick} 入口同源（ChatHistoryGUI.isChatHistoryGUI）；
+     * 身份判定与 {@link #onInventoryClick} 入口同源（{@link #resolveOwnedView}）；
      * 只在拖拽触及界面上半部分时取消，玩家整理自己背包不受影响。
      */
     @EventHandler
     public void onInventoryDrag(InventoryDragEvent event) {
-        String title = event.getView().getTitle();
-
-        if (!ChatHistoryGUI.isChatHistoryGUI(title)) {
-            return;
-        }
+        if (resolveOwnedView(event.getView()) == null) return;
 
         int topSize = event.getView().getTopInventory().getSize();
         for (int rawSlot : event.getRawSlots()) {
@@ -78,15 +105,30 @@ public class ChatHistoryListener implements Listener {
         }
     }
 
-    private void handleClick(Player player, int slot, ItemStack item, String title) {
-        boolean isSessionView = title.contains("Conversation Details")
-                || title.contains("对话详情");
-        boolean isListView = title.contains("AI Chat History")
-                || title.contains("AI 对话历史");
+    /**
+     * R5-11：解析「本监听器负责的界面」—— <b>只认 holder</b>。
+     *
+     * <p>两个屏幕同为 54 格、标题相近（"AI 对话历史" / "对话详情"），
+     * holder 给出的是 {@link GuiViewKey#CHAT_HISTORY_LIST} 或
+     * {@link GuiViewKey#CHAT_HISTORY_SESSION}。标题兜底
+     * （{@code ChatHistoryGUI.isChatHistoryGUI}）已随 R5-11 删除。
+     *
+     * @param view 事件界面，可为 null
+     * @return 本类辖管的 key；不归本类管时返回 null
+     */
+    private GuiViewKey resolveOwnedView(InventoryView view) {
+        GuiViewKey byHolder = GuiIdentity.resolve(view);
+        if (byHolder == GuiViewKey.CHAT_HISTORY_LIST
+                || byHolder == GuiViewKey.CHAT_HISTORY_SESSION) {
+            return byHolder;
+        }
+        return null;
+    }
 
-        if (isSessionView) {
+    private void handleClick(Player player, GuiViewKey key, int slot, ItemStack item) {
+        if (key == GuiViewKey.CHAT_HISTORY_SESSION) {
             handleSessionViewClick(player, slot);
-        } else if (isListView) {
+        } else if (key == GuiViewKey.CHAT_HISTORY_LIST) {
             handleListViewClick(player, slot, item);
         }
     }

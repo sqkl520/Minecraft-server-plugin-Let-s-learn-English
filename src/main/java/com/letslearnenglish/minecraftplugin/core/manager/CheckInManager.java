@@ -96,7 +96,11 @@ public class CheckInManager {
 
         // Claim in the database first. This makes a crash unable to produce a second claim.
         if (!plugin.getDatabaseManager().updateCheckIn(player.getUniqueId(), today, newStreak)) {
-            return new CheckInResult(false, data == null ? 0 : data.getStreakCount(), 0, false);
+            // R11-M4：存储失败 ≠ 今日已签到（两者都是 success=false）。显式标记
+            // storageFailed，调用方给"请稍后再试"提示，而不是伪装成幂等拒绝
+            // （否则玩家不再重试、当日 streak 断）。
+            return new CheckInResult(false, data == null ? 0 : data.getStreakCount(), 0,
+                    false, false, true);
         }
 
         // Vault is external to the database, so a failed payment cannot roll back the claim.
@@ -109,17 +113,7 @@ public class CheckInManager {
         // （签到权已到账），调用方凭 economyDisabled 给"经济未启用"提示。
         boolean paid = payout == GiveCoinsOutcome.PAID;
         return new CheckInResult(true, newStreak, paid ? coinsEarned : 0,
-                streakBroken, economyDisabled && !paid);
-    }
-
-    /**
-     * Get a player's current check-in info for display.
-     *
-     * @param player the player
-     * @return CheckInData or null if never checked in
-     */
-    public CheckInData getCheckInInfo(Player player) {
-        return plugin.getDatabaseManager().getCheckInData(player.getUniqueId());
+                streakBroken, economyDisabled && !paid, false);
     }
 
     /**
@@ -177,14 +171,25 @@ public class CheckInManager {
      *                        paid ONLY because money.enabled=false. Caller uses
      *                        this to show the "economy disabled" hint instead of
      *                        a 0-coin "success" line.
+     * @param storageFailed R11-M4: true when the DB write of the claim failed —
+     *                      NOT the same as "already checked in today" (both are
+     *                      success=false); caller must hint "try again" instead
+     *                      of faking an idempotent rejection.
      */
     public record CheckInResult(boolean success, int streak, double coinsEarned,
-                                boolean streakBroken, boolean economyDisabled) {
+                                boolean streakBroken, boolean economyDisabled,
+                                boolean storageFailed) {
 
         /** Back-compat ctor for paths that never disabled the economy. */
         public CheckInResult(boolean success, int streak, double coinsEarned,
                              boolean streakBroken) {
-            this(success, streak, coinsEarned, streakBroken, false);
+            this(success, streak, coinsEarned, streakBroken, false, false);
+        }
+
+        /** R44 5-arg ctor (existing call sites keep compiling). */
+        public CheckInResult(boolean success, int streak, double coinsEarned,
+                             boolean streakBroken, boolean economyDisabled) {
+            this(success, streak, coinsEarned, streakBroken, economyDisabled, false);
         }
     }
 }

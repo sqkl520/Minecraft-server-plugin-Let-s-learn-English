@@ -4,6 +4,9 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.WrongBookGUI;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiIdentity;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder.GuiPayload;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -12,8 +15,10 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.ClickType;
+import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.Arrays;
@@ -38,17 +43,44 @@ public class WrongBookListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        String title = event.getView().getTitle();
-
-        if (!title.contains("Wrong Book") && !title.contains("错题本") && !title.contains("Difficult Words")) {
+        // R5-11：纯 holder 判定。原「/reload 后旧 holder 失效」的顾虑已由 onDisable()
+        // 关闭全部在线玩家 GUI 消解（PlugMan/重启必先 onDisable；/lea reload 不换
+        // ClassLoader），标题不再是必要兜底。
+        if (resolveOwnedView(event.getView()) != GuiViewKey.WRONG_BOOK) {
             return;
         }
 
         // R-01 补漏：只处理上半区（Top 容器）点击。玩家背包（下半区）直接 return
         // 且不 cancel，玩家开着 GUI 也能正常整理背包。
+        //
+        // R5-1 红线：身份判定只证明「上半区是错题本」，不证明「点的是上半区」——
+        // getView().getTopInventory() 恒为上半区，点自己背包时 holder 一样命中。
+        // 顺序：认 view → 判窗外 → 判下半区 → 最后才 cancel。
         if (event.getClickedInventory() == null) return;
         int topSize = event.getView().getTopInventory().getSize();
         int rawSlot = event.getRawSlot();
+
+        // FIX-C2：下半区 shift-click（MOVE_TO_OTHER_INVENTORY）与双击收集
+        //（COLLECT_TO_CURSOR）的前置例外，照 SocialListener / MiscGUIListener 同式。
+        //
+        // 位置铁律：必须在下面 rawSlot 越界 return 之前 —— 这两类 action 的 rawSlot 落在
+        // 下半区（玩家背包），一旦让越界 return 先吃掉就永远走不到本分支。
+        //
+        // 为什么必需：MOVE_TO_OTHER_INVENTORY 会把玩家背包物品合并进上半区同类堆叠
+        //（不依赖空槽）；COLLECT_TO_CURSOR 会把上半区展示物扫进光标（反向失窃）。
+        // 本页虽靠自铺满维持无空槽，但合堆与收集两条路径都不经过空槽。
+        //
+        // 为什么不含 PICKUP_ALL：Paper 1.21.4 把「光标空着、左键拾取整叠」映射为
+        // PICKUP_ALL（点玩家自己背包的格子也走这个），拦它等于把「开着 GUI 整理背包」
+        // 一并吞掉，与 R-01 语义冲突；双击收集的落点是 COLLECT_TO_CURSOR，已在守卫内。
+        // 归属判定已在更早（resolveOwnedView 非 WRONG_BOOK 直接 return），这里只需 cancel。
+        if (rawSlot >= topSize
+                && (event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY
+                        || event.getAction() == InventoryAction.COLLECT_TO_CURSOR)) {
+            event.setCancelled(true);
+            return;
+        }
+
         if (rawSlot < 0 || rawSlot >= topSize) return;
 
         event.setCancelled(true);
@@ -75,7 +107,9 @@ public class WrongBookListener implements Listener {
         }
 
         // Navigation
-        int currentPage = extractPageFromTitle(title);
+        // R5-11：页码只读 holder 载荷（GUI 打开时写入，结构性事实）；取不到时落第 1 页。
+        // 原「标题正则兜底」（GUIUtils.extractPageFromTitle）已随标题兜底一并删除。
+        int currentPage = resolvePage(event);
         if (currentPage < 1) currentPage = 1;
 
         if (slot == WrongBookGUI.PREV_SLOT && event.getCurrentItem().getType() == Material.ARROW) {
@@ -114,18 +148,17 @@ public class WrongBookListener implements Listener {
      *
      * 拖拽是独立事件，点击的 setCancelled(true) 拦不住它 —— 不拦的话
      * 错题本的单词条目（PAPER）/导航箭头可被拖进玩家背包。
-     * 标题判定与 {@link #onInventoryClick} 入口一致；只在拖拽触及界面
-     * 上半部分时取消，玩家整理自己背包不受影响。
+     * 身份判定与 {@link #onInventoryClick} 入口一致（R5-11：只认 holder）；
+     * 只在拖拽触及界面上半部分时取消，玩家整理自己背包不受影响。
      */
     @EventHandler
     public void onInventoryDrag(InventoryDragEvent event) {
-        String title = event.getView().getTitle();
-        if (title == null) return;
-
-        if (!title.contains("Wrong Book") && !title.contains("错题本") && !title.contains("Difficult Words")) {
+        // R5-11：同 onInventoryClick，纯 holder 判定。
+        if (resolveOwnedView(event.getView()) != GuiViewKey.WRONG_BOOK) {
             return;
         }
 
+        // 身份判定不蕴含「拖的是上半区」，rawSlot < topSize 的判断必须保留。
         int topSize = event.getView().getTopInventory().getSize();
         for (int rawSlot : event.getRawSlots()) {
             if (rawSlot < topSize) {
@@ -155,6 +188,35 @@ public class WrongBookListener implements Listener {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
+        // C1-N1 收口（R2-M4 同族，存量守卫缺口）：决斗中拒进错题练习 —— 决斗分支
+        // 优先吞全部聊天（ChatAnswerListener），练习输入永不到达、练习态永挂。
+        // 守卫顺序照既有先例：决斗优先、其次对话、其次答题。
+        var duelManager = plugin.getDuelManager();
+        if (duelManager != null && duelManager.isInDuel(player.getUniqueId())) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "duel.finish-duel-first"));
+            return;   // 不关界面、不进入练习
+        }
+        // C1-N2 收口（R2-M4 同族）：AI 对话进行中拒进错题练习 —— ChatScenarioListener
+        // 以 HIGH 优先级消费聊天，练习输入被 AI 侧拦走（对话静默饥饿，可恢复无惩罚）。
+        // 守卫顺序照编排裁决：决斗 > 对话 > 答题（答题判紧随下方 R1-M2）。
+        if (plugin.getAIChatManager().hasActiveConversation(player)) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "dialogue.chat-active"));
+            return;   // 不关界面、不进入练习
+        }
+
+        // R1-M2：答题与错题练习互斥 —— 答题中拒进练习（practice 输入分支在
+        // ChatAnswerListener 里先于 quiz 分支消费聊天，两态并存会把答题输入吞掉）。
+        // 守卫放 listener 入口：startPracticeWord 只收 UUID，无法在 manager 内发消息；
+        // 本方法是全仓唯一调用方。复用 word.session-in-progress 键。
+        var wl = plugin.getWordLearningManager();
+        if (wl.hasActiveQuiz(player.getUniqueId())) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "word.session-in-progress"));
+            return;   // 不关界面、不进入练习
+        }
+
         // Close inventory first
         player.closeInventory();
 
@@ -179,37 +241,36 @@ public class WrongBookListener implements Listener {
     }
 
     /**
-     * Extract the page number from the GUI title.
-     * Title format varies by language:
-     *   EN: "...Wrong Book | Page N"
-     *   ZH: "...错题本 / Wrong Book | 第 N 页"
+     * R5-11：解析「本监听器负责的界面」—— <b>只认 holder</b>。
+     *
+     * <p>原 R5-7 的「{@code resolve(view, title)} 标题兜底」已删除；跨 ClassLoader 的
+     * 陈旧 holder 场景由 {@code onDisable()} 关闭在线玩家 GUI 消解。
+     *
+     * <p>注意：本方法与 {@link #resolvePage(InventoryClickEvent)} 职责不同 —— 后者只解析
+     * <b>页码</b>（holder 载荷 → 默认 1），不承担界面归属判定，二者不可互相替代。
+     *
+     * @param view 事件界面，可为 null
+     * @return {@link GuiViewKey#WRONG_BOOK} 或 null（不归本类管）
      */
-    private int extractPageFromTitle(String title) {
-        // Try English format first
-        int idx = title.lastIndexOf("Page ");
-        if (idx >= 0) {
-            try {
-                String afterPage = title.substring(idx + 5).trim();
-                // If there's a trailing char (e.g., "页"), strip it
-                if (!afterPage.isEmpty() && !Character.isDigit(afterPage.charAt(afterPage.length() - 1))) {
-                    afterPage = afterPage.substring(0, afterPage.length() - 1).trim();
-                }
-                return Integer.parseInt(afterPage);
-            } catch (NumberFormatException e) {
-                // ignore
-            }
-        }
-        // Try Chinese format: "第 N 页"
-        idx = title.indexOf("第 ");
-        if (idx >= 0) {
-            int endIdx = title.indexOf(" 页", idx);
-            if (endIdx > idx) {
-                try {
-                    return Integer.parseInt(title.substring(idx + 2, endIdx).trim());
-                } catch (NumberFormatException e) {
-                    // ignore
-                }
-            }
+    private GuiViewKey resolveOwnedView(InventoryView view) {
+        GuiViewKey key = GuiIdentity.resolve(view);
+        return key == GuiViewKey.WRONG_BOOK ? key : null;
+    }
+
+    /**
+     * 解析当前错题本界面的页码（R5-1 / R5-11）。
+     *
+     * <p>优先级：{@link GuiIdentity#payloadOf(org.bukkit.inventory.InventoryView)} 的
+     * {@link GuiPayload.Page} —— GUI 打开时随 holder 写入的页码，结构性事实，不受标题
+     * 文案/本地化/管理员改名影响。payload 缺失时返回 1（标题正则兜底已删除）。
+     *
+     * @param event 点击事件（读其 view 的 holder 载荷）
+     * @return 1 起的页码；payload 缺失时为 1
+     */
+    private int resolvePage(InventoryClickEvent event) {
+        var payload = GuiIdentity.payloadOf(event.getView());
+        if (payload instanceof GuiPayload.Page pagePayload) {
+            return pagePayload.page();
         }
         return 1;
     }

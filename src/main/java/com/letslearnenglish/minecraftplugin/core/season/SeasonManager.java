@@ -11,6 +11,7 @@ import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.Leaderboar
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager.SeasonRewardRow;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager.SeasonRow;
+import com.letslearnenglish.minecraftplugin.util.SchedulerGuard;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
 import org.bukkit.Bukkit;
@@ -21,6 +22,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -390,6 +392,15 @@ public class SeasonManager {
 
         for (int s = from; s <= targetId; s++) {
             SeasonWindow window = windowOf(s);
+            // R7-H2：只结算"真正走完"的季——anchor-date/duration 点读可改，
+            // 改小锚点会让 currentSeasonId 跳变、targetId 命中仍在进行中的窗口；
+            // 未走完的窗口跳过（不写台账不发放），防提前切割发奖。
+            if (!window.end().isBefore(today)) {
+                plugin.getLogger().warning("Skipping settlement for season " + s
+                        + " (window " + window.start() + ".." + window.end()
+                        + " not complete; anchor/duration changed?)");
+                continue;
+            }
             db.ensureSeasonRow(window.id(), window.start(), window.end());
             // 跨服聚合（查全表取 TOP N —— 多服连同一库即共享）
             List<LeaderboardEntry> top = plugin.getPlayerDataStore()
@@ -432,10 +443,13 @@ public class SeasonManager {
                 plugin.getProxyMessenger().sendSeasonStarted(newSeasonId);
             }
             // 本服在线者即时发放（离线者走 join 补发；跨服在线者经他服的
-            // SeasonSettled 回投触发本地同名发放）
+            // SeasonSettled 回投触发本地同名发放）。R7-M1：一次批量查询替代
+            // 逐人单查（N 人在单连接上排队 → 单条 IN 查询）。
+            List<UUID> onlineIds = new ArrayList<>();
             for (Player online : Bukkit.getOnlinePlayers()) {
-                deliverPending(online, true);
+                onlineIds.add(online.getUniqueId());
             }
+            deliverPendingBatch(onlineIds, true);
         });
     }
 
@@ -563,26 +577,67 @@ public class SeasonManager {
                     // 任意进服/结算路径补发）。与"只广播不发钱"一致，且不销毁奖励。
                     return;
                 }
-                for (SeasonRewardRow row : rows) {
-                    // 条件 UPDATE 先于发钱（CheckInManager 先例）：崩溃/双击/双服
-                    // 竞态都不可能二次发放
-                    if (!plugin.getDatabaseManager()
-                            .markSeasonRewardClaimed(row.seasonId(), playerId)) {
-                        continue; // 已被他路径/他服标记
+                deliverRows(online, rows, settleTime);
+            });
+        });
+    }
+
+    /**
+     * R7-M1：结算规模收口 —— 一次批量查询（{@code getPendingSeasonRewardsFor}，
+     * IN 展开）替代"逐在线玩家各一个异步任务、各自单查"的 N 连查；主线程发放核
+     * 与单发版共用 {@link #deliverRows}（在线复检 → 条件标记先于发钱 → 失败回滚）。
+     * 批量结果只含"至少一行 pending"的玩家（join 补发路径保留，兜底错过的玩家）；
+     * 查询异常在 DB 层静默降级为空 map（发放推迟到 join 路径，与单发"秒退留待
+     * 下次"同族）。
+     */
+    private void deliverPendingBatch(Collection<UUID> playerIds, boolean settleTime) {
+        if (!isEnabled() || playerIds == null || playerIds.isEmpty()) {
+            return;
+        }
+        List<UUID> idSnapshot = List.copyOf(playerIds);
+        runAsync(() -> {
+            Map<UUID, List<SeasonRewardRow>> byPlayer = plugin.getDatabaseManager()
+                    .getPendingSeasonRewardsFor(idSnapshot);
+            if (byPlayer.isEmpty()) {
+                return;
+            }
+            runMain(() -> {
+                if (plugin.getEconomy() == null) {
+                    // 无 Vault：静默降级同单发（不标记不发放，全部留 pending）
+                    return;
+                }
+                for (Map.Entry<UUID, List<SeasonRewardRow>> entry : byPlayer.entrySet()) {
+                    Player online = Bukkit.getPlayer(entry.getKey());
+                    if (online == null || !online.isOnline()) {
+                        continue; // 查询间隙下线：未标记未发放，留待 join 补发
                     }
-                    double paid = payReward(online, row.rewardCents());
-                    if (paid > 0) {
-                        sendRewardMessage(online, row, paid, settleTime);
-                    } else if (plugin.getEconomy() != null) {
-                        // W3A tester M1 收口：Vault 在但转账失败（economy 为 null 的
-                        // 分支上面已 return）——回滚 claimed，该行回到 pending 供
-                        // 下次 join/结算重试；不再"永久丢失且无重试面"。
-                        plugin.getDatabaseManager()
-                                .unmarkSeasonRewardClaimed(row.seasonId(), playerId);
-                    }
+                    deliverRows(online, entry.getValue(), settleTime);
                 }
             });
         });
+    }
+
+    /** 单玩家逐行发放核（join 单发 / 结算批量两路径共用）：条件标记先于发钱。 */
+    private void deliverRows(Player online, List<SeasonRewardRow> rows, boolean settleTime) {
+        UUID playerId = online.getUniqueId();
+        for (SeasonRewardRow row : rows) {
+            // 条件 UPDATE 先于发钱（CheckInManager 先例）：崩溃/双击/双服
+            // 竞态都不可能二次发放
+            if (!plugin.getDatabaseManager()
+                    .markSeasonRewardClaimed(row.seasonId(), playerId)) {
+                continue; // 已被他路径/他服标记
+            }
+            double paid = payReward(online, row.rewardCents());
+            if (paid > 0) {
+                sendRewardMessage(online, row, paid, settleTime);
+            } else if (plugin.getEconomy() != null) {
+                // W3A tester M1 收口：Vault 在但转账失败（economy 为 null 的
+                // 分支上面已 return）——回滚 claimed，该行回到 pending 供
+                // 下次 join/结算重试；不再"永久丢失且无重试面"。
+                plugin.getDatabaseManager()
+                        .unmarkSeasonRewardClaimed(row.seasonId(), playerId);
+            }
+        }
     }
 
     /**
@@ -672,9 +727,12 @@ public class SeasonManager {
             final long score = topScore;
             runMain(() -> {
                 broadcastEnded(seasonId, name, score);
+                // R7-M1：批量发放（同结算路径；逐人单查已收口为单条 IN 查询）
+                List<UUID> onlineIds = new ArrayList<>();
                 for (Player online : Bukkit.getOnlinePlayers()) {
-                    deliverPending(online, true);
+                    onlineIds.add(online.getUniqueId());
                 }
+                deliverPendingBatch(onlineIds, true);
             });
             refreshCacheSync();
         });
@@ -730,21 +788,14 @@ public class SeasonManager {
 
     // ============================================================
     //  调度工具（对齐 SocialManager；停用窗口静默放弃）
+    //  D2-5：实现已抽取至 util.SchedulerGuard，此处保留薄委托（调用点零改动）
     // ============================================================
 
     private void runAsync(Runnable task) {
-        try {
-            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, task);
-        } catch (IllegalStateException ignored) {
-            // 插件停用窗口（调度器已关闭）：放弃本次异步任务
-        }
+        SchedulerGuard.runAsync(plugin, task);
     }
 
     private void runMain(Runnable task) {
-        try {
-            plugin.getServer().getScheduler().runTask(plugin, task);
-        } catch (IllegalStateException ignored) {
-            // 同上：停用窗口放弃主线程回调
-        }
+        SchedulerGuard.runMain(plugin, task);
     }
 }

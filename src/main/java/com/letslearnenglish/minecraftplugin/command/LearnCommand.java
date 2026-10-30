@@ -84,6 +84,17 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        // 子服总开关（server.enabled=false）：/le 及全部别名、全部子命令无条件拒绝。
+        // 控制台在上一行就被挡下（本命令本就只服务玩家），因此这里只需覆盖玩家侧。
+        // 拦在 args 判空**之前**：无参 /le 原本会直接 openMainMenu，而关闭态下
+        // MainMenu 依赖的 wordManager / socialManager 等一律为 null，必须在这里截住。
+        // 提示用 server.disabled（i18n 键，见 messages/zh.yml + en.yml）。
+        if (!plugin.isFullyEnabled()) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "server.disabled"));
+            return true;
+        }
+
         if (args.length == 0) {
             openMainMenu(player);
             return true;
@@ -237,6 +248,15 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     }
 
     private void startWordQuiz(Player player, String difficulty, String mode) {
+        // C1-N1 收口（R2-M4 同族，存量守卫缺口）：决斗中不开新答题会话 —— 决斗分支
+        // 优先吞全部聊天（ChatAnswerListener），答题输入静默超时判错。决斗判先于
+        // 对话判，与 handleDialogueCommand 的守卫顺序一致。
+        var duelManager = plugin.getDuelManager();
+        if (duelManager != null && duelManager.isInDuel(player.getUniqueId())) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "duel.finish-duel-first"));
+            return;
+        }
         // R-66 反向（P2 编排者 fan-in）：AI 对话进行中不开新答题会话 ——
         // ChatScenarioListener 以 HIGH 优先级消费聊天，答题输入会被 AI 侧拦走
         // （与"答题中开对话"对称的饥饿态）。先提示结束对话（冻结键 chat-active）。
@@ -307,6 +327,14 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                         "dialogue.scenario-not-found", "key", args[1]));
                 return;
             }
+            // R11-L3：命令路径补 AI 可用性预检（照 ScenarioSelectListener:121-129 先例）。
+            // 原先命令路径直接开始对话，玩家看到"已开启"后每条消息才被
+            // dialogue.ai-not-configured 打脸；GUI 路径会拦、命令路径放行，双入口语义漂移。
+            if (!plugin.getAIChatManager().isAvailable()) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "dialogue.ai-not-configured"));
+                return;
+            }
             // S4 互斥：答题 / 错题练习 / 决斗 / 已有 AI 对话进行中时不重复开聊
             // （/le dialogue 的退出语义在上面 isInScenarioMode 分支已提前处理，不受影响）。
             // 决斗优先判：决斗中本身就有答题态，报"先结束对决"比报"先结束答题"更准确。
@@ -358,12 +386,24 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleProgressCommand(Player player) {
+        // R8-M1 收口（C1-A 范围外面）：/le progress 同为 ProfileGUI 直开——
+        // 同式压「主菜单」帧，防返回键消费无关残留帧。
+        plugin.getGuiNavigationManager().pushBack(player.getUniqueId(),
+                () -> new MainMenu(plugin).open(player));
         new ProfileGUI(plugin).open(player, player.getUniqueId());
     }
 
     private void handleReviewCommand(Player player) {
         // MC-2 模块门：review 属 word-system 域（关闭后复习提醒任务亦静默，本处拦手动入口）。
         if (requireEnabled(player, plugin.getConfigManager().isWordSystemEnabled())) {
+            return;
+        }
+        // N1 收口：复习同属答题链——决斗中聊天会被决斗吞掉，复习答题将静默超时，
+        // 决斗优先判（与 startWordQuiz / 词库点击 / 练习入口同式）。
+        var reviewDuelManager = plugin.getDuelManager();
+        if (reviewDuelManager != null && reviewDuelManager.isInDuel(player.getUniqueId())) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "duel.finish-duel-first"));
             return;
         }
         java.util.List<String> dueWords = plugin.getWordManager()
@@ -381,10 +421,14 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 String reviewLabel = plugin.getMessageUtil().getPlayerMessage(player, "word.mode-review");
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "word.session-start", "difficulty", reviewLabel, "mode", reviewLabel));
-            } else {
+            } else if (!plugin.getWordLearningManager().hasActiveQuiz(player.getUniqueId())
+                    && !plugin.getWordLearningManager().isPracticingWord(player.getUniqueId())) {
                 // R-12：有复习通知却开不出局 —— 词库被删词后，到期词在词库里已不存在，
                 // startReviewQuiz 返回 null。原先静默无事（玩家被"你有 N 个待复习"晃一下
                 // 却点不动），改为明确告知"部分复习词已失效"，不再无解释地吞掉。
+                // R1-M1/M2 收口：会话进行中 / 错题练习中的 null 是入口守卫拒入，
+                // 守卫已发 word.session-in-progress / word.practice-in-progress ——
+                // 不再补发本键（双发且误导）。
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "review.unavailable"));
             }
@@ -395,6 +439,9 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     }
 
     private void handleStatsCommand(Player player) {
+        // R8-M1 收口（C1-A 范围外面）：同 handleProgressCommand——直开主页压帧。
+        plugin.getGuiNavigationManager().pushBack(player.getUniqueId(),
+                () -> new MainMenu(plugin).open(player));
         new ProfileGUI(plugin).open(player, player.getUniqueId());
     }
 
@@ -416,7 +463,8 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 default -> null; // 非法值忽略，开默认落点（plan-social §3.4）
             };
         }
-        new EnglishSquareGUI(plugin).open(player, 1, mode);
+        // R4-M1：走 SocialListener 登记快照的入口（直达窗口点头像不再现查库重建）
+        plugin.getSocialListener().openSquareWithSnapshot(player, mode);
     }
 
     private void handleLeaderboardCommand(Player player) {
@@ -436,11 +484,17 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             Player target = plugin.getServer().getPlayer(targetName);
             if (target != null) {
                 // R-05：/le profile 直达同样查开关 —— 目标隐身且非本人时回 i18n 提示，不开界面。
+                // L-写路径收口：纯读判定走只读版。旧 getProfileSettings 会在缓存 miss 时
+                // computeIfAbsent 合成「全公开」条目并留在缓存里（getActivePlayerIds 取键集），
+                // 等于「看一眼 /le profile 就把隐私未知的玩家重新放回广场候选集」。
                 if (!target.getUniqueId().equals(player.getUniqueId())
-                        && !plugin.getPlayerDataStore().getProfileSettings(target.getUniqueId()).isShowInSquare()) {
+                        && !plugin.getPlayerDataStore().getProfileSettingsReadOnly(target.getUniqueId()).isShowInSquare()) {
                     player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                             "profile.hidden"));
                 } else {
+                    // R8-M1：命令直开主页同样压「主菜单」帧（返回键不再消费无关残留帧）。
+                    plugin.getGuiNavigationManager().pushBack(player.getUniqueId(),
+                            () -> new MainMenu(plugin).open(player));
                     new ProfileGUI(plugin).open(player, target.getUniqueId());
                 }
             } else {
@@ -449,6 +503,10 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                         plugin.getMessageUtil().getPlayerMessage(player, "error.player-not-found")));
             }
         } else {
+            // R8-M1：命令直开本人主页同样压「主菜单」帧（返回键回到主菜单，不再
+            // 消费无关残留帧跳去无关页）。与上方 /le profile <target> 分支同式。
+            plugin.getGuiNavigationManager().pushBack(player.getUniqueId(),
+                    () -> new MainMenu(plugin).open(player));
             new ProfileGUI(plugin).open(player, player.getUniqueId());
         }
     }
@@ -559,12 +617,19 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 return;
             }
             java.time.LocalDate today = java.time.LocalDate.now();
+            // R13-M4：跨日惰性清扫（值仅当日有效；保留今日条目，不影响当日去重语义）。
+            celebrationShownDates.values().removeIf(d -> !today.equals(d));
             if (today.equals(celebrationShownDates.get(player.getUniqueId()))) {
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "daily-challenge.celebrate-shown-today"));
                 return;
             }
             celebrationShownDates.put(player.getUniqueId(), today);
+            // R8-M1：命令直开的庆祝页此前不压帧，返回键会消费无关残留帧
+            // （如广场→头像链遗留）跳去无关页。压一枚「主菜单」帧 —— 与
+            // MainMenuListener 每日挑战同模式；以主菜单为帧内容即使残留也零危害。
+            plugin.getGuiNavigationManager().pushBack(player.getUniqueId(),
+                    () -> new MainMenu(plugin).open(player));
             new com.letslearnenglish.minecraftplugin.gui.ChallengeCompleteGUI(plugin)
                     .open(player, getWordChallengeReward());
         }
@@ -744,8 +809,10 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                         "checkin.economy-disabled"));
             }
         } else {
+            // R11-M4：存储失败与"今日已签到"同为 success=false，但语义不同 ——
+            // 前者要玩家重试（否则当日 streak 断），后者才是幂等提示。
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "checkin.already"));
+                    result.storageFailed() ? "checkin.storage-failed" : "checkin.already"));
         }
     }
 
@@ -833,7 +900,11 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    /** 主线程回调薄封装（停用窗口静默放弃；照抄 SeasonManager.runMain 姿态）。 */
+    /**
+     * 主线程回调薄封装（停用窗口静默放弃；照抄 SeasonManager.runMain 姿态）。
+     * D2-5：同型帮助器见 util.SchedulerGuard（语义微差：其余调用点带 isEnabled
+     * 预检/日志级别），本批未迁移，仅留注释指向。
+     */
     private void runTaskSafe(Runnable task) {
         try {
             Bukkit.getScheduler().runTask(plugin, task);
@@ -1063,6 +1134,14 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         List<String> completions = new ArrayList<>();
+
+        // 子服总开关（server.enabled=false）：补全是**独立于 onCommand 的入口**，Bukkit
+        // 会在玩家敲 Tab 时直接调用本方法。关闭态下 wordManager / aiChatManager /
+        // adminCommandHandler 等一律为 null，不拦就会在 getAvailableDifficulties() 处 NPE。
+        // 返回空列表（不是 null）：Bukkit 契约要求非 null，返回 null 会让客户端补全报错。
+        if (!plugin.isFullyEnabled()) {
+            return completions;
+        }
 
         // 二级补全：与 SUBCOMMANDS 中有参数的子命令一一对应
         // word [难度] [模式] / dialogue [场景] / duel <玩家名|accept|quit|gui>

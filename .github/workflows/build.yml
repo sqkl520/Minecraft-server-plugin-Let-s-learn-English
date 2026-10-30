@@ -1,0 +1,114 @@
+name: Build & Verify
+
+# 战略锐评 R14「只改一件事」：给仓库装上第一道 CI 门禁。
+# 设计原则：每一步的失败 = 一次真实的回归。不做"永远绿"的仪式。
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch: # 手动触发，方便首次接入时在无推送的情况下验证
+
+# 同 PR / 同分支的新推送取消旧运行，省 CI 额度（R14 附带的成本项）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Maven verify + 静态门禁
+    runs-on: ubuntu-latest
+    # 硬超时：正常全量构建约 2-4 分钟（含 paper-api SNAPSHOT 解析），20 分钟足够，
+    # 同时兜住仓库源挂掉导致的无限等待。
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # 脚本零第三方依赖，显式固定 Node 版本，避免依赖 runner 的隐式版本。
+      # 选 22（LTS，维护到 2027-04）：Node 20 已于 2026-04 结束维护，不适合新装门禁。
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # verify = compile + test(surefire) + package(jar+shade) + jacoco:check(行覆盖 >= 1%)。
+      # 故意不加 -DskipTests：pom 里 jacoco:check 绑在 verify，跳过测试会同时废掉覆盖门。
+      - name: Maven verify (tests + jar + jacoco gate)
+        run: mvn -B verify
+
+      # 门禁 1：代码引用的 i18n 键必须在 zh.yml / en.yml 双侧存在。
+      # 脚本本轮已补退出码：missing 非空 -> exit 1。
+      - name: Audit i18n keys
+        run: node scripts/audit-i18n-keys.js
+
+      # 门禁 2：词库结构自检（镜像 WordBankValidator + 模板齐全 + 质量项）。
+      # 注意：gen-words.js check 只接受【单个】文件参数（process.argv[3]），多传会被忽略，
+      # 所以这里必须逐个循环，不能写成 `check src/main/resources/words/*.yml`。
+      - name: Validate word banks
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(src/main/resources/words/*.yml)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::no word bank files found under src/main/resources/words/"
+            exit 1
+          fi
+          for f in "${files[@]}"; do
+            echo "::group::gen-words check ${f}"
+            node scripts/gen-words.js check "${f}"
+            echo "::endgroup::"
+          done
+
+      # 建议级：释义撞车扫描【暂不设为硬门禁】。
+      # check-word-collisions.js 确实会 exit 1（hard 撞车）/2（读失败），但当前仓库
+      # 存量就有 16 对 HARD（beginner 2 / intermediate 8 / advanced 6），一旦设为硬门禁
+      # 会让 CI 从第一天起永久飘红，门禁随即被无视。先以 continue-on-error 收集报告，
+      # 待内容批次把这 16 对冲干净后，删掉 continue-on-error 即可升级为硬门禁。
+      # R-P2-4：额外写一条 ::warning:: 注解 —— 否则 continue-on-error 只会在 UI 上留
+      # 一个黄色对勾，等于"永不变红的债务"，没人会注意到 16 对硬撞车还在。
+      - name: Scan word-bank definition collisions (advisory)
+        continue-on-error: true
+        run: |
+          set +e
+          node scripts/check-word-collisions.js
+          status=$?
+          if [ $status -ne 0 ]; then
+            echo "::warning::Word-bank collision scan reported issues (exit $status). Known debt: 16 HARD pairs; this step is advisory until they are cleaned up."
+          fi
+          exit 0
+
+      # 产物：shade 覆盖后的插件 jar。排除 maven-shade 留在同目录的 original-*.jar。
+      # 用 glob 而非写死文件名——文件名含空格与 "!"（Let's Learn English!-x.y.z.jar），
+      # 在 glob 里 "!" 只在模式首字符才是取反符，这里安全。
+      - name: Upload plugin jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-jar
+          path: |
+            target/*.jar
+            !target/original-*.jar
+          if-no-files-found: error
+          retention-days: 14
+
+      # 覆盖报告同样落盘：verify 失败时也值得看覆盖率塌在哪（故 if: always()）。
+      # 不上 codecov —— 需要 token，fork PR 上必然失败。
+      - name: Upload jacoco report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+          if-no-files-found: warn
+          retention-days: 14

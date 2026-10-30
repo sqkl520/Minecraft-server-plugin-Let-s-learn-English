@@ -217,15 +217,6 @@ public class MessageUtil {
         return formatSafe(configManager.getMessageConfig(lang), lang, key, placeholders);
     }
 
-    /**
-     * @return true if the message file for {@code lang} defines {@code key}; never throws
-     *         on a null config. Backs the startup i18n audit in {@link ConfigManager}.
-     */
-    public boolean hasMessageKey(String lang, String key) {
-        FileConfiguration messageConfig = configManager.getMessageConfig(lang);
-        return messageConfig != null && key != null && messageConfig.isSet(key);
-    }
-
     private String resolveDefaultLang() {
         FileConfiguration mainConfig = configManager.getMainConfig();
         // R-55l：缺 key 回落统一为 zh（同上）。

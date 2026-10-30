@@ -79,7 +79,8 @@ CREATE TABLE IF NOT EXISTS {prefix}player_profiles (
     show_answers BOOLEAN DEFAULT 0,
     show_results BOOLEAN DEFAULT 1,
     show_in_square BOOLEAN DEFAULT 1,
-    sounds_enabled BOOLEAN DEFAULT 1
+    sounds_enabled BOOLEAN DEFAULT 1,
+    reminders_enabled BOOLEAN DEFAULT 1
 );
 
 -- PF-SEA-03 索引（一致性审计 C-8 回写补录）：周/月/赛季/streak/日历大量按日期范围查
@@ -117,6 +118,50 @@ CREATE TABLE IF NOT EXISTS {prefix}daily_challenge_words (
     completed_at TIMESTAMP NULL,
     UNIQUE(player_uuid, challenge_date, word_id)
 );
+
+-- R10-H1：单词挑战奖励"已付"台账（重启防重复发放的真源；内存 Set 重启即空）。
+-- 幂等写入（INSERT OR IGNORE / INSERT IGNORE），UNIQUE 兜底每人每日至多一行。
+CREATE TABLE IF NOT EXISTS {prefix}daily_word_reward_claims (
+    player_uuid VARCHAR(36) NOT NULL,
+    challenge_date DATE NOT NULL,
+    claimed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(player_uuid, challenge_date)
+);
+
+-- Block C2（R2-M2）：今日 AI 轮次计数器持久化（daily-round-limit 重启后真源；
+-- 内存 TodayCounter 重启/quit-rejoin 即清，本表 UPSERT 回读闭合绕过路径）。
+-- UNIQUE 兜底每人每日至多一行；旧行由 cleanupOldChatHistory 同窗口清理。
+CREATE TABLE IF NOT EXISTS {prefix}ai_round_counters (
+    player_uuid VARCHAR(36) NOT NULL,
+    round_date DATE NOT NULL,
+    rounds INT NOT NULL DEFAULT 0,
+    UNIQUE(player_uuid, round_date)
+);
+
+-- R10 战略锐评（决斗零持久化）：决斗战绩台账 —— 一场一行的追加式事实表。
+-- 原实现只有内存 DuelRoom：赢家只拿一个成就（DUEL_FIRST_WIN），无战绩/胜率/
+-- 连胜可查，也无"复仇"的对手关系可回溯。本表只追加，无 UPDATE/DELETE 业务路径。
+-- 保留期 365 天，由 cleanupOldChatHistory 按 created_at（epoch 毫秒）清理
+-- （阈值在 Java 侧算好直接绑 long —— created_at 为数值列，天然免两后端日期函数方言差）。
+-- MySQL 口径类型差异：id 为 BIGINT AUTO_INCREMENT PRIMARY KEY（SQLite 为
+-- INTEGER PRIMARY KEY AUTOINCREMENT），运行时按 isSQLite() 分支建表。
+CREATE TABLE IF NOT EXISTS {prefix}duel_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    winner_uuid VARCHAR(36) NOT NULL,
+    loser_uuid VARCHAR(36) NOT NULL,
+    winner_score INT NOT NULL,            -- 正常路径恒为 DuelRoom.WIN_SCORE（5）
+    loser_score INT NOT NULL,
+    duel_date VARCHAR(10) NOT NULL,       -- yyyy-MM-dd（LocalDate.now() 写入）
+    created_at BIGINT NOT NULL            -- epoch 毫秒（排序/保留期阈值键）
+);
+
+-- 战纪/胜率/连胜按"人 + 日期窗"查；玩家在两列中任一侧出现，故双侧各一复合索引。
+-- 运行时由 DatabaseManager.createIndexIfMissing 兼容建立（MySQL 8 不支持
+-- CREATE INDEX IF NOT EXISTS），此处为文档镜像。
+CREATE INDEX IF NOT EXISTS {prefix}idx_duel_winner_date ON {prefix}duel_stats(winner_uuid, duel_date);
+CREATE INDEX IF NOT EXISTS {prefix}idx_duel_loser_date ON {prefix}duel_stats(loser_uuid, duel_date);
+-- 连胜扫描（ORDER BY created_at DESC, id DESC）与保留期清理（WHERE created_at < ?）
+CREATE INDEX IF NOT EXISTS {prefix}idx_duel_created ON {prefix}duel_stats(created_at);
 
 -- AI chat history
 CREATE TABLE IF NOT EXISTS {prefix}ai_chat_history (
@@ -250,3 +295,8 @@ CREATE TABLE IF NOT EXISTS {prefix}class_members (
 
 -- 一人一班反查（getPlayerClassId 按 uuid 查；PK 前导 class_id 非前缀）
 CREATE INDEX IF NOT EXISTS {prefix}idx_class_members_uuid ON {prefix}class_members(uuid);
+
+-- Block C2（A6/R9-M4）：player_data(player_name) —— getKnownPlayerNames tab 补全的
+-- LIKE 前缀查走此索引，防主线程全表扫。运行时由 DatabaseManager.createIndexIfMissing
+-- 兼容建立（MySQL 8 不支持 CREATE INDEX IF NOT EXISTS），此处为文档镜像。
+CREATE INDEX IF NOT EXISTS {prefix}idx_player_data_name ON {prefix}player_data(player_name);

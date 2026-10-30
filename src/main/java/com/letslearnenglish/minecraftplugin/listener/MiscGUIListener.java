@@ -10,10 +10,14 @@ import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.ProfileGUI;
 import com.letslearnenglish.minecraftplugin.gui.WordBankSelectGUI;
 import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiIdentity;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.inventory.InventoryView;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -43,40 +47,110 @@ public class MiscGUIListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        String title = event.getView().getTitle();
+        // ── R5-3 判定顺序（四条铁律，顺序不可调整）────────────────────────────
+        // 1) 先判窗外：getClickedInventory() 只在点到界面之外时为 null。
+        if (event.getClickedInventory() == null) return;
 
-        if (!title.contains("Privacy Settings") && !title.contains("隐私设置")
-                && !title.contains("Select Word Bank") && !title.contains("选择词库")
-                && !title.contains("过往学习") && !title.contains("Study History")
-                && !title.contains("Daily Challenge") && !title.contains("每日挑战")
-                && !title.contains("Challenge Complete") && !title.contains("挑战完成")) {
+        int topSize = event.getView().getTopInventory().getSize();
+        int rawSlot = event.getRawSlot();
+
+        // ── R5-7 前置守卫：下半区 shift-click（MOVE_TO_OTHER_INVENTORY）与双击收集
+        //（COLLECT_TO_CURSOR）必须放在下面的 rawSlot 越界 return <b>之前</b>——这两类
+        // action 的 rawSlot 落在下半区，否则会被那个 return 吞掉、永不执行。
+        //
+        // 为什么必须拦：原版会为这两类 action 在<b>整个 view</b> 里找落点，包括上半区。
+        // 上半区任何空格都会成为落点，物品塞进去后本类的「上半区点击一律 cancel」
+        // 又会把它锁死（玩家点不出来、shift-click 也回不去，关界面即丢）。COLLECT_TO_CURSOR
+        // 还会从整个 view（含上半区展示物）收集同材质物品，把提示物扫进光标。
+        //
+        // 裁决：对<b>全部 5 个 key</b> 生效（不是只对 PROFILE_SETTINGS）。理由：
+        //   - 破坏性与「这一页当前有没有空槽」无关，只与「原版有没有落点」有关。当前
+        //     PROFILE_SETTINGS 的 slot 10/12 是空槽（本次已在 ProfileGUI 侧用 fillEmpty
+        //     补上），但其余四页的满填充是靠各 GUI 自己逐个 setItem 维持的、没有任何
+        //     结构性保证，未来布局改动随时可能漏格；按 key 列白名单等于把「今天恰好没
+        //     空格」写成不变量，而 shift-click 对任何上半区都是纯破坏操作（本类没有任何
+        //     合法的「把物品移进上半区」语义），全拦没有功能损失。
+        //   - 普通下半区点击仍然一步不拦（R5-3 铁律 2 的「玩家能整理背包」语义不变）。
+        // 归属判定仍先走 resolveOwnedView：非本插件界面（别的插件的 GUI）绝不被误 cancel。
+        if (rawSlot >= topSize
+                && (event.getAction() == InventoryAction.MOVE_TO_OTHER_INVENTORY
+                        || event.getAction() == InventoryAction.COLLECT_TO_CURSOR)) {
+            if (resolveOwnedView(event.getView()) != null) {
+                event.setCancelled(true);
+            }
             return;
         }
 
-        // R-01/R-22: 只处理上半区（Top 容器）点击。玩家背包（下半区）直接 return
-        // 且不 cancel，玩家开着 GUI 也能正常整理背包。
-        if (event.getClickedInventory() == null) return;
-        int topSize = event.getView().getTopInventory().getSize();
-        int rawSlot = event.getRawSlot();
+        // 2) 再判下半区（玩家背包）：rawSlot 落在 top 之外一律不处理、也不 cancel，
+        //    玩家开着 GUI 仍能正常整理背包。
         if (rawSlot < 0 || rawSlot >= topSize) return;
 
+        // 3) 然后才做身份判定：只认 holder（结构身份）。
+        GuiViewKey key = resolveOwnedView(event.getView());
+        if (key == null) return;
+
+        // 4) 只有「本类辖管界面的上半区点击」才 cancel —— 绝不允许只判 holder 就 cancel
+        //    （event.getInventory() 恒为上半区，与玩家实际点击的位置无关）。
         event.setCancelled(true);
         if (event.getCurrentItem() == null) return;
         if (!(event.getWhoClicked() instanceof Player player)) return;
 
         int slot = event.getSlot();
 
-        if (title.contains("Privacy Settings") || title.contains("隐私设置")) {
-            handlePrivacySettings(player, slot);
-        } else if (title.contains("Select Word Bank") || title.contains("选择词库")) {
-            handleWordBankSelect(player, slot);
-        } else if (title.contains("过往学习") || title.contains("Study History")) {
-            handleLearningCalendar(player, slot);
-        } else if (title.contains("Daily Challenge") || title.contains("每日挑战")) {
-            handleDailyChallenge(player, slot);
-        } else if (title.contains("Challenge Complete") || title.contains("挑战完成")) {
-            handleChallengeComplete(player, slot);
+        switch (key) {
+            case PROFILE_SETTINGS -> handlePrivacySettings(player, slot);
+            case WORD_BANK -> handleWordBankSelect(player, slot);
+            case LEARNING_CALENDAR -> handleLearningCalendar(player, slot);
+            case DAILY_CHALLENGE -> handleDailyChallenge(player, slot);
+            case CHALLENGE_COMPLETE -> handleChallengeComplete(player, slot);
+            // 不可达：resolveOwnedView 只返回以上五个 key（其余一律 null）。
+            default -> {
+            }
         }
+    }
+
+    /**
+     * R5-11：解析「本监听器负责的界面」的<b>点击</b>归属 —— <b>只认 holder</b>。
+     *
+     * <p><b>PROFILE_SETTINGS 的属主纪律（保持）</b>：本类<b>继续</b>是隐私设置页的唯一
+     * 属主，{@code SocialListener#resolveSocialKey} 的 switch 里没有该分支且显式排除它。
+     * R5-11 删掉标题兜底后这条纪律更重要了 —— 判定已经是纯 holder，只要 holder 命中
+     * {@code PROFILE_SETTINGS}，本类就必须接住，否则五个开关与返回键会全部变成死键。
+     * 移交前提仍是「SocialListener 加 case + 本类删 key」同一提交，不可只做一半。
+     *
+     * @param view 事件界面，可为 null
+     * @return 本类辖管的 key；不归本类管时返回 null
+     */
+    private GuiViewKey resolveOwnedView(InventoryView view) {
+        GuiViewKey byHolder = GuiIdentity.resolve(view);
+        // 结构身份压倒文案：holder 说了算（null 就是「不是本类界面」）。
+        return isTrackedKey(byHolder) ? byHolder : null;
+    }
+
+    /**
+     * R5-11：解析「本监听器负责的界面」的<b>拖拽</b>归属 —— 与
+     * {@link #resolveOwnedView(InventoryView)} 判定口径<b>完全一致</b>（同一个
+     * {@link #isTrackedKey}），区别只在返回值形态：拖拽守卫只需 boolean。
+     *
+     * @param view 事件界面，可为 null
+     * @return true 表示本类应守卫该界面
+     */
+    private boolean isTrackedView(InventoryView view) {
+        return isTrackedKey(GuiIdentity.resolve(view));
+    }
+
+    /**
+     * R5-11：本监听器辖下的五类屏幕（null 安全：{@code null} 不是其中任何一类）。
+     *
+     * <p>{@link GuiViewKey#PROFILE_SETTINGS} 的属主裁决见
+     * {@link #resolveOwnedView(InventoryView)} 的 Javadoc。
+     */
+    private static boolean isTrackedKey(GuiViewKey key) {
+        return key == GuiViewKey.PROFILE_SETTINGS
+                || key == GuiViewKey.WORD_BANK
+                || key == GuiViewKey.LEARNING_CALENDAR
+                || key == GuiViewKey.DAILY_CHALLENGE
+                || key == GuiViewKey.CHALLENGE_COMPLETE;
     }
 
     private void handlePrivacySettings(Player player, int slot) {
@@ -88,13 +162,28 @@ public class MiscGUIListener implements Listener {
             Runnable backAction = nav.popBack(player.getUniqueId(),
                     () -> new ProfileGUI(plugin).open(player, player.getUniqueId()));
             backAction.run();
-        } else if (slot == 11 || slot == 13 || slot == 15 || slot == 16) {
+        } else if (slot == 11 || slot == 13 || slot == 14 || slot == 15 || slot == 16) {
             SoundManager.playSound(player, "menu-click");
             PlayerDataStore store = plugin.getPlayerDataStore();
+            // L-写路径收口：缓存缺失说明 join 时读库失败（或热重载 clear 后未重建）。
+            // 此时直接 getProfileSettings 会 computeIfAbsent 合成一份「全公开」默认值
+            // （showResults / showInSquare 均为 true），玩家只点一个开关，
+            // saveProfileSettings 就整对象 UPSERT，把 show_in_square / show_results
+            // 永久写回 true —— 玩家关掉的隐私开关不可撤销地丢失。
+            // 因此先尝试同步加载真实值；DB 仍不可用就不允许改（fail-closed，提示后返回）。
+            if (store.getCachedProfileSettings(player.getUniqueId()) == null) {
+                if (!store.loadProfileSettings(player.getUniqueId())) {
+                    player.sendMessage(plugin.getMessageUtil().getPlayerMessage(
+                            player, "profile.settings-load-failed"));
+                    return;
+                }
+            }
             PlayerDataStore.ProfileSettings ps = store.getProfileSettings(player.getUniqueId());
             switch (slot) {
                 case 11 -> ps.setShowAnswers(!ps.isShowAnswers());
                 case 13 -> ps.setShowResults(!ps.isShowResults());
+                // R1/R4：提醒总开关（发送侧门由编排者接线：LetsLearnEnglish 三处 + ReviewScheduler）
+                case 14 -> ps.setRemindersEnabled(!ps.isRemindersEnabled());
                 case 15 -> ps.setShowInSquare(!ps.isShowInSquare());
                 // Wave 1 3A-4 补建：per-player 音效开关（SoundManager.isPlayerSoundEnabled 门已接线）
                 case 16 -> ps.setSoundsEnabled(!ps.isSoundsEnabled());
@@ -137,6 +226,16 @@ public class MiscGUIListener implements Listener {
         if (index < 0 || index >= shownCount) return;
         SoundManager.playSound(player, "menu-click");
         String difficulty = banks.get(index);
+        // C1-N1 收口（R2-M4 同族，存量守卫缺口）：决斗中不开新答题 —— 决斗分支
+        // 优先吞全部聊天（ChatAnswerListener），答题输入静默超时判错。守卫先于
+        // 对话判，与 /le dialogue 命令入口的守卫顺序一致。
+        var duelManager = plugin.getDuelManager();
+        if (duelManager != null && duelManager.isInDuel(player.getUniqueId())) {
+            player.closeInventory();
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "duel.finish-duel-first"));
+            return;
+        }
         // R-66 反向（P2 编排者 fan-in）：AI 对话进行中不开新答题（与 /le word 入口对称守卫）。
         if (plugin.getAIChatManager().hasActiveConversation(player)) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
@@ -158,10 +257,25 @@ public class MiscGUIListener implements Listener {
         if (plugin.getOnboardingManager().interceptQuizStart(player, difficulty)) {
             return;
         }
-        var session = plugin.getWordLearningManager().startQuiz(player, difficulty, mode);
-        // Wave 1 fan-in（S-F 上报纵深）：word 门关闭时 startQuiz 返回 null 已发
-        // module.disabled——此处不再开 GUI / 发 session-start（上方兜底门之外的第二道防线）。
-        if (session == null) {
+        try {
+            var session = plugin.getWordLearningManager().startQuiz(player, difficulty, mode);
+            // Wave 1 fan-in（S-F 上报纵深）：word 门关闭时 startQuiz 返回 null 已发
+            // module.disabled——此处不再开 GUI / 发 session-start（上方兜底门之外的第二道防线）。
+            // R1-M1/M2：session-in-progress / practice-in-progress 的 null 同样已由
+            // 守卫内发提示，此处一并静默 return。
+            if (session == null) {
+                return;
+            }
+        } catch (IllegalStateException e) {
+            // R11-M2（含 R8-L2 合并）：空词池窗口 selectWordsForSession 抛 ISE 原先冒泡
+            // 出事件处理器——玩家零反馈且困在原界面。逐字对齐命令路径
+            // （LearnCommand.startWordQuiz 的 catch）：界面不关，玩家可改点其它词库。
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "word.no-words-available"));
+            return;
+        } catch (IllegalArgumentException e) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "general.error", "message", e.getMessage()));
             return;
         }
         new WordLearningGUI(plugin).openWithMessage(player, difficulty, mode);
@@ -322,21 +436,14 @@ public class MiscGUIListener implements Listener {
      * 本监听器辖下各 GUI（隐私设置/词库选择/过往学习/每日挑战/庆祝页）
      * 的展示物品可被拖进玩家背包。
      *
-     * 标题白名单与 onInventoryClick 入口保持一致；只在拖拽触及界面
-     * 上半部分时取消，玩家整理自己背包不受影响。
+     * R5-11：入口判定<b>只认 holder</b>（{@link #isTrackedView}），标题兜底已删除。
      */
     @EventHandler
     public void onInventoryDrag(org.bukkit.event.inventory.InventoryDragEvent event) {
-        String title = event.getView().getTitle();
-        if (title == null) return;
+        if (event.getView() == null) return;
 
-        if (!title.contains("Privacy Settings") && !title.contains("隐私设置")
-                && !title.contains("Select Word Bank") && !title.contains("选择词库")
-                && !title.contains("过往学习") && !title.contains("Study History")
-                && !title.contains("Daily Challenge") && !title.contains("每日挑战")
-                && !title.contains("Challenge Complete") && !title.contains("挑战完成")) {
-            return;
-        }
+        // R5-11：与 onInventoryClick 同一套纯 holder 判定（共用 isTrackedKey）。
+        if (!isTrackedView(event.getView())) return;
 
         int topSize = event.getView().getTopInventory().getSize();
         for (int rawSlot : event.getRawSlots()) {

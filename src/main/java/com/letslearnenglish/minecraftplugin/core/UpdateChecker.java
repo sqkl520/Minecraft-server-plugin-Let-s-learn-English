@@ -195,12 +195,4 @@ public class UpdateChecker {
     public boolean isUpdateAvailable() {
         return updateAvailable;
     }
-
-    public boolean isCheckComplete() {
-        return checkComplete;
-    }
-
-    public String getLatestVersion() {
-        return latestVersion;
-    }
 }

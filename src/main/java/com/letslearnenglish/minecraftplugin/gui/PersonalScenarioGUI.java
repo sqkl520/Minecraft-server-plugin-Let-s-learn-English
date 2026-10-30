@@ -3,6 +3,8 @@ package com.letslearnenglish.minecraftplugin.gui;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager.ScenarioConfig;
 import com.letslearnenglish.minecraftplugin.core.ai.PersonalScenarioStore;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -42,7 +44,7 @@ import java.util.List;
  */
 public class PersonalScenarioGUI {
 
-    /** 界面尺寸（Listener 的尺寸双重确认共用）。 */
+    /** 界面尺寸（{@link #open} 建 inventory 用；holder 判定不依赖尺寸）。 */
     public static final int GUI_SIZE = 54;
 
     /** 场景计数物槽位（写死 = 唯一真相，监听器引用本常量）。 */
@@ -97,7 +99,11 @@ public class PersonalScenarioGUI {
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(msg, "scenario.manage-title"));
 
-        Inventory gui = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-7：挂结构身份 holder（NoPayload）。确认删除态刻意「不」进 payload ——
+        // 它已由条目物品的 PDC 标记承载（confirmKey，"屏幕即真相"），
+        // 再搬进 holder 会产生两份确认态真相、且每次重渲染都要重建 holder。
+        Inventory gui = Bukkit.createInventory(
+                PluginGuiHolder.of(GuiViewKey.PERSONAL_SCENARIO), GUI_SIZE, title);
 
         // 背景：先铺灰色玻璃板，防止玩家把物品拖进空槽（其余物品随后覆盖）
         ItemStack filler = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
@@ -194,25 +200,6 @@ public class PersonalScenarioGUI {
             }
         }
         return result;
-    }
-
-    /**
-     * 本页标题判定：标题与配置完全等值（zh/en 两份，照 DuelChallengeGUI.isDuelChallengeTitle
-     * 模式）。等值而非宽子串 —— 与场景选择页（"场景选择"/"Scenario Select" 是 contains 判定）
-     * 互不命中，活配置下不可能串页。
-     */
-    public static boolean isPersonalScenarioTitle(String title) {
-        if (title == null || title.isEmpty()) return false;
-        LetsLearnEnglish plugin = LetsLearnEnglish.getInstance();
-        if (plugin == null || plugin.getConfigManager() == null) return false;
-        for (String lang : new String[] { "zh", "en" }) {
-            String expected = ChatColor.translateAlternateColorCodes('&',
-                    MessageUtil.getGuiMsg(
-                            plugin.getConfigManager().getMessageConfig(lang),
-                            "scenario.manage-title"));
-            if (title.equals(expected)) return true;
-        }
-        return false;
     }
 
     /**

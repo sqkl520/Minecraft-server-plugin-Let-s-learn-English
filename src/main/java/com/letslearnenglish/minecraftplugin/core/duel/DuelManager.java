@@ -6,8 +6,10 @@ import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
 import com.letslearnenglish.minecraftplugin.core.feedback.CountdownTier;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
+import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.gui.DuelGUI;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
+import com.letslearnenglish.minecraftplugin.util.SchedulerGuard;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.boss.BarColor;
@@ -584,6 +586,17 @@ public class DuelManager {
     }
 
     /**
+     * R5-M1(b)：宽限任务自清理 —— remove(key, value) 双参只摘"仍是自己"的条目，
+     * 无论条目在否都 cancel 自己（cancel 幂等）；防 stale 任务每秒空转。
+     * 模式抄 {@link #selfCancelWordTimeout}（:580-584）。
+     */
+    private void selfCancelGrace(UUID playerId, BukkitTask task) {
+        if (task == null) return;
+        graceTasks.remove(playerId, task);
+        task.cancel();
+    }
+
+    /**
      * Cancel the pending single-question countdown for a room, if any.
      */
     private void cancelWordTimeout(DuelRoom room) {
@@ -724,6 +737,18 @@ public class DuelManager {
 
         UUID winnerId = room.getWinner();
         UUID loserId = room.getLoser();
+        // 空值守卫：endDuel 是 public，理论上只在 isFinished() 后调用（winner/loser
+        // 必非 null），但 getScore(null) 会 NPE —— 不为落库这一个副作用把既有结算
+        // 链的失败点前移，故此处按 0 兜底（recordDuelResultAsync 自身也会跳过 null）。
+        int winnerScore = winnerId == null ? 0 : room.getScore(winnerId);
+        int loserScore = loserId == null ? 0 : room.getScore(loserId);
+
+        // R10（战略锐评：决斗零持久化）：战绩落库 —— 一场一行追加进 duel_stats。
+        // 位置在判负/播报之前：此刻 winner/loser/分数已从 DuelRoom 快照取出，
+        // 后续 cleanup(room) 拆解状态不影响本次写入。若 recordDuelResult 内部
+        // 抛未预期异常也不该挡结算，故整段再包一层兜底（DB 层自身已吞 SQLException
+        // 只记 WARNING，这里防的是非 SQL 的 Runtime 异常，如连接重建失败）。
+        recordDuelResultAsync(winnerId, loserId, winnerScore, loserScore);
 
         // H9：对决首胜成就 —— 放在 winner 在线判断之外，赢家此刻掉线的极端
         // 窗口也允许落库（tryUnlock 对离线玩家静默跳过通知段）。只有正常打满
@@ -760,6 +785,47 @@ public class DuelManager {
         }
 
         cleanup(room);
+    }
+
+    /**
+     * R10：把一场战绩异步写入 {@code duel_stats}。
+     *
+     * <p><b>线程契约</b>：唯一调用点 {@link #endDuel(DuelRoom)} 在主线程
+     * （submitAnswer 由 ChatAnswerListener 的 {@code runTask} 回调驱动，超时路径
+     * 走 {@code runTaskTimer}，均在主线程）。{@code DatabaseManager.recordDuelResult}
+     * 是同步阻塞写且全程持 {@code connectionLock}（该锁同时被周期保存/其他异步
+     * 读共享），在主线程直接调会在磁盘慢/MySQL 抖动时卡 TPS —— 故一律派发到
+     * Bukkit 异步线程，与 {@code AchievementManager.checkHelpAchievement}、
+     * {@code ReportGenerator.runAsync} 的既有纪律同源。
+     *
+     * <p>参数在此刻已全部捕获为值（UUID/int），异步体不触碰 {@code DuelRoom} ——
+     * 主线程的 {@code cleanup(room)} 会拆解房间状态，跨线程读房间字段是数据竞争。
+     *
+     * <p>关服/停用窗口：经 {@link SchedulerGuard#runAsync} 派发（调度器已关闭时
+     * 静默放弃，不会抛 IllegalStateException 冒泡进结算路径）。此时仅丢这一条
+     * 历史战绩，胜负播报/成就/奖励均已先行完成。
+     */
+    private void recordDuelResultAsync(UUID winnerId, UUID loserId,
+                                       int winnerScore, int loserScore) {
+        if (winnerId == null || loserId == null) {
+            return; // 防御：endDuel 只在 isFinished() 后调用，理论上恒非 null
+        }
+        // 先在主线程把依赖夹具取成局部变量：异步体只闭包值，不再回头摸 plugin 的
+        // DI 字段（关服窗口字段可能已被置空）。
+        DatabaseManager db = plugin.getDatabaseManager();
+        if (db == null) {
+            return; // 极端初始化顺序（DB 未就位）：放弃落库，不挡结算
+        }
+        SchedulerGuard.runAsync(plugin, () -> {
+            try {
+                db.recordDuelResult(winnerId, loserId, winnerScore, loserScore);
+            } catch (RuntimeException e) {
+                // DB 层已把 SQLException 降级为 WARNING；这里兜非 SQL 异常
+                // （如重连失败的 RuntimeException），绝不让结算链受损。
+                plugin.getLogger().log(java.util.logging.Level.WARNING,
+                        "Unexpected error while persisting duel result", e);
+            }
+        });
     }
 
     /**
@@ -802,6 +868,10 @@ public class DuelManager {
         DuelRoom room = activeDuels.get(playerId);
         if (room == null || !room.isActive()) return;
 
+        // R5-M1(a)：覆盖写前先取消旧宽限任务（幂等；正常路径恒为空）。
+        BukkitTask prevGrace = graceTasks.remove(playerId);
+        if (prevGrace != null) { prevGrace.cancel(); }
+
         disconnectTimers.put(playerId, new DisconnectInfo(room));
 
         UUID opponentId = room.getOpponent(playerId);
@@ -814,21 +884,23 @@ public class DuelManager {
 
         // Start grace period countdown
         int[] remainingSeconds = {GRACE_PERIOD_SECONDS};
-        BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+        // R5-M1(b)：自引用 holder —— lambda 里的 this 是 DuelManager（非 task），
+        // 需要 hold 住自身引用供自清理使用；首 tick 在 20L 之后，届时 holder[0] 必然已赋值。
+        final BukkitTask[] selfRef = new BukkitTask[1];
+        selfRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             remainingSeconds[0]--;
 
             // Check if player reconnected
             if (!disconnectTimers.containsKey(playerId)) {
-                return; // timer will be cancelled below
+                selfCancelGrace(playerId, selfRef[0]); // 原"return; // timer will be cancelled below"——下方不可达，改自取消
+                return;
             }
 
             DuelRoom currentRoom = activeDuels.get(opponentId);
             if (currentRoom == null || !currentRoom.isActive()) {
                 // R-26: 对局已无 —— 停掉本宽限任务，不再每秒空转。
-                BukkitTask self = graceTasks.remove(playerId);
-                if (self != null) {
-                    self.cancel();
-                }
+                // R5-M1(b)：改自引用自取消（对称统一，防未来回归）。
+                selfCancelGrace(playerId, selfRef[0]);
                 disconnectTimers.remove(playerId);
                 return;
             }
@@ -839,10 +911,8 @@ public class DuelManager {
                 // 僵尸任务修复：照 R-26 模式自行摘登记并 cancel 任务本体 ——
                 // 原实现只 graceTasks.remove 不 cancel，任务会带着已空的登记条目
                 // 每 20 tick 空转到关服（cleanup/shutdown 因条目已摘都造访不到它）。
-                BukkitTask self = graceTasks.remove(playerId);
-                if (self != null) {
-                    self.cancel();
-                }
+                // R5-M1(b)：改双参自取消 —— 单参 remove 可能误摘同房间新一轮任务。
+                selfCancelGrace(playerId, selfRef[0]);
                 disconnectTimers.remove(playerId);
 
                 if (opp != null && opp.isOnline()) {
@@ -873,13 +943,17 @@ public class DuelManager {
             }
         }, 20L, 20L); // every second
 
-        graceTasks.put(playerId, task);
+        graceTasks.put(playerId, selfRef[0]);
     }
 
     /**
      * Called when a player rejoins after disconnecting during a duel.
      */
     public void handleReconnect(Player player) {
+        if (player == null || !player.isOnline()) {
+            return;   // R5-M1(c)/R5-L1：延迟回调落在已离线玩家 —— 放弃（新 quit 的宽限不受扰）。
+                      // 注：离线补通知属 R-69 offlineNotices 链路，不走本方法。
+        }
         UUID playerId = player.getUniqueId();
         DisconnectInfo info = disconnectTimers.remove(playerId);
         if (info == null) return;
@@ -1067,21 +1141,98 @@ public class DuelManager {
      *               debug log here is the intended consumer, not an oversight
      */
     private void cancelDuelInternal(DuelRoom room, String reason) {
+        cancelDuelInternal(room, reason, "duel.cancelled");
+    }
+
+    /**
+     * 同 {@link #cancelDuelInternal(DuelRoom, String)}，但双方收到的提示改用
+     * {@code messageKey}（走 {@link #getMsg} 的 per-player 语言渲染，支持
+     * {@code {prefix}} 与占位符）。
+     *
+     * <p>拆出重载而非改原签名：原三处调用点（{@code no-words} 路径）语义是「本局作废」，
+     * 文案必须是既有的 {@code duel.cancelled}；{@code /lea reload} 卸载路径需要一条
+     * 说明「本服已关闭英语学习功能」的不同文案。共用同一段拆解逻辑，保证
+     * {@code setActive → cancelWordTimeout → 双端消息 → removeScoreboard →
+     * closeInventory → cleanup} 的步骤与顺序对所有调用方恒等 —— 少一步就会留下
+     * 计分板残影或未取消的计时任务。
+     *
+     * @param room       the room to cancel
+     * @param reason     logging hook (unused today, same as the 2-arg overload)
+     * @param messageKey i18n key sent to both online duelists
+     */
+    private void cancelDuelInternal(DuelRoom room, String reason, String messageKey) {
         room.setActive(false);
         cancelWordTimeout(room);
         Player p1 = Bukkit.getPlayer(room.getPlayer1());
         Player p2 = Bukkit.getPlayer(room.getPlayer2());
         if (p1 != null && p1.isOnline()) {
-            p1.sendMessage(getMsg(p1, "duel.cancelled"));
+            p1.sendMessage(getMsg(p1, messageKey));
             removeScoreboard(p1);
             p1.closeInventory();
         }
         if (p2 != null && p2.isOnline()) {
-            p2.sendMessage(getMsg(p2, "duel.cancelled"));
+            p2.sendMessage(getMsg(p2, messageKey));
             removeScoreboard(p2);
             p2.closeInventory();
         }
         cleanup(room);
+    }
+
+    /**
+     * /lea reload 动态卸载钩子：<b>直接解散</b>所有进行中的决斗，<b>不结算</b> ——
+     * 不判胜负、不记战绩、不写 {@code duel_stats}、不挂钩首胜成就。
+     *
+     * <p><b>为什么不能走 {@link #endDuel}</b>：
+     * <ul>
+     *   <li>{@link DuelRoom#getWinner()} 只在某人先到 WIN_SCORE 时非 null；被 reload
+     *       打断的房间两者都没打满，winner 恒 null；</li>
+     *   <li>{@code endDuel} 虽对 winnerScore 做了 0 兜底，但紧接着
+     *       {@code tryUnlock(winnerId, DUEL_FIRST_WIN)} 传 null UUID 有 NPE 风险；</li>
+     *   <li>语义上被打断不是任何一方的过错 —— 判负会写进 {@code duel_stats} 永久拉低
+     *       胜率，与「服务器关掉功能」这一外部原因不符。</li>
+     * </ul>
+     *
+     * <p><b>去重是必须的</b>：{@link #activeDuels} 是双键结构（player1 → room 与
+     * player2 → room 两个键指向<b>同一个</b> {@link DuelRoom} 实例）。直接遍历
+     * {@code activeDuels.values()} 会让每个房间被处理两次 —— {@code setActive(false)}
+     * 与 {@code cleanup} 都是幂等的，但<b>消息会重复发一遍</b>。此处按实例引用去重
+     * （{@code DuelRoom} 未覆写 equals/hashCode，HashSet 即身份比较，正是所需语义）。
+     *
+     * <p><b>容错</b>：逐房间 try/catch —— 房间可能处于宽限期、掉线、GUI 已关等中间态，
+     * 一个房间拆解失败不能影响其余房间，也不能让异常冒到 reload 流程。本方法不抛异常。
+     *
+     * @return 实际解散的房间数（去重后；已 {@code isActive()==false} 的不计）
+     */
+    public int dismissAllActiveDuels() {
+        int dismissed = 0;
+        Set<DuelRoom> rooms;
+        try {
+            rooms = new HashSet<>(activeDuels.values());
+        } catch (Throwable t) {
+            plugin.getLogger().warning("Failed to snapshot active duels on dismiss: " + t.getMessage());
+            return 0;
+        }
+        for (DuelRoom room : rooms) {
+            if (room == null) {
+                continue;
+            }
+            try {
+                if (!room.isActive()) {
+                    continue;
+                }
+                cancelDuelInternal(room, "reload", "duel.dismissed-server-off");
+                dismissed++;
+            } catch (Throwable t) {
+                plugin.getLogger().warning("Failed to dismiss duel between "
+                        + safeName(room.getPlayer1Name()) + " and " + safeName(room.getPlayer2Name())
+                        + ": " + t.getMessage());
+            }
+        }
+        return dismissed;
+    }
+
+    private static String safeName(String name) {
+        return name != null ? name : "?";
     }
 
     private void cleanup(DuelRoom room) {

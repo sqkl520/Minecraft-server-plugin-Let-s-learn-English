@@ -3,6 +3,9 @@ package com.letslearnenglish.minecraftplugin.gui;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager.ChallengeProgress;
 import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager.ChallengeType;
+import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
+import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -14,6 +17,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 
 /**
@@ -40,6 +45,18 @@ public class DailyChallengeGUI {
      * 必须保持升序 —— 点击侧用 {@link java.util.Arrays#binarySearch} 查位。
      */
     public static final int[] CHALLENGE_SLOTS = {11, 13, 15, 17};
+
+    /**
+     * R12-M1（E1）：openAsync in-flight 去重 token —— 跨实例单调序号（static，
+     * 本类无 per-player 实例概念、{@code new} 即用即弃）+ per-player 最新 token 记录。
+     * 主线程首部记 token、回主线程 render 前比对：不等 = 已有更新的打开请求，本次作废
+     * （连点/交叉打开时只渲染最新一次，消闪变与双倍查库）。
+     *
+     * <p>openSeq 条目随每次 openAsync 覆写自身收敛（量级=历史玩家数条 Long），
+     * 不挂 quit 清理（与 openSeq 同族的 joinReminderSent 惰性清理裁决一致）。
+     */
+    private static final AtomicLong SEQ = new AtomicLong();
+    private static final Map<UUID, Long> openSeq = new ConcurrentHashMap<>();
 
     private final LetsLearnEnglish plugin;
 
@@ -68,6 +85,9 @@ public class DailyChallengeGUI {
      */
     public void openAsync(Player player) {
         UUID playerId = player.getUniqueId();
+        // R12-M1（E1）：主线程首部登记本次打开 token（连点/交叉打开去重）。
+        final long token = SEQ.incrementAndGet();
+        openSeq.put(playerId, token);
         try {
             Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
                 if (!plugin.isEnabled()) return;
@@ -79,12 +99,26 @@ public class DailyChallengeGUI {
                 } catch (Exception e) {
                     plugin.getLogger().log(Level.WARNING,
                             "Failed to preload daily challenge GUI for " + playerId, e);
+                    // R11-M3：失败必有反馈 —— 异步段不得直调 Bukkit API，切主线程发提示+失败音。
+                    try {
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            if (!player.isOnline()) return;
+                            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                                    "daily.load-failed"));
+                            SoundManager.playSound(player, "incorrect");
+                        });
+                    } catch (IllegalStateException ignored) {
+                        // 关服竞态：调度器已关闭，放弃提示（与同方法既有 openWithData 调度守卫同款）
+                    }
                     return;
                 }
                 if (!plugin.isEnabled()) return;
                 try {
                     Bukkit.getScheduler().runTask(plugin, () -> {
                         if (!player.isOnline()) return;
+                        // R12-M1（E1）：render 前比对 token——已有更新的打开请求则弃本次
+                        //（C1 的 catch 提示不受本门约束：失败要告知，语义正确）。
+                        if (openSeq.getOrDefault(playerId, -1L) != token) return;
                         openWithData(player, challenges, wordProgress);
                     });
                 } catch (IllegalStateException ignored) {
@@ -105,7 +139,9 @@ public class DailyChallengeGUI {
 
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "daily.title"));
-        Inventory inv = Bukkit.createInventory(null, GUI_SIZE, title);
+        // R5-3/R5-16：挂结构身份（holder），holder 是唯一身份，标题仅作显示。
+        Inventory inv = Bukkit.createInventory(PluginGuiHolder.of(GuiViewKey.DAILY_CHALLENGE),
+                GUI_SIZE, title);
 
         // MC-5：取前 N 个（N ≤ 4 = CHALLENGE_SLOTS.length，分配侧已按配置/可用数封顶）。
         for (int i = 0; i < Math.min(challenges.size(), CHALLENGE_SLOTS.length); i++) {
@@ -182,6 +218,7 @@ public class DailyChallengeGUI {
                         MessageUtil.getGuiMsg(messages, "daily.word-title")),
                 wordLore));
 
+        GUIUtils.fillEmpty(inv); // R12-M3：空槽填灰玻璃（防拖纵深；全部 setItem 之后）
         player.openInventory(inv);
     }
 

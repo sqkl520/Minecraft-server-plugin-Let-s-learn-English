@@ -19,6 +19,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -47,6 +48,15 @@ public class AIChatManager {
     private static final int DEFAULT_MAX_TOKENS = 128;
     private static final int DEFAULT_DAILY_ROUND_LIMIT = 30;
     private static final int DEFAULT_COUNT_MIN_ROUNDS = 3;
+    /** P0-4：开场白每日次数上限默认值（≤0 = 不限，与 daily-round-limit 同口径）。 */
+    private static final int DEFAULT_OPENING_DAILY_CAP = 30;
+    /**
+     * P0-4：两次开场白之间的最小间隔（秒，硬编码不开放配置）。
+     * 目的只有一个：防 GUI 连点 / 快速切场景把 mode-select 点击刷成开场白请求。
+     * 与玩家消息冷却（ai-chat.rate-limit-seconds）完全解耦 —— startConversation 清
+     * lastRequestTime 不会影响本计时，反之亦然。
+     */
+    private static final int OPENING_MIN_INTERVAL_SECONDS = 5;
     /** R-20：401/403 鉴权失败后熔断时长（毫秒）——期间不再打 API，避免烧钱/刷日志。 */
     private static final long AUTH_CIRCUIT_COOLDOWN_MS = 5 * 60 * 1000L;
     private static final double TEMPERATURE = 0.8;
@@ -86,6 +96,8 @@ public class AIChatManager {
     private volatile int maxPromptLength;
     private volatile int maxTokens;
     private volatile int dailyRoundLimit;
+    /** P0-4：每个玩家每天可发起的开场白次数上限（≤0 = 不限）；独立于 dailyRoundLimit。 */
+    private volatile int openingDailyCap;
     private volatile int countMinRounds;
     /** §3.7：AI 总结请求的 max_tokens（需容纳 JSON 结构化输出；中文点评更占 token）。 */
     private volatile int feedbackAiMaxTokens;
@@ -98,13 +110,59 @@ public class AIChatManager {
     private volatile boolean shuttingDown = false;
     /** R-63：system prompt 单独超预算的 WARNING 只打一次（reload 时重置）。 */
     private volatile boolean systemOverBudgetWarned = false;
+    /** R12：注入后 prompt 超 {@code scenario.max-prompt-length} 的 WARNING 只打一次（reload 时重置）。 */
+    private volatile boolean promptBudgetWarned = false;
     /** US-FB R2：总结输出解析失败的 WARNING 只打一次（reload 时重置），防刷日志。 */
     private volatile boolean feedbackParseWarned = false;
     /** R-20：鉴权熔断"开启至"时间戳（毫秒）；&gt; now 即熔断中。成功请求/reload 清零。 */
     private volatile long authCircuitOpenUntil = 0L;
 
+    /**
+     * R12：目标词取数函数。由 DI 层（{@code LetsLearnEnglish}）接线，指向
+     * {@code ChatFeedbackManager.getSuggestedFocusWords} 等<b>纯内存</b>数据源。
+     *
+     * <p>为什么用 {@code Function} 而不直接持有 {@code ChatFeedbackManager}：
+     * <ul>
+     *   <li>DI 顺序是 AIChatManager 先构造、ChatFeedbackManager 后构造，构造期反向取必为 null；</li>
+     *   <li>ChatFeedbackManager 已单向持有 AIChatManager，反向引用会成环（见
+     *       {@code PluginGuiHolder} 对双向引用的禁忌说明）；</li>
+     *   <li>本包（core.ai）内不该出现"Manager 互指"的隐式时序契约。</li>
+     * </ul>
+     * 默认恒空 —— 未接线时功能自然关闭，且 prompt 与旧版逐字节一致。
+     */
+    private volatile java.util.function.Function<UUID, List<String>> focusWordProvider = id -> List.of();
+
     private final Map<UUID, Long> lastRequestTime = new ConcurrentHashMap<>();
     private final Set<UUID> pendingRequests = ConcurrentHashMap.newKeySet();
+
+    /**
+     * P0-4：开场白独立限流 —— 上次开场白"真正发出"的时间戳（毫秒）。
+     * 与 lastRequestTime 解耦：startConversation 清 lastRequestTime（R-18）不会清这里，
+     * endConversation 亦然 —— 否则"退场景再进"就能绕过限流（正是本 P0 的攻击面）。
+     */
+    private final Map<UUID, Long> lastOpeningTime = new ConcurrentHashMap<>();
+
+    /**
+     * P0-4：开场白每日计数（内存，不落库）。日期用 {@link LocalDate}（服务器本地时区，
+     * 与 PlayerDataStore.TodayCounter / DailyChallengeManager 的 LocalDate.now() 口径一致），
+     * 跨日惰性清零。
+     *
+     * <p>为何不落库：落库需要新表/新列（本任务禁止），而复用 incrementTodayAiRound 会把
+     * 开场白算成玩家的正常轮次（玩家消息预算被开场白吃掉，语义错误）。
+     * 重启清零本身可接受：真正的花费封顶靠"开场白在发请求前预扣落库的每日轮次"
+     * （见 dispatchChat 的预扣块），本计数器只是把"开场白"这一子类再多压一道更紧的闸。
+     * 最坏日花费论证：每个开场白请求都先占 1 个落库轮次（incrementTodayAiRound 是
+     * 内存即时生效 + 异步 UPSERT 落库），所以重启/重登只能重置本计数器，无法让
+     * "今日轮次"变小 —— 单玩家单日所有 AI 请求（开场白 + 玩家消息）总数 ≤
+     * dailyRoundLimit 这一硬上限，与重启次数、openingDailyCap 取值无关。
+     * 唯一残余窗口：预扣在内存生效但异步 UPSERT 尚未落盘时进程被 kill，该次预扣丢失；
+     * 因每玩家同时至多 1 条在途请求（pendingRequests + 5 秒间隔），每次崩溃最多丢 1 条。
+     *
+     * <p>生命周期：{@link #unloadPlayer(UUID)} 只删"已跨日"的条目，故 quit-rejoin 不会
+     * 重置当日额度（见该方法的注释）；仅进程重启会清零，而重启同样会从
+     * ai_round_counters 回读今日轮次，总上限不受影响。
+     */
+    private final Map<UUID, OpeningCounter> openingCounters = new ConcurrentHashMap<>();
 
     /** 每个玩家当前使用的难度（跨会话保留的偏好，不属于单场会话状态） */
     private final Map<UUID, String> playerDifficulties = new ConcurrentHashMap<>();
@@ -183,6 +241,78 @@ public class AIChatManager {
     /** §3.3：transcript 单行 —— role 取值 "student" / "ai"。 */
     public static record TranscriptLine(String role, String content) { }
 
+    // ============================================================
+    //  P0-4：开场白每日计数（纯内存，不落库）
+    // ============================================================
+
+    /**
+     * P0-4 红队补丁（R-P1-1）：退还一次开场白预扣（落库轮次 + 开场白次数）。
+     *
+     * <p>调用条件严格限定为"请求<b>未到达上游</b>就失败"：当前实现只在
+     * {@link #classifyFailure} 得出"非 4xx"的结论时调用 —— 即超时 / 连接失败 /
+     * 5xx / 429（上游限流，未消耗生成额度）。4xx（尤其 401/403）不退：请求已被上游受理
+     * 并计费，启动方也该为错误请求付费（这也是"发请求即计费"的本意）。
+     *
+     * <p>为什么需要退还：预扣发生在发请求之前（为堵 sameSession 绕过），若失败不退，
+     * 上游持续故障时玩家反复点场景会把当天额度耗光，且落库后重启/重登都无法恢复，
+     * 等于把玩家锁死在"当天不能再用 AI"的状态。
+     */
+    private void refundOpeningQuota(Player player) {
+        UUID playerId = player.getUniqueId();
+        OpeningCounter counter = openingCounters.get(playerId);
+        if (counter != null) {
+            counter.refund();
+        }
+        try {
+            plugin.getPlayerDataStore().decrementTodayAiRound(playerId);
+        } catch (Exception e) {
+            debugLog("[" + player.getName() + "] 退还开场白预扣轮次失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 单玩家"今日已发起开场白次数"。日期跨日惰性清零；并发由自身 synchronized 保护。
+     * 不落库的取舍见 {@link AIChatManager#openingCounters}；计数只在"确定要发 HTTP 请求"前递增
+     * （见 {@link AIChatManager#tryConsumeOpeningQuota(Player, AIChatCallback)}），被他处拒绝的调用不占额度。
+     */
+    private static final class OpeningCounter {
+        private LocalDate date;
+        private int count;
+
+        /** 尝试占 1 次额度；已达上限返回 false（跨日先清零）。 */
+        synchronized boolean tryConsume(int cap) {
+            LocalDate today = LocalDate.now();
+            if (!today.equals(date)) {
+                date = today;
+                count = 0;
+            }
+            if (cap > 0 && count >= cap) {
+                return false;
+            }
+            count++;
+            return true;
+        }
+
+        synchronized int get() {
+            return LocalDate.now().equals(date) ? count : 0;
+        }
+
+        /**
+         * P0-4 红队补丁（R-P1-1）：退还一次占用的开场白额度（失败请求用）。
+         * 下限钳 0，跨日不退还（当日额度已自然清零）。
+         */
+        synchronized void refund() {
+            if (LocalDate.now().equals(date) && count > 0) {
+                count--;
+            }
+        }
+
+        /** 条目是否已跨日（quit 清理时只删陈旧项，保留当日额度，防"重登清零"）。 */
+        synchronized boolean isStale() {
+            return date == null || !LocalDate.now().equals(date);
+        }
+    }
+
     /**
      * §3.3：会话结束快照（US-FB 1b 冻结消费：ChatFeedbackManager.deliverEnd/persistOnQuit）。
      * <p>{@code qualified} 与 H3 计数早退是同一表达式（validInputs ≥ count-min-rounds 且
@@ -239,6 +369,64 @@ public class AIChatManager {
                 + " difficulties=" + difficulties.size());
     }
 
+    /**
+     * R12：注入目标词取数函数（由 {@code LetsLearnEnglish} 在 DI 阶段接线）。
+     *
+     * <p>契约：provider 只允许读<b>纯内存</b>数据源，必须零 DB、零锁、不阻塞 ——
+     * 它会被 {@code buildSystemPrompt} 在主线程同步调用。传 {@code null} 等价于"关闭注入"。
+     *
+     * @param provider 取数函数；null = 关闭
+     */
+    public void setFocusWordProvider(java.util.function.Function<UUID, List<String>> provider) {
+        this.focusWordProvider = (provider == null) ? id -> List.of() : provider;
+    }
+
+    /**
+     * R12：收集本场要注入的目标词。
+     *
+     * <p>线程：由 {@code buildSystemPrompt} 在主线程调用，因此 provider 必须零 DB
+     * （见 {@link #setFocusWordProvider} 契约）。这里不做任何词库校验 ——
+     * 上游 {@code ChatFeedbackManager} 已按词库过滤，重复校验只会引入缓存 miss 查库风险。
+     *
+     * @return 不可变列表；功能关闭 / 无数据 / 异常时返回空表
+     */
+    private List<String> collectFocusWords(UUID playerId) {
+        if (playerId == null) {
+            return List.of();
+        }
+        // 与 daily-round-limit 的"≤0 = 不限"不同：本键 0 = 关闭（配置注释已明示口径差异）。
+        int max = plugin.getConfigManager().getMainConfig().getInt("ai-chat.focus-words-max", 5);
+        if (max <= 0) {
+            return List.of();
+        }
+        List<String> provided;
+        try {
+            provided = focusWordProvider.apply(playerId);
+        } catch (RuntimeException e) {
+            // 取数是锦上添花：provider 抛异常绝不能让玩家开不了对话。
+            debugLog("[collectFocusWords] focus word provider failed: " + e.getMessage());
+            return List.of();
+        }
+        if (provided == null || provided.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> deduped = new LinkedHashSet<>();
+        for (String word : provided) {
+            if (word == null) {
+                continue;
+            }
+            String trimmed = word.trim();
+            if (trimmed.isEmpty() || deduped.contains(trimmed)) {
+                continue;
+            }
+            deduped.add(trimmed);
+            if (deduped.size() >= max) {
+                break; // 截断到 max（保序：先到先得）
+            }
+        }
+        return deduped.isEmpty() ? List.of() : List.copyOf(deduped);
+    }
+
     private void loadConfig() {
         File aiConfigFile = new File(plugin.getDataFolder(), "ai_config.yml");
         if (!aiConfigFile.exists()) {
@@ -268,6 +456,9 @@ public class AIChatManager {
         // F1-19 终案：daily-round-limit ≤ 0 = 不限（0/负数不再"拒绝全部"；
         // 想彻底禁用 AI 对话请用 ai-chat.enabled=false）。判断点见 canSendChat/dispatchChat。
         this.dailyRoundLimit = config.getInt("ai-chat.daily-round-limit", DEFAULT_DAILY_ROUND_LIMIT);
+        // P0-4：开场白每日次数上限（≤0 = 不限，与 daily-round-limit 同口径）；
+        // 独立于 dailyRoundLimit —— 开场白虽计入落库轮次，但另有更紧的次数闸。
+        this.openingDailyCap = config.getInt("ai-chat.opening-daily-cap", DEFAULT_OPENING_DAILY_CAP);
         this.countMinRounds = config.getInt("ai-chat.count-min-rounds", DEFAULT_COUNT_MIN_ROUNDS);
         // US-FB §3.7：对话总结通道配置（独立超时/max_tokens/transcript 上限）。
         this.feedbackAiMaxTokens = config.getInt("ai-chat.feedback.ai-max-tokens",
@@ -282,6 +473,8 @@ public class AIChatManager {
         this.authCircuitOpenUntil = 0L;
         // R-63：配置可能改了 token 预算 —— 重置 system 超预算的单次 WARNING 标志。
         this.systemOverBudgetWarned = false;
+        // R12：同理，reload 后允许 prompt 长度超限的 WARNING 再提示一次。
+        this.promptBudgetWarned = false;
         // US-FB：重载后允许"总结解析失败"的单次 WARNING 再次提示。
         this.feedbackParseWarned = false;
 
@@ -305,8 +498,13 @@ public class AIChatManager {
     }
 
     private void loadScenariosConfig() {
-        scenarios.clear();
-        difficulties.clear();
+        // P2-1 红队补丁：先把新配置完整解析到临时表，解析成功且非空才整体替换。
+        // 旧实现先 clear() 再逐条填，若 ai_scenarios.yml 恰好正被管理员编辑且有语法错，
+        // YamlConfiguration 会吞掉异常返回空配置 → 走到 loadBuiltinScenarios()，自定义场景
+        // 从内存消失（GUI 只剩 3 个内置场景），而日志只有一行 "scenarios=3"。
+        // 现在：文件里明明有内容却解析不出场景时，打 SEVERE 并保留旧表。
+        Map<String, ScenarioConfig> newScenarios = new LinkedHashMap<>();
+        Map<String, DifficultyConfig> newDifficulties = new LinkedHashMap<>();
 
         // 保存默认资源到插件数据文件夹
         File dataFile = new File(plugin.getDataFolder(), "ai_scenarios.yml");
@@ -316,6 +514,13 @@ public class AIChatManager {
             } catch (IllegalArgumentException e) {
                 plugin.getLogger().warning("Could not save default ai_scenarios.yml from JAR.");
             }
+        } else {
+            // P2-D：内置场景语义升级（机场/酒店/医院 → 村庄交易/附魔台/下界/建筑）。
+            // 已部署服的数据文件只在"不存在"时生成，永远不会拿到新内容——旧服主会一直看到
+            // 出境游场景。这里用"版本戳"做一次性升级：若文件名内含内置场景 key 集合的旧版
+            // 标记且没有 scenarios-version，则备份旧文件为 .legacy.bak 后覆盖为内置新版。
+            // 管理员改过的文件（含自定义 key 或显式 scenarios-version）一律不碰。
+            maybeUpgradeScenariosFile(dataFile);
         }
 
         // 从插件数据文件夹加载（优先，支持用户修改）
@@ -343,13 +548,13 @@ public class AIChatManager {
                 dc.displayName = sec.getString("display_name", key);
                 dc.displayNameZh = sec.getString("display_name_zh", dc.displayName);
                 dc.prompt = sec.getString("prompt", "");
-                difficulties.put(key, dc);
+                newDifficulties.put(key, dc);
             }
         }
 
         // 确保至少有一个难度
-        if (difficulties.isEmpty()) {
-            difficulties.put("medium", createDefaultDifficulty("medium", "Medium", "中等",
+        if (newDifficulties.isEmpty()) {
+            newDifficulties.put("medium", createDefaultDifficulty("medium", "Medium", "中等",
                     "Use everyday English at a normal pace."));
         }
 
@@ -368,12 +573,55 @@ public class AIChatManager {
                     sc.material = Material.PAPER;
                 }
                 sc.prompt = sec.getString("prompt", "");
-                scenarios.put(key, sc);
+                newScenarios.put(key, sc);
             }
         }
 
+        // P2-1 红队补丁：仅当"磁盘文件里确实有内容"却解析出 0 个场景时，判为解析失败/损坏，
+        // 打 SEVERE 并保留旧表（不动 scenarios/difficulties）。文件真的是空的（或首次运行、
+        // 只有注释）则照旧回落到内置场景 —— 这是正常降级路径，不算损坏。
+        if (newScenarios.isEmpty() && !dataFile.exists()) {
+            // dataFile 不存在且 JAR 资源也拿不到：走内置（上方已有分支，这里兜底）
+            loadBuiltinScenarios();
+            return;
+        }
+        if (newScenarios.isEmpty() && hasMeaningfulContent(dataFile)) {
+            plugin.getLogger().severe("Failed to parse " + dataFile.getName()
+                    + " (0 scenarios parsed but the file has content). Your previous scenario table"
+                    + " is kept in memory; fix the YAML and run /lea reload.");
+            return;
+        }
+
+        // 解析成功且非空（或文件本就为空）→ 整体替换，杜绝"清一半留一半"
+        scenarios.clear();
+        scenarios.putAll(newScenarios);
+        difficulties.clear();
+        difficulties.putAll(newDifficulties);
+
         if (scenarios.isEmpty()) {
             loadBuiltinScenarios();
+        }
+    }
+
+    /**
+     * P2-1 红队补丁：文件是否存在可被解析的实质内容（非空、非纯注释）。
+     * 与 ConfigManager.looksLikeBrokenYaml 同一判据，用于区分"空文件（正常）"与
+     * "有内容却解析为空（损坏）"。
+     */
+    private static boolean hasMeaningfulContent(File file) {
+        if (file == null || !file.exists()) {
+            return false;
+        }
+        try {
+            for (String line : java.nio.file.Files.readAllLines(file.toPath(), StandardCharsets.UTF_8)) {
+                String trimmed = line.trim();
+                if (!trimmed.isEmpty() && !trimmed.startsWith("#")) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Exception e) {
+            return true; // 读不了就当有内容：宁可保留旧表也不清空
         }
     }
 
@@ -382,24 +630,56 @@ public class AIChatManager {
         difficulties.clear();
 
         difficulties.put("easy", createDefaultDifficulty("easy", "Easy", "简单",
-                "Use very simple words and short sentences. Be very patient."));
+                "You are speaking to an English beginner. Use very simple words and short sentences "
+                        + "(under 10 words each). Be very patient and encouraging with mistakes. "
+                        + "Recast errors naturally: say the player's idea back correctly in your own reply. "
+                        + "Never say \"that is wrong\" and never explain grammar rules. Praise what they get right."));
         difficulties.put("medium", createDefaultDifficulty("medium", "Medium", "中等",
-                "Use everyday English at a normal pace. Correct mistakes politely."));
+                "You are speaking to an intermediate English learner. Use everyday English at a normal pace. "
+                        + "Recast errors naturally in your reply, and point out at most one grammar issue per reply "
+                        + "(one short sentence, then move on). Encourage the player to elaborate."));
         difficulties.put("hard", createDefaultDifficulty("hard", "Hard", "困难",
-                "Use natural, idiomatic English. Challenge the player."));
+                "You are speaking to an advanced English learner. Use natural, native-level English with "
+                        + "idiomatic expressions. Recast naturally when it does not break the flow, and only stop "
+                        + "for major mistakes; point out at most one issue per reply. Push the player to keep up."));
 
-        String[] scenarioKeys = {"airport", "restaurant", "shopping", "hotel", "hospital", "free_talk"};
-        String[] names = {"Airport Check-in", "Restaurant Ordering", "Shopping Mall", "Hotel Check-in", "Hospital Visit", "Free Talk"};
-        String[] namesZh = {"机场值机", "餐厅点餐", "购物中心", "酒店入住", "医院就诊", "自由对话"};
-        Material[] mats = {Material.ELYTRA, Material.COOKED_BEEF, Material.LEATHER_CHESTPLATE,
-                           Material.RED_BED, Material.ENCHANTED_BOOK, Material.BOOK};
+        // P2-D：内置兜底场景同步为 MC 语义（与 resources/ai_scenarios.yml 保持一致）。
+        // 仅在数据文件缺失/损坏/解析为空时才会走到这里；正常路径读 YAML。
+        String[] scenarioKeys = {"village_trade", "enchanting", "nether_trip", "building", "restaurant", "free_talk"};
+        String[] names = {"Village Trade", "Enchanting Table", "Nether Adventure", "Build a House",
+                          "Village Restaurant", "Free Talk"};
+        String[] namesZh = {"村庄交易", "附魔台", "下界探险", "建造小屋", "村庄餐厅", "自由对话"};
+        Material[] mats = {Material.EMERALD, Material.ENCHANTED_BOOK, Material.NETHERITE_SWORD,
+                           Material.BRICKS, Material.COOKED_BEEF, Material.BOOK};
         String[] prompts = {
-            "You are an airline check-in staff. Help the passenger with passport, luggage, seat, and gate.",
-            "You are a waiter. Guide the customer through greeting, menu, ordering, drinks, and dessert.",
-            "You are a shop assistant. Help the customer find clothes: ask needs, suggest sizes and colors.",
-            "You are a hotel receptionist. Help the guest: confirm reservation, ask preferences, give key.",
-            "You are a doctor. Ask about symptoms and duration, give advice, prescribe rest or medicine.",
-            "You are a friendly English tutor. Chat naturally, ask questions, suggest topics if stuck."
+            "You are a villager trader in a Minecraft village. Stay inside the game: talk only about items, "
+                    + "emeralds and trades, never the real world. Ask what the player wants to buy or sell, "
+                    + "name a price, react to their offer, close the trade. Practice numbers, item names and "
+                    + "polite bargaining. Ask one question at a time, keep replies to 1-3 short sentences, "
+                    + "and gently recast the player's mistakes rather than lecturing.",
+            "You are an enchanter at an enchanting table in a small library. Stay inside the game: only "
+                    + "enchantments, lapis lazuli, experience levels and bookshelves. Ask which item they want "
+                    + "to enchant, suggest enchantments, explain what each does, tell the level cost. Practice "
+                    + "imperatives, conditions and numbers. Ask one question at a time, keep replies to 1-3 short "
+                    + "sentences, and gently recast mistakes rather than lecturing.",
+            "You are an experienced adventurer planning a Nether trip with the player. Stay inside the game: "
+                    + "gear, portals, lava and mobs. Ask what gear they have, warn about creepers near the portal, "
+                    + "and plan supplies together. Practice future forms and advice. Ask one question at a time, "
+                    + "keep replies to 1-3 short sentences, and gently recast mistakes rather than lecturing.",
+            "You are a friendly builder helping the player design a house in Minecraft. Stay inside the game: "
+                    + "blocks, rooms and colors. Ask what they are building, how big it is, which materials and "
+                    + "colors they like, which rooms it needs. Give one simple building tip. Practice prepositions "
+                    + "of place, materials and describing words. Ask one question at a time, keep replies to 1-3 "
+                    + "short sentences, and gently recast mistakes rather than lecturing.",
+            "You are a waiter at a small restaurant in a Minecraft village. The menu is bread, cooked beef, "
+                    + "mushroom stew, baked potato and apple juice; payment is in emeralds. Greet them, present the "
+                    + "menu, take their order, ask about drinks, let them pay. Practice food words and polite "
+                    + "requests. Ask one question at a time, keep replies to 1-3 short sentences, and gently recast "
+                    + "mistakes rather than lecturing.",
+            "You are a friendly English tutor chatting with a student who plays Minecraft. Your favorite topics "
+                    + "are building, mining, farming, mobs, servers and school life. If the player seems stuck, "
+                    + "suggest a topic such as their favorite block or their best build. Ask one question at a "
+                    + "time, keep replies to 1-3 short sentences, and gently recast mistakes rather than lecturing."
         };
 
         for (int i = 0; i < scenarioKeys.length; i++) {
@@ -409,6 +689,52 @@ public class AIChatManager {
             sc.material = mats[i];
             sc.prompt = prompts[i];
             scenarios.put(scenarioKeys[i], sc);
+        }
+    }
+
+    /**
+     * P2-D：把"出厂旧场景表"一次性升级为当前的 MC 语义场景表。
+     *
+     * <p>判定为"出厂旧表"必须<b>同时</b>满足：
+     * <ul>
+     *   <li>文件里没有 {@code scenarios-version} 键（新版内置文件带此键；旧文件没有）；</li>
+     *   <li>场景 key 集合与旧内置集合完全一致（airport/restaurant/shopping/hotel/hospital/free_talk）
+     *       —— 只要管理员加过、删过、改过任何一个 key，就不算"未改动"，直接跳过。</li>
+     * </ul>
+     *
+     * <p>满足时：先把旧文件另存为 {@code ai_scenarios.yml.legacy.bak}（不覆盖已有备份），
+     * 再用 JAR 内新版覆盖。任何异常只告警，绝不阻断加载。
+     *
+     * <p><b>判据只有 key 集合，不看 prompt 内容</b>：仅改过 prompt 文本、但 key 未动的
+     * 旧出厂文件也会被覆盖（原文件在 {@code .legacy.bak}）。本意是"结构未变即视为未改造"，
+     * 因为判定内容是否被改动需要逐字段比对，且管理员改 prompt 恰恰是想保留的场景——
+     * 这是已知取舍，文档里如实写明而不是假装能识别。
+     */
+    private void maybeUpgradeScenariosFile(File dataFile) {
+        try {
+            YamlConfiguration existing = YamlConfiguration.loadConfiguration(dataFile);
+            if (existing.isSet("scenarios-version")) {
+                return; // 已是新版（或管理员显式声明），不动
+            }
+            ConfigurationSection section = existing.getConfigurationSection("scenarios");
+            if (section == null) {
+                return;
+            }
+            Set<String> keys = section.getKeys(false);
+            Set<String> legacyKeys = Set.of("airport", "restaurant", "shopping", "hotel", "hospital", "free_talk");
+            if (!keys.equals(legacyKeys)) {
+                return; // 管理员动过结构 —— 尊重其配置
+            }
+
+            File backup = new File(dataFile.getParentFile(), dataFile.getName() + ".legacy.bak");
+            if (!backup.exists()) {
+                java.nio.file.Files.copy(dataFile.toPath(), backup.toPath());
+            }
+            plugin.saveResource("ai_scenarios.yml", true); // 覆盖为内置新版
+            plugin.getLogger().info("Upgraded bundled AI scenarios to Minecraft-themed set "
+                    + "(old file saved as " + backup.getName() + ").");
+        } catch (Exception e) {
+            plugin.getLogger().warning("Could not upgrade ai_scenarios.yml: " + e.getMessage());
         }
     }
 
@@ -461,6 +787,54 @@ public class AIChatManager {
             debugLog("[" + player.getName() + "] canSendChat 预检读取今日 AI 轮次失败: " + e.getMessage());
             return true;
         }
+    }
+
+    /**
+     * P0-4：开场白专属配额闸 —— 5 秒最小间隔（防 GUI 连点/快速切场景）+
+     * {@code ai-chat.opening-daily-cap} 每日次数上限。调用方须在 pendingRequests
+     * 占位成功之后、{@code markRequestTime} 之前调用；返回 false 表示已拒绝。
+     *
+     * <p>提示方式：拒绝原因按 {@code onResponse(null, msg)} 约定交回（复用既有 i18n 键，
+     * 不新增）。{@link #triggerAiOpening} 会把 errorMsg 直接发给玩家并向下游回调
+     * {@code (null, null)} —— 因为当前唯一调用方 ScenarioSelectListener 会把任何
+     * 非 null errorMsg 统一改写成 {@code dialogue.request-failed}，埋掉"每日上限 /
+     * 冷却"这类真实原因；直发既不误导玩家也不会双发消息。
+     *
+     * <p>只对"真正要发 HTTP 请求"的调用生效：前面任何通用守卫（熔断/冷却/无会话/
+     * 在途）拒绝时都不会走到这里，因此不占开场白额度。
+     */
+    private boolean tryConsumeOpeningQuota(Player player, AIChatCallback callback) {
+        UUID playerId = player.getUniqueId();
+        long now = System.currentTimeMillis();
+        Long last = lastOpeningTime.get(playerId);
+        if (last != null) {
+            long elapsedSec = (now - last) / 1000;
+            if (elapsedSec < OPENING_MIN_INTERVAL_SECONDS) {
+                int wait = OPENING_MIN_INTERVAL_SECONDS - (int) elapsedSec;
+                debugLog("[" + player.getName() + "] 开场白限流拒绝 — 距上次 " + elapsedSec
+                        + "s，需间隔 " + OPENING_MIN_INTERVAL_SECONDS + "s（约再等 " + wait + "s）");
+                // 用 dialogue.rate-limited 而非 dialogue.cooldown：后者文案是"再发消息"，
+                // 玩家此刻并没有发消息（是系统要发开场白），前者的"请求过于频繁"更贴切。
+                callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
+                        player, "dialogue.rate-limited"));
+                return false;
+            }
+        }
+        OpeningCounter counter = openingCounters.computeIfAbsent(playerId, k -> new OpeningCounter());
+        if (!counter.tryConsume(openingDailyCap)) {
+            int used = counter.get();
+            debugLog("[" + player.getName() + "] 开场白每日次数超限 — 今日=" + used
+                    + " 上限=" + openingDailyCap);
+            callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
+                    player, "dialogue.daily-limit-reached",
+                    "used", String.valueOf(used),
+                    "limit", String.valueOf(openingDailyCap)));
+            return false;
+        }
+        // 额度已占 —— 记录发起时刻，下一次开场白至少间隔 OPENING_MIN_INTERVAL_SECONDS。
+        // 注意：这里与玩家消息的 lastRequestTime 完全独立（startConversation 清冷却不影响本值）。
+        lastOpeningTime.put(playerId, now);
+        return true;
     }
 
     // ============================================================
@@ -529,6 +903,11 @@ public class AIChatManager {
     /**
      * 触发 AI 主动发送开场白。
      * 先添加用户触发语到上下文，再异步请求 AI，回调返回 AI 的开场回复。
+     *
+     * <p>P0-4（R-16 修正）：开场白不再是不计费的旁路 —— 它和玩家消息一样过每日轮次
+     * 上限并累加落库轮次（HTTP 请求就是花费），但仍是"系统触发"：不计有效输入、
+     * 不进 transcript。另有两道开场白专属闸（与玩家消息冷却解耦）：
+     * 5 秒最小间隔（防 GUI 连点/快速切场景）+ ai-chat.opening-daily-cap 每日次数上限。
      */
     public void triggerAiOpening(Player player, AIChatCallback callback) {
         // MC-2（S-H）：同 startConversation，纵深防御 —— 模块关闭时不发起开场白请求。
@@ -536,6 +915,7 @@ public class AIChatManager {
             return;
         }
         if (!isAvailable()) {
+            // P0-4：不发请求就不占额度、也不提示（与既有"无 Key 静默降级"一致）。
             callback.onResponse(null, null);
             return;
         }
@@ -545,14 +925,32 @@ public class AIChatManager {
             return;
         }
         String trigger = "Please start the conversation by greeting me and introducing the situation.";
-        // R-16：开场白走独立通道 —— 不计有效输入、不计每日轮次、不查每日上限。
-        dispatchChat(player, trigger, callback, false);
+        // P0-4：拒绝原因直发玩家，再以 (null, null) 结束回调 —— 唯一调用方
+        // ScenarioSelectListener 会把任何非 null errorMsg 统一改写为
+        // dialogue.request-failed，经它转手会埋掉"冷却未到 / 开场白每日上限"这类
+        // 真实原因（且本任务只允许改本文件）。直发既不误导玩家也不会双发消息；
+        // 成功路径（errorMsg=null）完全保持原语义。回调均在主线程执行。
+        AIChatCallback guarded = (aiResponse, errorMsg) -> {
+            if (errorMsg != null) {
+                player.sendMessage(errorMsg);
+                callback.onResponse(null, null);
+                return;
+            }
+            callback.onResponse(aiResponse, null);
+        };
+        dispatchChat(player, trigger, guarded, ChatTrigger.OPENING);
     }
 
-    private String buildSystemPrompt(String scenarioKey, String difficultyKey, String lang) {
-        return buildSystemPrompt(scenarioKey, difficultyKey, lang, null);
-    }
-
+    /**
+     * R12：组装 system prompt —— 场景/难度展示名 + 占位符替换 + 目标词注入。
+     *
+     * <p>线程：主线程（调用点 {@code startConversation}）。因此这里的每一次取值都必须
+     * 零 DB：{@link #collectFocusWords} 只走 {@code focusWordProvider}（纯内存），
+     * 绝不调用 {@code getMasteredWords} / {@code loadPlayerData} —— 后者缓存 miss 时
+     * 会主线程同步查库并等 {@code connectionLock}。
+     *
+     * <p>R12 同时删除了此前的 3 参死重载（零调用，仅委托本方法）。
+     */
     private String buildSystemPrompt(String scenarioKey, String difficultyKey, String lang, UUID ownerId) {
         ScenarioConfig sc = scenarios.get(scenarioKey);
         if (sc == null && ownerId != null) {
@@ -575,16 +973,28 @@ public class AIChatManager {
         String scenarioName = (sc != null) ? sc.getDisplayName(zh) : scenarioKey;
         String scenarioPrompt = (sc != null) ? sc.prompt : "Chat with the player.";
         String difficultyPrompt = (dc != null) ? dc.prompt : "";
+        String difficultyName = (dc != null) ? dc.getDisplayName(zh) : String.valueOf(difficultyKey);
 
-        return "You are role-playing a scenario: " + scenarioName + ".\n\n"
-                + "=== SCENE ===\n" + scenarioPrompt.trim() + "\n\n"
-                + "=== DIFFICULTY ===\n" + difficultyPrompt.trim() + "\n\n"
-                + "Important rules:\n"
-                + "- Always stay in character.\n"
-                + "- If the player writes in Chinese, gently encourage them to try in English.\n"
-                + "- Remember conversation context and refer back to earlier messages.\n"
-                + "- End responses with a question or prompt when appropriate to keep the conversation going.\n"
-                + "- About correcting mistakes: follow the difficulty instructions above.";
+        List<String> focusWords = collectFocusWords(ownerId);
+        String prompt = PromptComposer.compose(scenarioName, scenarioPrompt,
+                difficultyName, difficultyPrompt, focusWords);
+
+        // R12：注入可能把 prompt 推过 scenario.max-prompt-length，而 /le scenario save
+        // 用同一阈值校验导出长度 —— 超长会让"保存场景"直接失败。此处只告警不改行为
+        // （与 R-63 的 system 超预算告警同姿态：system prompt 永不裁剪），且进程内只报一次防刷屏。
+        if (maxPromptLength > 0 && prompt.length() > maxPromptLength && !promptBudgetWarned) {
+            promptBudgetWarned = true;
+            plugin.getLogger().warning("AI system prompt length " + prompt.length()
+                    + " exceeds scenario.max-prompt-length " + maxPromptLength
+                    + " (scenario=" + scenarioKey + ", focusWords=" + focusWords.size()
+                    + "). Shorten the scenario prompt or lower ai-chat.focus-words-max;"
+                    + " otherwise /le scenario save will be rejected. Further warnings suppressed.");
+        }
+        if (!focusWords.isEmpty()) {
+            debugLog("目标词注入 — 场景=" + scenarioKey + " 词数=" + focusWords.size()
+                    + " 词表=" + focusWords + " prompt长度=" + prompt.length());
+        }
+        return prompt;
     }
 
     /**
@@ -789,17 +1199,30 @@ public class AIChatManager {
 
     public void chatAsync(Player player, String input, AIChatCallback callback) {
         // 正常玩家消息：计入有效输入与每日轮次、受每日上限约束。
-        dispatchChat(player, input, callback, true);
+        dispatchChat(player, input, callback, ChatTrigger.PLAYER_MESSAGE);
     }
 
     /**
-     * R-16/17/19/20：AI 请求统一派发。
+     * 请求来源类型（P0-4）。两者都真正发出 HTTP 请求，因此都过每日轮次上限、都计入
+     * 落库的今日轮次（玩家消息=成功回复后计，开场白=发请求前预扣）；差异只在
+     * "是否算玩家的有效输入/进 transcript"以及开场白专属的间隔/每日次数闸。
+     */
+    private enum ChatTrigger {
+        /** 玩家在聊天栏发的消息。 */
+        PLAYER_MESSAGE,
+        /** 系统主动开场白（场景开始时的隐藏触发语）。 */
+        OPENING
+    }
+
+    /**
+     * R-16/17/19/20 + P0-4：AI 请求统一派发。
      *
-     * @param countsTowardUsage true=正常玩家消息（计有效输入+每日轮次+查每日上限）；
-     *                          false=开场白等系统触发（独立通道：不计输入/不计轮次/不查上限）
+     * @param trigger {@link ChatTrigger#PLAYER_MESSAGE}=正常玩家消息；
+     *                {@link ChatTrigger#OPENING}=开场白等系统触发
      */
     private void dispatchChat(Player player, String input, AIChatCallback callback,
-                              boolean countsTowardUsage) {
+                              ChatTrigger trigger) {
+        final boolean countsAsPlayerMessage = trigger == ChatTrigger.PLAYER_MESSAGE;
         if (!isAvailable()) {
             callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
                     player, "dialogue.ai-not-configured"));
@@ -827,28 +1250,26 @@ public class AIChatManager {
             return;
         }
 
-        // C4/R-16：仅正常玩家消息查今日轮次上限；开场白(countsTowardUsage=false)不受限。
+        // P0-4：每日轮次上限对所有真正发请求的路径生效（开场白不再豁免 —— 它同样烧 API 费用）。
         // F1-19 终案：dailyRoundLimit ≤ 0 = 不限（与 word-system.daily-limit /
         // money.daily-cap 同口径）—— "想彻底禁用 AI 对话"请用 ai-chat.enabled=false。
-        if (countsTowardUsage) {
-            int todayRounds;
-            try {
-                todayRounds = plugin.getPlayerDataStore().getTodayAiRound(player.getUniqueId());
-            } catch (Exception e) {
-                debugLog("[" + player.getName() + "] 读取今日 AI 轮次失败，拒绝请求: " + e.getMessage());
-                callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
-                        player, "dialogue.request-failed"));
-                return;
-            }
-            if (dailyRoundLimit > 0 && todayRounds >= dailyRoundLimit) {
-                debugLog("[" + player.getName() + "] 每日 AI 轮次超限 — 今日=" + todayRounds
-                        + " 上限=" + dailyRoundLimit);
-                callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
-                        player, "dialogue.daily-limit-reached",
-                        "used", String.valueOf(todayRounds),
-                        "limit", String.valueOf(dailyRoundLimit)));
-                return;
-            }
+        int todayRounds;
+        try {
+            todayRounds = plugin.getPlayerDataStore().getTodayAiRound(player.getUniqueId());
+        } catch (Exception e) {
+            debugLog("[" + player.getName() + "] 读取今日 AI 轮次失败，拒绝请求: " + e.getMessage());
+            callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
+                    player, "dialogue.request-failed"));
+            return;
+        }
+        if (dailyRoundLimit > 0 && todayRounds >= dailyRoundLimit) {
+            debugLog("[" + player.getName() + "] 每日 AI 轮次超限 — 今日=" + todayRounds
+                    + " 上限=" + dailyRoundLimit + " 来源=" + trigger);
+            callback.onResponse(null, plugin.getMessageUtil().getPlayerMessage(
+                    player, "dialogue.daily-limit-reached",
+                    "used", String.valueOf(todayRounds),
+                    "limit", String.valueOf(dailyRoundLimit)));
+            return;
         }
 
         // R-19：markRequestTime 原先在此（上下文/pending 检查之前），导致被这些检查
@@ -868,8 +1289,32 @@ public class AIChatManager {
             return;
         }
 
+        // P0-4：开场白专属闸 —— 5 秒最小间隔 + 每日次数上限。放在所有通用拒绝检查之后、
+        // 真正发请求之前：被上面拒绝的调用不消耗开场白额度；HTTP 失败后额度不退（保守）。
+        if (trigger == ChatTrigger.OPENING && !tryConsumeOpeningQuota(player, callback)) {
+            pendingRequests.remove(player.getUniqueId());
+            return;
+        }
+
         // R-19：所有拒绝检查已过，确定要发请求 —— 此刻才烧冷却（被上面任一检查拒绝时不烧）。
         markRequestTime(player);
+
+        // P0-4：开场白的落库轮次在"发请求前"就预扣（玩家消息仍维持"成功回复才计"的旧语义）。
+        // 为什么必须预扣：成功回调只在 sameSession 时计数，而"点场景 A 后立刻切场景 B"
+        // 会让 A 的开场白响应到达时 session 已换（sessions 已被 startConversation 重建），
+        // 从而永不计轮次 —— 攻击者可借此把开场白刷成不占每日额度的请求。
+        // 发请求即计费，预扣让 daily-round-limit 对开场白成为硬上限（失败也计，保守但安全）。
+        // 注：此处与上方 getTodayAiRound 同为主线程内的一次懒 seed 读 + 内存自增 + 异步落库。
+        // 红队 P2-5 更正：当天首次调用若内存未 seed，会在主线程做一次同步 SELECT（MySQL 远端
+        // 时为数十毫秒级）——不是零成本，但发生在"玩家主动点开场景"的时刻，可接受；
+        // quit/rejoin 后的首条玩家消息同样走这条 seed 路径（既有 R2-M2 语义）。
+        if (trigger == ChatTrigger.OPENING) {
+            try {
+                plugin.getPlayerDataStore().incrementTodayAiRound(player.getUniqueId());
+            } catch (Exception e) {
+                debugLog("[" + player.getName() + "] 预扣开场白今日 AI 轮次失败: " + e.getMessage());
+            }
+        }
 
         debugLog("[" + player.getName() + "] 用户输入(" + sanitized.length() + "字符): "
                 + sanitized.substring(0, Math.min(100, sanitized.length())).replace("\n", "\\n"));
@@ -877,8 +1322,7 @@ public class AIChatManager {
         final String sessionId = state.sessionId;
         final UUID playerId = player.getUniqueId();
         final String finalSanitized = sanitized;
-        final boolean counts = countsTowardUsage;
-        // R-19：有效输入计数移到成功回调（失败不计输入）；R-16：开场白不计。
+        // R-19：有效输入计数移到成功回调（失败不计输入）；R-16：开场白不计有效输入。
 
         JsonObject requestBody;
         synchronized (context) {
@@ -887,9 +1331,9 @@ public class AIChatManager {
             requestBody = buildRequestBody(new ArrayDeque<>(context));
         }
         // §3.3：user 写入点 —— transcript 全文缓冲（独立于 context 裁剪；system 行不入）。
-        // 自决：开场白等系统触发（counts=false）的隐藏触发行不入 transcript —— 否则总结
-        // prompt 会把系统指令当学生句子分析；transcript 从 AI 开场问候起呈现自然交换。
-        if (counts) {
+        // 自决：开场白等系统触发（countsAsPlayerMessage=false）的隐藏触发行不入 transcript ——
+        // 否则总结 prompt 会把系统指令当学生句子分析；transcript 从 AI 开场问候起呈现自然交换。
+        if (countsAsPlayerMessage) {
             appendTranscript(state, "student", sanitized);
         }
 
@@ -945,9 +1389,10 @@ public class AIChatManager {
                     if (sameSession) {
                         current.aiReplyCount++;
                         appendTranscript(current, "ai", response);
-                        // H3/C4 + R-16/R-19：一次成功回复 = 一轮；仅正常消息计有效输入与今日轮次
-                        // （开场白 counts=false 不计；失败不进此分支，故失败不计输入也不计轮次）。
-                        if (counts) {
+                        // P0-4：开场白已在发请求前预扣轮次（见 dispatchChat 中的
+                        // "开场白的落库轮次在发请求前就预扣"），此处只有玩家消息才计。
+                        // 玩家消息沿用 R-19：成功回复才算一轮、且计一次有效输入。
+                        if (countsAsPlayerMessage) {
                             current.validInputs++;
                             try {
                                 plugin.getPlayerDataStore().incrementTodayAiRound(playerId);
@@ -958,12 +1403,15 @@ public class AIChatManager {
                     }
                     // Write AI response to DB asynchronously (sessionId captured from enclosing scope)
                     if (sessionId != null) {
-                        try {
-                            plugin.getDatabaseManager().insertChatHistory(playerId, sessionId, "assistant", response);
-                        } catch (Exception e) {
-                            // DB write failure should not affect the chat flow
-                            debugLog("[" + player.getName() + "] 写入 AI 回复到数据库失败: " + e.getMessage());
-                        }
+                        CompletableFuture.runAsync(() -> {
+                            // R-67：关服后在途写库直接短路（DB 已关闭，继续写会刷异常栈）。
+                            if (isShuttingDownOrDisabled()) return;
+                            try {
+                                plugin.getDatabaseManager().insertChatHistory(playerId, sessionId, "assistant", response);
+                            } catch (Exception e) {
+                                debugLog("[" + player.getName() + "] 写入 AI 回复到数据库失败: " + e.getMessage());
+                            }
+                        });
                     }
                 }
                 return response;
@@ -987,6 +1435,11 @@ public class AIChatManager {
             Throwable cause = (throwable instanceof CompletionException) ? throwable.getCause() : throwable;
             // R-20：按异常类型分流提示并在 401/403 时熔断（classifyFailure 内处理）。
             String errorKey = classifyFailure(cause);
+            // P0-4 红队补丁（R-P1-1）：开场白预扣在"未到达上游"类失败时退还。
+            // 判断放在 classifyFailure 之后（401/403 的熔断副作用需要照常发生）。
+            if (trigger == ChatTrigger.OPENING && upstreamDidNotCharge(cause)) {
+                refundOpeningQuota(player);
+            }
             plugin.getLogger().log(Level.WARNING, "AI API request failed for "
                     + player.getName() + " (" + errorKey + ")", cause);
             plugin.getServer().getScheduler().runTask(plugin, () ->
@@ -1105,6 +1558,29 @@ public class AIChatManager {
         return "dialogue.request-failed";
     }
 
+    /**
+     * P0-4 红队补丁（R-P1-1）：这次失败是否"上游没有计费"。
+     *
+     * <p>只有能确定请求没有真正被上游受理/生成时才为 true：超时、连接失败、5xx
+     * （上游故障，未生成内容）、429（限流拒绝，未消耗生成额度）。
+     * 4xx（含 401/403 鉴权失败）返回 false —— 请求已被上游受理并计费，不退还。
+     * 其余未知异常保守返回 false（宁可少退也不多送额度）。
+     */
+    private static boolean upstreamDidNotCharge(Throwable cause) {
+        int status = (cause instanceof AiApiException api) ? api.statusCode : -1;
+        if (status == 429) {
+            return true;                       // 限流拒绝，未生成
+        }
+        if (status >= 500) {
+            return true;                       // 上游故障
+        }
+        if (status >= 400) {
+            return false;                      // 4xx 已受理并计费
+        }
+        // 无 HTTP 状态码：超时 / 连接失败 / 解析前置失败，请求未完成
+        return true;
+    }
+
     /** R-20：携带 HTTP 状态码的 API 异常，供 {@link #classifyFailure} 分流。 */
     private static final class AiApiException extends IOException {
         final int statusCode;
@@ -1119,6 +1595,10 @@ public class AIChatManager {
     //  US-FB §3.2/§3.4：AI 总结通道（独立于对话上下文的一次调用）
     //  与 dispatchChat 同构，但独立通道：不查不写冷却、不复用 pendingRequests、
     //  不查不计 daily-round-limit（§3.4 守卫表逐行）。
+    //  P0-4 遗留风险：这是除对话/开场白外唯一还会发 HTTP 的路径（每次达标会话至多
+    //  1 次，且只由服务端在会话结束时触发、玩家不能直接点名刷卡）。它不在本轮
+    //  修复范围（改动面会溢出到 ChatFeedbackManager）；若后续要彻底封顶 AI 成本，
+    //  应让它在发起前同样 getTodayAiRound 比较并 incrementTodayAiRound。
     // ============================================================
 
     /**
@@ -1238,7 +1718,47 @@ public class AIChatManager {
         pendingSummaries.remove(playerId);
     }
 
-    /** §3.2：总结请求体 —— [system(总结指令), user(transcript + 收尾指令)]，temperature 0.3。 */
+    /**
+     * R13-M4 quit 清理钩：清玩家难度偏好条目（{@code playerDifficulties} 只增不删，
+     * 无 quit 清理则每曾进服玩家永久留条）。代价与语义：偏好为纯内存态，rejoin 后
+     * 首次读回落默认难度，直到玩家再次选择——R13-M4 立案裁决接受此收敛（内存卫生
+     * 优先，偏好属"会话级便捷值"）。独立方法命名语义单一，照 CheckInManager.unloadPlayer
+     * 先例；由 PlayerJoinListener.onPlayerQuit 调用。
+     * P0-4 追加：同一编排点顺带清理开场白的两份 per-player 内存态（见方法体）。
+     */
+    public void unloadPlayer(UUID playerId) {
+        playerDifficulties.remove(playerId);
+        // P0-4：lastOpeningTime 是"5 秒防连点"的短时状态，重登后无条件清除即可 ——
+        // 若保留，玩家上线后第一场对话可能被上一轮的登录前时间戳误拦。
+        lastOpeningTime.remove(playerId);
+        // P0-4：openingCounters 不能无条件清 —— 否则"退服再进"就能重置每日开场白额度
+        // （若服主把 daily-round-limit 设为不限，开场白次数将完全失去上限）。这里只删
+        // 跨日陈旧条目（内存卫生；条目每玩家约百字节，只增不删的泄漏面已被此收口）。
+        // computeIfPresent 保证"判断陈旧 + 删除"对同一 key 原子，不会误删并发刷新的当日条目。
+        openingCounters.computeIfPresent(playerId, (k, v) -> v.isStale() ? null : v);
+    }
+
+    /**
+     * §3.2：总结请求体 —— [system(总结指令), user(transcript + 收尾指令)]，temperature 0.3。
+     *
+     * <p><b>踩过的坑（L7）</b>：这里曾有一句 "prefer words already listed in TARGET WORDS if any"
+     * —— 而本请求体<b>根本没有</b> TARGET WORDS 段（那段只存在于 {@code PromptComposer} 拼的
+     * 对话 prompt 里，是另一条 AI 调用）。模型被要求「优先从一张它看不到的表里挑」，
+     * 纯噪声，还会诱导它幻想出一份词表。裁决：<b>删掉这层引用</b>而不是把目标词注入进来——
+     * 理由有两条：
+     * <ol>
+     *   <li>点评阶段注入目标词会污染两条语义：「目标词」是<b>下一场该练什么</b>（由上一场
+     *       点评的产出决定），「推荐词」是<b>这一场学什么</b>。把它们喂进同一次请求后，
+     *       模型会倾向复述目标词以"显得一致"，推荐词退化成目标词的影子，
+     *       下一场的目标词又由这些推荐词生成 —— 闭环自噬，词表越来越窄。</li>
+     *   <li>summary 路径拿不到 {@code collectFocusWords} 的语境：那是对话 prompt 的取数
+     *       逻辑（provider → 上一场纠错词/复习词），本方法与它没有共享状态；硬注入就得
+     *       在这里再查一次 provider，等于把一条纯点评请求变成「依赖学习闭环内部状态」的
+     *       请求，耦合方向反了。</li>
+     * </ol>
+     * 保留下来的是一句<b>自洽</b>的引导：「reuse words the student has already met in this
+     * conversation」—— 依据就在同一份请求的 transcript 里，模型看得见、可执行。
+     */
     private JsonObject buildSummaryRequestBody(Player player, SessionSummary summary, String lang) {
         boolean zh = "zh".equalsIgnoreCase(lang);
         String language = zh ? "Chinese" : "English";
@@ -1261,7 +1781,8 @@ public class AIChatManager {
                 + " Keep \"original\" and \"corrected\" in English; write \"note\" briefly in " + language + "."
                 + " Use an empty array if there is no meaningful mistake.\n"
                 + "- \"words\": up to 3 English words or phrases related to this scenario that the student"
-                + " could learn next.\n"
+                + " could learn next. Prefer simple, common words, and reuse words the student has"
+                + " already met in this conversation when they fit.\n"
                 + "- Every string must stay under 120 characters.";
 
         String userPrompt = "TRANSCRIPT:\n" + renderTranscript(summary.transcript())
@@ -1498,6 +2019,8 @@ public class AIChatManager {
         lastRequestTime.clear();
         pendingRequests.clear();
         pendingSummaries.clear();
+        lastOpeningTime.clear();
+        openingCounters.clear();
         personalScenarioStore.clearAll();
     }
 

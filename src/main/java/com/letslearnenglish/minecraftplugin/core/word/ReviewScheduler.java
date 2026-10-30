@@ -55,6 +55,11 @@ public class ReviewScheduler {
         }
         java.time.LocalDate today = java.time.LocalDate.now();
         for (Player player : Bukkit.getOnlinePlayers()) {
+            // R1/R4：玩家侧提醒总开关。放在去重判断之前，且**不**放进 getDueReviewWords ——
+            // due 词计算是复习页/学习功能依赖，关提醒不应让复习功能失能，只该停止推送。
+            if (!playerDataStore.getProfileSettingsReadOnly(player.getUniqueId()).isRemindersEnabled()) {
+                continue;
+            }
             // 同一玩家同一天只提醒一次（30 秒 TTL 缓存 + 5 分钟定时任务原本会反复刷屏）
             if (today.equals(lastNotifiedDate.get(player.getUniqueId()))) {
                 continue;
@@ -73,6 +78,16 @@ public class ReviewScheduler {
      */
     public void clearNotifiedDates() {
         lastNotifiedDate.clear();
+    }
+
+    /**
+     * R13-M4 quit 清理钩：清玩家的 due 词缓存条目（只增不删的口径与本类其他清理
+     * 同族）——quit 后 rejoin 首次 getDueReviewWords cache miss 重查 DB 重建，
+     * TTL 语义不变，仅内存回收；中断玩家在途条目不再永留。由
+     * PlayerJoinListener.onPlayerQuit 经 wordManager.getReviewScheduler() 调用。
+     */
+    public void unloadPlayer(UUID playerId) {
+        dueWordCache.remove(playerId);
     }
 
     public List<String> getDueReviewWords(UUID playerId) {

@@ -46,7 +46,6 @@ public class ChatFeedbackEntry {
     public String getPlayerUuid() { return playerUuid; }
     public String getSessionId() { return sessionId; }
     public String getScenarioKey() { return scenarioKey; }
-    public String getDifficultyKey() { return difficultyKey; }
     public int getUserMessages() { return userMessages; }
     public int getAiMessages() { return aiMessages; }
     public int getDurationSeconds() { return durationSeconds; }

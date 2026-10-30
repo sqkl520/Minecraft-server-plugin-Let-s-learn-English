@@ -3,8 +3,10 @@ package com.letslearnenglish.minecraftplugin.core.social;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
+import com.letslearnenglish.minecraftplugin.util.SchedulerGuard;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -71,6 +73,16 @@ public class SocialManager {
     private final AtomicLong nextRefreshAt = new AtomicLong(0L);
     /** 每日保留清理的日期去重（日期翻转时在周期任务里跑一次）。 */
     private final AtomicReference<String> lastCleanupDay = new AtomicReference<>();
+
+    /**
+     * 300s 周期维护任务句柄（{@link #startupWarmup()} 排程，{@link #shutdown()} 取消）。
+     *
+     * <p>原实现直接丢弃 {@code runTaskTimerAsynchronously} 的返回值 —— 本类 6 个周期/延迟
+     * 任务里唯一「连句柄都没有」的一个。{@code /lea reload} 走的是「不换 ClassLoader 的
+     * 逻辑卸载」，插件本身仍在启用态，调度器不会连带取消它，因此禁用功能后这条任务会继续
+     * 每 300s 打一次 DB（{@link #refreshCache} + 可能的保留清理）。持有句柄是取消的前提。
+     */
+    private volatile BukkitTask maintenanceTask;
 
     /**
      * 一条动态流缓存条目（volatile 快照的元素；不可变）。
@@ -192,18 +204,51 @@ public class SocialManager {
      * 启动预热（LetsLearnEnglish 启动异步块一行挂入）：清理过期动态 + 首次填充
      * FeedCache + 排程 300s 周期刷新任务（内含每日保留清理）。
      *
-     * <p>自递归/重复排程保护：本方法只应在插件 enable 时调用一次；插件 disable 时
-     * 调度器会连带取消本任务，re-enable 时再次调用即重排，无需手动管理句柄。
+     * <p>重复排程保护：先取消上一次留下的 {@link #maintenanceTask} 再排 —— 同名
+     * {@code /lea reload} 卸载后重新启用（或 enable 被重复触发）不应叠加第二条 300s
+     * 任务。原注释「插件 disable 时调度器会连带取消，无需手动管理句柄」只对真正的
+     * {@code onDisable} 成立；逻辑卸载（reload）下插件仍在启用态，任务不会被连带取消，
+     * 故句柄必须自持并在 {@link #shutdown()} / 本处显式取消。
      */
     public void startupWarmup() {
         plugin.getDatabaseManager().cleanupOldFeedEvents(getRetentionDays());
         lastCleanupDay.set(LocalDate.now().toString());
         refreshCache();
+        BukkitTask previous = maintenanceTask;
+        if (previous != null) {
+            previous.cancel();
+            maintenanceTask = null;
+        }
         try {
-            plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin,
+            maintenanceTask = plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin,
                     this::periodicMaintenance, PERIODIC_REFRESH_TICKS, PERIODIC_REFRESH_TICKS);
         } catch (IllegalStateException ignored) {
             // 停用窗口：调度器已关闭，周期刷新放弃（缓存仍可用，下次 enable 重排）
+            maintenanceTask = null;
+        }
+    }
+
+    /**
+     * 动态卸载钩子（{@code /lea reload} 关闭广场社交时调用）：取消本类持有的周期任务，
+     * 回到「未启动」状态。
+     *
+     * <p>幂等：连续调用两次不抛（第二次 {@code task == null} 直接返回）；任务已被外部
+     * 取消（{@code onDisable} 的调度器整体关闭）时再 cancel 也是安全的。
+     *
+     * <p>只取消任务、<b>不清缓存</b>：{@code feedCache} 是只读快照，禁用后读路径自己会
+     * 被 {@link #isEnabled()} 拦住；清空反而会在重新启用时出现短暂空窗。
+     *
+     * <p>检查结论（grep 全类）：{@code SocialManager} 内除本任务外的所有调度都走
+     * {@link #runAsync} / {@link #runMain} 的一次性投递（{@link #refreshCacheAsync}、
+     * {@link #scheduleCacheRefresh} 的去抖刷新）—— 没有其他 {@code runTaskTimer} /
+     * {@code runTaskLater} 需要持句柄。一次性任务最多存活数秒且自带 DB 异常兜底，
+     * 不需要在此取消。
+     */
+    public void shutdown() {
+        BukkitTask task = maintenanceTask;
+        if (task != null) {
+            maintenanceTask = null;
+            task.cancel();
         }
     }
 
@@ -467,21 +512,14 @@ public class SocialManager {
 
     // ============================================================
     //  调度工具（停用窗口静默放弃，对齐 AchievementManager PF-ACH-02）
+    //  D2-5：实现已抽取至 util.SchedulerGuard，此处保留薄委托（调用点零改动）
     // ============================================================
 
     private void runAsync(Runnable task) {
-        try {
-            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, task);
-        } catch (IllegalStateException ignored) {
-            // 插件停用窗口（调度器已关闭）：放弃本次异步写/刷新（与 tryUnlock 通知段同口径）
-        }
+        SchedulerGuard.runAsync(plugin, task);
     }
 
     private void runMain(Runnable task) {
-        try {
-            plugin.getServer().getScheduler().runTask(plugin, task);
-        } catch (IllegalStateException ignored) {
-            // 同上：停用窗口放弃主线程回调
-        }
+        SchedulerGuard.runMain(plugin, task);
     }
 }
