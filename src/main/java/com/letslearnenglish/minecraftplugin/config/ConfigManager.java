@@ -164,6 +164,10 @@ public class ConfigManager {
         saveResourceIfNotExists("words/beginner.yml");
         saveResourceIfNotExists("words/intermediate.yml");
         saveResourceIfNotExists("words/advanced.yml");
+        // 内置词库有实质变更时，老服的数据目录里还是旧文件（saveResourceIfNotExists 只补缺失）。
+        // 这里按版本号做一次「备份 + 替换」，否则新词库对所有存量服主完全不可见。
+        // 必须在 saveResourceIfNotExists 之后：先补齐缺失文件，再判断要不要升级。
+        upgradeWordBanksIfNeeded();
 
         messageConfigZh = loadMessageConfig("messages/zh.yml");
         messageConfigEn = loadMessageConfig("messages/en.yml");
@@ -613,6 +617,107 @@ public class ConfigManager {
         File file = new File(plugin.getDataFolder(), resourcePath);
         if (!file.exists()) {
             plugin.saveResource(resourcePath, false);
+        }
+    }
+
+    /**
+     * 词库内置版本号。**每次内置词库内容有实质变更时必须 +1**（改难度曲线、增删词条、
+     * 修释义/音标都算）。数据目录里的 {@code words-version.txt} 小于此值时，三份词库会被
+     * 备份后替换为 JAR 内的新版本。
+     *
+     * <p>版本历史：
+     * <ul>
+     *   <li>{@code 1} —— 2026-10-31 按 NGSL 词频重建（1025 → 1357 词，覆盖率 66.16% → 85.37%）</li>
+     * </ul>
+     *
+     * <p><b>为什么需要这个机制</b>：{@link #saveResourceIfNotExists} 只在文件<b>缺失</b>时释放。
+     * 于是任何已经跑过一次插件的服务器，数据目录里都有旧的 {@code words/*.yml}，
+     * 升级插件后 {@code WordManagerImpl.loadAllWordBanks()} 读的仍是旧文件 —— 新版词库
+     * 只有全新安装才看得到。这会让「扩充词库」这类内容更新对**所有存量服主**完全不可见，
+     * 而日志里没有任何提示。玩家感知到的就是「说好的新词呢」。
+     *
+     * <p><b>为什么要先备份</b>：词库文件是服主可以自己改的（{@code /lea exportwordbank} +
+     * 手工编辑是官方支持的工作流）。直接覆盖会静默冲掉他们的改动。备份到
+     * {@code words-backup-<旧版本>-<时间戳>/} 下，并打一条 WARNING 说明如何回滚。
+     */
+    private static final int WORD_BANK_VERSION = 1;
+
+    /**
+     * 按版本号升级数据目录里的词库文件。只在 {@link #WORD_BANK_VERSION} 高于磁盘记录时动作。
+     *
+     * <p>不做的事：不尝试合并、不做逐条 diff。词库是整份内容资产，逐条合并的语义
+     * （「服主删掉的词要不要加回来」「改过的释义以谁为准」）没有正确答案，而备份 + 整体
+     * 替换至少是**可解释、可回滚**的。
+     */
+    private void upgradeWordBanksIfNeeded() {
+        File dataFolder = plugin.getDataFolder();
+        File versionFile = new File(dataFolder, "words-version.txt");
+
+        int installed = 0;
+        if (versionFile.isFile()) {
+            try {
+                installed = Integer.parseInt(Files.readString(versionFile.toPath(),
+                        StandardCharsets.UTF_8).trim());
+            } catch (IOException | NumberFormatException e) {
+                // 读不出来当作 0（视为旧版），走升级路径；不阻断启动
+                plugin.getLogger().fine("Could not read words-version.txt: " + e.getMessage());
+                installed = 0;
+            }
+        }
+        if (installed >= WORD_BANK_VERSION) {
+            return;
+        }
+
+        // 旧版本 < 新版本：备份后替换。备份目录带旧版本与时间戳，避免多次升级互相覆盖。
+        File backupDir = new File(dataFolder, "words-backup-v" + installed + "-"
+                + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(new java.util.Date()));
+        boolean anyReplaced = false;
+        boolean backupFailed = false;
+
+        for (String tier : new String[] {"beginner", "intermediate", "advanced"}) {
+            File disk = new File(dataFolder, "words/" + tier + ".yml");
+            if (!disk.isFile()) {
+                continue;   // 缺失的由 saveResourceIfNotExists 负责释放，这里不重复
+            }
+            if (!backupFailed) {
+                try {
+                    if (!backupDir.isDirectory() && !backupDir.mkdirs()) {
+                        throw new IOException("mkdirs failed: " + backupDir.getAbsolutePath());
+                    }
+                    Files.copy(disk.toPath(), new File(backupDir, tier + ".yml").toPath(),
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException e) {
+                    // 备份失败就**不替换**：覆盖服主改过的词库且没有回滚点，是不可接受的损失
+                    backupFailed = true;
+                    plugin.getLogger().log(Level.SEVERE,
+                            "Failed to back up the existing word bank before upgrading; "
+                            + "the word banks will NOT be replaced. Back them up manually, then "
+                            + "delete words-version.txt and restart.", e);
+                    continue;
+                }
+            }
+            try {
+                plugin.saveResource("words/" + tier + ".yml", true);   // true = 覆盖
+                anyReplaced = true;
+            } catch (Throwable t) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to write upgraded word bank " + tier + ".yml", t);
+            }
+        }
+
+        if (anyReplaced) {
+            try {
+                Files.writeString(versionFile.toPath(), String.valueOf(WORD_BANK_VERSION),
+                        StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Word banks were upgraded but words-version.txt could not be written; "
+                        + "the upgrade will run again next start.", e);
+            }
+            plugin.getLogger().warning("Built-in word banks upgraded to v" + WORD_BANK_VERSION
+                    + ". The previous version was backed up to "
+                    + backupDir.getName() + "/ — if you had edited the word files yourself, "
+                    + "copy them back from there and add your changes to the new files.");
         }
     }
 

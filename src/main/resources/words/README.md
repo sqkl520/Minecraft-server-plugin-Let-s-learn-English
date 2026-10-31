@@ -52,10 +52,21 @@ words:                       # 词条列表
   英语课程标准（2022）》词汇表的**头部高频词印象**，用于决定“收哪些词”；但**没有任何
   一条词条保存或校对过它在上述词表中的真实排名**，也没有按排名做全库排序或裁剪。因此
   “本词库按词频选词”这一说法**只能理解为选词来源参考，不能理解为逐词词频校验**。
-- 词条**没有 `freq_rank` / `cefr` 字段**。当前 8 字段模板（english / chinese /
-  part_of_speech / phonetic / example_sentence / synonyms / antonyms /
-  difficulty_level）不包含任何外部词频或 CEFR 等级信息。若后续要做“按词频加权出题”
-  或“按 CEFR 对齐”，属于**新增字段 + 消费端接线**的独立改动，不是改几个 YAML 值即可。
+- 词条**新增了可选的 `freq_rank` 字段**（NGSL 1.2 词频排名，1 = 最常用）。
+  缺省/缺失表示「该词不在 NGSL 频次表内」，对应 `Word.FREQ_RANK_UNKNOWN`（值为 0）。
+  **约 530 个具象名词（`apple` / `banana` / `pencil`）本来就不在通用频次表里，缺失是正常数据，
+  不是错误**——所以它刻意不进 `WordBankValidator` 的必填诊断，接进去会让每次加载刷出
+  500+ 条假错误。该字段当前**只存不用**：出题/选词/复习逻辑尚未消费它，它是后续
+  「按词频加权出题」的前置数据。
+- **词库已于 2026-10-31 按 NGSL 排名重建**：三档归属不再按字母序截断，而是按 `freq_rank`
+  重排；同时补齐了 NGSL 前 500 中原本缺失的 332 个高频词（`as` / `by` / `so` / `would` /
+  `should` / `need` …）。重建前覆盖率 66.16%，重建后 85.85%。详见
+  `docs/vocab/`（仓库内，不随插件分发）的脚本与 `rebuild-final.json`。
+  - 重排保留了「基础词保护」规则：`difficulty_level <= 3` 的词若按排名会被降档，则保持原档，
+    避免把 `boy` / `baby` / `blue` 这类基础词从 beginner 挪走。
+  - 新增 332 词的**音标来自 CMUdict 美式发音转写**（本库其余部分是英式 IPA），
+    **例句来自 Tatoeba**（CC BY 2.0 FR）。两者均**未经逐词人工核验**，发现不当可直接
+    修改 YAML 后 `/lea reload`。
 - **`difficulty_level` 当前是人工标注，且运行时尚未被消费。** `WordBank` 会把该字段
   读进 `Word`（缺省 1，见 `WordBank.java` 的 `difficultyLevel` 解析），`Word` 也提供了
   `getDifficultyLevel()`，但全仓仅 `AdminCommandHandler` 在**导出词库**时把它写回 YAML

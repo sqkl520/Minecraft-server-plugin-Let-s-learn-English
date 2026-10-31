@@ -358,11 +358,24 @@ public class SocialListener implements Listener {
         //   ② 其余模式按 holder payload 的 modeKey 识别（R5-11：标题后缀识别已删除，
         //      payload 缺失/未知时落 ALL_PLAYERS）：与快照一致时信任快照（零重建），
         //      不一致/无快照时按显示的模式重建。
+        //   ③ P-SQ-PAGE 补充：快照还必须与<b>屏幕页码</b>一致。广场全量模式快照已从
+        //      "全量列表"改成"某一页的切片"，页码不同的陈旧快照按下标反查会点到别人。
+        //      不一致时按屏幕页码重建同一页（与 open() 同一条 SQL / 同一个 OFFSET）。
         RankingMode currentMode = resolveSquareMode(view);
+        // R5-4/R5-11：页码来源是 holder payload（SquarePage.page），标题正则兜底已删除，
+        // payload 缺失时落第 1 页。P-SQ-PAGE 起它同时是"快照能否复用"的判据（见下），
+        // 故提前到快照选择之前解析 —— 只依赖 view，提前无副作用。
+        int page = resolveSquarePage(view);
         List<UUID> playerIds;
         List<SocialManager.FeedItem> feedItems;
+        /**
+         * true = {@code playerIds} 是<b>本页切片</b>（下标 0 = 本页第一个头像），
+         * 点击侧反算必须用 slotIdx；false = 全量列表，沿用 (page-1)*28 + slotIdx。
+         */
+        boolean pageSlice;
         EnglishSquareGUI myGui = squareGuis.get(player.getUniqueId());
         if (currentMode == RankingMode.FEED) {
+            pageSlice = false; // FEED 走独立快照，本变量不参与该分支的路由
             playerIds = new ArrayList<>();
             List<SocialManager.FeedItem> frozen = renderedFeedPages.get(player.getUniqueId());
             if (frozen != null) {
@@ -376,23 +389,30 @@ public class SocialListener implements Listener {
                 feedItems = (sm != null && sm.isEnabled())
                         ? sm.getFeedSnapshot() : Collections.emptyList();
             }
-        } else if (myGui != null && myGui.getCurrentMode() == currentMode) {
+        } else if (myGui != null && myGui.getCurrentMode() == currentMode
+                // P-SQ-PAGE：全量模式的快照是"某一页"的切片，只有页码与屏幕一致时
+                // 下标才对得上。ESC 关界面不清快照、主菜单广场按钮直达不登记快照 ——
+                // 于是会出现"屏幕第 1 页、快照还停在第 2 页"的陈旧组合；此时必须重建
+                // 本页（下方），否则点第一个头像会作用到第 2 页某个人。
+                && (currentMode != RankingMode.ALL_PLAYERS || myGui.getCurrentPage() == page)) {
             playerIds = myGui.getCurrentPlayerIds();
             feedItems = myGui.getCurrentFeedItems();
+            pageSlice = currentMode == RankingMode.ALL_PLAYERS;
         } else {
             feedItems = Collections.emptyList();
             if (currentMode == RankingMode.ALL_PLAYERS) {
-                // 经典"广场"全量页（无模式后缀）→ 维持既有重建口径
-                List<UUID> raw = store.getActivePlayerIds();
-                playerIds = new ArrayList<>();
-                for (UUID id : raw) {
-                    // R-37 fan-in：无快照兜底重建分支补隐身过滤（只读，不写副作用），与主装配口径一致
-                    if (!store.getProfileSettingsReadOnly(id).isShowInSquare()) continue;
-                    PlayerDataStore.PlayerStats s = store.getPlayerStats(id);
-                    if (s.getTotalCorrect() + s.getTotalIncorrect() > 0) {
-                        playerIds.add(id);
-                    }
+                // 无快照/快照陈旧：按屏幕页码从 DB 重建<b>这一页</b>。
+                // P-SQ-PAGE 前这里是 getActivePlayerIds + 逐人 getPlayerStats 的全量
+                // N+1 重建（每次点击都可能全表扫）；现在与 open() 同一条 SQL、同一个
+                // 全序（score DESC, uuid ASC）、同一个 OFFSET —— 行序与屏幕逐槽一致。
+                List<com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.LeaderboardEntry> rows =
+                        store.getActiveSquareEntries(getPlayersPerPageOnSquare(),
+                                (page - 1) * getPlayersPerPageOnSquare());
+                playerIds = new ArrayList<>(rows.size());
+                for (var row : rows) {
+                    playerIds.add(row.playerId);
                 }
+                pageSlice = true;
             } else {
                 // 排名模式（/le square weekly|monthly|alltime 直达的无快照窗口）：
                 // 与 open() 同源重建（有界，display-count 行；本窗口只在无/陈旧
@@ -405,12 +425,13 @@ public class SocialListener implements Listener {
                 for (var e : entries) {
                     playerIds.add(e.playerId);
                 }
+                pageSlice = false;
             }
         }
         // R5-4/R5-11：页码来源是 holder payload（SquarePage.page），标题正则兜底已删除，
-        // payload 缺失时落第 1 页。后续 P1-D 的
-        // globalIndex = (page-1)*28 + slotIdx 公式<b>逐字不变</b> —— 只换了 page 的来源。
-        int page = resolveSquarePage(view);
+        // payload 缺失时落第 1 页。P1-D 的 globalIndex = (page-1)*28 + slotIdx 公式
+        // 只适用于<b>全量</b>列表；P-SQ-PAGE 后广场全量模式的列表是"本页切片"，
+        // 反算改用 slotIdx（判据 = 上面确定的 pageSlice，不在这里重新推导）。
 
         if (slot == backSlot) {
             SoundManager.playSound(player, "menu-click");
@@ -487,7 +508,16 @@ public class SocialListener implements Listener {
         } else {
             int slotIdx = getPlayerSlotIndexOnSquare(slot);
             if (slotIdx < 0) return;
-            int globalIndex = (page - 1) * getPlayersPerPageOnSquare() + slotIdx;
+            // P-SQ-PAGE：下标基准随快照粒度分裂（pageSlice 在上面的快照选择里一并确定）——
+            //   ① 本页切片（全量模式，快照或重建后都一样）：GUI 用
+            //      LIMIT 28 OFFSET (page-1)*28 取数，slotIdx 就是列表下标；
+            //      再加 (page-1)*28 会越过列表末尾 → 第 2 页起所有头像点击静默失效
+            //      （越界保护 return，无报错），且第 1 页"看起来正常"掩盖问题。
+            //   ② 全量列表（榜单模式 / 任何无法确认切片自洽的情况）：
+            //      逐字沿用 (page-1)*28 + slotIdx 的旧公式。
+            int globalIndex = pageSlice
+                    ? slotIdx
+                    : (page - 1) * getPlayersPerPageOnSquare() + slotIdx;
             if (globalIndex < 0 || globalIndex >= playerIds.size()) return;
 
             UUID targetId = playerIds.get(globalIndex);
@@ -761,6 +791,10 @@ public class SocialListener implements Listener {
      *
      * <p>条目 index 按渲染快照 {@code getCurrentFeedItems()} 反查——绝不映射进
      * playerIds（三类列表的槽位布局相同但元素完全不同）。
+     *
+     * <p><b>P-SQ-PAGE 对照</b>：FEED 快照仍是<b>全量</b>（≤200 条内存切片），故这里
+     * 继续用 {@code (page-1)*28 + slotIdx}；广场玩家列表已改为<b>本页切片</b>，
+     * 那边用 slotIdx（见 handleEnglishSquareGUI 的 pageSlice）。两处公式不同是刻意的。
      */
     private void handleFeedSlot(Player player, int slot, int page, ClickType clickType,
                                 List<SocialManager.FeedItem> feedItems) {

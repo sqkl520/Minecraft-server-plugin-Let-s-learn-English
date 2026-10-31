@@ -360,6 +360,9 @@ admin-help:
   export: "&e/lea export &7- Export player data"
   reset: "&e/lea reset <player> &7- Reset player data"
   info: "&e/lea info &7- Show plugin info"
+  # Diagnosis is the first stop when something breaks, but it never made it into this
+  # list (it was dispatched and tab-completed all along) — i.e. invisible. Keep it here.
+  diagnose: "&e/lea diagnose [save] &7- Self-check: report the EFFECTIVE config and runtime state (save writes a file)"
   exportwordbank: "&e/lea exportwordbank <difficulty> &7- Export word bank to YAML"
   importwordbank: "&e/lea importwordbank <filename> &7- Import word bank from YAML"
   ignore-update: "&e/lea ignore-update &7- Ignore this update reminder"
@@ -591,7 +594,7 @@ profile:
   stats-duel-note: "&8Completed duels only"
   achievements-hint: "&7Click to view achievements"
   achievement-unlocked: "&6✔ Unlocked"
-  achievement-locked: "&8🔒 Locked"
+  achievement-locked: "&8✖ Locked"
   settings-button: "&eSettings"
   settings-lore: "&7Privacy settings"
   settings-locked: "&8Settings (Locked)"
@@ -687,7 +690,7 @@ wrong-book:
 onboarding:
   join-intro: "{prefix}&aWelcome! I put a &eStarter Guide &ain your inventory — right-click it and follow the 3 little steps to get started~"
   reminder: "{prefix}&eYour starter guide isn't finished yet~ Right-click the guide book, or type &e/le word &eto continue!"
-  session-start: "{prefix}&6🎓 Mini trial starts! Difficulty &e{difficulty}&6, &e{count} &6words (multiple choice). Mistakes are fine — just try again!"
+  session-start: "{prefix}&6★ Mini trial starts! Difficulty &e{difficulty}&6, &e{count} &6words (multiple choice). Mistakes are fine — just try again!"
   retry-wrong: "{prefix}&eNo worries — give it another try~"
   retry-timeout: "{prefix}&eTime's up — same question, one more try~"
   step2-done: "{prefix}&aStep 2 done! Last one: type &e/le progress &ato open your profile and see your achievements~"
@@ -741,8 +744,8 @@ report:
   daily-header: "Date     Day    Answered  Correct  Accuracy  Score"
   daily-row: "{date}   {weekday}   {answered}   {correct}   {accuracy}   {score}"
   section-weak-words: "[Weak Words] ({k} items)"
-  weak-word-item: "{word} ({chinese}) -- wrong {count} time(s)"
-  weak-word-item-no-cn: "{word} -- wrong {count} time(s)"
+  weak-word-item: "{word} ({chinese}) -- wrong {count}x"
+  weak-word-item-no-cn: "{word} -- wrong {count}x"
   weak-focus: "Most mistakes are in the {difficulty} tier; review those first."
   section-cumulative: "[Overall Progress]"
   cumulative-line: "{words} words correct in total across {sessions} sessions."
@@ -844,3 +847,100 @@ server:
   # Key name is historical (restart-required) but the text no longer mentions restarts: reload
   # can now load and unload the runtime both ways.
   reload-restart-required: "{prefix}&eConfig reloaded, but runtime is not loaded (server.enabled=false on this server)."
+
+# ============================================================
+#  /lea diagnose self-check report text (R11 / Wave 5 i18n pass)
+#
+#  Design constraints:
+#  1) Body lines carry no colour codes on purpose — the whole line takes its colour
+#     from diagnose.prefix.* (OK green / WARN yellow / FAIL red / INFO grey), which
+#     is exactly what the previous hardcoded implementation did.
+#  2) diagnose.prefix.* defaults MUST stay plain ASCII: [OK] [!] [X] [-].
+#     Windows' default console code page is GBK(936), where ✔ ✗ • are not in the
+#     table and get printed as '?' (measured). Change them to symbols at your own risk.
+#  3) Every placeholder is {name} style, matching MessageUtil's substitution convention.
+# ============================================================
+diagnose:
+  header: "&6===== Let's Learn English! Diagnostics ====="
+  plugin: "Plugin: v{version} / server {server}"
+
+  db:
+    not-initialized: "Database: not initialized"
+    sqlite: "Database: SQLite ({file}, {size})"
+    mysql: "Database: MySQL connected ({host}/{database})"
+
+  driver:
+    bundled: "MySQL driver: bundled ({driver})"
+    missing: "MySQL driver: MISSING — database.type=mysql cannot work"
+    absent-sqlite: "MySQL driver: not bundled (harmless while database.type=sqlite)"
+
+  backup:
+    unsupported: "Backup: unsupported for MySQL (only SQLite is backed up)"
+    disabled: "Backup: disabled (general.backup.enabled=false)"
+    none: "Backup: none yet (first backup after {minutes} min)"
+    latest: "Backup: {file} ({ago})"
+
+  economy:
+    no-provider: "Vault economy: Vault installed but no Economy provider registered"
+    absent: "Vault economy: not installed (coin rewards unavailable)"
+    hooked: "Vault economy: hooked ({provider})"
+    disabled: "Vault economy: provider {provider} reports disabled"
+
+  ai:
+    ok: "AI service: api-key OK (model={model})"
+    missing: "AI service: api-key MISSING — set 'api-key' in ai_config.yml, then run /lea reload"
+    gate-off: "AI service: off by ai-chat.enabled=false (api-key missing)"
+
+  words:
+    none: "Word banks: none loaded — check words/*.yml"
+    loaded: "Word banks: {banks} loaded / {words} words"
+
+  modules:
+    line: "Modules: word {word} | ai {ai} | daily {daily} | duel {duel} | season {season} | class {class} | social {social} | checkin {checkin} | onboarding {onboarding}"
+    season-inactive: "{state} (no active season)"
+
+  stats:
+    disabled: "Statistics HTTP: disabled (statistics-server.enabled=false)"
+    running: "Statistics HTTP: running on port {port}"
+    not-running: "Statistics HTTP: enabled but NOT running on port {port} — the port is probably already in use; see the startup log"
+
+  coins:
+    gates: "progress-system {progress} / rewards {rewards} / money.enabled {money} / Vault {vault}"
+    cap: "{cap}/day cap"
+    no-cap: "no daily cap"
+    paid: "Coins: {gates} -> paid ({cap})"
+    not-paid: "Coins: {gates} -> NOT paid ({cap})"
+
+  restart-keys: "&eKeys read at startup — changing them needs a restart: "
+  failed: "{prefix}&cDiagnostics failed: {error}"
+
+  save:
+    done: "{prefix}&aDiagnostics report saved: &e{file}"
+    failed: "{prefix}&cCould not save the diagnostics report: {error}"
+
+  log:
+    ok: "Diagnostics: {ok} OK, {warn} warning(s), no problems. Run /lea diagnose for details."
+    problems: "Diagnostics found {fail} problem(s) — the features behind them will not work:"
+    hint: "Run /lea diagnose in-game (or from console) for the full report."
+
+  # Severity prefixes: plain ASCII (see note 2 in the header comment).
+  prefix:
+    ok: "&a[OK] "
+    warn: "&e[!] "
+    fail: "&c[X] "
+    info: "&7[-] "
+
+  # "How long ago" suffixes (backup age, etc.).
+  ago:
+    seconds: "{n}s ago"
+    minutes: "{n}m ago"
+    hours: "{n}h ago"
+    days: "{n}d ago"
+
+  unknown: "unknown"
+
+  # Header lines of the exported file (/lea diagnose save); colour codes are stripped on write.
+  file:
+    title: "===== Let's Learn English! Diagnostics ====="
+    meta: "Plugin v{version} / server {server}"
+    generated: "Generated at {time}"

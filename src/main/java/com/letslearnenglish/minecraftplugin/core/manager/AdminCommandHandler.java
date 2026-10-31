@@ -313,6 +313,13 @@ public class AdminCommandHandler {
             if (w.getReward() > 0.0) {
                 wordData.put("reward", w.getReward());
             }
+            // freq_rank 是可选派生元数据，约定值 0（未知）时不写键 —— 与上面 reward
+            // 「默认值不落盘」同一取舍：1025 词里 530 个没有排名，写出 530 个冗余的
+            // "freq_rank: 0" 只会让人工编辑的 YAML 变噪音。有排名则**必须**写，否则
+            // export → import 一趟就把频次数据静默抹掉（静默数据丢失比报错难查得多）。
+            if (w.hasFreqRank()) {
+                wordData.put("freq_rank", w.getFreqRank());
+            }
             wordList.add(wordData);
         }
         config.set("words", wordList);
@@ -517,9 +524,19 @@ public class AdminCommandHandler {
                 reward = num.doubleValue();
             }
 
+            // freq_rank：可选派生元数据。本导入循环**不经过** WordBank.loadWords
+            // （自行拼 Word），所以必须在这里独立读一次，否则 export → import 会丢字段。
+            // 归一规则不在此重复实现，统一交给 Word 构造器（见 Word.normalizeFreqRank），
+            // 保证两条解析路径口径必然一致。
+            int freqRank = Word.FREQ_RANK_UNKNOWN;
+            Object freqObj = wordData.get("freq_rank");
+            if (freqObj instanceof Number num) {
+                freqRank = num.intValue();
+            }
+
             Word word = new Word(english, chinese, partOfSpeech, phonetic,
                     exampleSentence, synonyms, antonyms,
-                    targetDifficulty, difficultyLevel, reward);
+                    targetDifficulty, difficultyLevel, reward, freqRank);
             targetBank.addWord(word);
             affectedBanks.put(targetDifficulty, targetBank);
             imported++;
@@ -569,6 +586,13 @@ public class AdminCommandHandler {
             wordData.put("difficulty_level", w.getDifficultyLevel());
             if (w.getReward() > 0.0) {
                 wordData.put("reward", w.getReward());
+            }
+            // freq_rank 是可选派生元数据，约定值 0（未知）时不写键 —— 与上面 reward
+            // 「默认值不落盘」同一取舍：1025 词里 530 个没有排名，写出 530 个冗余的
+            // "freq_rank: 0" 只会让人工编辑的 YAML 变噪音。有排名则**必须**写，否则
+            // export → import 一趟就把频次数据静默抹掉（静默数据丢失比报错难查得多）。
+            if (w.hasFreqRank()) {
+                wordData.put("freq_rank", w.getFreqRank());
             }
             wordList.add(wordData);
         }

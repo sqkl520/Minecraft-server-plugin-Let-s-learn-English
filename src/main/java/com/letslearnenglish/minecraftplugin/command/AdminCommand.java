@@ -143,7 +143,14 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
             case "diagnose":
                 // R11：只读诊断——打印"生效值"（伞开关 / 运行时依赖 / 重启快照键），
                 // 与 /lea info 的区别就在这里：info 报配置值，diagnose 报最终会不会真的工作。
-                DiagnoseCommand.send(plugin, sender);
+                // 第二参数 save：同一份报告落 exports/diagnose-<stamp>.txt（贴工单用）。
+                // 未知参数按"不 save"处理而不是报用法错——诊断是故障时的第一站，
+                // 手滑多敲一个词的服主至少还能拿到屏幕上的完整报告。
+                if (args.length > 1 && "save".equalsIgnoreCase(args[1])) {
+                    DiagnoseCommand.save(plugin, sender);
+                } else {
+                    DiagnoseCommand.send(plugin, sender);
+                }
                 break;
             case "help":
                 sendHelpMessage(sender);
@@ -350,7 +357,7 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                 plugin.getVersionAdapter().getServerVersion()));
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "plugin-info.version-supported", "supported",
-                String.valueOf(plugin.getVersionAdapter().isVersionSupported())));
+                plugin.getVersionAdapter().describeCompatibility()));
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "plugin-info.database", "db_type",
                 plugin.getConfigManager().getMainConfig().getString("database.type")));
@@ -369,6 +376,11 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                 "admin-help.reset"));
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "admin-help.info"));
+        // Wave 5：diagnose 是已派发子命令（SUBCOMMANDS 里一直有），但 help 列表漏了它——
+        // 最该被服主发现的"第一站排障工具"就此隐形。放在 info 之后：两者都是"查看类"，
+        // 语义相邻，且不改动 header/reload/export/reset 的既有阅读顺序。
+        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
+                "admin-help.diagnose"));
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "admin-help.exportwordbank"));
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
@@ -426,7 +438,12 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
             if (!isAdmin && !(isReport && "report".equalsIgnoreCase(args[0]))) {
                 return completions;
             }
-            if ("duel".equalsIgnoreCase(args[0])) {
+            if ("diagnose".equalsIgnoreCase(args[0])) {
+                // /lea diagnose [save] —— 第二参数只有一个取值，补全出来比让服主记拼写强
+                if ("save".startsWith(args[1].toLowerCase(Locale.ROOT))) {
+                    completions.add("save");
+                }
+            } else if ("duel".equalsIgnoreCase(args[0])) {
                 // FIX-DUEL-01: /lea duel <cancel>
                 if ("cancel".startsWith(args[1].toLowerCase())) {
                     completions.add("cancel");

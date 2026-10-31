@@ -1,23 +1,1605 @@
 # ============================================================
 #  Intermediate Word Bank
-#  Common vocabulary for intermediate English learners
+#  Rebuilt 2026-10-31: ordered by NGSL 1.2 frequency rank
+#  355 words (111 newly added)
 # ============================================================
 
 difficulty: "intermediate"
-description: "Intermediate English Word Bank - Common Vocabulary"
+description: "Intermediate English Word Bank"
 
 words:
-  - english: "ability"
-    chinese: "能力"
+  - english: "hold"
+    chinese: "保存"
+    part_of_speech: "verb"
+    phonetic: "/həʊld/"
+    example_sentence: "A dance will be held on Friday."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 222
+
+  - english: "service"
+    chinese: "服务；服务业"
     part_of_speech: "noun"
-    phonetic: "/əˈbɪl.ə.ti/"
-    example_sentence: "Everyone has the ability to learn."
-    synonyms:
-      - "skill"
-      - "talent"
-    antonyms:
-      - "inability"
+    phonetic: "/ˈsɜːvəs/"
+    example_sentence: "The hotel offers good service."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 223
+
+  - english: "against"
+    chinese: "反对"
+    part_of_speech: "preposition"
+    phonetic: "/əˈɡenst/"
+    example_sentence: "It is necessary to put something by against days of need."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 224
+
+  - english: "believe"
+    chinese: "相信"
+    part_of_speech: "verb"
+    phonetic: "/bɪˈliːv/"
+    example_sentence: "Almost all the students believed the rumor."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 225
+
+  - english: "second"
+    chinese: "第二的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈsekənd/"
+    example_sentence: "Doctors refused to perform a second operation."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 226
+
+  - english: "though"
+    chinese: "然而"
+    part_of_speech: "adverb"
+    phonetic: "/ðəʊ/"
+    example_sentence: "Though he's not clever, he's a diligent worker."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 227
+
+  - english: "increase"
+    chinese: "增加"
+    part_of_speech: "noun"
+    phonetic: "/ˌɪˈnkriːs/"
+    example_sentence: "They announced an increase in tuition fees."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 230
+
+  - english: "job"
+    chinese: "工作"
+    part_of_speech: "noun"
+    phonetic: "/dʒɑːb/"
+    example_sentence: "You must share your jobs with others."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 231
+
+  - english: "plan"
+    chinese: "计划"
+    part_of_speech: "noun"
+    phonetic: "/plæn/"
+    example_sentence: "You ought to have adopted his plan."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 232
+
+  - english: "result"
+    chinese: "结果"
+    part_of_speech: "noun"
+    phonetic: "/rɪˈzʌlt/"
+    example_sentence: "You have to account for the result."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 233
+
+  - english: "away"
+    chinese: "离去"
+    part_of_speech: "adverb"
+    phonetic: "/əˈweɪ/"
+    example_sentence: "You're just running away from life's problems."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 234
+
+  - english: "example"
+    chinese: "例子"
+    part_of_speech: "noun"
+    phonetic: "/ɪˈɡzæmpəl/"
+    example_sentence: "Let this be an example to you."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 235
+
+  - english: "happen"
+    chinese: "发生"
+    part_of_speech: "verb"
+    phonetic: "/ˈhæpən/"
+    example_sentence: "Let's consider the worst that could happen."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 236
+
+  - english: "offer"
+    chinese: "给予(物)"
+    part_of_speech: "noun"
+    phonetic: "/ˈɔːfə/"
+    example_sentence: "To my surprise, he refused my offer."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 237
+
+  - english: "program"
+    chinese: "节目；程序"
+    part_of_speech: "noun"
+    phonetic: "/ˈprəʊˌɡræm/"
+    example_sentence: "This program helps students learn English."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 240
+
+  - english: "lead"
+    chinese: "引导"
+    part_of_speech: "verb"
+    phonetic: "/led/"
+    example_sentence: "He led a hard life after that."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 241
+
+  - english: "understand"
+    chinese: "理解"
+    part_of_speech: "verb"
+    phonetic: "/ˌʌndəˈstænd/"
+    example_sentence: "You are old enough to understand this."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 243
+
+  - english: "far"
+    chinese: "甚远地"
+    part_of_speech: "adverb"
+    phonetic: "/fɑːr/"
+    example_sentence: "Far from respecting him, I dislike him."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 245
+
+  - english: "hour"
+    chinese: "小时"
+    part_of_speech: "noun"
+    phonetic: "/ˈaʊə/"
+    example_sentence: "We waited for hours before help arrived."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 247
+
+  - english: "face"
+    chinese: "脸"
+    part_of_speech: "noun"
+    phonetic: "/feɪs/"
+    example_sentence: "Billy often hits his face against windows."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 249
+
+  - english: "hope"
+    chinese: "希望"
+    part_of_speech: "noun"
+    phonetic: "/həʊp/"
+    example_sentence: "Thoughts of hope, dreams I'll never find."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 250
+
+  - english: "idea"
+    chinese: "主意"
+    part_of_speech: "noun"
+    phonetic: "/aɪˈdiːə/"
+    example_sentence: "We have decided to adopt your idea."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 251
+
+  - english: "cost"
+    chinese: "花费"
+    part_of_speech: "verb"
+    phonetic: "/kɑːst/"
+    example_sentence: "The holidays are costing me a lot."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 252
+
+  - english: "less"
+    chinese: "少的"
+    part_of_speech: "adjective"
+    phonetic: "/les/"
+    example_sentence: "No less than 100 people attended the meeting."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 253
+
+  - english: "room"
+    chinese: "房间"
+    part_of_speech: "noun"
+    phonetic: "/ruːm/"
+    example_sentence: "You are not to leave this room."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 254
+
+  - english: "until"
+    chinese: "直到"
+    part_of_speech: "preposition"
+    phonetic: "/əˈntɪl/"
+    example_sentence: "Wait until tomorrow."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 255
+
+  - english: "reason"
+    chinese: "原因；理由"
+    part_of_speech: "noun"
+    phonetic: "/ˈriːzən/"
+    example_sentence: "There is no reason to worry."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 256
+
+  - english: "form"
+    chinese: "形状"
+    part_of_speech: "noun"
+    phonetic: "/fɔːrm/"
+    example_sentence: "They have taken the form of sculptures."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 257
+
+  - english: "spend"
+    chinese: "花费"
+    part_of_speech: "verb"
+    phonetic: "/spend/"
+    example_sentence: "All the money was spent on clothes."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 258
+
+  - english: "level"
+    chinese: "水平"
+    part_of_speech: "noun"
+    phonetic: "/ˈlevəl/"
+    example_sentence: "I won't lower myself to his level."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 262
+
+  - english: "person"
+    chinese: "人"
+    part_of_speech: "noun"
+    phonetic: "/ˈpɜːsən/"
+    example_sentence: "Don't judge a person by his appearance."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 263
+
+  - english: "experience"
+    chinese: "经历"
+    part_of_speech: "noun"
+    phonetic: "/ɪˈkspɪriːəns/"
+    example_sentence: "Diligence may compensate for lack of experience."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 264
+
+  - english: "once"
+    chinese: "一次"
+    part_of_speech: "noun"
+    phonetic: "/wʌns/"
+    example_sentence: "You may as well leave at once."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 265
+
+  - english: "member"
+    chinese: "成员"
+    part_of_speech: "noun"
+    phonetic: "/ˈmembə/"
+    example_sentence: "Every member of the cabinet was present."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 266
+
+  - english: "enough"
+    chinese: "充足"
+    part_of_speech: "noun"
+    phonetic: "/ɪˈnʌf/"
+    example_sentence: "I've had just about enough of her."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 267
+
+  - english: "bad"
+    chinese: "坏"
+    part_of_speech: "noun"
+    phonetic: "/bæd/"
+    example_sentence: "You should be ready for the worst."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 268
+
+  - english: "city"
+    chinese: "城市"
+    part_of_speech: "noun"
+    phonetic: "/ˈsɪtiː/"
+    example_sentence: "This city is very large."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 269
+
+  - english: "able"
+    chinese: "能干的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈeɪbəl/"
+    example_sentence: "Though young, he is an able man."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 271
+
+  - english: "support"
+    chinese: "支援"
+    part_of_speech: "verb"
+    phonetic: "/səˈpɔːrt/"
+    example_sentence: "Henry is old enough to support himself."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 272
+
+  - english: "whether"
+    chinese: "是否"
+    part_of_speech: "conjunction"
+    phonetic: "/ˈweðə/"
+    example_sentence: "I don't know whether he will come."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 273
+
+  - english: "line"
+    chinese: "排成一行"
+    part_of_speech: "verb"
+    phonetic: "/laɪn/"
+    example_sentence: "Line up the desks in the classroom."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 274
+
+  - english: "present"
+    chinese: "现在的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈprezənt/"
+    example_sentence: "Those present were all moved to tears."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 275
+
+  - english: "side"
+    chinese: "旁边"
+    part_of_speech: "noun"
+    phonetic: "/saɪd/"
+    example_sentence: "You're by my side; everything's fine now."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 276
+
+  - english: "quite"
+    chinese: "相当"
+    part_of_speech: "adverb"
+    phonetic: "/kwaɪt/"
+    example_sentence: "Quite by chance, I met my old friend at the airport."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 277
+
+  - english: "although"
+    chinese: "虽然"
+    part_of_speech: "conjunction"
+    phonetic: "/ˌɔːˈlðəʊ/"
+    example_sentence: "I went out although it was raining."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 278
+
+  - english: "sure"
+    chinese: "确信"
+    part_of_speech: "adjective"
+    phonetic: "/ʃʊr/"
+    example_sentence: "That sure puts me on the spot."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 279
+
+  - english: "term"
+    chinese: "术语"
+    part_of_speech: "noun"
+    phonetic: "/tɜːm/"
+    example_sentence: "You see everything in terms of money."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 280
+
+  - english: "least"
+    chinese: "最少的"
+    part_of_speech: "adjective"
+    phonetic: "/liːst/"
+    example_sentence: "I would like the least expensive one."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 281
+
+  - english: "age"
+    chinese: "年龄"
+    part_of_speech: "noun"
+    phonetic: "/eɪdʒ/"
+    example_sentence: "You should know better at your age."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 282
+
+  - english: "low"
+    chinese: "低的"
+    part_of_speech: "adjective"
+    phonetic: "/ləʊ/"
+    example_sentence: "The man spoke in a low voice."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 283
+
+  - english: "within"
+    chinese: "在…之内"
+    part_of_speech: "preposition"
+    phonetic: "/wɪˈðɪn/"
+    example_sentence: "Please reply within three days."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 285
+
+  - english: "process"
+    chinese: "程序"
+    part_of_speech: "noun"
+    phonetic: "/ˈprɑːˌses/"
+    example_sentence: "The medicine hastened the process of growth."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 286
+
+  - english: "public"
+    chinese: "公众"
+    part_of_speech: "noun"
+    phonetic: "/ˈpʌblɪk/"
+    example_sentence: "I don't like to speak in public."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 287
+
+  - english: "train"
+    chinese: "火车"
+    part_of_speech: "noun"
+    phonetic: "/treɪn/"
+    example_sentence: "I spent twelve hours on the train."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 289
+
+  - english: "possible"
+    chinese: "可能的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈpɑːsəbəl/"
+    example_sentence: "She came up with a possible solution."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 290
+
+  - english: "actually"
+    chinese: "事实上"
+    part_of_speech: "adverb"
+    phonetic: "/ˈæˌktʃuːəliː/"
+    example_sentence: "Actually, I haven't gotten any letters yet."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 291
+
+  - english: "rather"
+    chinese: "宁可"
+    part_of_speech: "adverb"
+    phonetic: "/ˈræðə/"
+    example_sentence: "You should be friendly rather than stubborn."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 292
+
+  - english: "view"
+    chinese: "视野"
+    part_of_speech: "noun"
+    phonetic: "/vjuː/"
+    example_sentence: "I sounded him out about his views."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 293
+
+  - english: "together"
+    chinese: "一起；共同"
+    part_of_speech: "adverb"
+    phonetic: "/təˈɡeðə/"
+    example_sentence: "We study English together every day."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 294
+
+  - english: "price"
+    chinese: "价格"
+    part_of_speech: "noun"
+    phonetic: "/praɪs/"
+    example_sentence: "Hard work is the price of success."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 296
+
+  - english: "parent"
+    chinese: "父母"
+    part_of_speech: "noun"
+    phonetic: "/ˈperənt/"
+    example_sentence: "The boy was accompanied by his parents."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 297
+
+  - english: "party"
+    chinese: "宴会"
+    part_of_speech: "noun"
+    phonetic: "/ˈpɑːrtiː/"
+    example_sentence: "You have to go to the party."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 299
+
+  - english: "local"
+    chinese: "地方性的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈləʊkəl/"
+    example_sentence: "The local news will be broadcast next."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 3
+    freq_rank: 300
+
+  - english: "already"
+    chinese: "已经"
+    part_of_speech: "adverb"
+    phonetic: "/ɔːˈlrediː/"
+    example_sentence: "You may have read this book already."
+    synonyms: []
+    antonyms: []
     difficulty_level: 4
+    freq_rank: 302
+
+  - english: "product"
+    chinese: "产品"
+    part_of_speech: "noun"
+    phonetic: "/ˈprɑːdəkt/"
+    example_sentence: "Many companies advertise their products on TV."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 304
+
+  - english: "lose"
+    chinese: "遗失"
+    part_of_speech: "verb"
+    phonetic: "/luːz/"
+    example_sentence: "Your selfishness will lose you your friends."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 305
+
+  - english: "almost"
+    chinese: "几乎"
+    part_of_speech: "adverb"
+    phonetic: "/ˈɔːˌlməʊst/"
+    example_sentence: "The sky is clear almost every day."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 307
+
+  - english: "whole"
+    chinese: "所有的"
+    part_of_speech: "adjective"
+    phonetic: "/həʊl/"
+    example_sentence: "The tourists painted the whole town red."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 310
+
+  - english: "yet"
+    chinese: "还；仍然"
+    part_of_speech: "adverb"
+    phonetic: "/jet/"
+    example_sentence: "He has not arrived yet."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 311
+
+  - english: "rate"
+    chinese: "比率"
+    part_of_speech: "noun"
+    phonetic: "/reɪt/"
+    example_sentence: "Have some frozen lobster at any rate."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 312
+
+  - english: "care"
+    chinese: "小心"
+    part_of_speech: "noun"
+    phonetic: "/ker/"
+    example_sentence: "They are free from care and anxiety."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 313
+
+  - english: "expect"
+    chinese: "预期"
+    part_of_speech: "verb"
+    phonetic: "/ɪˈkspekt/"
+    example_sentence: "You are expecting too much of her."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 314
+
+  - english: "effect"
+    chinese: "结果"
+    part_of_speech: "noun"
+    phonetic: "/ɪˈfekt/"
+    example_sentence: "It has had no effect on him."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 315
+
+  - english: "sort"
+    chinese: "种类"
+    part_of_speech: "noun"
+    phonetic: "/sɔːrt/"
+    example_sentence: "That's not the sort I'm looking for."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 316
+
+  - english: "ever"
+    chinese: "曾经"
+    part_of_speech: "adverb"
+    phonetic: "/ˈevə/"
+    example_sentence: "That's the stupidest thing I've ever said."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 317
+
+  - english: "anything"
+    chinese: "任何事"
+    part_of_speech: "pronoun"
+    phonetic: "/ˈeniːˌθɪŋ/"
+    example_sentence: "I won't ask you anything else today."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 318
+
+  - english: "fall"
+    chinese: "倒下"
+    part_of_speech: "verb"
+    phonetic: "/fɔːl/"
+    example_sentence: "The rain was falling on my face."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 320
+
+  - english: "deal"
+    chinese: "处理"
+    part_of_speech: "verb"
+    phonetic: "/diːl/"
+    example_sentence: "We must deal with the problem instantly."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 321
+
+  - english: "send"
+    chinese: "发送"
+    part_of_speech: "verb"
+    phonetic: "/send/"
+    example_sentence: "A policeman was sent for at once."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 323
+
+  - english: "allow"
+    chinese: "允许"
+    part_of_speech: "verb"
+    phonetic: "/əˈlaʊ/"
+    example_sentence: "Allow me to introduce Mayuko to you."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 324
+
+  - english: "soon"
+    chinese: "不久"
+    part_of_speech: "adverb"
+    phonetic: "/suːn/"
+    example_sentence: "Soon after, it began to rain."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 325
+
+  - english: "base"
+    chinese: "以...作基础"
+    part_of_speech: "verb"
+    phonetic: "/beɪs/"
+    example_sentence: "Science is based on very careful observations."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 327
+
+  - english: "probably"
+    chinese: "大概"
+    part_of_speech: "adverb"
+    phonetic: "/ˈprɑːbəˌbliː/"
+    example_sentence: "That was probably what influenced their decision."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 328
+
+  - english: "suggest"
+    chinese: "提议"
+    part_of_speech: "verb"
+    phonetic: "/səˈdʒest/"
+    example_sentence: "I suggested that the plan be postponed."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 329
+
+  - english: "past"
+    chinese: "过去的"
+    part_of_speech: "adjective"
+    phonetic: "/pæst/"
+    example_sentence: "We can record the past and present."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 330
+
+  - english: "power"
+    chinese: "力"
+    part_of_speech: "noun"
+    phonetic: "/ˈpaʊə/"
+    example_sentence: "The king was stripped of his power."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 331
+
+  - english: "visit"
+    chinese: "拜访"
+    part_of_speech: "verb"
+    phonetic: "/ˈvɪzɪt/"
+    example_sentence: "I visited my father's hometown last summer."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 333
+
+  - english: "center"
+    chinese: "中心"
+    part_of_speech: "noun"
+    phonetic: "/ˈsentə/"
+    example_sentence: "He lived in the center of London."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 334
+
+  - english: "grow"
+    chinese: "种植"
+    part_of_speech: "verb"
+    phonetic: "/ɡrəʊ/"
+    example_sentence: "Many weeds were growing among the flowers."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 335
+
+  - english: "nothing"
+    chinese: "无"
+    part_of_speech: "noun"
+    phonetic: "/ˈnʌθɪŋ/"
+    example_sentence: "You can have this book for nothing."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 336
+
+  - english: "return"
+    chinese: "返回"
+    part_of_speech: "verb"
+    phonetic: "/rɪˈtɜːn/"
+    example_sentence: "You must return the book to him."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 337
+
+  - english: "matter"
+    chinese: "事件"
+    part_of_speech: "noun"
+    phonetic: "/ˈmætə/"
+    example_sentence: "You have no choice in this matter."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 340
+
+  - english: "mind"
+    chinese: "介意"
+    part_of_speech: "verb"
+    phonetic: "/maɪnd/"
+    example_sentence: "I do not mind what you do."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 341
+
+  - english: "value"
+    chinese: "价值"
+    part_of_speech: "noun"
+    phonetic: "/ˈvæljuː/"
+    example_sentence: "The value of education cannot be overemphasized."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 342
+
+  - english: "office"
+    chinese: "办公室"
+    part_of_speech: "noun"
+    phonetic: "/ˈɔːfɪs/"
+    example_sentence: "The client went running into the office."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 343
+
+  - english: "record"
+    chinese: "记录"
+    part_of_speech: "verb"
+    phonetic: "/rəˈkɔːrd/"
+    example_sentence: "Your speech will be recorded in history."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 344
+
+  - english: "stay"
+    chinese: "停留；待"
+    part_of_speech: "verb"
+    phonetic: "/steɪ/"
+    example_sentence: "I would like to stay for one night."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 345
+
+  - english: "force"
+    chinese: "强迫"
+    part_of_speech: "verb"
+    phonetic: "/fɔːrs/"
+    example_sentence: "I was forced to accept her proposal."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 346
+
+  - english: "stop"
+    chinese: "停止"
+    part_of_speech: "verb"
+    phonetic: "/stɑːp/"
+    example_sentence: "Stop it! You're making her feel uncomfortable!"
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 347
+
+  - english: "several"
+    chinese: "几个的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈsevrəl/"
+    example_sentence: "I've already talked about that several times."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 348
+
+  - english: "light"
+    chinese: "光"
+    part_of_speech: "noun"
+    phonetic: "/laɪt/"
+    example_sentence: "We decorated the Christmas tree with lights."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 349
+
+  - english: "develop"
+    chinese: "发展"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈveləp/"
+    example_sentence: "Our country must develop its natural resources."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 350
+
+  - english: "remember"
+    chinese: "记得"
+    part_of_speech: "verb"
+    phonetic: "/rɪˈmembə/"
+    example_sentence: "Remember well what you learn at school."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 351
+
+  - english: "bit"
+    chinese: "少量"
+    part_of_speech: "noun"
+    phonetic: "/bɪt/"
+    example_sentence: "I just wanna nose around a bit."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 352
+
+  - english: "share"
+    chinese: "均分"
+    part_of_speech: "verb"
+    phonetic: "/ʃer/"
+    example_sentence: "You have to share the cake equally."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 353
+
+  - english: "real"
+    chinese: "真的"
+    part_of_speech: "adjective"
+    phonetic: "/riːl/"
+    example_sentence: "That used refrigerator was a real dog."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 354
+
+  - english: "figure"
+    chinese: "数字"
+    part_of_speech: "noun"
+    phonetic: "/ˈfɪɡjə/"
+    example_sentence: "The accountant will go into these figures."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 357
+
+  - english: "letter"
+    chinese: "信"
+    part_of_speech: "noun"
+    phonetic: "/ˈletə/"
+    example_sentence: "This happened prior to receiving your letter."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 358
+
+  - english: "decide"
+    chinese: "决定"
+    part_of_speech: "verb"
+    phonetic: "/ˌdɪˈsaɪd/"
+    example_sentence: "Thus they decided that I was innocent."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 359
+
+  - english: "language"
+    chinese: "语言"
+    part_of_speech: "noun"
+    phonetic: "/ˈlæŋɡwədʒ/"
+    example_sentence: "Because no man can speak my language."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 360
+
+  - english: "subject"
+    chinese: "科目"
+    part_of_speech: "noun"
+    phonetic: "/səˈbdʒekt/"
+    example_sentence: "We are in agreement on this subject."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 361
+
+  - english: "doubt"
+    chinese: "怀疑"
+    part_of_speech: "noun"
+    phonetic: "/daʊt/"
+    example_sentence: "I have no doubt about it."
+    synonyms: []
+    antonyms:
+      - "trust"
+      - "belief"
+    difficulty_level: 4
+    freq_rank: 874
+
+
+  - english: "dogged"
+    chinese: "顽强的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈdɒɡ.ɪd/"
+    example_sentence: "Dogged effort brought final success."
+    synonyms:
+      - "persistent"
+    antonyms: []
+    difficulty_level: 9
+    freq_rank: 895
+
+
+  - english: "encourage"
+    chinese: "鼓励"
+    part_of_speech: "verb"
+    phonetic: "/ɪnˈkʌr.ɪdʒ/"
+    example_sentence: "Parents encourage us to read."
+    synonyms:
+      - "inspire"
+      - "support"
+    antonyms:
+      - "discourage"
+    difficulty_level: 5
+    freq_rank: 912
+
+
+  - english: "imagine"
+    chinese: "想象"
+    part_of_speech: "verb"
+    phonetic: "/ɪˈmædʒ.ɪn/"
+    example_sentence: "Can you imagine living on Mars?"
+    synonyms:
+      - "envision"
+      - "picture"
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 924
+
+
+  - english: "earn"
+    chinese: "赚得"
+    part_of_speech: "verb"
+    phonetic: "/ɜːn/"
+    example_sentence: "He earns money by washing cars."
+    synonyms:
+      - "gain"
+    antonyms:
+      - "lose"
+      - "spend"
+    difficulty_level: 4
+    freq_rank: 926
+
+
+  - english: "debate"
+    chinese: "辩论"
+    part_of_speech: "noun"
+    phonetic: "/dɪˈbeɪt/"
+    example_sentence: "We had a debate on smoking."
+    synonyms:
+      - "discussion"
+      - "argument"
+    antonyms: []
+    difficulty_level: 5
+    freq_rank: 938
+
+
+  - english: "credit"
+    chinese: "信用；功劳"
+    part_of_speech: "noun"
+    phonetic: "/ˈkred.ɪt/"
+    example_sentence: "He deserves credit for the win."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 5
+    freq_rank: 944
+
+
+  - english: "discover"
+    chinese: "发现"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈskʌv.ər/"
+    example_sentence: "Scientists discover new species every year."
+    synonyms:
+      - "find"
+      - "uncover"
+    antonyms:
+      - "hide"
+      - "conceal"
+    difficulty_level: 4
+    freq_rank: 946
+
+
+  - english: "announce"
+    chinese: "宣布"
+    part_of_speech: "verb"
+    phonetic: "/əˈnaʊns/"
+    example_sentence: "They announced the result yesterday."
+    synonyms:
+      - "declare"
+      - "publish"
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 1004
+
+
+  - english: "budget"
+    chinese: "预算"
+    part_of_speech: "noun"
+    phonetic: "/ˈbʌdʒ.ɪt/"
+    example_sentence: "Our travel budget is quite limited this year."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 7
+    freq_rank: 1016
+
+
+  - english: "correct"
+    chinese: "正确的"
+    part_of_speech: "adjective"
+    phonetic: "/kəˈrekt/"
+    example_sentence: "All your answers are correct."
+    synonyms:
+      - "right"
+      - "accurate"
+    antonyms:
+      - "wrong"
+      - "incorrect"
+    difficulty_level: 5
+    freq_rank: 1032
+
+
+  - english: "copy"
+    chinese: "复制；抄写"
+    part_of_speech: "verb"
+    phonetic: "/ˈkɒp.i/"
+    example_sentence: "Copy the new words twice."
+    synonyms:
+      - "duplicate"
+      - "repeat"
+    antonyms: []
+    difficulty_level: 5
+    freq_rank: 1037
+
+
+  - english: "advice"
+    chinese: "建议"
+    part_of_speech: "noun"
+    phonetic: "/ədˈvaɪs/"
+    example_sentence: "The teacher gave me good advice."
+    synonyms:
+      - "suggestion"
+      - "guidance"
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 1040
+
+
+  - english: "deliver"
+    chinese: "递送"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈlɪv.ər/"
+    example_sentence: "They deliver milk every morning."
+    synonyms:
+      - "send"
+      - "carry"
+    antonyms: []
+    difficulty_level: 5
+    freq_rank: 1064
+
+
+  - english: "display"
+    chinese: "展示"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈspleɪ/"
+    example_sentence: "They display new books here."
+    synonyms:
+      - "show"
+      - "exhibit"
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 1109
+
+
+  - english: "crime"
+    chinese: "罪行"
+    part_of_speech: "noun"
+    phonetic: "/kraɪm/"
+    example_sentence: "Stealing is a serious crime."
+    synonyms:
+      - "offence"
+    antonyms: []
+    difficulty_level: 5
+    freq_rank: 1128
+
+
+  - english: "decline"
+    chinese: "下降；拒绝"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈklaɪn/"
+    example_sentence: "She declined the invitation politely."
+    synonyms:
+      - "refuse"
+      - "decrease"
+    antonyms:
+      - "accept"
+      - "increase"
+    difficulty_level: 5
+    freq_rank: 1129
+
+
+  - english: "decade"
+    chinese: "十年"
+    part_of_speech: "noun"
+    phonetic: "/ˈdek.eɪd/"
+    example_sentence: "The bridge took a decade to build."
+    synonyms: []
+    antonyms: []
+    difficulty_level: 8
+    freq_rank: 1130
+
+
+  - english: "audience"
+    chinese: "观众"
+    part_of_speech: "noun"
+    phonetic: "/ˈɔː.di.əns/"
+    example_sentence: "The audience clapped loudly."
+    synonyms:
+      - "viewers"
+      - "crowd"
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 1166
+
+
+  - english: "crowded"
+    chinese: "拥挤的"
+    part_of_speech: "adjective"
+    phonetic: "/ˈkraʊd.ɪd/"
+    example_sentence: "The bus was crowded this morning."
+    synonyms:
+      - "packed"
+      - "busy"
+    antonyms:
+      - "empty"
+    difficulty_level: 5
+    freq_rank: 1187
+
+
+  - english: "emerge"
+    chinese: "出现"
+    part_of_speech: "verb"
+    phonetic: "/ɪˈmɜːdʒ/"
+    example_sentence: "The sun emerged from clouds."
+    synonyms:
+      - "appear"
+    antonyms:
+      - "vanish"
+    difficulty_level: 5
+    freq_rank: 1211
+
+
+  - english: "concept"
+    chinese: "概念"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɒn.sept/"
+    example_sentence: "The concept of gravity changed science."
+    synonyms:
+      - "idea"
+    antonyms: []
+    difficulty_level: 7
+    freq_rank: 1213
+
+
+  - english: "contribute"
+    chinese: "贡献"
+    part_of_speech: "verb"
+    phonetic: "/kənˈtrɪb.juːt/"
+    example_sentence: "Everyone should contribute ideas."
+    synonyms:
+      - "donate"
+      - "give"
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 1238
+
+
+  - english: "colleague"
+    chinese: "同事"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɒl.iːɡ/"
+    example_sentence: "A colleague of mine speaks three languages."
+    synonyms:
+      - "coworker"
+    antonyms: []
+    difficulty_level: 7
+    freq_rank: 1251
+
+
+  - english: "connect"
+    chinese: "连接"
+    part_of_speech: "verb"
+    phonetic: "/kəˈnekt/"
+    example_sentence: "The bridge connects two towns."
+    synonyms:
+      - "join"
+      - "link"
+    antonyms:
+      - "separate"
+    difficulty_level: 4
+    freq_rank: 1264
+
+
+  - english: "arrange"
+    chinese: "安排"
+    part_of_speech: "verb"
+    phonetic: "/əˈreɪndʒ/"
+    example_sentence: "We arranged a trip to the lake."
+    synonyms:
+      - "organize"
+      - "plan"
+    antonyms: []
+    difficulty_level: 4
+    freq_rank: 1266
+
+
+  - english: "brief"
+    chinese: "简短的"
+    part_of_speech: "adjective"
+    phonetic: "/briːf/"
+    example_sentence: "He gave a brief answer."
+    synonyms:
+      - "short"
+      - "concise"
+    antonyms:
+      - "long"
+    difficulty_level: 4
+    freq_rank: 1270
+
+
+  - english: "desire"
+    chinese: "渴望"
+    part_of_speech: "noun"
+    phonetic: "/dɪˈzaɪər/"
+    example_sentence: "He has a desire to travel."
+    synonyms:
+      - "wish"
+      - "longing"
+    antonyms: []
+    difficulty_level: 5
+    freq_rank: 1291
+
+
+  - english: "employ"
+    chinese: "雇用"
+    part_of_speech: "verb"
+    phonetic: "/ɪmˈplɔɪ/"
+    example_sentence: "The shop employs five workers."
+    synonyms:
+      - "hire"
+    antonyms:
+      - "fire"
+    difficulty_level: 5
+    freq_rank: 1294
+
+
+  - english: "attract"
+    chinese: "吸引"
+    part_of_speech: "verb"
+    phonetic: "/əˈtrækt/"
+    example_sentence: "Bright flowers attract bees."
+    synonyms:
+      - "draw"
+      - "appeal"
+    antonyms:
+      - "repel"
+    difficulty_level: 4
+    freq_rank: 1298
+
+
+  - english: "engage"
+    chinese: "参与"
+    part_of_speech: "verb"
+    phonetic: "/ɪnˈɡeɪdʒ/"
+    example_sentence: "Students engage in class games."
+    synonyms:
+      - "join"
+      - "participate"
+    antonyms: []
+    difficulty_level: 5
+    freq_rank: 1299
+
+
+  - english: "crisis"
+    chinese: "危机"
+    part_of_speech: "noun"
+    phonetic: "/ˈkraɪ.sɪs/"
+    example_sentence: "The city faced a water crisis."
+    synonyms:
+      - "emergency"
+    antonyms: []
+    difficulty_level: 5
+    freq_rank: 1302
+
+
+  - english: "delay"
+    chinese: "延迟"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈleɪ/"
+    example_sentence: "Please do not delay the payment."
+    synonyms:
+      - "postpone"
+      - "put off"
+    antonyms:
+      - "advance"
+    difficulty_level: 5
+    freq_rank: 1310
+
+
+  - english: "divide"
+    chinese: "分开"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈvaɪd/"
+    example_sentence: "Divide the cake into six parts."
+    synonyms:
+      - "split"
+      - "separate"
+    antonyms:
+      - "unite"
+    difficulty_level: 4
+    freq_rank: 1316
+
+
+  - english: "commit"
+    chinese: "作出承诺"
+    part_of_speech: "verb"
+    phonetic: "/kəˈmɪt/"
+    example_sentence: "She committed to finish the course on time."
+    synonyms:
+      - "pledge"
+    antonyms: []
+    difficulty_level: 7
+    freq_rank: 1322
+
+
+  - english: "broad"
+    chinese: "宽广的"
+    part_of_speech: "adjective"
+    phonetic: "/brɔːd/"
+    example_sentence: "The broad street is full of shops."
+    synonyms:
+      - "wide"
+    antonyms:
+      - "narrow"
+    difficulty_level: 4
+    freq_rank: 1330
+
+
+  - english: "enable"
+    chinese: "使能够"
+    part_of_speech: "verb"
+    phonetic: "/ɪˈneɪ.bəl/"
+    example_sentence: "The internet enables fast learning."
+    synonyms:
+      - "allow"
+    antonyms:
+      - "prevent"
+    difficulty_level: 5
+    freq_rank: 1352
+
 
   - english: "active"
     chinese: "活跃的"
@@ -31,39 +1613,102 @@ words:
       - "inactive"
       - "lazy"
     difficulty_level: 4
+    freq_rank: 1354
 
-  - english: "admire"
-    chinese: "钦佩"
+
+  - english: "conclude"
+    chinese: "得出结论；结束"
     part_of_speech: "verb"
-    phonetic: "/ədˈmaɪər/"
-    example_sentence: "I admire her courage."
+    phonetic: "/kənˈkluːd/"
+    example_sentence: "We concluded the meeting at noon."
     synonyms:
-      - "respect"
-      - "praise"
-    antonyms: []
-    difficulty_level: 4
+      - "finish"
+    antonyms:
+      - "begin"
+    difficulty_level: 7
+    freq_rank: 1355
 
-  - english: "adventure"
-    chinese: "冒险"
-    part_of_speech: "noun"
-    phonetic: "/ədˈven.tʃər/"
-    example_sentence: "They went on an exciting adventure in the mountains."
-    synonyms:
-      - "journey"
-      - "expedition"
-    antonyms: []
-    difficulty_level: 4
 
-  - english: "advice"
-    chinese: "建议"
-    part_of_speech: "noun"
-    phonetic: "/ədˈvaɪs/"
-    example_sentence: "The teacher gave me good advice."
+  - english: "convince"
+    chinese: "说服"
+    part_of_speech: "verb"
+    phonetic: "/kənˈvɪns/"
+    example_sentence: "He convinced me that the plan would work."
     synonyms:
-      - "suggestion"
-      - "guidance"
+      - "persuade"
+    antonyms: []
+    difficulty_level: 8
+    freq_rank: 1358
+
+
+  - english: "camera"
+    chinese: "照相机"
+    part_of_speech: "noun"
+    phonetic: "/ˈkæm.rə/"
+    example_sentence: "She took photos with her camera."
+    synonyms: []
     antonyms: []
     difficulty_level: 4
+    freq_rank: 1390
+
+
+  - english: "decrease"
+    chinese: "减少"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈkriːs/"
+    example_sentence: "Prices decreased this month."
+    synonyms:
+      - "reduce"
+      - "decline"
+    antonyms:
+      - "increase"
+    difficulty_level: 5
+    freq_rank: 1420
+
+
+  - english: "familiar"
+    chinese: "熟悉的"
+    part_of_speech: "adjective"
+    phonetic: "/fəˈmɪl.i.ər/"
+    example_sentence: "This song sounds familiar to me."
+    synonyms:
+      - "known"
+      - "recognizable"
+    antonyms:
+      - "unfamiliar"
+      - "strange"
+    difficulty_level: 4
+    freq_rank: 1445
+
+
+  - english: "destroy"
+    chinese: "摧毁"
+    part_of_speech: "verb"
+    phonetic: "/dɪˈstrɔɪ/"
+    example_sentence: "Fire destroyed the old house."
+    synonyms:
+      - "ruin"
+      - "demolish"
+    antonyms:
+      - "build"
+      - "create"
+    difficulty_level: 5
+    freq_rank: 1447
+
+
+  - english: "belief"
+    chinese: "信念"
+    part_of_speech: "noun"
+    phonetic: "/bɪˈliːf/"
+    example_sentence: "He has a strong belief in himself."
+    synonyms:
+      - "faith"
+      - "trust"
+    antonyms:
+      - "doubt"
+    difficulty_level: 4
+    freq_rank: 1456
+
 
   - english: "afford"
     chinese: "负担得起"
@@ -73,17 +1718,48 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 4
+    freq_rank: 1488
 
-  - english: "announce"
-    chinese: "宣布"
-    part_of_speech: "verb"
-    phonetic: "/əˈnaʊns/"
-    example_sentence: "They announced the result yesterday."
+
+  - english: "confidence"
+    chinese: "信心"
+    part_of_speech: "noun"
+    phonetic: "/ˈkɒn.fɪ.dəns/"
+    example_sentence: "Sport builds his confidence."
     synonyms:
-      - "declare"
-      - "publish"
-    antonyms: []
+      - "belief"
+      - "faith"
+    antonyms:
+      - "doubt"
     difficulty_level: 4
+    freq_rank: 1493
+
+
+  - english: "complain"
+    chinese: "抱怨"
+    part_of_speech: "verb"
+    phonetic: "/kəmˈpleɪn/"
+    example_sentence: "He likes to complain about tests."
+    synonyms:
+      - "moan"
+      - "protest"
+    antonyms:
+      - "praise"
+    difficulty_level: 4
+    freq_rank: 1495
+
+
+  - english: "assess"
+    chinese: "评估"
+    part_of_speech: "verb"
+    phonetic: "/əˈses/"
+    example_sentence: "Teachers assess students through written exams."
+    synonyms:
+      - "evaluate"
+    antonyms: []
+    difficulty_level: 7
+    freq_rank: 1499
+
 
   - english: "annoyed"
     chinese: "恼怒的"
@@ -98,85 +1774,6 @@ words:
       - "pleased"
     difficulty_level: 4
 
-  - english: "anxious"
-    chinese: "焦虑的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈæŋk.ʃəs/"
-    example_sentence: "She felt anxious before the exam."
-    synonyms:
-      - "worried"
-      - "nervous"
-    antonyms:
-      - "calm"
-      - "relaxed"
-    difficulty_level: 4
-
-  - english: "apologize"
-    chinese: "道歉"
-    part_of_speech: "verb"
-    phonetic: "/əˈpɒl.ə.dʒaɪz/"
-    example_sentence: "He apologized for being late."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "argue"
-    chinese: "争论"
-    part_of_speech: "verb"
-    phonetic: "/ˈɑː.ɡjuː/"
-    example_sentence: "They often argue about football."
-    synonyms:
-      - "quarrel"
-      - "debate"
-    antonyms:
-      - "agree"
-    difficulty_level: 4
-
-  - english: "arrange"
-    chinese: "安排"
-    part_of_speech: "verb"
-    phonetic: "/əˈreɪndʒ/"
-    example_sentence: "We arranged a trip to the lake."
-    synonyms:
-      - "organize"
-      - "plan"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "attract"
-    chinese: "吸引"
-    part_of_speech: "verb"
-    phonetic: "/əˈtrækt/"
-    example_sentence: "Bright flowers attract bees."
-    synonyms:
-      - "draw"
-      - "appeal"
-    antonyms:
-      - "repel"
-    difficulty_level: 4
-
-  - english: "audience"
-    chinese: "观众"
-    part_of_speech: "noun"
-    phonetic: "/ˈɔː.di.əns/"
-    example_sentence: "The audience clapped loudly."
-    synonyms:
-      - "viewers"
-      - "crowd"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "average"
-    chinese: "平均的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈæv.rɪdʒ/"
-    example_sentence: "The average age is fifteen."
-    synonyms:
-      - "typical"
-      - "normal"
-    antonyms:
-      - "extreme"
-    difficulty_level: 4
 
   - english: "awake"
     chinese: "醒着的"
@@ -190,40 +1787,6 @@ words:
       - "asleep"
     difficulty_level: 4
 
-  - english: "awful"
-    chinese: "糟糕的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈɔː.fəl/"
-    example_sentence: "The weather was awful yesterday."
-    synonyms:
-      - "terrible"
-      - "bad"
-    antonyms:
-      - "wonderful"
-    difficulty_level: 4
-
-  - english: "behave"
-    chinese: "表现"
-    part_of_speech: "verb"
-    phonetic: "/bɪˈheɪv/"
-    example_sentence: "You should behave politely in class."
-    synonyms:
-      - "act"
-    antonyms:
-      - "misbehave"
-    difficulty_level: 4
-
-  - english: "belief"
-    chinese: "信念"
-    part_of_speech: "noun"
-    phonetic: "/bɪˈliːf/"
-    example_sentence: "He has a strong belief in himself."
-    synonyms:
-      - "faith"
-      - "trust"
-    antonyms:
-      - "doubt"
-    difficulty_level: 4
 
   - english: "blanket"
     chinese: "毯子"
@@ -234,6 +1797,7 @@ words:
       - "cover"
     antonyms: []
     difficulty_level: 4
+
 
   - english: "bold"
     chinese: "大胆的"
@@ -247,23 +1811,6 @@ words:
       - "cowardly"
     difficulty_level: 4
 
-  - english: "breath"
-    chinese: "呼吸"
-    part_of_speech: "noun"
-    phonetic: "/breθ/"
-    example_sentence: "Take a deep breath and relax."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "breathe"
-    chinese: "呼吸"
-    part_of_speech: "verb"
-    phonetic: "/briːð/"
-    example_sentence: "It is hard to breathe on the top."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 4
 
   - english: "breeze"
     chinese: "微风"
@@ -275,140 +1822,6 @@ words:
     antonyms: []
     difficulty_level: 4
 
-  - english: "bridge"
-    chinese: "桥"
-    part_of_speech: "noun"
-    phonetic: "/brɪdʒ/"
-    example_sentence: "A new bridge crosses the river."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "brief"
-    chinese: "简短的"
-    part_of_speech: "adjective"
-    phonetic: "/briːf/"
-    example_sentence: "He gave a brief answer."
-    synonyms:
-      - "short"
-      - "concise"
-    antonyms:
-      - "long"
-    difficulty_level: 4
-
-  - english: "bright"
-    chinese: "明亮的"
-    part_of_speech: "adjective"
-    phonetic: "/braɪt/"
-    example_sentence: "The bright sun shines today."
-    synonyms:
-      - "shining"
-      - "vivid"
-    antonyms:
-      - "dark"
-      - "dim"
-    difficulty_level: 4
-
-  - english: "brilliant"
-    chinese: "杰出的；明亮的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈbrɪl.jənt/"
-    example_sentence: "She had a brilliant idea for the project."
-    synonyms:
-      - "excellent"
-      - "outstanding"
-    antonyms:
-      - "dull"
-      - "mediocre"
-    difficulty_level: 4
-
-  - english: "broad"
-    chinese: "宽广的"
-    part_of_speech: "adjective"
-    phonetic: "/brɔːd/"
-    example_sentence: "The broad street is full of shops."
-    synonyms:
-      - "wide"
-    antonyms:
-      - "narrow"
-    difficulty_level: 4
-
-  - english: "broadcast"
-    chinese: "广播"
-    part_of_speech: "verb"
-    phonetic: "/ˈbrɔːd.kɑːst/"
-    example_sentence: "They broadcast news every morning."
-    synonyms:
-      - "air"
-      - "transmit"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "burden"
-    chinese: "负担"
-    part_of_speech: "noun"
-    phonetic: "/ˈbɜː.dən/"
-    example_sentence: "The heavy bag was a burden."
-    synonyms:
-      - "load"
-      - "weight"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "calm"
-    chinese: "平静的"
-    part_of_speech: "adjective"
-    phonetic: "/kɑːm/"
-    example_sentence: "Stay calm and think clearly."
-    synonyms:
-      - "peaceful"
-      - "quiet"
-    antonyms:
-      - "nervous"
-      - "excited"
-    difficulty_level: 4
-
-  - english: "camera"
-    chinese: "照相机"
-    part_of_speech: "noun"
-    phonetic: "/ˈkæm.rə/"
-    example_sentence: "She took photos with her camera."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "cancel"
-    chinese: "取消"
-    part_of_speech: "verb"
-    phonetic: "/ˈkæn.səl/"
-    example_sentence: "We had to cancel the match."
-    synonyms:
-      - "call off"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "capable"
-    chinese: "有能力的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈkeɪ.pə.bəl/"
-    example_sentence: "She is capable of hard work."
-    synonyms:
-      - "able"
-      - "competent"
-    antonyms:
-      - "incapable"
-    difficulty_level: 4
-
-  - english: "castle"
-    chinese: "城堡"
-    part_of_speech: "noun"
-    phonetic: "/ˈkɑː.səl/"
-    example_sentence: "The old castle stands on the hill."
-    synonyms:
-      - "fortress"
-      - "palace"
-    antonyms: []
-    difficulty_level: 4
 
   - english: "casual"
     chinese: "随意的"
@@ -422,17 +1835,6 @@ words:
       - "formal"
     difficulty_level: 4
 
-  - english: "cause"
-    chinese: "导致"
-    part_of_speech: "verb"
-    phonetic: "/kɔːz/"
-    example_sentence: "Smoking can cause illness."
-    synonyms:
-      - "lead to"
-      - "bring about"
-    antonyms:
-      - "prevent"
-    difficulty_level: 4
 
   - english: "caution"
     chinese: "谨慎"
@@ -445,100 +1847,6 @@ words:
     antonyms: []
     difficulty_level: 4
 
-  - english: "celebrate"
-    chinese: "庆祝"
-    part_of_speech: "verb"
-    phonetic: "/ˈsel.ə.breɪt/"
-    example_sentence: "We celebrate Christmas with our family every year."
-    synonyms:
-      - "commemorate"
-      - "honor"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "century"
-    chinese: "世纪"
-    part_of_speech: "noun"
-    phonetic: "/ˈsen.tʃər.i/"
-    example_sentence: "The castle is a century old."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "certain"
-    chinese: "确定的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈsɜː.tən/"
-    example_sentence: "I am certain about the answer."
-    synonyms:
-      - "sure"
-      - "definite"
-    antonyms:
-      - "uncertain"
-    difficulty_level: 4
-
-  - english: "chain"
-    chinese: "链条"
-    part_of_speech: "noun"
-    phonetic: "/tʃeɪn/"
-    example_sentence: "The bike chain is broken."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "challenge"
-    chinese: "挑战"
-    part_of_speech: "noun"
-    phonetic: "/ˈtʃæl.ɪndʒ/"
-    example_sentence: "Climbing is a real challenge."
-    synonyms:
-      - "test"
-      - "dare"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "chance"
-    chinese: "机会"
-    part_of_speech: "noun"
-    phonetic: "/tʃɑːns/"
-    example_sentence: "Give me one more chance."
-    synonyms:
-      - "opportunity"
-      - "occasion"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "character"
-    chinese: "性格；角色"
-    part_of_speech: "noun"
-    phonetic: "/ˈkær.ək.tər/"
-    example_sentence: "The story has an interesting character."
-    synonyms:
-      - "role"
-      - "nature"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "charge"
-    chinese: "收费；充电"
-    part_of_speech: "verb"
-    phonetic: "/tʃɑːdʒ/"
-    example_sentence: "They charge for breakfast here."
-    synonyms:
-      - "bill"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "charm"
-    chinese: "魅力"
-    part_of_speech: "noun"
-    phonetic: "/tʃɑːm/"
-    example_sentence: "Her smile has great charm."
-    synonyms:
-      - "appeal"
-      - "attraction"
-    antonyms: []
-    difficulty_level: 4
 
   - english: "cheerful"
     chinese: "愉快的"
@@ -553,16 +1861,6 @@ words:
       - "gloomy"
     difficulty_level: 4
 
-  - english: "choice"
-    chinese: "选择"
-    part_of_speech: "noun"
-    phonetic: "/tʃɔɪs/"
-    example_sentence: "You made the right choice."
-    synonyms:
-      - "option"
-      - "decision"
-    antonyms: []
-    difficulty_level: 4
 
   - english: "cinema"
     chinese: "电影院"
@@ -574,145 +1872,6 @@ words:
     antonyms: []
     difficulty_level: 4
 
-  - english: "climate"
-    chinese: "气候"
-    part_of_speech: "noun"
-    phonetic: "/ˈklaɪ.mət/"
-    example_sentence: "The climate here is mild."
-    synonyms:
-      - "weather"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "clothing"
-    chinese: "衣服"
-    part_of_speech: "noun"
-    phonetic: "/ˈkləʊ.ðɪŋ/"
-    example_sentence: "Warm clothing is needed in winter."
-    synonyms:
-      - "clothes"
-      - "garments"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "coast"
-    chinese: "海岸"
-    part_of_speech: "noun"
-    phonetic: "/kəʊst/"
-    example_sentence: "We spent a day on the coast."
-    synonyms:
-      - "shore"
-      - "seaside"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "comfort"
-    chinese: "安慰"
-    part_of_speech: "noun"
-    phonetic: "/ˈkʌm.fət/"
-    example_sentence: "Her words gave me comfort."
-    synonyms:
-      - "consolation"
-      - "ease"
-    antonyms:
-      - "discomfort"
-    difficulty_level: 4
-
-  - english: "common"
-    chinese: "普通的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈkɒm.ən/"
-    example_sentence: "Rice is a common food here."
-    synonyms:
-      - "usual"
-      - "ordinary"
-    antonyms:
-      - "rare"
-      - "uncommon"
-    difficulty_level: 4
-
-  - english: "compare"
-    chinese: "比较"
-    part_of_speech: "verb"
-    phonetic: "/kəmˈpeər/"
-    example_sentence: "Compare your answers with mine."
-    synonyms:
-      - "contrast"
-      - "match"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "compete"
-    chinese: "竞争"
-    part_of_speech: "verb"
-    phonetic: "/kəmˈpiːt/"
-    example_sentence: "Ten teams compete for the prize."
-    synonyms:
-      - "contest"
-      - "rival"
-    antonyms:
-      - "cooperate"
-    difficulty_level: 4
-
-  - english: "complain"
-    chinese: "抱怨"
-    part_of_speech: "verb"
-    phonetic: "/kəmˈpleɪn/"
-    example_sentence: "He likes to complain about tests."
-    synonyms:
-      - "moan"
-      - "protest"
-    antonyms:
-      - "praise"
-    difficulty_level: 4
-
-  - english: "complete"
-    chinese: "完成"
-    part_of_speech: "verb"
-    phonetic: "/kəmˈpliːt/"
-    example_sentence: "Please complete the form first."
-    synonyms:
-      - "finish"
-      - "accomplish"
-    antonyms:
-      - "start"
-      - "begin"
-    difficulty_level: 4
-
-  - english: "concern"
-    chinese: "关心"
-    part_of_speech: "noun"
-    phonetic: "/kənˈsɜːn/"
-    example_sentence: "Health is our main concern."
-    synonyms:
-      - "care"
-      - "worry"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "confidence"
-    chinese: "信心"
-    part_of_speech: "noun"
-    phonetic: "/ˈkɒn.fɪ.dəns/"
-    example_sentence: "Sport builds his confidence."
-    synonyms:
-      - "belief"
-      - "faith"
-    antonyms:
-      - "doubt"
-    difficulty_level: 4
-
-  - english: "confuse"
-    chinese: "使困惑"
-    part_of_speech: "verb"
-    phonetic: "/kənˈfjuːz/"
-    example_sentence: "The map confused the driver."
-    synonyms:
-      - "puzzle"
-      - "mix up"
-    antonyms:
-      - "clarify"
-    difficulty_level: 4
 
   - english: "congratulate"
     chinese: "祝贺"
@@ -723,93 +1882,6 @@ words:
     antonyms: []
     difficulty_level: 4
 
-  - english: "connect"
-    chinese: "连接"
-    part_of_speech: "verb"
-    phonetic: "/kəˈnekt/"
-    example_sentence: "The bridge connects two towns."
-    synonyms:
-      - "join"
-      - "link"
-    antonyms:
-      - "separate"
-    difficulty_level: 4
-
-  - english: "consider"
-    chinese: "考虑"
-    part_of_speech: "verb"
-    phonetic: "/kənˈsɪd.ər/"
-    example_sentence: "Please consider my advice."
-    synonyms:
-      - "think about"
-    antonyms:
-      - "ignore"
-    difficulty_level: 4
-
-  - english: "consist"
-    chinese: "由组成"
-    part_of_speech: "verb"
-    phonetic: "/kənˈsɪst/"
-    example_sentence: "A team consists of five players."
-    synonyms:
-      - "comprise"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "contact"
-    chinese: "联系"
-    part_of_speech: "noun"
-    phonetic: "/ˈkɒn.tækt/"
-    example_sentence: "We lost contact after summer."
-    synonyms:
-      - "connection"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "contain"
-    chinese: "包含"
-    part_of_speech: "verb"
-    phonetic: "/kənˈteɪn/"
-    example_sentence: "The box contains old books."
-    synonyms:
-      - "include"
-      - "hold"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "continue"
-    chinese: "继续"
-    part_of_speech: "verb"
-    phonetic: "/kənˈtɪn.juː/"
-    example_sentence: "Please continue your story."
-    synonyms:
-      - "go on"
-      - "persist"
-    antonyms:
-      - "stop"
-    difficulty_level: 4
-
-  - english: "contribute"
-    chinese: "贡献"
-    part_of_speech: "verb"
-    phonetic: "/kənˈtrɪb.juːt/"
-    example_sentence: "Everyone should contribute ideas."
-    synonyms:
-      - "donate"
-      - "give"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "control"
-    chinese: "控制"
-    part_of_speech: "verb"
-    phonetic: "/kənˈtrəʊl/"
-    example_sentence: "Learn to control your temper."
-    synonyms:
-      - "manage"
-      - "direct"
-    antonyms: []
-    difficulty_level: 4
 
   - english: "convenient"
     chinese: "方便的"
@@ -823,6 +1895,7 @@ words:
       - "inconvenient"
     difficulty_level: 5
 
+
   - english: "cooperate"
     chinese: "合作"
     part_of_speech: "verb"
@@ -835,29 +1908,6 @@ words:
       - "compete"
     difficulty_level: 5
 
-  - english: "copy"
-    chinese: "复制；抄写"
-    part_of_speech: "verb"
-    phonetic: "/ˈkɒp.i/"
-    example_sentence: "Copy the new words twice."
-    synonyms:
-      - "duplicate"
-      - "repeat"
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "correct"
-    chinese: "正确的"
-    part_of_speech: "adjective"
-    phonetic: "/kəˈrekt/"
-    example_sentence: "All your answers are correct."
-    synonyms:
-      - "right"
-      - "accurate"
-    antonyms:
-      - "wrong"
-      - "incorrect"
-    difficulty_level: 5
 
   - english: "cottage"
     chinese: "小屋"
@@ -870,14 +1920,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "cough"
-    chinese: "咳嗽"
-    part_of_speech: "verb"
-    phonetic: "/kɒf/"
-    example_sentence: "The smoke made me cough."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 5
 
   - english: "courage"
     chinese: "勇气"
@@ -891,6 +1933,7 @@ words:
       - "cowardice"
     difficulty_level: 5
 
+
   - english: "courtesy"
     chinese: "礼貌"
     part_of_speech: "noun"
@@ -902,81 +1945,6 @@ words:
       - "rudeness"
     difficulty_level: 5
 
-  - english: "crash"
-    chinese: "碰撞"
-    part_of_speech: "verb"
-    phonetic: "/kræʃ/"
-    example_sentence: "Two cars crashed at the corner."
-    synonyms:
-      - "collide"
-      - "smash"
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "crazy"
-    chinese: "疯狂的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈkreɪ.zi/"
-    example_sentence: "The fans went crazy with joy."
-    synonyms:
-      - "mad"
-      - "wild"
-    antonyms:
-      - "sane"
-      - "calm"
-    difficulty_level: 5
-
-  - english: "create"
-    chinese: "创造"
-    part_of_speech: "verb"
-    phonetic: "/kriˈeɪt/"
-    example_sentence: "They created a new club."
-    synonyms:
-      - "make"
-      - "produce"
-    antonyms:
-      - "destroy"
-    difficulty_level: 5
-
-  - english: "creative"
-    chinese: "有创造力的"
-    part_of_speech: "adjective"
-    phonetic: "/kriˈeɪ.tɪv/"
-    example_sentence: "She is a creative artist."
-    synonyms:
-      - "imaginative"
-      - "original"
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "credit"
-    chinese: "信用；功劳"
-    part_of_speech: "noun"
-    phonetic: "/ˈkred.ɪt/"
-    example_sentence: "He deserves credit for the win."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "crime"
-    chinese: "罪行"
-    part_of_speech: "noun"
-    phonetic: "/kraɪm/"
-    example_sentence: "Stealing is a serious crime."
-    synonyms:
-      - "offence"
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "crisis"
-    chinese: "危机"
-    part_of_speech: "noun"
-    phonetic: "/ˈkraɪ.sɪs/"
-    example_sentence: "The city faced a water crisis."
-    synonyms:
-      - "emergency"
-    antonyms: []
-    difficulty_level: 5
 
   - english: "crisp"
     chinese: "脆的；清新的"
@@ -991,17 +1959,6 @@ words:
       - "soggy"
     difficulty_level: 5
 
-  - english: "crowded"
-    chinese: "拥挤的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈkraʊd.ɪd/"
-    example_sentence: "The bus was crowded this morning."
-    synonyms:
-      - "packed"
-      - "busy"
-    antonyms:
-      - "empty"
-    difficulty_level: 5
 
   - english: "cruel"
     chinese: "残忍的"
@@ -1016,6 +1973,7 @@ words:
       - "gentle"
     difficulty_level: 5
 
+
   - english: "cruise"
     chinese: "乘船游览"
     part_of_speech: "verb"
@@ -1026,25 +1984,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "curious"
-    chinese: "好奇的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈkjʊə.ri.əs/"
-    example_sentence: "The curious boy asked many questions."
-    synonyms:
-      - "inquisitive"
-      - "eager"
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "curtain"
-    chinese: "窗帘"
-    part_of_speech: "noun"
-    phonetic: "/ˈkɜː.tən/"
-    example_sentence: "She opened the curtain at dawn."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 5
 
   - english: "cushion"
     chinese: "坐垫"
@@ -1056,16 +1995,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "custom"
-    chinese: "习俗"
-    part_of_speech: "noun"
-    phonetic: "/ˈkʌs.təm/"
-    example_sentence: "Tea is part of our custom."
-    synonyms:
-      - "tradition"
-      - "habit"
-    antonyms: []
-    difficulty_level: 5
 
   - english: "damp"
     chinese: "潮湿的"
@@ -1079,6 +2008,7 @@ words:
       - "dry"
     difficulty_level: 5
 
+
   - english: "dawn"
     chinese: "黎明"
     part_of_speech: "noun"
@@ -1091,6 +2021,7 @@ words:
       - "sunset"
     difficulty_level: 5
 
+
   - english: "deadline"
     chinese: "截止日期"
     part_of_speech: "noun"
@@ -1101,16 +2032,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "debate"
-    chinese: "辩论"
-    part_of_speech: "noun"
-    phonetic: "/dɪˈbeɪt/"
-    example_sentence: "We had a debate on smoking."
-    synonyms:
-      - "discussion"
-      - "argument"
-    antonyms: []
-    difficulty_level: 5
 
   - english: "decent"
     chinese: "体面的；不错的"
@@ -1124,29 +2045,6 @@ words:
       - "poor"
     difficulty_level: 5
 
-  - english: "declare"
-    chinese: "宣告"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈkleər/"
-    example_sentence: "They declared a holiday today."
-    synonyms:
-      - "announce"
-      - "proclaim"
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "decline"
-    chinese: "下降；拒绝"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈklaɪn/"
-    example_sentence: "She declined the invitation politely."
-    synonyms:
-      - "refuse"
-      - "decrease"
-    antonyms:
-      - "accept"
-      - "increase"
-    difficulty_level: 5
 
   - english: "decorate"
     chinese: "装饰"
@@ -1158,53 +2056,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "decrease"
-    chinese: "减少"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈkriːs/"
-    example_sentence: "Prices decreased this month."
-    synonyms:
-      - "reduce"
-      - "decline"
-    antonyms:
-      - "increase"
-    difficulty_level: 5
-
-  - english: "defeat"
-    chinese: "击败"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈfiːt/"
-    example_sentence: "Our team defeated the visitors."
-    synonyms:
-      - "beat"
-      - "overcome"
-    antonyms:
-      - "lose to"
-    difficulty_level: 5
-
-  - english: "defend"
-    chinese: "保卫"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈfend/"
-    example_sentence: "Soldiers defend the country."
-    synonyms:
-      - "protect"
-      - "guard"
-    antonyms:
-      - "attack"
-    difficulty_level: 5
-
-  - english: "delay"
-    chinese: "延迟"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈleɪ/"
-    example_sentence: "Please do not delay the payment."
-    synonyms:
-      - "postpone"
-      - "put off"
-    antonyms:
-      - "advance"
-    difficulty_level: 5
 
   - english: "delicate"
     chinese: "精致的；脆弱的"
@@ -1219,6 +2070,7 @@ words:
       - "sturdy"
     difficulty_level: 5
 
+
   - english: "delicious"
     chinese: "美味的"
     part_of_speech: "adjective"
@@ -1231,27 +2083,6 @@ words:
       - "awful"
     difficulty_level: 5
 
-  - english: "deliver"
-    chinese: "递送"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈlɪv.ər/"
-    example_sentence: "They deliver milk every morning."
-    synonyms:
-      - "send"
-      - "carry"
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "demand"
-    chinese: "要求"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈmɑːnd/"
-    example_sentence: "Workers demand better pay."
-    synonyms:
-      - "require"
-      - "request"
-    antonyms: []
-    difficulty_level: 5
 
   - english: "dense"
     chinese: "浓密的"
@@ -1264,6 +2095,7 @@ words:
       - "sparse"
     difficulty_level: 5
 
+
   - english: "depart"
     chinese: "出发"
     part_of_speech: "verb"
@@ -1275,15 +2107,6 @@ words:
       - "arrive"
     difficulty_level: 5
 
-  - english: "depend"
-    chinese: "依靠"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈpend/"
-    example_sentence: "Plants depend on sunlight."
-    synonyms:
-      - "rely"
-    antonyms: []
-    difficulty_level: 5
 
   - english: "depict"
     chinese: "描绘"
@@ -1296,46 +2119,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "deposit"
-    chinese: "存款；押金"
-    part_of_speech: "noun"
-    phonetic: "/dɪˈpɒz.ɪt/"
-    example_sentence: "He put a deposit in the bank."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "desert"
-    chinese: "沙漠"
-    part_of_speech: "noun"
-    phonetic: "/ˈdez.ət/"
-    example_sentence: "Camels live in the desert."
-    synonyms: []
-    antonyms:
-      - "oasis"
-    difficulty_level: 5
-
-  - english: "deserve"
-    chinese: "值得"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈzɜːv/"
-    example_sentence: "You deserve a good rest."
-    synonyms:
-      - "earn"
-      - "merit"
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "desire"
-    chinese: "渴望"
-    part_of_speech: "noun"
-    phonetic: "/dɪˈzaɪər/"
-    example_sentence: "He has a desire to travel."
-    synonyms:
-      - "wish"
-      - "longing"
-    antonyms: []
-    difficulty_level: 5
 
   - english: "despair"
     chinese: "绝望"
@@ -1346,6 +2129,7 @@ words:
     antonyms:
       - "hope"
     difficulty_level: 5
+
 
   - english: "desperate"
     chinese: "绝望的"
@@ -1358,6 +2142,7 @@ words:
       - "hopeful"
     difficulty_level: 5
 
+
   - english: "destination"
     chinese: "目的地"
     part_of_speech: "noun"
@@ -1367,39 +2152,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "destroy"
-    chinese: "摧毁"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈstrɔɪ/"
-    example_sentence: "Fire destroyed the old house."
-    synonyms:
-      - "ruin"
-      - "demolish"
-    antonyms:
-      - "build"
-      - "create"
-    difficulty_level: 5
-
-  - english: "determine"
-    chinese: "决定"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈtɜː.mɪn/"
-    example_sentence: "We must determine the date soon."
-    synonyms:
-      - "decide"
-      - "settle"
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "devote"
-    chinese: "奉献"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈvəʊt/"
-    example_sentence: "She devotes time to reading."
-    synonyms:
-      - "dedicate"
-    antonyms: []
-    difficulty_level: 5
 
   - english: "dial"
     chinese: "拨号"
@@ -1409,6 +2161,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 5
+
 
   - english: "dignity"
     chinese: "尊严"
@@ -1421,6 +2174,7 @@ words:
     antonyms: []
     difficulty_level: 5
 
+
   - english: "diligent"
     chinese: "勤奋的"
     part_of_speech: "adjective"
@@ -1431,6 +2185,7 @@ words:
     antonyms:
       - "lazy"
     difficulty_level: 5
+
 
   - english: "dim"
     chinese: "昏暗的"
@@ -1443,6 +2198,7 @@ words:
       - "bright"
     difficulty_level: 5
 
+
   - english: "dine"
     chinese: "用餐"
     part_of_speech: "verb"
@@ -1453,33 +2209,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "disaster"
-    chinese: "灾难"
-    part_of_speech: "noun"
-    phonetic: "/dɪˈzɑː.stər/"
-    example_sentence: "The flood was a big disaster."
-    synonyms:
-      - "catastrophe"
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "discipline"
-    chinese: "纪律"
-    part_of_speech: "noun"
-    phonetic: "/ˈdɪs.ə.plɪn/"
-    example_sentence: "Our class has good discipline."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "discount"
-    chinese: "折扣"
-    part_of_speech: "noun"
-    phonetic: "/ˈdɪs.kaʊnt/"
-    example_sentence: "The shop gives a big discount."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 4
 
   - english: "discourage"
     chinese: "使气馁"
@@ -1492,18 +2221,6 @@ words:
       - "encourage"
     difficulty_level: 4
 
-  - english: "discover"
-    chinese: "发现"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈskʌv.ər/"
-    example_sentence: "Scientists discover new species every year."
-    synonyms:
-      - "find"
-      - "uncover"
-    antonyms:
-      - "hide"
-      - "conceal"
-    difficulty_level: 4
 
   - english: "disgust"
     chinese: "厌恶"
@@ -1515,6 +2232,7 @@ words:
     antonyms: []
     difficulty_level: 4
 
+
   - english: "dishonest"
     chinese: "不诚实的"
     part_of_speech: "adjective"
@@ -1525,25 +2243,6 @@ words:
       - "honest"
     difficulty_level: 4
 
-  - english: "dismiss"
-    chinese: "解散；开除"
-    part_of_speech: "verb"
-    phonetic: "/dɪsˈmɪs/"
-    example_sentence: "School dismissed at four o'clock."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "display"
-    chinese: "展示"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈspleɪ/"
-    example_sentence: "They display new books here."
-    synonyms:
-      - "show"
-      - "exhibit"
-    antonyms: []
-    difficulty_level: 4
 
   - english: "dispose"
     chinese: "处理"
@@ -1554,26 +2253,6 @@ words:
     antonyms: []
     difficulty_level: 4
 
-  - english: "dispute"
-    chinese: "争端"
-    part_of_speech: "noun"
-    phonetic: "/dɪˈspjuːt/"
-    example_sentence: "They settled the dispute calmly."
-    synonyms:
-      - "quarrel"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "disturb"
-    chinese: "打扰"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈstɜːb/"
-    example_sentence: "Do not disturb your father."
-    synonyms:
-      - "bother"
-      - "interrupt"
-    antonyms: []
-    difficulty_level: 4
 
   - english: "dive"
     chinese: "跳水；潜水"
@@ -1583,6 +2262,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 4
+
 
   - english: "diverse"
     chinese: "多样的"
@@ -1594,17 +2274,6 @@ words:
     antonyms: []
     difficulty_level: 4
 
-  - english: "divide"
-    chinese: "分开"
-    part_of_speech: "verb"
-    phonetic: "/dɪˈvaɪd/"
-    example_sentence: "Divide the cake into six parts."
-    synonyms:
-      - "split"
-      - "separate"
-    antonyms:
-      - "unite"
-    difficulty_level: 4
 
   - english: "dizzy"
     chinese: "头晕的"
@@ -1615,6 +2284,7 @@ words:
     antonyms: []
     difficulty_level: 4
 
+
   - english: "dormitory"
     chinese: "宿舍"
     part_of_speech: "noun"
@@ -1624,16 +2294,6 @@ words:
     antonyms: []
     difficulty_level: 4
 
-  - english: "doubt"
-    chinese: "怀疑"
-    part_of_speech: "noun"
-    phonetic: "/daʊt/"
-    example_sentence: "I have no doubt about it."
-    synonyms: []
-    antonyms:
-      - "trust"
-      - "belief"
-    difficulty_level: 4
 
   - english: "downtown"
     chinese: "市区"
@@ -1644,35 +2304,6 @@ words:
     antonyms: []
     difficulty_level: 4
 
-  - english: "dozen"
-    chinese: "一打"
-    part_of_speech: "numeral"
-    phonetic: "/ˈdʌz.ən/"
-    example_sentence: "She bought a dozen eggs."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "draft"
-    chinese: "草稿"
-    part_of_speech: "noun"
-    phonetic: "/drɑːft/"
-    example_sentence: "Write a draft before the final copy."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "drag"
-    chinese: "拖"
-    part_of_speech: "verb"
-    phonetic: "/dræɡ/"
-    example_sentence: "He dragged the box inside."
-    synonyms:
-      - "pull"
-      - "haul"
-    antonyms:
-      - "push"
-    difficulty_level: 4
 
   - english: "drain"
     chinese: "排干"
@@ -1682,6 +2313,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 4
+
 
   - english: "dreadful"
     chinese: "可怕的"
@@ -1695,6 +2327,7 @@ words:
       - "pleasant"
     difficulty_level: 4
 
+
   - english: "drowsy"
     chinese: "困倦的"
     part_of_speech: "adjective"
@@ -1706,6 +2339,7 @@ words:
       - "alert"
     difficulty_level: 4
 
+
   - english: "drum"
     chinese: "鼓"
     part_of_speech: "noun"
@@ -1714,6 +2348,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 4
+
 
   - english: "durable"
     chinese: "耐用的"
@@ -1725,6 +2360,7 @@ words:
       - "fragile"
     difficulty_level: 4
 
+
   - english: "dusk"
     chinese: "黄昏"
     part_of_speech: "noun"
@@ -1734,6 +2370,7 @@ words:
     antonyms:
       - "dawn"
     difficulty_level: 4
+
 
   - english: "dwell"
     chinese: "居住"
@@ -1745,6 +2382,7 @@ words:
       - "reside"
     antonyms: []
     difficulty_level: 4
+
 
   - english: "eager"
     chinese: "渴望的"
@@ -1758,17 +2396,6 @@ words:
       - "reluctant"
     difficulty_level: 4
 
-  - english: "earn"
-    chinese: "赚得"
-    part_of_speech: "verb"
-    phonetic: "/ɜːn/"
-    example_sentence: "He earns money by washing cars."
-    synonyms:
-      - "gain"
-    antonyms:
-      - "lose"
-      - "spend"
-    difficulty_level: 4
 
   - english: "earnest"
     chinese: "认真的"
@@ -1781,15 +2408,6 @@ words:
     antonyms: []
     difficulty_level: 4
 
-  - english: "ease"
-    chinese: "容易；缓解"
-    part_of_speech: "noun"
-    phonetic: "/iːz/"
-    example_sentence: "He solved it with ease."
-    synonyms: []
-    antonyms:
-      - "difficulty"
-    difficulty_level: 4
 
   - english: "echo"
     chinese: "回声"
@@ -1800,6 +2418,7 @@ words:
     antonyms: []
     difficulty_level: 4
 
+
   - english: "eclipse"
     chinese: "日食；月食"
     part_of_speech: "noun"
@@ -1808,6 +2427,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 5
+
 
   - english: "ecology"
     chinese: "生态学"
@@ -1818,35 +2438,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "edit"
-    chinese: "编辑"
-    part_of_speech: "verb"
-    phonetic: "/ˈed.ɪt/"
-    example_sentence: "She edits the school newspaper."
-    synonyms:
-      - "revise"
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "efficient"
-    chinese: "高效的"
-    part_of_speech: "adjective"
-    phonetic: "/ɪˈfɪʃ.ənt/"
-    example_sentence: "This is an efficient way to study."
-    synonyms:
-      - "effective"
-    antonyms:
-      - "inefficient"
-    difficulty_level: 5
-
-  - english: "effort"
-    chinese: "努力"
-    part_of_speech: "noun"
-    phonetic: "/ˈef.ət/"
-    example_sentence: "Success needs effort and patience."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 5
 
   - english: "elastic"
     chinese: "有弹性的"
@@ -1859,6 +2450,7 @@ words:
       - "rigid"
     difficulty_level: 5
 
+
   - english: "elbow"
     chinese: "肘"
     part_of_speech: "noun"
@@ -1867,6 +2459,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 5
+
 
   - english: "elder"
     chinese: "年长的"
@@ -1880,16 +2473,6 @@ words:
       - "younger"
     difficulty_level: 5
 
-  - english: "elect"
-    chinese: "选举"
-    part_of_speech: "verb"
-    phonetic: "/ɪˈlekt/"
-    example_sentence: "We elect a monitor each term."
-    synonyms:
-      - "choose"
-      - "vote"
-    antonyms: []
-    difficulty_level: 5
 
   - english: "elegant"
     chinese: "优雅的"
@@ -1902,6 +2485,7 @@ words:
     antonyms: []
     difficulty_level: 5
 
+
   - english: "elevator"
     chinese: "电梯"
     part_of_speech: "noun"
@@ -1912,35 +2496,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "embarrass"
-    chinese: "使尴尬"
-    part_of_speech: "verb"
-    phonetic: "/ɪmˈbær.əs/"
-    example_sentence: "Do not embarrass him in public."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "embrace"
-    chinese: "拥抱"
-    part_of_speech: "verb"
-    phonetic: "/ɪmˈbreɪs/"
-    example_sentence: "Mother embraced her child."
-    synonyms:
-      - "hug"
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "emerge"
-    chinese: "出现"
-    part_of_speech: "verb"
-    phonetic: "/ɪˈmɜːdʒ/"
-    example_sentence: "The sun emerged from clouds."
-    synonyms:
-      - "appear"
-    antonyms:
-      - "vanish"
-    difficulty_level: 5
 
   - english: "emit"
     chinese: "发出"
@@ -1951,36 +2506,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "emphasis"
-    chinese: "强调"
-    part_of_speech: "noun"
-    phonetic: "/ˈem.fə.sɪs/"
-    example_sentence: "Our teacher puts emphasis on reading."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "employ"
-    chinese: "雇用"
-    part_of_speech: "verb"
-    phonetic: "/ɪmˈplɔɪ/"
-    example_sentence: "The shop employs five workers."
-    synonyms:
-      - "hire"
-    antonyms:
-      - "fire"
-    difficulty_level: 5
-
-  - english: "enable"
-    chinese: "使能够"
-    part_of_speech: "verb"
-    phonetic: "/ɪˈneɪ.bəl/"
-    example_sentence: "The internet enables fast learning."
-    synonyms:
-      - "allow"
-    antonyms:
-      - "prevent"
-    difficulty_level: 5
 
   - english: "enclose"
     chinese: "附上"
@@ -1992,28 +2517,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "encounter"
-    chinese: "遭遇"
-    part_of_speech: "verb"
-    phonetic: "/ɪnˈkaʊn.tər/"
-    example_sentence: "We encountered heavy rain."
-    synonyms:
-      - "meet"
-      - "face"
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "encourage"
-    chinese: "鼓励"
-    part_of_speech: "verb"
-    phonetic: "/ɪnˈkʌr.ɪdʒ/"
-    example_sentence: "Parents encourage us to read."
-    synonyms:
-      - "inspire"
-      - "support"
-    antonyms:
-      - "discourage"
-    difficulty_level: 5
 
   - english: "endure"
     chinese: "忍受"
@@ -2025,6 +2528,7 @@ words:
       - "tolerate"
     antonyms: []
     difficulty_level: 5
+
 
   - english: "energetic"
     chinese: "精力充沛的"
@@ -2038,6 +2542,7 @@ words:
       - "tired"
     difficulty_level: 5
 
+
   - english: "enforce"
     chinese: "执行"
     part_of_speech: "verb"
@@ -2047,27 +2552,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "engage"
-    chinese: "参与"
-    part_of_speech: "verb"
-    phonetic: "/ɪnˈɡeɪdʒ/"
-    example_sentence: "Students engage in class games."
-    synonyms:
-      - "join"
-      - "participate"
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "enhance"
-    chinese: "增强"
-    part_of_speech: "verb"
-    phonetic: "/ɪnˈhɑːns/"
-    example_sentence: "Pictures enhance the story."
-    synonyms:
-      - "improve"
-      - "boost"
-    antonyms: []
-    difficulty_level: 5
 
   - english: "enquire"
     chinese: "询问"
@@ -2079,29 +2563,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "environment"
-    chinese: "环境"
-    part_of_speech: "noun"
-    phonetic: "/ɪnˈvaɪ.rən.mənt/"
-    example_sentence: "We should protect the environment for future generations."
-    synonyms:
-      - "surroundings"
-      - "nature"
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "familiar"
-    chinese: "熟悉的"
-    part_of_speech: "adjective"
-    phonetic: "/fəˈmɪl.i.ər/"
-    example_sentence: "This song sounds familiar to me."
-    synonyms:
-      - "known"
-      - "recognizable"
-    antonyms:
-      - "unfamiliar"
-      - "strange"
-    difficulty_level: 4
 
   - english: "famine"
     chinese: "饥荒"
@@ -2112,17 +2573,6 @@ words:
     antonyms: []
     difficulty_level: 6
 
-  - english: "fascinate"
-    chinese: "迷住"
-    part_of_speech: "verb"
-    phonetic: "/ˈfæs.ɪ.neɪt/"
-    example_sentence: "Stars fascinate young children."
-    synonyms:
-      - "charm"
-      - "captivate"
-    antonyms:
-      - "bore"
-    difficulty_level: 6
 
   - english: "fatigue"
     chinese: "疲劳"
@@ -2136,16 +2586,6 @@ words:
       - "energy"
     difficulty_level: 6
 
-  - english: "fault"
-    chinese: "过错"
-    part_of_speech: "noun"
-    phonetic: "/fɔːlt/"
-    example_sentence: "It was my fault we lost."
-    synonyms:
-      - "mistake"
-      - "blame"
-    antonyms: []
-    difficulty_level: 6
 
   - english: "feasible"
     chinese: "可行的"
@@ -2159,6 +2599,7 @@ words:
       - "impossible"
     difficulty_level: 6
 
+
   - english: "fertile"
     chinese: "肥沃的"
     part_of_speech: "adjective"
@@ -2171,6 +2612,7 @@ words:
       - "barren"
     difficulty_level: 6
 
+
   - english: "fetch"
     chinese: "取来"
     part_of_speech: "verb"
@@ -2181,6 +2623,7 @@ words:
       - "get"
     antonyms: []
     difficulty_level: 6
+
 
   - english: "fierce"
     chinese: "猛烈的"
@@ -2195,16 +2638,6 @@ words:
       - "mild"
     difficulty_level: 6
 
-  - english: "filter"
-    chinese: "过滤"
-    part_of_speech: "verb"
-    phonetic: "/ˈfɪl.tər/"
-    example_sentence: "Filter the water before drinking."
-    synonyms:
-      - "strain"
-      - "purify"
-    antonyms: []
-    difficulty_level: 6
 
   - english: "finale"
     chinese: "结局"
@@ -2217,6 +2650,7 @@ words:
     antonyms: []
     difficulty_level: 6
 
+
   - english: "flatter"
     chinese: "奉承"
     part_of_speech: "verb"
@@ -2226,6 +2660,7 @@ words:
       - "praise"
     antonyms: []
     difficulty_level: 6
+
 
   - english: "fling"
     chinese: "扔"
@@ -2238,6 +2673,7 @@ words:
     antonyms: []
     difficulty_level: 6
 
+
   - english: "flora"
     chinese: "植物群"
     part_of_speech: "noun"
@@ -2246,6 +2682,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 6
+
 
   - english: "flourish"
     chinese: "繁荣"
@@ -2259,6 +2696,7 @@ words:
       - "decline"
     difficulty_level: 6
 
+
   - english: "fluent"
     chinese: "流利的"
     part_of_speech: "adjective"
@@ -2268,6 +2706,7 @@ words:
     antonyms: []
     difficulty_level: 6
 
+
   - english: "flutter"
     chinese: "飘动"
     part_of_speech: "verb"
@@ -2276,6 +2715,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 6
+
 
   - english: "foggy"
     chinese: "有雾的"
@@ -2287,6 +2727,7 @@ words:
     antonyms:
       - "clear"
     difficulty_level: 6
+
 
   - english: "forbid"
     chinese: "禁止"
@@ -2301,6 +2742,7 @@ words:
       - "permit"
     difficulty_level: 6
 
+
   - english: "forge"
     chinese: "锻造"
     part_of_speech: "verb"
@@ -2310,25 +2752,6 @@ words:
     antonyms: []
     difficulty_level: 6
 
-  - english: "formal"
-    chinese: "正式的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈfɔː.məl/"
-    example_sentence: "Wear formal clothes for dinner."
-    synonyms: []
-    antonyms:
-      - "informal"
-      - "casual"
-    difficulty_level: 6
-
-  - english: "format"
-    chinese: "格式"
-    part_of_speech: "noun"
-    phonetic: "/ˈfɔː.mæt/"
-    example_sentence: "Save the file in this format."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 6
 
   - english: "formulate"
     chinese: "制定"
@@ -2341,6 +2764,7 @@ words:
     antonyms: []
     difficulty_level: 6
 
+
   - english: "fortnight"
     chinese: "两周"
     part_of_speech: "noun"
@@ -2349,6 +2773,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 6
+
 
   - english: "forum"
     chinese: "论坛"
@@ -2359,6 +2784,7 @@ words:
     antonyms: []
     difficulty_level: 6
 
+
   - english: "fossil"
     chinese: "化石"
     part_of_speech: "noun"
@@ -2367,6 +2793,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 6
+
 
   - english: "foster"
     chinese: "培养"
@@ -2378,6 +2805,7 @@ words:
       - "promote"
     antonyms: []
     difficulty_level: 6
+
 
   - english: "foul"
     chinese: "肮脏的"
@@ -2391,6 +2819,7 @@ words:
       - "fresh"
     difficulty_level: 6
 
+
   - english: "fracture"
     chinese: "骨折"
     part_of_speech: "noun"
@@ -2401,6 +2830,7 @@ words:
       - "crack"
     antonyms: []
     difficulty_level: 6
+
 
   - english: "fragile"
     chinese: "脆弱的"
@@ -2414,16 +2844,6 @@ words:
       - "sturdy"
     difficulty_level: 6
 
-  - english: "fragment"
-    chinese: "碎片"
-    part_of_speech: "noun"
-    phonetic: "/ˈfræɡ.mənt/"
-    example_sentence: "A fragment of glass cut him."
-    synonyms:
-      - "piece"
-      - "shard"
-    antonyms: []
-    difficulty_level: 6
 
   - english: "fragrant"
     chinese: "芬芳的"
@@ -2434,6 +2854,7 @@ words:
       - "sweet-smelling"
     antonyms: []
     difficulty_level: 6
+
 
   - english: "frantic"
     chinese: "疯狂的"
@@ -2447,6 +2868,7 @@ words:
       - "calm"
     difficulty_level: 6
 
+
   - english: "fraud"
     chinese: "欺诈"
     part_of_speech: "noun"
@@ -2458,6 +2880,7 @@ words:
     antonyms: []
     difficulty_level: 6
 
+
   - english: "freckle"
     chinese: "雀斑"
     part_of_speech: "noun"
@@ -2466,6 +2889,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 6
+
 
   - english: "frenzy"
     chinese: "狂热"
@@ -2476,6 +2900,7 @@ words:
     antonyms: []
     difficulty_level: 6
 
+
   - english: "friction"
     chinese: "摩擦"
     part_of_speech: "noun"
@@ -2484,6 +2909,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 6
+
 
   - english: "frugal"
     chinese: "节俭的"
@@ -2495,6 +2921,7 @@ words:
     antonyms:
       - "wasteful"
     difficulty_level: 6
+
 
   - english: "frustrate"
     chinese: "使沮丧"
@@ -2508,6 +2935,7 @@ words:
       - "please"
     difficulty_level: 6
 
+
   - english: "fumble"
     chinese: "笨拙处理"
     part_of_speech: "verb"
@@ -2517,6 +2945,7 @@ words:
     antonyms: []
     difficulty_level: 6
 
+
   - english: "fungus"
     chinese: "真菌"
     part_of_speech: "noun"
@@ -2525,6 +2954,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 6
+
 
   - english: "furious"
     chinese: "狂怒的"
@@ -2538,6 +2968,7 @@ words:
       - "calm"
     difficulty_level: 6
 
+
   - english: "furnish"
     chinese: "布置家具"
     part_of_speech: "verb"
@@ -2547,16 +2978,6 @@ words:
     antonyms: []
     difficulty_level: 6
 
-  - english: "further"
-    chinese: "更远的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈfɜː.ðər/"
-    example_sentence: "We need further details."
-    synonyms:
-      - "more"
-      - "additional"
-    antonyms: []
-    difficulty_level: 6
 
   - english: "furtive"
     chinese: "鬼鬼祟祟的"
@@ -2570,6 +2991,7 @@ words:
       - "open"
     difficulty_level: 6
 
+
   - english: "fuse"
     chinese: "融合"
     part_of_speech: "verb"
@@ -2582,6 +3004,7 @@ words:
       - "separate"
     difficulty_level: 6
 
+
   - english: "fuss"
     chinese: "大惊小怪"
     part_of_speech: "noun"
@@ -2590,6 +3013,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 6
+
 
   - english: "futile"
     chinese: "徒劳的"
@@ -2603,6 +3027,7 @@ words:
       - "useful"
     difficulty_level: 6
 
+
   - english: "gadget"
     chinese: "小装置"
     part_of_speech: "noun"
@@ -2614,6 +3039,7 @@ words:
     antonyms: []
     difficulty_level: 6
 
+
   - english: "galaxy"
     chinese: "星系"
     part_of_speech: "noun"
@@ -2623,6 +3049,7 @@ words:
     antonyms: []
     difficulty_level: 6
 
+
   - english: "gallop"
     chinese: "飞奔"
     part_of_speech: "verb"
@@ -2631,6 +3058,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 6
+
 
   - english: "gamble"
     chinese: "赌博"
@@ -2643,6 +3071,7 @@ words:
     antonyms: []
     difficulty_level: 6
 
+
   - english: "garment"
     chinese: "服装"
     part_of_speech: "noun"
@@ -2653,6 +3082,7 @@ words:
     antonyms: []
     difficulty_level: 6
 
+
   - english: "gasp"
     chinese: "喘气"
     part_of_speech: "verb"
@@ -2662,15 +3092,6 @@ words:
     antonyms: []
     difficulty_level: 6
 
-  - english: "gaze"
-    chinese: "凝视"
-    part_of_speech: "verb"
-    phonetic: "/ɡeɪz/"
-    example_sentence: "He gazed at the stars."
-    synonyms:
-      - "stare"
-    antonyms: []
-    difficulty_level: 6
 
   - english: "generous"
     chinese: "慷慨的"
@@ -2685,6 +3106,7 @@ words:
       - "stingy"
     difficulty_level: 4
 
+
   - english: "glacier"
     chinese: "冰川"
     part_of_speech: "noun"
@@ -2693,6 +3115,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 6
+
 
   - english: "glamour"
     chinese: "魅力"
@@ -2705,15 +3128,6 @@ words:
     antonyms: []
     difficulty_level: 6
 
-  - english: "glance"
-    chinese: "瞥见"
-    part_of_speech: "verb"
-    phonetic: "/ɡlɑːns/"
-    example_sentence: "She glanced at the clock."
-    synonyms:
-      - "peek"
-    antonyms: []
-    difficulty_level: 6
 
   - english: "glare"
     chinese: "怒视"
@@ -2725,6 +3139,7 @@ words:
     antonyms: []
     difficulty_level: 6
 
+
   - english: "gleam"
     chinese: "微光"
     part_of_speech: "noun"
@@ -2733,6 +3148,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 6
+
 
   - english: "glide"
     chinese: "滑行"
@@ -2745,6 +3161,7 @@ words:
     antonyms: []
     difficulty_level: 4
 
+
   - english: "glimpse"
     chinese: "瞥见"
     part_of_speech: "noun"
@@ -2753,6 +3170,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 4
+
 
   - english: "glitter"
     chinese: "闪耀"
@@ -2765,6 +3183,7 @@ words:
     antonyms: []
     difficulty_level: 4
 
+
   - english: "globe"
     chinese: "地球仪"
     part_of_speech: "noun"
@@ -2773,6 +3192,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 4
+
 
   - english: "gloom"
     chinese: "阴暗"
@@ -2785,6 +3205,7 @@ words:
       - "light"
     difficulty_level: 4
 
+
   - english: "glow"
     chinese: "发光"
     part_of_speech: "verb"
@@ -2794,6 +3215,7 @@ words:
       - "shine"
     antonyms: []
     difficulty_level: 4
+
 
   - english: "gorgeous"
     chinese: "华丽的"
@@ -2806,6 +3228,7 @@ words:
     antonyms: []
     difficulty_level: 4
 
+
   - english: "gossip"
     chinese: "闲话"
     part_of_speech: "noun"
@@ -2815,17 +3238,6 @@ words:
     antonyms: []
     difficulty_level: 4
 
-  - english: "grab"
-    chinese: "抓住"
-    part_of_speech: "verb"
-    phonetic: "/ɡræb/"
-    example_sentence: "Grab my hand and hold on."
-    synonyms:
-      - "seize"
-      - "grasp"
-    antonyms:
-      - "release"
-    difficulty_level: 4
 
   - english: "graceful"
     chinese: "优美的"
@@ -2837,6 +3249,7 @@ words:
     antonyms:
       - "clumsy"
     difficulty_level: 4
+
 
   - english: "gradual"
     chinese: "逐渐的"
@@ -2850,33 +3263,6 @@ words:
       - "sudden"
     difficulty_level: 5
 
-  - english: "graduate"
-    chinese: "毕业"
-    part_of_speech: "verb"
-    phonetic: "/ˈɡrædʒ.u.eɪt/"
-    example_sentence: "She will graduate next summer."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "grain"
-    chinese: "谷物"
-    part_of_speech: "noun"
-    phonetic: "/ɡreɪn/"
-    example_sentence: "Rice is the main grain here."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "grand"
-    chinese: "宏伟的"
-    part_of_speech: "adjective"
-    phonetic: "/ɡrænd/"
-    example_sentence: "The grand hall holds a thousand people."
-    synonyms:
-      - "magnificent"
-    antonyms: []
-    difficulty_level: 5
 
   - english: "grasp"
     chinese: "掌握"
@@ -2890,16 +3276,6 @@ words:
       - "miss"
     difficulty_level: 5
 
-  - english: "grateful"
-    chinese: "感激的"
-    part_of_speech: "adjective"
-    phonetic: "/ˈɡreɪt.fəl/"
-    example_sentence: "We are grateful for your help."
-    synonyms:
-      - "thankful"
-    antonyms:
-      - "ungrateful"
-    difficulty_level: 5
 
   - english: "grave"
     chinese: "严重的"
@@ -2912,16 +3288,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "greet"
-    chinese: "问候"
-    part_of_speech: "verb"
-    phonetic: "/ɡriːt/"
-    example_sentence: "We greet guests at the door."
-    synonyms:
-      - "welcome"
-    antonyms:
-      - "farewell"
-    difficulty_level: 5
 
   - english: "grief"
     chinese: "悲伤"
@@ -2934,16 +3300,6 @@ words:
       - "joy"
     difficulty_level: 5
 
-  - english: "grin"
-    chinese: "咧嘴笑"
-    part_of_speech: "verb"
-    phonetic: "/ɡrɪn/"
-    example_sentence: "He grinned when he won."
-    synonyms:
-      - "smile"
-    antonyms:
-      - "frown"
-    difficulty_level: 5
 
   - english: "grip"
     chinese: "紧握"
@@ -2957,6 +3313,7 @@ words:
       - "release"
     difficulty_level: 5
 
+
   - english: "grove"
     chinese: "树林"
     part_of_speech: "noun"
@@ -2965,6 +3322,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 5
+
 
   - english: "grumble"
     chinese: "抱怨"
@@ -2977,16 +3335,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "guarantee"
-    chinese: "保证"
-    part_of_speech: "verb"
-    phonetic: "/ˌɡær.ənˈtiː/"
-    example_sentence: "We guarantee good service."
-    synonyms:
-      - "promise"
-      - "assure"
-    antonyms: []
-    difficulty_level: 5
 
   - english: "guardian"
     chinese: "监护人"
@@ -2997,6 +3345,7 @@ words:
     antonyms: []
     difficulty_level: 5
 
+
   - english: "hail"
     chinese: "冰雹"
     part_of_speech: "noun"
@@ -3005,6 +3354,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 5
+
 
   - english: "halt"
     chinese: "停止"
@@ -3017,6 +3367,7 @@ words:
       - "continue"
     difficulty_level: 5
 
+
   - english: "handy"
     chinese: "方便的"
     part_of_speech: "adjective"
@@ -3027,15 +3378,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "harbor"
-    chinese: "港口"
-    part_of_speech: "noun"
-    phonetic: "/ˈhɑː.bər/"
-    example_sentence: "Ships rest in the harbor."
-    synonyms:
-      - "port"
-    antonyms: []
-    difficulty_level: 5
 
   - english: "harmony"
     chinese: "和谐"
@@ -3046,6 +3388,7 @@ words:
     antonyms:
       - "conflict"
     difficulty_level: 5
+
 
   - english: "harsh"
     chinese: "严厉的"
@@ -3060,6 +3403,7 @@ words:
       - "mild"
     difficulty_level: 5
 
+
   - english: "hasty"
     chinese: "匆忙的"
     part_of_speech: "adjective"
@@ -3072,6 +3416,7 @@ words:
       - "careful"
     difficulty_level: 5
 
+
   - english: "hatch"
     chinese: "孵化"
     part_of_speech: "verb"
@@ -3080,6 +3425,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 5
+
 
   - english: "haunt"
     chinese: "萦绕"
@@ -3090,16 +3436,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "haven"
-    chinese: "避难所"
-    part_of_speech: "noun"
-    phonetic: "/ˈheɪ.vən/"
-    example_sentence: "The park is a haven for birds."
-    synonyms:
-      - "refuge"
-      - "shelter"
-    antonyms: []
-    difficulty_level: 5
 
   - english: "hazard"
     chinese: "危险"
@@ -3113,6 +3449,7 @@ words:
       - "safety"
     difficulty_level: 5
 
+
   - english: "hearty"
     chinese: "衷心的"
     part_of_speech: "adjective"
@@ -3125,6 +3462,7 @@ words:
       - "cold"
     difficulty_level: 5
 
+
   - english: "heave"
     chinese: "举起"
     part_of_speech: "verb"
@@ -3136,6 +3474,7 @@ words:
     antonyms: []
     difficulty_level: 5
 
+
   - english: "hedge"
     chinese: "树篱"
     part_of_speech: "noun"
@@ -3144,6 +3483,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 5
+
 
   - english: "heed"
     chinese: "注意"
@@ -3155,6 +3495,7 @@ words:
       - "ignore"
     difficulty_level: 5
 
+
   - english: "hefty"
     chinese: "重的"
     part_of_speech: "adjective"
@@ -3165,6 +3506,7 @@ words:
     antonyms:
       - "light"
     difficulty_level: 5
+
 
   - english: "heighten"
     chinese: "提高"
@@ -3178,6 +3520,7 @@ words:
       - "lessen"
     difficulty_level: 5
 
+
   - english: "heir"
     chinese: "继承人"
     part_of_speech: "noun"
@@ -3186,6 +3529,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 5
+
 
   - english: "herald"
     chinese: "预示"
@@ -3196,6 +3540,7 @@ words:
     antonyms: []
     difficulty_level: 6
 
+
   - english: "herb"
     chinese: "草药"
     part_of_speech: "noun"
@@ -3205,6 +3550,7 @@ words:
     antonyms: []
     difficulty_level: 6
 
+
   - english: "herd"
     chinese: "兽群"
     part_of_speech: "noun"
@@ -3213,6 +3559,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 6
+
 
   - english: "hesitant"
     chinese: "犹豫的"
@@ -3225,18 +3572,6 @@ words:
       - "confident"
     difficulty_level: 6
 
-  - english: "hesitate"
-    chinese: "犹豫"
-    part_of_speech: "verb"
-    phonetic: "/ˈhez.ɪ.teɪt/"
-    example_sentence: "Don't hesitate to ask if you need help."
-    synonyms:
-      - "pause"
-      - "waver"
-    antonyms:
-      - "decide"
-      - "proceed"
-    difficulty_level: 5
 
   - english: "hibernate"
     chinese: "冬眠"
@@ -3247,6 +3582,7 @@ words:
     antonyms: []
     difficulty_level: 6
 
+
   - english: "hiccup"
     chinese: "打嗝"
     part_of_speech: "noun"
@@ -3255,6 +3591,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 6
+
 
   - english: "hilarious"
     chinese: "极好笑的"
@@ -3266,6 +3603,7 @@ words:
     antonyms:
       - "serious"
     difficulty_level: 6
+
 
   - english: "hinder"
     chinese: "阻碍"
@@ -3280,6 +3618,7 @@ words:
       - "aid"
     difficulty_level: 6
 
+
   - english: "hinge"
     chinese: "铰链"
     part_of_speech: "noun"
@@ -3289,16 +3628,6 @@ words:
     antonyms: []
     difficulty_level: 6
 
-  - english: "hint"
-    chinese: "暗示"
-    part_of_speech: "noun"
-    phonetic: "/hɪnt/"
-    example_sentence: "Give me one more hint."
-    synonyms:
-      - "clue"
-      - "tip"
-    antonyms: []
-    difficulty_level: 6
 
   - english: "hoarse"
     chinese: "嘶哑的"
@@ -3308,6 +3637,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 4
+
 
   - english: "hoist"
     chinese: "升起"
@@ -3321,6 +3651,7 @@ words:
       - "lower"
     difficulty_level: 4
 
+
   - english: "hollow"
     chinese: "空心的"
     part_of_speech: "adjective"
@@ -3332,6 +3663,7 @@ words:
       - "solid"
     difficulty_level: 4
 
+
   - english: "holy"
     chinese: "神圣的"
     part_of_speech: "adjective"
@@ -3342,17 +3674,6 @@ words:
     antonyms: []
     difficulty_level: 4
 
-  - english: "honor"
-    chinese: "荣誉"
-    part_of_speech: "noun"
-    phonetic: "/ˈɒn.ər/"
-    example_sentence: "It is an honor to meet you."
-    synonyms:
-      - "glory"
-      - "credit"
-    antonyms:
-      - "shame"
-    difficulty_level: 4
 
   - english: "horizon"
     chinese: "地平线"
@@ -3362,6 +3683,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 4
+
 
   - english: "hostile"
     chinese: "敌对的"
@@ -3373,6 +3695,7 @@ words:
       - "friendly"
     difficulty_level: 4
 
+
   - english: "hug"
     chinese: "拥抱"
     part_of_speech: "verb"
@@ -3383,6 +3706,7 @@ words:
       - "cuddle"
     antonyms: []
     difficulty_level: 4
+
 
   - english: "humble"
     chinese: "谦逊的"
@@ -3396,6 +3720,7 @@ words:
       - "arrogant"
     difficulty_level: 4
 
+
   - english: "humid"
     chinese: "潮湿的"
     part_of_speech: "adjective"
@@ -3408,26 +3733,6 @@ words:
       - "dry"
     difficulty_level: 4
 
-  - english: "humor"
-    chinese: "幽默"
-    part_of_speech: "noun"
-    phonetic: "/ˈhjuː.mər/"
-    example_sentence: "His humor makes us laugh."
-    synonyms:
-      - "wit"
-    antonyms: []
-    difficulty_level: 4
-
-  - english: "hunt"
-    chinese: "狩猎"
-    part_of_speech: "verb"
-    phonetic: "/hʌnt/"
-    example_sentence: "Owls hunt at night."
-    synonyms:
-      - "chase"
-      - "pursue"
-    antonyms: []
-    difficulty_level: 4
 
   - english: "hurl"
     chinese: "猛扔"
@@ -3440,6 +3745,7 @@ words:
     antonyms: []
     difficulty_level: 4
 
+
   - english: "hustle"
     chinese: "忙碌"
     part_of_speech: "noun"
@@ -3448,6 +3754,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 4
+
 
   - english: "hybrid"
     chinese: "混合的"
@@ -3459,6 +3766,7 @@ words:
     antonyms: []
     difficulty_level: 5
 
+
   - english: "hygiene"
     chinese: "卫生"
     part_of_speech: "noun"
@@ -3467,6 +3775,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 5
+
 
   - english: "identical"
     chinese: "相同的"
@@ -3480,6 +3789,7 @@ words:
       - "different"
     difficulty_level: 5
 
+
   - english: "idle"
     chinese: "闲置的"
     part_of_speech: "adjective"
@@ -3491,6 +3801,7 @@ words:
       - "active"
     difficulty_level: 5
 
+
   - english: "ignite"
     chinese: "点燃"
     part_of_speech: "verb"
@@ -3499,6 +3810,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 5
+
 
   - english: "ignorant"
     chinese: "无知的"
@@ -3509,6 +3821,7 @@ words:
     antonyms:
       - "aware"
     difficulty_level: 5
+
 
   - english: "illuminate"
     chinese: "照亮"
@@ -3521,6 +3834,7 @@ words:
       - "darken"
     difficulty_level: 5
 
+
   - english: "illusive"
     chinese: "虚幻的"
     part_of_speech: "adjective"
@@ -3532,16 +3846,6 @@ words:
       - "real"
     difficulty_level: 5
 
-  - english: "imagine"
-    chinese: "想象"
-    part_of_speech: "verb"
-    phonetic: "/ɪˈmædʒ.ɪn/"
-    example_sentence: "Can you imagine living on Mars?"
-    synonyms:
-      - "envision"
-      - "picture"
-    antonyms: []
-    difficulty_level: 4
 
   - english: "immerse"
     chinese: "沉浸"
@@ -3551,6 +3855,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 5
+
 
   - english: "immigrate"
     chinese: "移居"
@@ -3562,6 +3867,7 @@ words:
       - "emigrate"
     difficulty_level: 5
 
+
   - english: "immune"
     chinese: "免疫的"
     part_of_speech: "adjective"
@@ -3570,6 +3876,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 5
+
 
   - english: "impair"
     chinese: "损害"
@@ -3583,6 +3890,7 @@ words:
       - "improve"
     difficulty_level: 5
 
+
   - english: "impart"
     chinese: "传授"
     part_of_speech: "verb"
@@ -3594,6 +3902,7 @@ words:
     antonyms: []
     difficulty_level: 5
 
+
   - english: "impatient"
     chinese: "不耐烦的"
     part_of_speech: "adjective"
@@ -3604,6 +3913,7 @@ words:
       - "patient"
     difficulty_level: 5
 
+
   - english: "implicate"
     chinese: "牵连"
     part_of_speech: "verb"
@@ -3612,6 +3922,7 @@ words:
     synonyms: []
     antonyms: []
     difficulty_level: 5
+
 
   - english: "implicit"
     chinese: "含蓄的"
@@ -3622,6 +3933,7 @@ words:
     antonyms:
       - "explicit"
     difficulty_level: 5
+
 
   - english: "implore"
     chinese: "恳求"
@@ -3634,35 +3946,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "impose"
-    chinese: "强加"
-    part_of_speech: "verb"
-    phonetic: "/ɪmˈpəʊz/"
-    example_sentence: "Do not impose your views on me."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "impress"
-    chinese: "打动"
-    part_of_speech: "verb"
-    phonetic: "/ɪmˈpres/"
-    example_sentence: "Her speech impressed us all."
-    synonyms: []
-    antonyms: []
-    difficulty_level: 5
-
-  - english: "improve"
-    chinese: "改善"
-    part_of_speech: "verb"
-    phonetic: "/ɪmˈpruːv/"
-    example_sentence: "Reading daily can improve English."
-    synonyms:
-      - "enhance"
-      - "better"
-    antonyms:
-      - "worsen"
-    difficulty_level: 5
 
   - english: "impulse"
     chinese: "冲动"
@@ -3674,15 +3957,6 @@ words:
     antonyms: []
     difficulty_level: 5
 
-  - english: "incentive"
-    chinese: "激励"
-    part_of_speech: "noun"
-    phonetic: "/ɪnˈsen.tɪv/"
-    example_sentence: "Prizes are a good incentive."
-    synonyms:
-      - "motive"
-    antonyms: []
-    difficulty_level: 5
 
   - english: "incline"
     chinese: "倾斜"
@@ -3695,6 +3969,7 @@ words:
     antonyms: []
     difficulty_level: 5
 
+
   - english: "inclusive"
     chinese: "包容的"
     part_of_speech: "adjective"
@@ -3705,16 +3980,6 @@ words:
       - "exclusive"
     difficulty_level: 5
 
-  - english: "journey"
-    chinese: "旅程"
-    part_of_speech: "noun"
-    phonetic: "/ˈdʒɜː.ni/"
-    example_sentence: "The journey from Beijing to Shanghai takes about 5 hours by train."
-    synonyms:
-      - "trip"
-      - "voyage"
-    antonyms: []
-    difficulty_level: 4
 
   - english: "leisure"
     chinese: "闲暇"
@@ -3726,6 +3991,7 @@ words:
       - "interest"
     antonyms: []
     difficulty_level: 4
+
 
   - english: "witty"
     chinese: "机智的"

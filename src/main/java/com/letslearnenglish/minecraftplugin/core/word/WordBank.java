@@ -97,8 +97,26 @@ public class WordBank {
                 reward = num.doubleValue();
             }
 
+            // freq_rank：NGSL 1.2 频次排名（1 = 最常用），**可选字段**。
+            // 缺省 = Word.FREQ_RANK_UNKNOWN(0) 是正常数据：1025 词里约 530 个
+            // （apple / banana / pencil 这类具象名词）本来就不在通用频次表里，
+            // 所以**绝不能**把它加进上面的 english/chinese 必填校验，也**绝不能**
+            // 加进 WordBankValidator 的报错列表 —— 否则一次正常导入会刷出 500+ 条假错误。
+            // 非 Number（字符串 "42"、null、List）按未知处理而非抛异常：YAML 手写
+            // 把数字加引号是常态，宽容降级比炸掉整档加载划算（与 asStringOrNull 同一取舍）。
+            // 注意：Number 分支接受 double 并截断（42.7 → 42）—— 频次排名只有整数语义，
+            // YAML 里写 42.0 的常见成因是导出工具把整数序列化成了浮点，截断是正确还原。
+            // 这里只负责「把数字读出来」，负数/超界的归一统一由 Word 构造器做
+            // （见 Word.normalizeFreqRank），保证本处与 /lea importwordbank 两条路径口径一致。
+            int freqRank = Word.FREQ_RANK_UNKNOWN;
+            Object freqObj = wordData.get("freq_rank");
+            if (freqObj instanceof Number num) {
+                freqRank = num.intValue();
+            }
+
             Word word = new Word(english, chinese, partOfSpeech, phonetic,
-                    exampleSentence, synonyms, antonyms, difficulty, difficultyLevel, reward);
+                    exampleSentence, synonyms, antonyms, difficulty, difficultyLevel, reward,
+                    freqRank);
             words.add(word);
         }
     }
@@ -113,6 +131,12 @@ public class WordBank {
 
     /**
      * 描述坏字段的诊断串：缺失 / 非 String（含实际类型）/ 空白，三选一。
+     *
+     * <p><b>只服务于必填键</b>（english / chinese）。{@code freq_rank} 这类可选派生
+     * 元数据<b>刻意不接入本方法</b>，也不接入 {@link WordBankValidator}：词库 1025 词里
+     * 约 530 个本来就没有 NGSL 排名，「缺失」是正常数据而非缺陷，接进来只会让每次
+     * 正常加载/导入刷出 500+ 条假错误。同理不要给它加类型校验（写错类型按未知降级即可，
+     * 见 {@link #loadWords} 里的解析注释）。
      */
     private static String describeBadField(Object value, String field) {
         if (value == null) {

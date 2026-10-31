@@ -300,3 +300,12 @@ CREATE INDEX IF NOT EXISTS {prefix}idx_class_members_uuid ON {prefix}class_membe
 -- LIKE 前缀查走此索引，防主线程全表扫。运行时由 DatabaseManager.createIndexIfMissing
 -- 兼容建立（MySQL 8 不支持 CREATE INDEX IF NOT EXISTS），此处为文档镜像。
 CREATE INDEX IF NOT EXISTS {prefix}idx_player_data_name ON {prefix}player_data(player_name);
+
+-- 性能：player_data 排行榜列索引 —— 广场/排行榜按 total_score、
+-- total_coins_earned、total_words_learned、longest_streak 做 ORDER BY ... DESC LIMIT n，
+-- 无索引即全表扫 + 排序。升序定义即可（SQLite / MySQL 8 均反向扫描满足 DESC）。
+-- 运行时由 DatabaseManager.createIndexIfMissing 兼容建立，此处为文档镜像。
+CREATE INDEX IF NOT EXISTS {prefix}idx_player_data_score ON {prefix}player_data(total_score);
+CREATE INDEX IF NOT EXISTS {prefix}idx_player_data_coins ON {prefix}player_data(total_coins_earned);
+CREATE INDEX IF NOT EXISTS {prefix}idx_player_data_words ON {prefix}player_data(total_words_learned);
+CREATE INDEX IF NOT EXISTS {prefix}idx_player_data_streak ON {prefix}player_data(longest_streak);

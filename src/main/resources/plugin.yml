@@ -1,7 +1,12 @@
 name: LetsLearnEnglish
 version: ${project.version}
 main: com.letslearnenglish.minecraftplugin.LetsLearnEnglish
-api-version: "1.21"
+api-version: "${plugin.api.version}"
+# ── 支持范围：MC 1.21.4 – 1.21.11 ────────────────────────────────────────
+# 下限由「编译用的 paper-api 版本」决定（1.21.4），低于它可能缺 API；
+# 上限由「目标 Java 版本」决定 —— Paper 从 26.x 起要求 Java 25（class major 69），
+# 本项目以 Java 21 为目标，26.x 及以后的服务端根本读不了本插件的 class。
+# 1.21.4–1.21.11 之间能一次编译全线运行，是因为 Bukkit API 只做加法。
 # MySQL 驱动（mysql-connector-j 8.3.0）已由 maven-shade-plugin 随本包 shade 进
 # 插件 JAR，服主无需手动放置驱动 jar，也无需在 server 端安装。
 # 本文件参与 Maven 资源过滤，故此处只写普通注释文字。

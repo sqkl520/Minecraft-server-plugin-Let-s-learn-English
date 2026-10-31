@@ -72,6 +72,28 @@ public class AIChatManager {
     private static final int DEFAULT_FEEDBACK_AI_TIMEOUT_SECONDS = 15;
     private static final int DEFAULT_FEEDBACK_TRANSCRIPT_MAX_CHARS = 4000;
 
+    // ---- 思考模式（Thinking Mode）：两个可选的请求参数 ----
+    /**
+     * 思考模式三态。{@link #DEFAULT} 是**唯一**的默认值，语义 =「不往请求体里加任何字段」，
+     * 保证线上请求与加入本功能前逐字节一致。
+     */
+    enum ThinkingMode {
+        /** 不发任何 thinking 参数（默认，行为零变化）。 */
+        DEFAULT,
+        /** "thinking": {"type": "disabled"} —— 关思考，把全部 max_tokens 留给正文。 */
+        DISABLED,
+        /** "thinking": {"type": "enabled"} —— 显式开思考（会挤占正文预算）。 */
+        ENABLED
+    }
+
+    /**
+     * 推理强度五态。{@link #DEFAULT} 语义同上：不发 reasoning_effort 字段。
+     * 其余四态按字面值原样发出（none/low/medium/high）。
+     */
+    enum ReasoningEffort {
+        DEFAULT, NONE, LOW, MEDIUM, HIGH
+    }
+
     private final LetsLearnEnglish plugin;
     private final Gson gson = new Gson();
 
@@ -95,6 +117,13 @@ public class AIChatManager {
     private volatile int maxInputLength;
     private volatile int maxPromptLength;
     private volatile int maxTokens;
+    /**
+     * 思考模式（默认 {@link ThinkingMode#DEFAULT} = 不发送任何相关字段）。
+     * volatile 同上方理由：HTTP 请求在 supplyAsync 线程读。
+     */
+    private volatile ThinkingMode thinkingMode = ThinkingMode.DEFAULT;
+    /** 推理强度（默认 {@link ReasoningEffort#DEFAULT} = 不发送）。与 thinkingMode 相互独立。 */
+    private volatile ReasoningEffort reasoningEffort = ReasoningEffort.DEFAULT;
     private volatile int dailyRoundLimit;
     /** P0-4：每个玩家每天可发起的开场白次数上限（≤0 = 不限）；独立于 dailyRoundLimit。 */
     private volatile int openingDailyCap;
@@ -427,6 +456,79 @@ public class AIChatManager {
         return deduped.isEmpty() ? List.of() : List.copyOf(deduped);
     }
 
+    /**
+     * 解析 {@code ai-chat.thinking-mode}。非法值 → 打一条 WARNING 并回落 {@link ThinkingMode#DEFAULT}
+     * （不抛异常：配置写错不该让整个 AI 模块起不来；而"回落 default"恰好等于不加字段的安全态）。
+     *
+     * <p>用 switch 而非 {@code Enum.valueOf}：valueOf 对未知值抛 IllegalArgumentException，
+     * 且对大小写敏感；这里统一 trim + 小写，服主写 "Disabled" / " disabled " 都能识别。
+     */
+    private ThinkingMode parseThinkingMode(String raw) {
+        String v = (raw == null) ? "default" : raw.trim().toLowerCase(Locale.ROOT);
+        switch (v) {
+            case "default":
+                return ThinkingMode.DEFAULT;
+            case "disabled":
+                return ThinkingMode.DISABLED;
+            case "enabled":
+                return ThinkingMode.ENABLED;
+            default:
+                // 只警告一次是做不到的：reload 会重新进本方法，但 reload 本身就是显式动作，
+                // 每次重载提醒一次反而是正确的（否则服主改错后毫无反馈）。
+                plugin.getLogger().warning("Invalid ai-chat.thinking-mode '" + raw
+                        + "' (expected default/disabled/enabled) — falling back to 'default'"
+                        + " (no thinking parameter is sent).");
+                return ThinkingMode.DEFAULT;
+        }
+    }
+
+    /** 解析 {@code ai-chat.reasoning-effort}；规则同 {@link #parseThinkingMode}。 */
+    private ReasoningEffort parseReasoningEffort(String raw) {
+        String v = (raw == null) ? "default" : raw.trim().toLowerCase(Locale.ROOT);
+        switch (v) {
+            case "default":
+                return ReasoningEffort.DEFAULT;
+            case "none":
+                return ReasoningEffort.NONE;
+            case "low":
+                return ReasoningEffort.LOW;
+            case "medium":
+                return ReasoningEffort.MEDIUM;
+            case "high":
+                return ReasoningEffort.HIGH;
+            default:
+                plugin.getLogger().warning("Invalid ai-chat.reasoning-effort '" + raw
+                        + "' (expected default/none/low/medium/high) — falling back to 'default'"
+                        + " (no reasoning_effort parameter is sent).");
+                return ReasoningEffort.DEFAULT;
+        }
+    }
+
+    /**
+     * 两条 AI 请求路径（对话 / 总结）共用的思考参数追加点。
+     *
+     * <p><b>零漂移契约</b>：当两个配置都是 default 时，本方法<b>一次 add 都不做</b>，
+     * 因此 {@code gson.toJson(body)} 与本功能加入前逐字节一致。这一点由
+     * {@code AIChatThinkingModeTest} 用「手工构造的旧版 body」做全量字符串比对钉死。
+     *
+     * <p>为什么补在 add("messages") 之后：Gson 的 JsonObject 用 LinkedHashMap 保序，
+     * 追加在末尾可保证既有字段的顺序与序列化结果不受影响（严格来说零漂移并不依赖顺序，
+     * 但保持"新字段永远在最后"能让 diff 更可读，也避免未来有人误以为顺序承载语义）。
+     */
+    private void applyThinkingParameters(JsonObject body) {
+        ThinkingMode tm = thinkingMode;
+        if (tm == ThinkingMode.DISABLED || tm == ThinkingMode.ENABLED) {
+            JsonObject thinking = new JsonObject();
+            thinking.addProperty("type", tm == ThinkingMode.DISABLED ? "disabled" : "enabled");
+            body.add("thinking", thinking);
+        }
+        ReasoningEffort re = reasoningEffort;
+        if (re != ReasoningEffort.DEFAULT) {
+            // enum 名即协议值（NONE→"none"），避免再维护一张字符串映射表。
+            body.addProperty("reasoning_effort", re.name().toLowerCase(Locale.ROOT));
+        }
+    }
+
     private void loadConfig() {
         File aiConfigFile = new File(plugin.getDataFolder(), "ai_config.yml");
         if (!aiConfigFile.exists()) {
@@ -453,6 +555,10 @@ public class AIChatManager {
         this.maxInputLength = config.getInt("ai-chat.max-input-length", 200);
         this.maxPromptLength = config.getInt("scenario.max-prompt-length", 2000);
         this.maxTokens = config.getInt("ai-chat.max-tokens", DEFAULT_MAX_TOKENS);
+        // 思考模式 / 推理强度：默认 default = 请求体里一个字段都不加（线上行为零变化）。
+        // 放着两个原因为何存在、为何默认关闭，见 config.yml 中 ai-chat.thinking-mode 的注释。
+        this.thinkingMode = parseThinkingMode(config.getString("ai-chat.thinking-mode", "default"));
+        this.reasoningEffort = parseReasoningEffort(config.getString("ai-chat.reasoning-effort", "default"));
         // F1-19 终案：daily-round-limit ≤ 0 = 不限（0/负数不再"拒绝全部"；
         // 想彻底禁用 AI 对话请用 ai-chat.enabled=false）。判断点见 canSendChat/dispatchChat。
         this.dailyRoundLimit = config.getInt("ai-chat.daily-round-limit", DEFAULT_DAILY_ROUND_LIMIT);
@@ -1465,6 +1571,9 @@ public class AIChatManager {
         }
         body.add("messages", messages);
 
+        // 思考模式（默认两个都是 default = 一个字段都不加，请求体零漂移）。
+        applyThinkingParameters(body);
+
         return body;
     }
 
@@ -1797,6 +1906,8 @@ public class AIChatManager {
         messages.add(summaryMessage("system", systemPrompt));
         messages.add(summaryMessage("user", userPrompt));
         body.add("messages", messages);
+        // 思考参数与对话路径同源（同一对配置键）；默认 default 时不加字段。
+        applyThinkingParameters(body);
         return body;
     }
 

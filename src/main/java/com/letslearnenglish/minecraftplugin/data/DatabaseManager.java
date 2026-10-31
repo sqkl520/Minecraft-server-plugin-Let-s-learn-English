@@ -11,6 +11,7 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -76,6 +77,9 @@ public class DatabaseManager {
 
                 createTables();
                 plugin.getLogger().info("Database initialized (type: " + type + ")");
+                if (isSQLite) {
+                    warnAboutWalSidecars();
+                }
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.SEVERE, "Database initialization failed! Plugin may not function correctly.", e);
                 throw new RuntimeException("Failed to initialize database. Check your database configuration.", e);
@@ -83,10 +87,80 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * WAL 副文件体检：启动时若发现 {@code -wal} / {@code -shm} 与主库并存且 WAL 异常大，
+     * 提醒服主"数据库不是单个 .db 文件"这一事实。
+     *
+     * <p><b>为什么需要这条日志</b>：本插件把 SQLite 切到 WAL 后，{@code playerdata.db}
+     * 不再是完整数据库——未合并的事务在 {@code playerdata.db-wal} 里。而 README /
+     * DEPLOYMENT_WIKI 长期教的恢复手段是 {@code cp 备份 playerdata.db}，这在 WAL 下
+     * <b>会把旧 WAL 重放进刚恢复的库</b>，于是"回滚到备份点"静默失败：被回滚的数据
+     * 重新出现，且没有任何报错。文档已改成先删副文件 / 用 {@code .backup}，
+     * 这条日志是最后一道提醒：服主看到 {@code -wal} 文件时能想起它属于数据库的一部分。
+     *
+     * <p>只在 WAL 明显偏大（&gt; 64 MB）时告警，避免每次启动刷一条无害信息。
+     * 任何 IO 异常都吞掉——体检失败不该影响启动。
+     */
+    private void warnAboutWalSidecars() {
+        try {
+            String base = configManager.getMainConfig()
+                    .getString("database.sqlite.filename", "playerdata.db");
+            File dbFile = new File(plugin.getDataFolder(), base);
+            File wal = new File(dbFile.getAbsolutePath() + "-wal");
+            File shm = new File(dbFile.getAbsolutePath() + "-shm");
+            if (!wal.isFile() && !shm.isFile()) {
+                return;
+            }
+            long walSize = wal.isFile() ? wal.length() : 0L;
+            long threshold = 64L * 1024 * 1024;
+            if (walSize > threshold) {
+                plugin.getLogger().warning("SQLite WAL file is large ("
+                        + (walSize / (1024 * 1024)) + " MB). The database is NOT just "
+                        + dbFile.getName() + " — it also includes " + wal.getName()
+                        + " and " + shm.getName() + ". When restoring a backup, delete the "
+                        + "-wal/-shm files first (or use 'sqlite3 " + dbFile.getName()
+                        + " \".backup out.db\"'), otherwise stale WAL data will be replayed "
+                        + "over the restored file and your rollback will silently not take effect.");
+            }
+        } catch (Throwable t) {
+            // 体检是提示性的，任何异常都不该影响启动
+            plugin.getLogger().fine("WAL sidecar check skipped: " + t.getMessage());
+        }
+    }
+
     private void initializeSQLite() throws SQLException {
         File dbFile = new File(plugin.getDataFolder(),
                 configManager.getMainConfig().getString("database.sqlite.filename", "playerdata.db"));
         connection = DriverManager.getConnection("jdbc:sqlite:" + dbFile.getAbsolutePath());
+        // 性能：SQLite 连接级 PRAGMA 调优（仅 SQLite；MySQL 走服务端自身配置，
+        // 本方法只在 SQLite 分支被调用）。
+        //  - journal_mode=WAL：写时不再阻塞读（默认 rollback journal 下写事务持整库锁，
+        //    读会排队）；同时大幅降低随机写开销。
+        //  - synchronous=NORMAL：WAL 下把每次提交的 fsync 降为只在 checkpoint 时同步，
+        //    换来写吞吐量级提升；代价是断电/崩溃可能丢最后若干个已提交事务，但
+        //    WAL 日志格式保证库文件不会损坏（不会出现半写页），这是 SQLite 官方
+        //    推荐的 WAL 搭配。
+        //  - busy_timeout=5000：并发访问遇到锁时最多等 5 秒再报 SQLITE_BUSY，
+        //    避免异步保存线程与主线程查询撞锁立刻抛错。
+        // journal_mode 是持久化在库文件头里的（设一次即可，重复设置幂等），另两个是
+        // 连接级。PRAGMA 失败只影响性能、不影响正确性，故只记 WARNING 不阻断启动。
+        try (Statement stmt = connection.createStatement()) {
+            // journal_mode 会返回结果行（实际生效的模式），须用 executeQuery 读掉，
+            // 否则 executeUpdate 会报 "query returns results"。
+            try (ResultSet modeRs = stmt.executeQuery("PRAGMA journal_mode=WAL")) {
+                String mode = modeRs.next() ? modeRs.getString(1) : "unknown";
+                if (!"wal".equalsIgnoreCase(mode)) {
+                    plugin.getLogger().warning("SQLite journal_mode is " + mode
+                            + " (expected wal); concurrent write performance may degrade");
+                }
+            }
+            stmt.execute("PRAGMA synchronous=NORMAL");
+            stmt.execute("PRAGMA busy_timeout=5000");
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to apply SQLite performance PRAGMAs (journal_mode=WAL, "
+                            + "synchronous=NORMAL, busy_timeout=5000); continuing with defaults", e);
+        }
     }
 
     private void initializeMySQL(FileConfiguration config) throws SQLException {
@@ -486,6 +560,21 @@ public class DatabaseManager {
         // 失败静默（索引非致命）。
         createIndexIfMissing("idx_player_data_name",
                 "player_data(player_name)");
+
+        // 性能：player_data 排行榜列索引 —— 广场/排行榜三个查询
+        // （getActiveSquareEntries/getRankedPlayers 的 total_score，getTopCoins 的
+        // total_coins_earned，getTopWordsLearned 的 total_words_learned，getTopCombo 的
+        // longest_streak）都靠 ORDER BY ... DESC LIMIT n，无索引即全表扫 + 排序
+        // （10 万行实测约 315ms，有索引约 0.65ms）。索引一律升序定义：SQLite 与
+        // MySQL 8 都能反向扫描满足 DESC，避免 DESC 索引的兼容性差异。
+        createIndexIfMissing("idx_player_data_score",
+                "player_data(total_score)");
+        createIndexIfMissing("idx_player_data_coins",
+                "player_data(total_coins_earned)");
+        createIndexIfMissing("idx_player_data_words",
+                "player_data(total_words_learned)");
+        createIndexIfMissing("idx_player_data_streak",
+                "player_data(longest_streak)");
     }
 
     /**

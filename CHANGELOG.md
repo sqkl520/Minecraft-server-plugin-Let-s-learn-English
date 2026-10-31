@@ -1,5 +1,59 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **[词库 / 按词频重建，覆盖率 66.16% → 85.37%]** 词库从 1025 词扩到 **1357 词**，三档归属不再按字母序截断。根因（实测确认）：原三份词库是按字母序从排序源表里**顺序截取**的——`advanced` 档 329 词里 c 开头 143 + d 开头 125 = **81.5%**，e 只剩 4 个、f 只有 1 个；`intermediate` 档 j 之后只剩 3 个词。后果是 **NGSL 前 500 的高频词缺席 330 个**（`as`(22) `by`(27) `so`(32) `would`(36) `should`(89) `need`(90) 全都不在），却收了一批低频难词。重建做了三件事：① 按 NGSL 1.2 词频排名重排三档；② 补齐 332 个缺失高频词；③ 保留「基础词保护」规则（`difficulty_level <= 3` 的词不因排名被降档，避免把 `boy`/`baby`/`blue` 从 beginner 挪走——实测保护了 102 个词）。**零移除**：`git show HEAD` 对比确认 1025 个原词一个没少，因此**玩家已有的掌握进度（按词名存 `word_progress`）完全不受影响**。新增词的数据来源与已知局限见 `THIRD-PARTY-NOTICES.md`：中文/词性来自 **ECDICT**(MIT)、音标来自 **CMUdict**(BSD，美式转写，与库内英式 IPA **仅约 58% 一致**)、例句来自 **Tatoeba**(CC BY 2.0 FR)、排名来自 **NGSL 1.2**(CC BY-SA 4.0)
+- **[词库 / 词性句法对齐]** 332 个新词里 **248 个是多词性词**（`well` 既是名词"井"也是副词"好"、`since` 既是副词也是连词），若简单取 ECDICT 第一个义项，会有 75% 概率与例句里实际使用的词性对不上（实测：`well` 标成 noun「井」却配例句 `You may as well follow his advice.`）。现按「词性 + 义项 + 例句」三元组自洽来选：**301 个**靠句法位置启发式判定（前置限定词→名词/形容词、前置情态动词→动词、-ly 结尾→副词等）、**17 个**单词性词直接对齐、**15 个**人工订正并写明理由（`well`/`as`/`so`/`since`/`even`/`now`/`work`/`other`/`yet`/`around`/`across`/`until`/`whether`/`else`/`cut`）
+- **[词库 / 内容完整性护栏]** 新建 `WordBankContentTest`（9 例，读真实资源文件）：三档总数固定 1357（防清空/截断）、跨档无重复词条、7 个必填字段齐全、词性落在 10 个英文全称的封闭词表内、音标形如 `/.../`、例句真的包含目标词（含规则屈折 + 60 条不规则变化表 + 双写辅音规则）、例句长度 3~20 词、`freq_rank` 唯一且为正整数。**在此之前的 500+ 个测试没有一个读过 `words/*.yml`**——词库写坏了（字段缺失、跨档重复、例句不含目标词）也全绿。该测试上线后立即抓出原词库一个老 bug：`bag` 配 `My schoolbag is too heavy.`（`schoolbag` 是复合词，不是 `bag`），已修正。（同期还修了 `leave`，但它是**新词**、原库没有，不属于老 bug —— 这条最初写错，经红队复核后更正）
+- **[AI / 思考模式配置项]** `ai-chat` 新增两个键，**默认值均为「一个字节都不多发」**，线上请求体与本功能加入前逐字节一致：`thinking-mode`（`default`/`disabled`/`enabled`）与 `reasoning-effort`（`default`/`none`/`low`/`medium`/`high`）。为什么做成配置而不是直接改：DeepSeek V4 系列据称**默认开启思考模式**，而思考消耗的也是 `max_tokens`，本插件对话路径只有 128，一旦上游默认思考可能把预算全吃光后返回空 `content`——玩家看到 AI 不说话、日志里却是 200 成功，属于最难排查的静默失败。但该行为的 API 形状（参数名/取值/是否随版本变化）**未能从官方文档核实**，且不同来源给出的替代模型 id 互相矛盾（`deepseek-flash` vs `deepseek-v4-flash`），故不擅自改默认值
+- **[词库 / `freq_rank` 元数据]** `Word` 新增 `freqRank` 字段（NGSL 1.2 频次排名，1 = 最常用）与 `FREQ_RANK_UNKNOWN = 0` 哨兵；`WordBank` 解析可选的 `freq_rank` 键。**纯增量元数据，不参与任何计分/抽词逻辑**，本阶段只做「把数据存进来」。为什么是 0 而不是 -1：词库 1025 词里约 530 个是 `apple`/`banana`/`pencil` 这类具象名词，通用频次表本来就不收，「没有排名」是正常数据而非错误值；0 既与真实排名（从 1 起）区分，又自动对上 JVM 对象字段的零值语义。归一规则集中在 `Word.normalizeFreqRank`：负数与超过 10 万的值一律视为未知（超界值典型是手滑把语料词频填进排名栏，夹到上界会凭空造出一个「最罕见」的假排名）。**`freq_rank` 刻意不接入必填校验与 `WordBankValidator`** —— 接进去会让每次正常加载刷出 500+ 条假错误。构造器采用尾部重载而非改签名：主代码 2 处、测试 29 处的 `new Word(...)` 无一关心频次，加在尾部既不动老调用点也不产生重载歧义。导出/导入双向都写读该字段，避免 export → import 一趟静默抹掉频次数据
+- **[运维 / `diagnose` 可发现性]** `/lea diagnose` 此前**已派发、已 tab 补全，却不在 `/lea help` 里** —— 最该被服主发现的「第一站排障工具」就此隐形。现补进 help 列表（zh/en 各 1 键）
+- **[运维 / `diagnose` 中文化]** `DiagnoseCommand` 的约 30 组硬编码英文字符串全部迁入新的 `diagnose:` i18n 段（zh/en 键路径 1:1 对称）。中文服主的求助链路是「截图 → QQ 群 → 等回复」，一屏英文诊断直接劝退。**`diagnose.prefix.*` 保持纯 ASCII（`[OK] [!] [X] [-]`）**：Windows 默认控制台代码页是 GBK(936)，`✔ ✗ •` 不在码表内会被输出成 `?`（仓库既有注释已实测记录这一点）
+- **[运维 / `diagnose save`]** `/lea diagnose save` 把同一份报告落 `exports/diagnose-<yyyyMMdd-HHmmss>.txt`（UTF-8），并在聊天里回显路径。服主求助的默认动作是「截图/粘贴到群」，一份可直接粘贴的文本比 10 张截图有用。未知参数按「不 save」处理而非报用法错 —— 诊断是故障时的第一站，手滑多敲一个词的服主至少还能拿到屏幕上的完整报告
+
+### Changed
+- **[发布 / 双构建：一份源码，两个产物]** 新增 Maven profile `mc26`，现在一次发布**两个 JAR**，源码完全相同、仅编译目标不同：普通包（paper-api 1.21.4 / 字节码 major 65 / **MC 1.21.4–1.21.11** / 需 **Java 21+**）与 `-mc26` 包（paper-api 26.3 stable / major 69 / **MC 26.1+** / 需 **Java 25+**），合计覆盖 bStats 实测约 **89%** 的服务器（1.21.x 44% + 26.x 45%，32 万台样本）。构建：`mvn package`（普通包，**零参数行为不变**）与 JDK25 下 `mvn package -Pmc26`。**此前判断有误**：我一度认定「26.x 跑不了」，实测发现那是把**编译期**限制（Java 21 编译器读不了 major 69 的 paper-api）当成了**运行期**限制——Java 的向后兼容是单向的，**Java 21 编出的 class 在 Java 25 的 JVM 上能正常加载**；进一步把 1.21.4 编出的 JAR 放进 26.3 的 API classpath，插件主类**78 个方法全部解析成功**，说明源码本身与 26.x 兼容，缺的只是「用 26.x API 再编一遍」。`plugin.api.version` 与 `jar.suffix` 抽成 pom 变量由 profile 注入，`plugin.yml` 的 `api-version` 改为 ${plugin.api.version} 走资源过滤。**未实测**：`-mc26` 包的 api-version 定在 `26.1` 是基于「26.1–26.3 属同一代 API、只做加法」的推断，手上只有 26.3 的 jar，没有 26.1 真机可跑，已在 DEPLOYMENT_WIKI.md 标注。
+- **[性能 / 榜单索引]** `player_data` 新增 4 个索引：`total_score` / `total_coins_earned` / `total_words_learned` / `longest_streak`。此前该表只有 `player_name` 一个索引，而三处榜单查询全在 `ORDER BY ... DESC`。10 万行实测 **315.77 ms → 0.65 ms（485×）**。索引一律**升序**定义：SQLite 与 MySQL 8 都能反向扫描满足 `DESC`，避免 `DESC` 索引的兼容性差异。既有的 `idx_player_data_name` 保留不动
+- **[性能 / SQLite PRAGMA]** `initializeSQLite()` 此前**一条 PRAGMA 都没设**，现补三条：`journal_mode=WAL`（写时不再阻塞读，默认 rollback journal 下写事务持整库锁）、`synchronous=NORMAL`（WAL 下的官方推荐搭配，每次提交都 fsync 会让写吞吐掉一个量级）、`busy_timeout=5000`（撞锁等待而非立刻抛 `SQLITE_BUSY`）。`journal_mode` 是唯一**返回结果行**的 PRAGMA，必须用 `executeQuery` 读掉（用 `executeUpdate` 会抛 `query returns results` 并被 catch 成 WARNING —— 库照常可用、测试全绿，**只是优化全部失效**）。PRAGMA 失败只记 WARNING 不阻断启动：这些是优化，不是正确性。**WAL 让 `playerdata.db` 不再是完整数据库**（未合并事务在 `.db-wal` 里），因此同步修正了 `README.md` / `DEPLOYMENT_WIKI.md` 里教的 `cp playerdata.db` 恢复法——只覆盖 `.db` 而留下旧 `-wal` 会让 SQLite 把旧 WAL 重放进刚恢复的库，**回滚静默失败且无报错**；改用 `PRAGMA wal_checkpoint(TRUNCATE)` + `.backup`，并新增启动时 WAL 副文件体检（`-wal` 超过 64 MB 时告警说明数据库不止一个文件）
+- **[性能 / 广场分页]** `EnglishSquareGUI` 此前调 `getActiveSquareEntries(Integer.MAX_VALUE)` 把全库聚合结果整片搬进内存。现改为两阶段查询：① `COUNT` 算页数 + `EXISTS` 谓词 `LIMIT ? OFFSET ?` 只取当前页 28 行；② 只为这 28 个 uuid 批量聚合 correct/incorrect。**关键在把 `LEFT JOIN (SELECT ... FROM word_progress GROUP BY uuid)` 换成 `EXISTS` 相关子查询**——前者必须把整张 `word_progress` 物化完才能过滤，`LIMIT` 限制不了工作量；广场每次打开要跑 COUNT + 取页两条，于是全表聚合算两遍，**实测比不分页时还慢 62%~68%**（这正是第一版实现踩的坑，靠 `EXPLAIN` 的 `MATERIALIZE w` 与计时才发现）。实测最终形态：200 玩家/4 万行 **47.97 ms → 2.23 ms（-95.4%）**、1000 玩家/20 万行 **279.93 ms → 51.18 ms（-81.7%）**，且逐页拼接结果与全量查询**逐行一致、无重复无遗漏**。三处配套修正：① 排序追加 `d.uuid ASC` 作 tie-break（只按 `total_score DESC` 在同分时次序由后端自由决定，翻页会漏人/重人）；② `SocialListener` 点击侧的下标反算按「快照粒度」分裂 —— 广场全量模式的列表已是**本页切片**，用 `slotIdx` 而非 `(page-1)*28 + slotIdx`（后者会越界，第 2 页起所有头像点击静默失效且第 1 页「看起来正常」掩盖问题）；③ 快照复用增加**页码一致判据**（ESC 关界面不清快照、主菜单直达不登记快照 → 会出现「屏幕第 1 页、快照还停在第 2 页」的陈旧组合，此时点第一个头像会作用到第 2 页某个人）
+
+- **[兼容性 / 明确支持范围 1.21.4 – 1.21.11]** 明确并验证了支持区间：**用低版本（1.21.4）编译、向上兼容到 1.21.11**。上下限各有硬约束：下限是编译用的 paper-api 版本（低于 1.21.4 可能缺 API），上限是目标 Java 版本（Paper 从 **26.x** 起要求 **Java 25**，class 文件 major 69，本项目以 Java 21 为目标，26.x 服务端**读不了本插件的 class**）。实测依据：用 1.21.11 的 paper-api 编译**零警告零错误**、全部测试通过；核对 26.3 的 jar 确认 `ChatColor`/`AsyncPlayerChatEvent`/`BossBar`/`PersistentDataContainer` 等**均未被移除**——26.x 编译失败纯粹是 JDK 版本（major 69 > 21）而非 API 不兼容。`plugin.yml`、`README.md`、`DEPLOYMENT_WIKI.md` 的版本说法已统一
+
+### Fixed
+- **[词库 / 释义错配（教错知识）]** 红队复核实测：332 个新词里有 **16 个词性对了但取了错误义项的释义**，玩家会学到完全不同的意思——`still` 标成「**蒸馏**」却配例句 `It is still fresh in my memory.`（应为 adv. 仍然）、`stay` 标成「**制止**」配 `I'd like to stay for one night.`（应为 verb 停留）、`film` 标成「**软片**（摄影胶片）」配 `see the film`（应为电影）、`service` 标成「**武装部队的**」配 `a service economy`（应为服务业）、`special` 标成「**专辑**」、`social` 标成「**联欢会**」、`staff` 标成「**职员的**」、`issue` 标成「**发行**」、`lot` 标成「**运气**」、`down` 标成「**丘陵**」、`course`/`here`/`leave`/`cut`。根因：`align.js` 的句法启发式只能判断「这个词在这里是不是这个**词性**」，判断不了「这里的**义项**对不对」——上面这些词全都通过了词性检查。现全部逐个人工订正并写明理由（`manual-fix.js` 共 28 条人工记录）。**释义错比音标错严重**：音标错只是读错，释义错是学错
+- **[词库 / 音标结构性错误]** 红队实测：`AH2` 这个 ARPAbet 元音**没有映射**，导致整个元音消失——`someone` 生成 `/sʌmwn/`（不是英语音节）、`understand` 生成 `/ndəˈstænd/`（词首成了纯辅音串），共影响 19 个词。现补上 `AH2→ʌ`，并处理 `ER0+AH0` 连出的 `/əə/`（`general /ˈdʒenəəl/` → `/ˈdʒenərəl/`）。**剩余已知偏差不变**：CMUdict 是美式、本库是英式，`æ/ɑː` 这类英美分歧词（`class`/`dance`/`body`）仍保留美式读法；词尾 `iː`/`i` 记法也与库内不完全一致。这些**无法靠规则可靠修正**，已在 `THIRD-PARTY-NOTICES.md` 与 `words/README.md` 如实标注
+- **[分发 / 第三方署名缺失]** 红队实测：**打包进 JAR 的 `THIRD-PARTY-NOTICES.md` 是 1612 字节的旧副本**，不含 Tatoeba/NGSL/CMUdict/ECDICT 任何署名，而更新过的 3824 字节版本只存在于仓库根（Maven 只打包 `src/main/resources/`）。这意味着一份含有约 2500 句 Tatoeba（CC BY 2.0 FR，**要求署名**）内容的 JAR 在**零署名**状态下分发。已同步到 `src/main/resources/`，并复验 JAR 内文本含三个来源
+- **[分发 / 存量服收不到新词库]** 红队实测：`ConfigManager.saveResourceIfNotExists` 只在文件**缺失**时释放资源，而任何跑过一次插件的服务器数据目录里都有旧的 `words/*.yml`，于是升级后 `loadAllWordBanks()` 读的仍是旧文件——**「扩充词库」对全部存量服主完全不可见，且日志无任何提示**，开发机因常删档重装而永远发现不了。新增 `WORD_BANK_VERSION` 版本机制：数据目录版本低于内置版本时，**先备份到 `words-backup-v<旧版本>-<时间戳>/` 再整体替换**（备份失败则**不替换**，避免静默冲掉服主自己编辑过的词库），替换成功后写 `words-version.txt`
+- **[测试 / 短词假绿]** 红队实测：`WordBankContentTest` 的「例句含目标词」检查对 `a`/`I`/`be`/`it` 这类 1-2 字母词**完全失效**——`a` 的规则屈折会生成 `a/as/ad/aes`，于是 `"As I was leaving…"` 能通过 `\bas\b`，而句子里根本没有冠词 `a`。把 `a` 的例句换成任意不含 `a` 的句子，测试仍绿。现对长度 ≤ 2 的词只做精确匹配，不做屈折展开（该变异已复验变红）
+- **[测试 / lint 自证]** 新增的 `WordBankUpgradeLintsTest` 首版用 `contains("upgradeWordBanksIfNeeded()")` 判断「调用存在」，但**方法定义里也有这个字符串**，导致「删掉调用」的变异全绿——典型的自证桩。改为统计出现次数并排除声明行，该变异已复验变红
+- **[词库 / 例句质量问题]** 红队与编排者复核实测：1357 个词条中 **505 条（38%）例句含超纲词**（超出词库 + NGSL 前 2000 的实词），其中 15 条含 Tatoeba 的通用占位人名（`Tom`/`Mary`/`Sami`/`Layla`/`Charles`/`Hans`/`Bob`/`Jim`/`Mike`/`Susie`/`Tebboune`/`Rye`），1 条是「英法德禁止垃圾进口」的政策长句（`together` 配此句对学习者毫无意义）。这 15 条已全部换成不含人名的自然例句（`Tom and Jim are brothers.` → `She bought bread and milk.` 等），人名命中数 **15 → 0**，完全无超纲词的例句占比 **61.8% → 62.8%**。**剩余超纲词未处理**：约 400 条例句各有 1 个超纲实词（`sumo`/`poverty`/`inherent`/`sanction` 等），属于「例句语义贴切但词汇偏难」，需要逐句人工重写，本轮未做
+- **[i18n / 不可渲染 emoji]** `achievement-locked` 的 🔒（U+1F512）与 `session-start` 的 🎓（U+1F393）各 zh/en 一处，共 4 处。Minecraft 默认字体栈回落到 `unifont`，不含星光平面 emoji 字形，**必然显示成豆腐块**。替换为 BMP 内符号（`✖` U+2716 / `★` U+2605），与文件里既有的 `✔`/`✖` 风格一致。全库现零 astral 平面字符（脚本扫描确认）
+- **[i18n / 复数 hack]** `weak-word-item` / `weak-word-item-no-cn` 的 `wrong {count} time(s)` 手写复数改为 `wrong {count}x`，不再需要 `(s)` 这种在 count=1 时读起来别扭的写法
+
+### Tests
+- 测试数 **465 → 540**（+75）。新增 9 个测试类：
+  - `WordFreqRankTest`（15 例）：`freq_rank` 有值/缺省/负数/超界/非数值 五种输入的归一行为
+  - `ActiveSquarePagingTest`（7 例，真 SQLite）：分页行集与 `COUNT` 一致、tie-break 全序、失败返回空列表不伪造行
+  - `EnglishSquarePagingContractTest`（3 例，源码 lint）：GUI 页切片下标与监听器点击反算的契约
+  - `DiagnoseI18nParityTest`（7 例）：zh/en 键路径对称 + 代码引用键在资源中真实存在 + 占位符双向一致
+  - `IndexAndPragmaLintsTest`（10 例）：索引注册、索引列与 ORDER BY 列对应、PRAGMA 用法与连接点归属
+  - `WordBankContentTest`（9 例，读真实 YAML）：词库规模/跨档去重/字段完整/词性封闭集/音标格式/例句含目标词/长度/`freq_rank` 唯一
+  - `AIChatThinkingModeTest`（8 例）：`thinking-mode` 与 `reasoning-effort` 在三种取值下的请求体形态，含「两键均 default 时请求体逐字节不变」断言
+  - `WordBankUpgradeLintsTest`（8 例，源码 lint）：词库版本常量的存在与比较、调用点排在资源释放之后、备份先于替换且备份失败即中止、覆盖写用 `saveResource(path,true)`、版本落盘、版本文件读失败降级
+  - `VersionAdapterTest`（8 例）：版本串解析 —— 1.21.4~1.21.11 全支持、1.21.0~3 与 1.20 及更早不支持、26.x 识别为年份式并因需 Java 25 判不支持、非法串不抛异常
+- **变异验证 9 项，全部被杀**：
+  - 删 `uuid` tie-break → 红
+  - 删 freqRank 上界钳制 → 红
+  - GUI `listStart` 退回 `startIdx` → 红
+  - 删 `idx_player_data_score` → **原本全绿（假绿）**，补 lint 后变红
+  - `synchronous=NORMAL` 改 `FULL` → 红
+  - 监听器 `pageSlice` 恒 false → **红队实测原本能绕过**，补 lint 后变红
+  - GUI offset 换成常量 0 → **红队实测原本能绕过**，补 lint 后变红
+  - 查询退回聚合子查询 → 补 lint 后变红
+- **本轮实测出两个真实假绿**：① 4 个索引与 3 条 PRAGMA 的价值全是「性能」，测试库只有几行时缺索引照样 0.1 ms，删掉实现全仓 506 个测试全绿 —— 补 `IndexAndPragmaLintsTest` 源码 lint 才钉住；② `EnglishSquarePagingContractTest` 只断言字符串存在、不断言赋值，`pageSlice = false` 与 `offset = 0` 两个能造成「翻页即错/越界点击」的变异都能绕过去 —— 改为断言两侧赋值与 offset 表达式
+- **一处性能倒退被红队发现并在本轮修掉**：分页第一版只把 `LIMIT` 从 `MAX_VALUE` 改成 28，仍保留聚合子查询，导致全表聚合算两遍，实测比不分页更慢 62%~68%。详见 Changed 段
+
 ## [1.0.7] - 2026-10-30（正式发布）
 
 > **版本号 1.0.7-SNAPSHOT → 1.0.7**：先前所有 `1.0.7-SNAPSHOT` 构建均为开发快照；本条目起

@@ -360,6 +360,8 @@ admin-help:
   export: "&e/lea export &7- 导出玩家数据"
   reset: "&e/lea reset <玩家名> &7- 重置玩家数据"
   info: "&e/lea info &7- 查看插件信息"
+  # 诊断是故障第一站，但一直没进 help 列表（SUBCMD 里有、help 里没有）= 隐形。
+  diagnose: "&e/lea diagnose [save] &7- 自检：报告实际生效的配置与运行状态（save 可导出为文件）"
   exportwordbank: "&e/lea exportwordbank <难度> &7- 导出单词库至YAML文件"
   importwordbank: "&e/lea importwordbank <文件名> &7- 从YAML文件导入单词库"
   ignore-update: "&e/lea ignore-update &7- 忽略本次更新提醒"
@@ -589,7 +591,7 @@ profile:
   stats-duel-note: "&8仅统计完整对局"
   achievements-hint: "&7点击查看成就列表"
   achievement-unlocked: "&6✔ 已解锁"
-  achievement-locked: "&8🔒 未解锁"
+  achievement-locked: "&8✖ 未解锁"
   settings-button: "&e设置"
   settings-lore: "&7隐私设置"
   settings-locked: "&8设置 (已锁定)"
@@ -684,7 +686,7 @@ wrong-book:
 onboarding:
   join-intro: "{prefix}&a新同学你好呀！我在你的背包里放了一本 &e《新手引导手册》&a，右键翻开看看，跟着做 3 件小事就能上手啦喵~"
   reminder: "{prefix}&e你的新手引导还没完成哦~ 右键背包里的引导书看看下一步，或输入 &e/le word &e继续喵！"
-  session-start: "{prefix}&6🎓 迷你试炼开始！难度 &e{difficulty}&6，共 &e{count} &6个单词（选择题）。答错不要紧，再试一次就好喵~"
+  session-start: "{prefix}&6★ 迷你试炼开始！难度 &e{difficulty}&6，共 &e{count} &6个单词（选择题）。答错不要紧，再试一次就好喵~"
   retry-wrong: "{prefix}&e没关系，再试一次就好喵~"
   retry-timeout: "{prefix}&e时间到啦，本题再来一次喵~"
   step2-done: "{prefix}&a引导第 2 步完成！最后一步：输入 &e/le progress &a打开个人主页，看看你刚拿到的成就喵~"
@@ -840,3 +842,99 @@ server:
   # 与 general.reload-success 的区别：那条是纯绿成功，这条必须讲清「配置读了但运行时没装」。
   # 注意：本键名保留历史写法（restart-required），但文案已与「需重启」脱钩 —— reload 现在能完整装卸。
   reload-restart-required: "{prefix}&e配置已重新加载，但运行时未装配（本服 server.enabled=false）。"
+
+# ============================================================
+#  /lea diagnose 自检报告文案（R11 / Wave 5 i18n 化）
+#
+#  设计约束：
+#  1) 正文行刻意不带颜色码 —— 整行颜色由 diagnose.prefix.* 的前缀决定
+#     （OK 全绿 / WARN 全黄 / FAIL 全红 / INFO 全灰），与原硬编码实现一致。
+#  2) diagnose.prefix.* 的默认值必须保持纯 ASCII：[OK] [!] [X] [-]。
+#     Windows 默认控制台代码页是 GBK(936)，✔ ✗ • 不在码表内会被打成 '?'（实测）。
+#     想改成符号的服主请自担控制台乱码。
+#  3) 所有占位符都是 {name} 形式，与 MessageUtil 的替换约定一致。
+# ============================================================
+diagnose:
+  header: "&6===== 英语学习 自检 ====="
+  plugin: "插件: v{version} / 服务端 {server}"
+
+  db:
+    not-initialized: "数据库: 未初始化"
+    sqlite: "数据库: SQLite（{file}，{size}）"
+    mysql: "数据库: MySQL 已连接（{host}/{database}）"
+
+  driver:
+    bundled: "MySQL 驱动: 已内置（{driver}）"
+    missing: "MySQL 驱动: 缺失 —— database.type=mysql 无法工作"
+    absent-sqlite: "MySQL 驱动: 未内置（database.type=sqlite 时无影响）"
+
+  backup:
+    unsupported: "备份: MySQL 不支持（仅 SQLite 会备份）"
+    disabled: "备份: 已关闭（general.backup.enabled=false）"
+    none: "备份: 还没有（首次备份在 {minutes} 分钟后）"
+    latest: "备份: {file}（{ago}）"
+
+  economy:
+    no-provider: "Vault 经济: 装了 Vault 但没有经济提供者注册"
+    absent: "Vault 经济: 未安装（金币奖励不可用）"
+    hooked: "Vault 经济: 已接入（{provider}）"
+    disabled: "Vault 经济: 提供者 {provider} 报告自身已禁用"
+
+  ai:
+    ok: "AI 服务: api-key 正常（model={model}）"
+    missing: "AI 服务: api-key 缺失 —— 请在 ai_config.yml 里填写 'api-key'，然后 /lea reload"
+    gate-off: "AI 服务: 已被 ai-chat.enabled=false 关闭（且无 api-key）"
+
+  words:
+    none: "词库: 一个都没加载 —— 请检查 words/*.yml"
+    loaded: "词库: 已加载 {banks} 档 / {words} 个词条"
+
+  modules:
+    line: "模块: word {word} | ai {ai} | daily {daily} | duel {duel} | season {season} | class {class} | social {social} | checkin {checkin} | onboarding {onboarding}"
+    season-inactive: "{state}（无进行中的赛季）"
+
+  stats:
+    disabled: "统计 HTTP: 已关闭（statistics-server.enabled=false）"
+    running: "统计 HTTP: 正在监听端口 {port}"
+    not-running: "统计 HTTP: 已启用但端口 {port} 没有在跑 —— 多半是端口被占用，请看启动日志"
+
+  coins:
+    gates: "progress-system {progress} / rewards {rewards} / money.enabled {money} / Vault {vault}"
+    cap: "{cap}/天上限"
+    no-cap: "无每日上限"
+    paid: "金币: {gates} -> 会发放（{cap}）"
+    not-paid: "金币: {gates} -> 不会发放（{cap}）"
+
+  restart-keys: "&e启动时读取的键 —— 改动它们需要重启服务端: "
+  failed: "{prefix}&c自检失败: {error}"
+
+  save:
+    done: "{prefix}&a自检报告已保存: &e{file}"
+    failed: "{prefix}&c自检报告保存失败: {error}"
+
+  log:
+    ok: "自检: {ok} 项正常、{warn} 项提醒，无问题。执行 /lea diagnose 查看详情。"
+    problems: "自检发现 {fail} 个问题 —— 相关功能不会工作:"
+    hint: "在游戏内或控制台执行 /lea diagnose 查看完整报告。"
+
+  # 级别前缀：纯 ASCII（见文件头注释 2）。
+  prefix:
+    ok: "&a[OK] "
+    warn: "&e[!] "
+    fail: "&c[X] "
+    info: "&7[-] "
+
+  # 「多久以前」的后缀（备份时间等）。
+  ago:
+    seconds: "{n} 秒前"
+    minutes: "{n} 分钟前"
+    hours: "{n} 小时前"
+    days: "{n} 天前"
+
+  unknown: "未知"
+
+  # 导出文件（/lea diagnose save）的头注三行；落盘时会剥掉颜色码。
+  file:
+    title: "===== Let's Learn English! 自检报告 ====="
+    meta: "插件 v{version} / 服务端 {server}"
+    generated: "生成时间: {time}"

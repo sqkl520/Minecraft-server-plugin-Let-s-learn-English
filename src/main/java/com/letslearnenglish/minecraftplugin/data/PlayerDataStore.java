@@ -2270,40 +2270,98 @@ public class PlayerDataStore {
      * {@code word_progress} 按 uuid 聚合子查询（correct/incorrect 顺带 SUM，
      * 不再对每行补读——两处消费侧一次查询拿全）。"答过题"判定 = 聚合
      * correct+incorrect &gt; 0（等价旧 {@code getTotalCorrect()+getTotalIncorrect() > 0}）。
-     * ORDER BY total_score DESC LIMIT ?（与 getRankedPlayers 同式）。
+     * ORDER BY total_score DESC, uuid ASC LIMIT ? OFFSET ?（与 getRankedPlayers 同式）。
      * word_progress 聚合走 UNIQUE(uuid, word) 的 uuid 前缀索引。
+     *
+     * <p><b>P-SQ-PAGE（主线程冻结修复）</b>：旧实现由 GUI 传 {@link Integer#MAX_VALUE}
+     * 全量取行，10k 玩家 / 1M word_progress 行实测 1331.6 ms ≈ 26.6 tick —— 玩家点一下
+     * 广场按钮，全服卡 1.3 s。广场每页只渲染 {@code PLAYERS_PER_PAGE}(28) 行，全量取行
+     * 纯属浪费：现在由 {@link #getActiveSquareEntries(int, int)} 只取当前页，本单参重载
+     * 等价于 offset 0，既有调用方（{@code Leaderboard.getTopPlayers} 的 ALL_PLAYERS 分支）
+     * 语义零变化。
+     *
+     * <p><b>排序必须确定</b>：只按 {@code total_score DESC} 在同分时次序由后端自由决定
+     * （MySQL 不保证 ORDER BY 稳定），翻页会漏人/重人（同一玩家两页各出现一次）。
+     * 追加 {@code d.uuid ASC} 作 tie-break 得到全序 —— uuid 是定长小写主键，排序结果
+     * 与排序规则无关。这一条是分页正确性的前提，不是"顺手优化"。
      *
      * <p>数据源 = DB 真值（非内存统计镜像）：在线玩家在自动保存间隔（默认 5 分钟）
      * 内尚未落盘的最新答题会延迟可见——这是本方法替换装配口径的既定语义
      *（fix-plan-c2 F3 裁决：同步单查已达标，不加快照层）。
      *
-     * @param limit 行数上限（"全部"语义传 {@link Integer#MAX_VALUE}；LIMIT ? 双后端兼容）
+     * @param limit 行数上限（LIMIT ? 双后端兼容）
      */
     public List<LeaderboardEntry> getActiveSquareEntries(int limit) {
+        return getActiveSquareEntries(limit, 0);
+    }
+
+    /**
+     * P-SQ-PAGE：{@link #getActiveSquareEntries(int)} 的分页版 —— 广场一页一次只取
+     * {@code limit} 行（GUI 传 28），不再把全库聚合结果搬进内存。
+     *
+     * <p>{@code LIMIT ? OFFSET ?} 是 MySQL 与 SQLite 唯一共同支持的写法
+     *（逗号式 {@code LIMIT n, m} 只有 SQLite 认，禁用）。OFFSET 语义要求排序全序，
+     * 见单参重载的"排序必须确定"说明。
+     *
+     * <p>失败语义与单参版逐字一致：<b>返回空列表</b> —— 广场最坏显示"暂无玩家"，
+     * 不伪造任何行（与"确实无人答过题"不可区分，见报告）。
+     *
+     * @param limit  行数上限；负数/0 按 0 处理（后端 LIMIT 0 返回空集，不抛）
+     * @param offset 跳过行数；负数按 0 处理
+     */
+    public List<LeaderboardEntry> getActiveSquareEntries(int limit, int offset) {
         List<LeaderboardEntry> entries = new ArrayList<>();
         String tablePrefix = databaseManager.getTablePrefix();
-        String sql = "SELECT d.uuid AS uuid, d.player_name AS player_name, "
-                + "d.total_score AS total_score, d.total_sessions AS total_sessions, "
-                + "COALESCE(w.correct_sum, 0) AS correct_sum, COALESCE(w.incorrect_sum, 0) AS incorrect_sum "
+
+        // ===== 阶段 1：只用「廉价谓词」取本页 28 个 uuid =====
+        //
+        // 【为什么不能一条 SQL 带聚合子查询】最初的分页实现（v1）保留了原来的
+        // LEFT JOIN (SELECT uuid, SUM(...) FROM word_progress GROUP BY uuid) 聚合子查询，
+        // 只把 LIMIT 从 MAX_VALUE 改成 28。**这是错的**：过滤条件
+        // （correct_sum + incorrect_sum > 0）作用在聚合后的值上，SQLite 必须先把整张
+        // word_progress 表聚合完，才知道哪些行满足条件，LIMIT 只能限制"返回几行"，
+        // 限制不了"算多少行"（EXPLAIN 里的 MATERIALIZE w + SCAN word_progress 就是它）。
+        // 而广场打开要 COUNT + 取页两条语句 → 全表聚合算两遍，实测**比修复前还慢**：
+        //   200 玩家/4 万行：63.0 ms → 102.1 ms（+62%）
+        //   1000 玩家/20 万行：276.8 ms → 465.1 ms（+68%）
+        // 换句话说 v1 是一次彻头彻尾的性能倒退，只是刚好没人量过。
+        //
+        // 【现在的形状】用 EXISTS 把"答过题吗"变成一个**相关子查询**，只要在
+        // word_progress 上按 uuid 前缀索引查到**第一行**满足 correct+incorrect > 0 就
+        // 短路返回（SQLite 的 EXISTS 语义即"存在即停"，不会聚合整张表）。
+        // EXPLAIN 实测：SEARCH wp USING INDEX idx_wp_uuid (uuid=?) —— 每行一次索引 seek。
+        //
+        // 【为什么 EXISTS 与原来的聚合判据等价】原判据是
+        // SUM(correct_count) + SUM(incorrect_count) > 0（该玩家所有词行之和 > 0）。
+        // 各列都是非负计数，所以"和 > 0" ⟺ "存在至少一行其 correct+incorrect > 0"。
+        // 两者在非负数据上完全等价；若将来出现负值（不该有），EXISTS 会与聚合分叉——
+        // 这正是 ActiveSquarePagingTest 用真库钉住"计数 == 全量行数"的原因。
+        String pageSql = "SELECT d.uuid AS uuid, d.player_name AS player_name, "
+                + "d.total_score AS total_score, d.total_sessions AS total_sessions "
                 + "FROM " + tablePrefix + "player_data d "
                 + "LEFT JOIN " + tablePrefix + "player_profiles p ON p.uuid = d.uuid "
-                + "LEFT JOIN (SELECT uuid, SUM(correct_count) AS correct_sum, SUM(incorrect_count) AS incorrect_sum "
-                + "FROM " + tablePrefix + "word_progress GROUP BY uuid) w ON w.uuid = d.uuid "
                 + "WHERE COALESCE(p.show_in_square, 1) <> 0 "
-                + "AND COALESCE(w.correct_sum, 0) + COALESCE(w.incorrect_sum, 0) > 0 "
-                + "ORDER BY d.total_score DESC LIMIT ?";
+                + "AND EXISTS (SELECT 1 FROM " + tablePrefix + "word_progress wp "
+                + "WHERE wp.uuid = d.uuid "
+                + "AND wp.correct_count + wp.incorrect_count > 0) "
+                // uuid tie-break：分页正确性前提（同分跨页漂移 = 漏人/重人），见方法 javadoc
+                + "ORDER BY d.total_score DESC, d.uuid ASC LIMIT ? OFFSET ?";
 
+        int safeLimit = Math.max(0, limit);
+        int safeOffset = Math.max(0, offset);
         // K：取连接纳入 try（重连失败会抛 RuntimeException，旧 catch(SQLException) 接不住）。
         // 返回 List：失败时空列表 —— 广场最坏显示"暂无玩家"，不伪造任何行。
         // 同 getRankedPlayers：与"确实无人答过题"不可区分，见报告。
         synchronized (databaseManager.getConnectionLock()) {
         try {
         Connection conn = databaseManager.getConnection();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, limit);
+
+        // 先取本页的 uuid/名字/分数/场次；统计列（correct/incorrect）留到阶段 2 补
+        List<LeaderboardEntry> page = new ArrayList<>(Math.min(safeLimit, 128));
+        try (PreparedStatement stmt = conn.prepareStatement(pageSql)) {
+            stmt.setInt(1, safeLimit);
+            stmt.setInt(2, safeOffset);
             try (ResultSet rs = stmt.executeQuery()) {
-                // 本方法无嵌套查询：行内数据即全部所需（区别于 getRankedPlayers 的两段式）。
-                // 同样不调任何 Bukkit API（player_name 为空回落 uuid.toString()）。
                 int rank = 1;
                 while (rs.next()) {
                     UUID uuid = UUID.fromString(rs.getString("uuid"));
@@ -2311,12 +2369,48 @@ public class PlayerDataStore {
                     if (name == null || name.isEmpty()) {
                         name = uuid.toString();
                     }
-                    entries.add(new LeaderboardEntry(uuid, name,
-                            rs.getLong("total_score"),
-                            rs.getInt("correct_sum"), rs.getInt("incorrect_sum"),
+                    // correct/incorrect 先填 0，阶段 2 按 uuid 覆盖（见下）
+                    page.add(new LeaderboardEntry(uuid, name,
+                            rs.getLong("total_score"), 0, 0,
                             rs.getInt("total_sessions"), rank++));
                 }
             }
+        }
+        if (page.isEmpty()) {
+            return entries; // 空页：不必为 0 个 uuid 再发一条 IN ()（那是语法错误）
+        }
+
+        // ===== 阶段 2：只为这 28 个 uuid 聚合 =====
+        //
+        // 这是两阶段的关键：聚合范围从「整张 word_progress」缩到「28 个 uuid」，
+        // 走 UNIQUE(uuid, word) 的 uuid 前缀索引，实测 1000 玩家库上 5.5 ms。
+        // 占位符按实际行数拼（每页最多 28 个），不拼用户输入，无注入面。
+        StringBuilder marks = new StringBuilder();
+        for (int i = 0; i < page.size(); i++) {
+            if (i > 0) marks.append(',');
+            marks.append('?');
+        }
+        String statsSql = "SELECT uuid, SUM(correct_count) AS correct_sum, "
+                + "SUM(incorrect_count) AS incorrect_sum FROM " + tablePrefix + "word_progress "
+                + "WHERE uuid IN (" + marks + ") GROUP BY uuid";
+        java.util.Map<UUID, int[]> stats = new java.util.HashMap<>(page.size() * 2);
+        try (PreparedStatement stmt = conn.prepareStatement(statsSql)) {
+            for (int i = 0; i < page.size(); i++) {
+                stmt.setString(i + 1, page.get(i).playerId.toString());
+            }
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    stats.put(UUID.fromString(rs.getString("uuid")),
+                            new int[] {rs.getInt("correct_sum"), rs.getInt("incorrect_sum")});
+                }
+            }
+        }
+        for (LeaderboardEntry e : page) {
+            int[] s = stats.get(e.playerId);
+            entries.add(s == null
+                    ? e // 阶段 1 与阶段 2 之间该玩家进度被删：保留 0/0，不丢行（与"答过题"判据不矛盾）
+                    : new LeaderboardEntry(e.playerId, e.playerName, e.score,
+                            s[0], s[1], e.sessions, e.rank));
         }
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load active square entries", e);
@@ -2324,6 +2418,52 @@ public class PlayerDataStore {
         }
         }
         return entries;
+    }
+
+    /**
+     * P-SQ-PAGE：广场"全部玩家"总行数 —— 供 GUI 算总页数（分页后行数不再等于总数）。
+     *
+     * <p><b>WHERE 必须与 {@link #getActiveSquareEntries(int, int)} 阶段 1 逐字一致</b>
+     *（{@code show_in_square} 隐身门 + {@code EXISTS} 答题门）。两处若漂移，
+     * 页数会比实际内容多（尾页空白、下一页按钮指向空页）或少（最后几页永远翻不到）。
+     * 测试 {@code ActiveSquarePagingTest} 用真 SQLite 钉住"计数 == 全量取行的行数"。
+     *
+     * <p><b>为什么也用 EXISTS 而不是聚合子查询</b>：与取页同一个理由（见
+     * {@code getActiveSquareEntries} 的长注释）。用聚合子查询做 COUNT 会在每次打开
+     * 广场时把整张 {@code word_progress} 物化一遍（EXPLAIN 的 {@code MATERIALIZE w}），
+     * 实测 1000 玩家/20 万行要 249 ms；换成 EXISTS 后降到 57 ms，且页数语义不变。
+     *
+     * <p>失败返回 0（与取行方法"失败返回空列表"同款：广场最坏显示"暂无玩家"，
+     * 不伪造行）。0 页由调用方 {@code Math.max(1, ...)} 兜成 1 页。
+     */
+    public int countActiveSquareEntries() {
+        String tablePrefix = databaseManager.getTablePrefix();
+        String sql = "SELECT COUNT(*) AS total "
+                + "FROM " + tablePrefix + "player_data d "
+                + "LEFT JOIN " + tablePrefix + "player_profiles p ON p.uuid = d.uuid "
+                + "WHERE COALESCE(p.show_in_square, 1) <> 0 "
+                + "AND EXISTS (SELECT 1 FROM " + tablePrefix + "word_progress wp "
+                + "WHERE wp.uuid = d.uuid "
+                + "AND wp.correct_count + wp.incorrect_count > 0)";
+
+        // 同取行方法：连接获取纳入 try（重连失败是 RuntimeException），catch Exception。
+        synchronized (databaseManager.getConnectionLock()) {
+        try {
+        Connection conn = databaseManager.getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
+            if (!rs.next()) {
+                return 0; // 理论上 COUNT 恒有一行；防御"驱动返回空结果"时不 NPE
+            }
+            long total = rs.getLong("total");
+            // 分页只用于算页数，超 int 的规模（>21 亿玩家）无现实意义，饱和即可
+            return (int) Math.min(Integer.MAX_VALUE, Math.max(0L, total));
+        }
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to count active square entries", e);
+            return 0;
+        }
+        }
     }
 
     /**

@@ -264,6 +264,28 @@ ai-chat:
   # 单次 AI 回复的最大 token 数（传给 API 的 max_tokens 参数）
   # 值越小回复越短、API 费用越低；默认 128
   max-tokens: 128
+  # ---- 思考模式（Thinking Mode）请求参数 ----
+  # 为什么要有这两个键：DeepSeek 新模型（V4 系列）据称**默认开启思考模式**，而思考内容
+  # 同样消耗 max_tokens。本插件对话路径的 max_tokens 只有 128（见上），一旦上游默认
+  # 思考，预算可能在「想」的阶段就被吃光，返回空 content —— 玩家侧看到的是 AI 不说话，
+  # 日志里却是一条 200 成功响应，属于最难排查的静默失败。
+  # 但该行为的 API 形状（参数名 thinking / reasoning_effort、取值枚举、是否随模型版本
+  # 变化）未能从官方文档核实，且不同来源给出的替代模型 id 互相矛盾（deepseek-flash 与
+  # deepseek-v4-flash）。所以默认值一律是 default = **一个字节都不多发**，
+  # 线上请求体与本功能加入前逐字节一致；确认上游行为后再由服主显式打开。
+  #
+  # thinking-mode：思考模式开关
+  #   default  = 不发送任何 thinking 参数（默认，行为零变化）
+  #   disabled = 发送 "thinking": {"type": "disabled"}  —— 关掉思考，保住 128 token 预算
+  #   enabled  = 发送 "thinking": {"type": "enabled"}   —— 显式开启（会挤占回复预算）
+  # 取值非法时打一条 WARNING 并按 default 处理（不阻断启动，配置写错不该让 AI 模块整体不可用）。
+  thinking-mode: default
+  # reasoning-effort：推理强度（部分 OpenAI 兼容实现用这个键而不是 thinking）
+  #   default = 不发送（默认，行为零变化）
+  #   none / low / medium / high = 发送 "reasoning_effort": "<值>"
+  # 与 thinking-mode 相互独立：两者都是 default 时请求体不出现任何相关字段；
+  # 同时开启时两个字段会一起发出（上游不认识的那个通常会被忽略，但请在测试服验证）。
+  reasoning-effort: default
   # 一次对话至少收到 N 条有效玩家消息（非退出词、sanitize 后非空），
   # 且至少有一次成功 AI 回复，结束时才记为一次"有效对话"（用于 AI 对话成就/DailyChallenge 计数）
   # 注意：它不参与 daily-round-limit（轮次上限按每次成功 API 回复累加）；默认 3

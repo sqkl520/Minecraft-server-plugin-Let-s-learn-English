@@ -26,8 +26,13 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- 默认（无 profile）就是最广兼容的那一档：Java 21 + paper-api 1.21.4。
+             26.x 那一档必须显式 -Pmc26 激活，因为它要求构建机有 JDK 25。 -->
         <java.version>21</java.version>
         <paper.api.version>1.21.4-R0.1-SNAPSHOT</paper.api.version>
+        <!-- 写进 plugin.yml 的 api-version 与产物名后缀，由 profile 覆盖 -->
+        <plugin.api.version>1.21</plugin.api.version>
+        <jar.suffix></jar.suffix>
         <junit.version>5.10.1</junit.version>
         <mockito.version>5.8.0</mockito.version>
         <!-- 仅测试用：真 SQLite 驱动（DatabaseManager 的维护/迁移测试需要真库）。
@@ -124,7 +129,7 @@
     </dependencies>
 
     <build>
-        <finalName>${project.name}-${project.version}</finalName>
+        <finalName>${project.name}-${project.version}${jar.suffix}</finalName>
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
@@ -170,13 +175,23 @@
                         <include>**/*Tests.java</include>
                         <include>**/*TestCase.java</include>
                     </includes>
+                    <!--
+                      Mockito 的 Byte Buddy 官方只支持到 Java 22（class major 66）。
+                      在 JDK 25 下跑测试（即 -Pmc26 那一档）会抛
+                        IllegalArgumentException: Java 25 (69) is not supported
+                      并让 213 个用到 mock 的测试全部 error —— 那是**测试基础设施**的
+                      限制，不是被测代码的问题（业务代码在 Java 25 上编译运行都正常）。
+                      这个属性让 Byte Buddy 跳过版本白名单，用同一套逻辑处理新字节码。
+                      对 Java 21 构建没有任何影响（低版本本来就被支持）。
+                    -->
+                    <argLine>@{argLine} -Dnet.bytebuddy.experimental=true</argLine>
                 </configuration>
             </plugin>
 
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.11</version>
+                <version>0.8.16</version>
                 <executions>
                     <execution>
                         <goals>
@@ -302,4 +317,50 @@
             </plugin>
         </plugins>
     </build>
+
+<!-- ============================================================
+     双构建：同一份源码，两档目标平台
+     ============================================================
+
+     为什么不合并成一个 JAR：Paper 的 API 是「编译期绑定」的 —— 用 1.21.4 的
+     paper-api 编译，就只能引用 1.21.4 存在的方法；要用 26.x 的 API 就必须用
+     26.x 的 paper-api 编译，而那要求构建机有 JDK 25。所以只能编两遍。
+
+     关键事实（本机实测，不是推测）：
+       - Java 21 编出的 class（major 65）在 Java 25 的 JVM 上能正常加载。
+         Java 的向后兼容是单向的：新 JVM 跑得动旧字节码。
+       - 把 1.21.4 编出的 JAR 放到 26.3 的 API classpath 上，插件主类的
+         78 个方法全部解析成功（反射验证），说明源码本身与 26.x 兼容，
+         缺的只是「用 26.x API 再编一遍」。
+       - 26.3 的 apiVersioning.json 声明 currentApiVersion 为 26.3。
+
+     产物与覆盖范围：
+       mvn package          -> Let's Learn English!-<ver>.jar
+                               MC 1.21.4 - 1.21.11 ｜ 需 Java 21+
+       mvn package -Pmc26   -> Let's Learn English!-<ver>-mc26.jar
+                               MC 26.1+（含 26.2 / 26.3 / 26.4）｜ 需 Java 25+
+     ============================================================ -->
+<profiles>
+    <!-- 默认档不写成 profile，保持 mvn package 零参数行为不变；此处只定义 26.x 档 -->
+
+    <profile>
+        <id>mc26</id>
+        <properties>
+            <!-- 26.x 线用带构建号的 stable 版本：可复现，不像 SNAPSHOT 那样每天变 -->
+            <paper.api.version>26.3.build.231-stable</paper.api.version>
+            <!-- 26.x 要求 Java 25（class 文件 major 69） -->
+            <java.version>25</java.version>
+            <!--
+              api-version 取 26.1 而不是 26.3：它声明的是「最低需要哪一代 API」，
+              写得越低能跑的版本越多。26.1/26.2/26.3 属同一代（只做加法），
+              所以 26.1 能让这一个 JAR 覆盖整条 26.x 线。
+              若将来发现版本间有行为差异，再针对具体版本收紧。
+              注意：这一点未经真实 26.1 服务端验证（手上只有 26.3 的 jar），
+              已在 DEPLOYMENT_WIKI.md 如实标注。
+            -->
+            <plugin.api.version>26.1</plugin.api.version>
+            <jar.suffix>-mc26</jar.suffix>
+        </properties>
+    </profile>
+</profiles>
 </project>
