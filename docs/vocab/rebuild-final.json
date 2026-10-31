@@ -1,0 +1,877 @@
+{
+  "boundaries": {
+    "beginnerMax": 800,
+    "intermediateMax": 1500
+  },
+  "protectedCount": 102,
+  "moves": [
+    {
+      "english": "ability",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 779,
+      "level": 4
+    },
+    {
+      "english": "admire",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2347,
+      "level": 4
+    },
+    {
+      "english": "adventure",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2667,
+      "level": 4
+    },
+    {
+      "english": "anxious",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2666,
+      "level": 4
+    },
+    {
+      "english": "apologize",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2301,
+      "level": 4
+    },
+    {
+      "english": "argue",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 740,
+      "level": 4
+    },
+    {
+      "english": "average",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 690,
+      "level": 4
+    },
+    {
+      "english": "awful",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2206,
+      "level": 4
+    },
+    {
+      "english": "behave",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2248,
+      "level": 4
+    },
+    {
+      "english": "breath",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1611,
+      "level": 4
+    },
+    {
+      "english": "breathe",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1914,
+      "level": 4
+    },
+    {
+      "english": "bridge",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1546,
+      "level": 4
+    },
+    {
+      "english": "bright",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1510,
+      "level": 4
+    },
+    {
+      "english": "brilliant",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2200,
+      "level": 4
+    },
+    {
+      "english": "broadcast",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2260,
+      "level": 4
+    },
+    {
+      "english": "burden",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2286,
+      "level": 4
+    },
+    {
+      "english": "calm",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1964,
+      "level": 4
+    },
+    {
+      "english": "cancel",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2390,
+      "level": 4
+    },
+    {
+      "english": "capable",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1885,
+      "level": 4
+    },
+    {
+      "english": "castle",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2673,
+      "level": 4
+    },
+    {
+      "english": "cause",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 319,
+      "level": 4
+    },
+    {
+      "english": "celebrate",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1608,
+      "level": 4
+    },
+    {
+      "english": "century",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 591,
+      "level": 4
+    },
+    {
+      "english": "certain",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 451,
+      "level": 4
+    },
+    {
+      "english": "chain",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1518,
+      "level": 4
+    },
+    {
+      "english": "challenge",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 766,
+      "level": 4
+    },
+    {
+      "english": "chance",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 560,
+      "level": 4
+    },
+    {
+      "english": "character",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 693,
+      "level": 4
+    },
+    {
+      "english": "charge",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 498,
+      "level": 4
+    },
+    {
+      "english": "charm",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2376,
+      "level": 4
+    },
+    {
+      "english": "choice",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 565,
+      "level": 4
+    },
+    {
+      "english": "climate",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1906,
+      "level": 4
+    },
+    {
+      "english": "clothing",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2535,
+      "level": 4
+    },
+    {
+      "english": "coast",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1728,
+      "level": 4
+    },
+    {
+      "english": "comfort",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1945,
+      "level": 4
+    },
+    {
+      "english": "common",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 567,
+      "level": 4
+    },
+    {
+      "english": "compare",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 614,
+      "level": 4
+    },
+    {
+      "english": "compete",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1683,
+      "level": 4
+    },
+    {
+      "english": "complete",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 581,
+      "level": 4
+    },
+    {
+      "english": "concern",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 303,
+      "level": 4
+    },
+    {
+      "english": "confuse",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1919,
+      "level": 4
+    },
+    {
+      "english": "consider",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 295,
+      "level": 4
+    },
+    {
+      "english": "consist",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1547,
+      "level": 4
+    },
+    {
+      "english": "contact",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 600,
+      "level": 4
+    },
+    {
+      "english": "contain",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 663,
+      "level": 4
+    },
+    {
+      "english": "continue",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 308,
+      "level": 4
+    },
+    {
+      "english": "control",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 301,
+      "level": 4
+    },
+    {
+      "english": "cough",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2774,
+      "level": 5
+    },
+    {
+      "english": "crash",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1867,
+      "level": 5
+    },
+    {
+      "english": "crazy",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2276,
+      "level": 5
+    },
+    {
+      "english": "create",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 386,
+      "level": 5
+    },
+    {
+      "english": "creative",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2209,
+      "level": 5
+    },
+    {
+      "english": "curious",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2543,
+      "level": 5
+    },
+    {
+      "english": "curtain",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2778,
+      "level": 5
+    },
+    {
+      "english": "custom",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2371,
+      "level": 5
+    },
+    {
+      "english": "declare",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1634,
+      "level": 5
+    },
+    {
+      "english": "defeat",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1886,
+      "level": 5
+    },
+    {
+      "english": "defend",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1874,
+      "level": 5
+    },
+    {
+      "english": "demand",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 570,
+      "level": 5
+    },
+    {
+      "english": "depend",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 731,
+      "level": 5
+    },
+    {
+      "english": "deposit",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2313,
+      "level": 5
+    },
+    {
+      "english": "desert",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2287,
+      "level": 5
+    },
+    {
+      "english": "deserve",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1872,
+      "level": 5
+    },
+    {
+      "english": "determine",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 708,
+      "level": 5
+    },
+    {
+      "english": "devote",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2120,
+      "level": 5
+    },
+    {
+      "english": "disaster",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2117,
+      "level": 5
+    },
+    {
+      "english": "discipline",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1852,
+      "level": 5
+    },
+    {
+      "english": "discount",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1660,
+      "level": 4
+    },
+    {
+      "english": "dismiss",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2392,
+      "level": 4
+    },
+    {
+      "english": "dispute",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2029,
+      "level": 4
+    },
+    {
+      "english": "disturb",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2272,
+      "level": 4
+    },
+    {
+      "english": "dozen",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1765,
+      "level": 4
+    },
+    {
+      "english": "draft",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1809,
+      "level": 4
+    },
+    {
+      "english": "drag",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2332,
+      "level": 4
+    },
+    {
+      "english": "ease",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2061,
+      "level": 4
+    },
+    {
+      "english": "edit",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2311,
+      "level": 5
+    },
+    {
+      "english": "efficient",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1969,
+      "level": 5
+    },
+    {
+      "english": "effort",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 577,
+      "level": 5
+    },
+    {
+      "english": "elect",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1578,
+      "level": 5
+    },
+    {
+      "english": "embarrass",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2464,
+      "level": 5
+    },
+    {
+      "english": "embrace",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2472,
+      "level": 5
+    },
+    {
+      "english": "emphasis",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2031,
+      "level": 5
+    },
+    {
+      "english": "encounter",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1912,
+      "level": 5
+    },
+    {
+      "english": "enhance",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1889,
+      "level": 5
+    },
+    {
+      "english": "environment",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 712,
+      "level": 5
+    },
+    {
+      "english": "fascinate",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2124,
+      "level": 6
+    },
+    {
+      "english": "fault",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1995,
+      "level": 6
+    },
+    {
+      "english": "filter",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2719,
+      "level": 6
+    },
+    {
+      "english": "formal",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1700,
+      "level": 6
+    },
+    {
+      "english": "format",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2469,
+      "level": 6
+    },
+    {
+      "english": "fragment",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2784,
+      "level": 6
+    },
+    {
+      "english": "further",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 400,
+      "level": 6
+    },
+    {
+      "english": "gaze",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2772,
+      "level": 6
+    },
+    {
+      "english": "glance",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2460,
+      "level": 6
+    },
+    {
+      "english": "grab",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2303,
+      "level": 4
+    },
+    {
+      "english": "graduate",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1548,
+      "level": 5
+    },
+    {
+      "english": "grain",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2727,
+      "level": 5
+    },
+    {
+      "english": "grand",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2093,
+      "level": 5
+    },
+    {
+      "english": "grateful",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1977,
+      "level": 5
+    },
+    {
+      "english": "greet",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2614,
+      "level": 5
+    },
+    {
+      "english": "grin",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2797,
+      "level": 5
+    },
+    {
+      "english": "guarantee",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1570,
+      "level": 5
+    },
+    {
+      "english": "harbor",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2704,
+      "level": 5
+    },
+    {
+      "english": "haven",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 8,
+      "level": 5
+    },
+    {
+      "english": "hesitate",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2631,
+      "level": 5
+    },
+    {
+      "english": "hint",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2689,
+      "level": 6
+    },
+    {
+      "english": "honor",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1625,
+      "level": 4
+    },
+    {
+      "english": "humor",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2573,
+      "level": 4
+    },
+    {
+      "english": "hunt",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1998,
+      "level": 4
+    },
+    {
+      "english": "impose",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1723,
+      "level": 5
+    },
+    {
+      "english": "impress",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2243,
+      "level": 5
+    },
+    {
+      "english": "improve",
+      "from": "intermediate",
+      "to": "beginner",
+      "rank": 508,
+      "level": 5
+    },
+    {
+      "english": "incentive",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 2385,
+      "level": 5
+    },
+    {
+      "english": "journey",
+      "from": "intermediate",
+      "to": "advanced",
+      "rank": 1621,
+      "level": 4
+    },
+    {
+      "english": "assess",
+      "from": "advanced",
+      "to": "intermediate",
+      "rank": 1499,
+      "level": 7
+    },
+    {
+      "english": "becoming",
+      "from": "advanced",
+      "to": "beginner",
+      "rank": 141,
+      "level": 8
+    },
+    {
+      "english": "budget",
+      "from": "advanced",
+      "to": "intermediate",
+      "rank": 1016,
+      "level": 7
+    },
+    {
+      "english": "colleague",
+      "from": "advanced",
+      "to": "intermediate",
+      "rank": 1251,
+      "level": 7
+    },
+    {
+      "english": "commit",
+      "from": "advanced",
+      "to": "intermediate",
+      "rank": 1322,
+      "level": 7
+    },
+    {
+      "english": "concept",
+      "from": "advanced",
+      "to": "intermediate",
+      "rank": 1213,
+      "level": 7
+    },
+    {
+      "english": "conclude",
+      "from": "advanced",
+      "to": "intermediate",
+      "rank": 1355,
+      "level": 7
+    },
+    {
+      "english": "convince",
+      "from": "advanced",
+      "to": "intermediate",
+      "rank": 1358,
+      "level": 8
+    },
+    {
+      "english": "decade",
+      "from": "advanced",
+      "to": "intermediate",
+      "rank": 1130,
+      "level": 8
+    },
+    {
+      "english": "dogged",
+      "from": "advanced",
+      "to": "intermediate",
+      "rank": 895,
+      "level": 9
+    }
+  ]
+}

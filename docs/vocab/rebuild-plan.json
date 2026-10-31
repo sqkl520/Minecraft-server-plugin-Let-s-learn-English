@@ -1,0 +1,8590 @@
+{
+  "boundaries": {
+    "beginner": [
+      1,
+      1000
+    ],
+    "intermediate": [
+      1001,
+      2000
+    ],
+    "advanced": [
+      2001,
+      null
+    ]
+  },
+  "stats": {
+    "stayInTier": 476,
+    "noNgslRank": 530,
+    "moveEasier": 271,
+    "moveHarder": 80,
+    "toAdd": 1291
+  },
+  "moveEasier": [
+    {
+      "w": "hold",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 222
+    },
+    {
+      "w": "service",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 223
+    },
+    {
+      "w": "against",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 224
+    },
+    {
+      "w": "believe",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 225
+    },
+    {
+      "w": "second",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 226
+    },
+    {
+      "w": "though",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 227
+    },
+    {
+      "w": "increase",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 230
+    },
+    {
+      "w": "job",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 231
+    },
+    {
+      "w": "plan",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 232
+    },
+    {
+      "w": "result",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 233
+    },
+    {
+      "w": "away",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 234
+    },
+    {
+      "w": "example",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 235
+    },
+    {
+      "w": "happen",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 236
+    },
+    {
+      "w": "offer",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 237
+    },
+    {
+      "w": "program",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 240
+    },
+    {
+      "w": "lead",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 241
+    },
+    {
+      "w": "understand",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 243
+    },
+    {
+      "w": "far",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 245
+    },
+    {
+      "w": "hour",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 247
+    },
+    {
+      "w": "face",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 249
+    },
+    {
+      "w": "hope",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 250
+    },
+    {
+      "w": "idea",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 251
+    },
+    {
+      "w": "cost",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 252
+    },
+    {
+      "w": "less",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 253
+    },
+    {
+      "w": "room",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 254
+    },
+    {
+      "w": "until",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 255
+    },
+    {
+      "w": "reason",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 256
+    },
+    {
+      "w": "form",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 257
+    },
+    {
+      "w": "spend",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 258
+    },
+    {
+      "w": "level",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 262
+    },
+    {
+      "w": "person",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 263
+    },
+    {
+      "w": "experience",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 264
+    },
+    {
+      "w": "once",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 265
+    },
+    {
+      "w": "member",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 266
+    },
+    {
+      "w": "enough",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 267
+    },
+    {
+      "w": "bad",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 268
+    },
+    {
+      "w": "city",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 269
+    },
+    {
+      "w": "able",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 271
+    },
+    {
+      "w": "support",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 272
+    },
+    {
+      "w": "whether",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 273
+    },
+    {
+      "w": "line",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 274
+    },
+    {
+      "w": "present",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 275
+    },
+    {
+      "w": "side",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 276
+    },
+    {
+      "w": "quite",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 277
+    },
+    {
+      "w": "although",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 278
+    },
+    {
+      "w": "sure",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 279
+    },
+    {
+      "w": "term",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 280
+    },
+    {
+      "w": "least",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 281
+    },
+    {
+      "w": "age",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 282
+    },
+    {
+      "w": "low",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 283
+    },
+    {
+      "w": "within",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 285
+    },
+    {
+      "w": "process",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 286
+    },
+    {
+      "w": "public",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 287
+    },
+    {
+      "w": "train",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 289
+    },
+    {
+      "w": "possible",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 290
+    },
+    {
+      "w": "actually",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 291
+    },
+    {
+      "w": "rather",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 292
+    },
+    {
+      "w": "view",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 293
+    },
+    {
+      "w": "together",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 294
+    },
+    {
+      "w": "price",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 296
+    },
+    {
+      "w": "parent",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 297
+    },
+    {
+      "w": "party",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 299
+    },
+    {
+      "w": "local",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 300
+    },
+    {
+      "w": "already",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 302
+    },
+    {
+      "w": "product",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 304
+    },
+    {
+      "w": "lose",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 305
+    },
+    {
+      "w": "almost",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 307
+    },
+    {
+      "w": "whole",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 310
+    },
+    {
+      "w": "yet",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 311
+    },
+    {
+      "w": "rate",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 312
+    },
+    {
+      "w": "care",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 313
+    },
+    {
+      "w": "expect",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 314
+    },
+    {
+      "w": "effect",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 315
+    },
+    {
+      "w": "sort",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 316
+    },
+    {
+      "w": "ever",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 317
+    },
+    {
+      "w": "anything",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 318
+    },
+    {
+      "w": "fall",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 320
+    },
+    {
+      "w": "deal",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 321
+    },
+    {
+      "w": "send",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 323
+    },
+    {
+      "w": "allow",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 324
+    },
+    {
+      "w": "soon",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 325
+    },
+    {
+      "w": "base",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 327
+    },
+    {
+      "w": "probably",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 328
+    },
+    {
+      "w": "suggest",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 329
+    },
+    {
+      "w": "past",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 330
+    },
+    {
+      "w": "power",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 331
+    },
+    {
+      "w": "visit",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 333
+    },
+    {
+      "w": "center",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 334
+    },
+    {
+      "w": "grow",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 335
+    },
+    {
+      "w": "nothing",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 336
+    },
+    {
+      "w": "return",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 337
+    },
+    {
+      "w": "matter",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 340
+    },
+    {
+      "w": "mind",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 341
+    },
+    {
+      "w": "value",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 342
+    },
+    {
+      "w": "office",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 343
+    },
+    {
+      "w": "record",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 344
+    },
+    {
+      "w": "stay",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 345
+    },
+    {
+      "w": "force",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 346
+    },
+    {
+      "w": "stop",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 347
+    },
+    {
+      "w": "several",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 348
+    },
+    {
+      "w": "light",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 349
+    },
+    {
+      "w": "develop",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 350
+    },
+    {
+      "w": "remember",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 351
+    },
+    {
+      "w": "bit",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 352
+    },
+    {
+      "w": "share",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 353
+    },
+    {
+      "w": "real",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 354
+    },
+    {
+      "w": "figure",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 357
+    },
+    {
+      "w": "letter",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 358
+    },
+    {
+      "w": "decide",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 359
+    },
+    {
+      "w": "language",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 360
+    },
+    {
+      "w": "subject",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 361
+    },
+    {
+      "w": "credit",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 944
+    },
+    {
+      "w": "debate",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 938
+    },
+    {
+      "w": "discover",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 946
+    },
+    {
+      "w": "dogged",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 895
+    },
+    {
+      "w": "doubt",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 874
+    },
+    {
+      "w": "earn",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 926
+    },
+    {
+      "w": "encourage",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 912
+    },
+    {
+      "w": "imagine",
+      "from": "intermediate",
+      "to": "beginner",
+      "r": 924
+    },
+    {
+      "w": "development",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 363
+    },
+    {
+      "w": "town",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 364
+    },
+    {
+      "w": "half",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 365
+    },
+    {
+      "w": "minute",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 366
+    },
+    {
+      "w": "break",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 368
+    },
+    {
+      "w": "clear",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 369
+    },
+    {
+      "w": "future",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 370
+    },
+    {
+      "w": "either",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 371
+    },
+    {
+      "w": "ago",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 372
+    },
+    {
+      "w": "per",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 373
+    },
+    {
+      "w": "remain",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 374
+    },
+    {
+      "w": "top",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 375
+    },
+    {
+      "w": "among",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 376
+    },
+    {
+      "w": "win",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 377
+    },
+    {
+      "w": "color",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 378
+    },
+    {
+      "w": "involve",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 379
+    },
+    {
+      "w": "reach",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 380
+    },
+    {
+      "w": "social",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 381
+    },
+    {
+      "w": "period",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 382
+    },
+    {
+      "w": "across",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 383
+    },
+    {
+      "w": "note",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 384
+    },
+    {
+      "w": "history",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 385
+    },
+    {
+      "w": "drive",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 387
+    },
+    {
+      "w": "along",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 388
+    },
+    {
+      "w": "type",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 389
+    },
+    {
+      "w": "sound",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 390
+    },
+    {
+      "w": "music",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 392
+    },
+    {
+      "w": "political",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 394
+    },
+    {
+      "w": "receive",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 396
+    },
+    {
+      "w": "moment",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 397
+    },
+    {
+      "w": "sale",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 398
+    },
+    {
+      "w": "policy",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 399
+    },
+    {
+      "w": "body",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 401
+    },
+    {
+      "w": "require",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 402
+    },
+    {
+      "w": "wait",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 403
+    },
+    {
+      "w": "general",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 404
+    },
+    {
+      "w": "appear",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 405
+    },
+    {
+      "w": "toward",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 406
+    },
+    {
+      "w": "team",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 407
+    },
+    {
+      "w": "individual",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 409
+    },
+    {
+      "w": "full",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 410
+    },
+    {
+      "w": "sense",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 412
+    },
+    {
+      "w": "perhaps",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 413
+    },
+    {
+      "w": "add",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 414
+    },
+    {
+      "w": "rule",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 415
+    },
+    {
+      "w": "pass",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 416
+    },
+    {
+      "w": "produce",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 417
+    },
+    {
+      "w": "agree",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 420
+    },
+    {
+      "w": "law",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 421
+    },
+    {
+      "w": "everything",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 422
+    },
+    {
+      "w": "research",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 423
+    },
+    {
+      "w": "cover",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 424
+    },
+    {
+      "w": "paper",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 425
+    },
+    {
+      "w": "position",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 426
+    },
+    {
+      "w": "human",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 428
+    },
+    {
+      "w": "computer",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 429
+    },
+    {
+      "w": "situation",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 430
+    },
+    {
+      "w": "staff",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 431
+    },
+    {
+      "w": "activity",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 432
+    },
+    {
+      "w": "film",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 433
+    },
+    {
+      "w": "war",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 435
+    },
+    {
+      "w": "account",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 436
+    },
+    {
+      "w": "shop",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 437
+    },
+    {
+      "w": "major",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 438
+    },
+    {
+      "w": "someone",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 439
+    },
+    {
+      "w": "above",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 440
+    },
+    {
+      "w": "design",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 441
+    },
+    {
+      "w": "event",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 442
+    },
+    {
+      "w": "special",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 443
+    },
+    {
+      "w": "condition",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 445
+    },
+    {
+      "w": "carry",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 446
+    },
+    {
+      "w": "choose",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 447
+    },
+    {
+      "w": "decision",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 449
+    },
+    {
+      "w": "forward",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 452
+    },
+    {
+      "w": "main",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 453
+    },
+    {
+      "w": "die",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 454
+    },
+    {
+      "w": "cut",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 456
+    },
+    {
+      "w": "describe",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 457
+    },
+    {
+      "w": "himself",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 458
+    },
+    {
+      "w": "available",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 459
+    },
+    {
+      "w": "especially",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 460
+    },
+    {
+      "w": "rise",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 462
+    },
+    {
+      "w": "maybe",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 464
+    },
+    {
+      "w": "community",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 465
+    },
+    {
+      "w": "else",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 466
+    },
+    {
+      "w": "particular",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 467
+    },
+    {
+      "w": "role",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 468
+    },
+    {
+      "w": "join",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 469
+    },
+    {
+      "w": "difficult",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 470
+    },
+    {
+      "w": "detail",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 472
+    },
+    {
+      "w": "difference",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 473
+    },
+    {
+      "w": "action",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 474
+    },
+    {
+      "w": "health",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 475
+    },
+    {
+      "w": "step",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 477
+    },
+    {
+      "w": "true",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 478
+    },
+    {
+      "w": "phone",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 479
+    },
+    {
+      "w": "themselves",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 480
+    },
+    {
+      "w": "date",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 483
+    },
+    {
+      "w": "practice",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 484
+    },
+    {
+      "w": "model",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 485
+    },
+    {
+      "w": "raise",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 486
+    },
+    {
+      "w": "customer",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 487
+    },
+    {
+      "w": "front",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 488
+    },
+    {
+      "w": "explain",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 489
+    },
+    {
+      "w": "outside",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 491
+    },
+    {
+      "w": "economic",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 493
+    },
+    {
+      "w": "site",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 494
+    },
+    {
+      "w": "approach",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 495
+    },
+    {
+      "w": "land",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 497
+    },
+    {
+      "w": "finally",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 499
+    },
+    {
+      "w": "sign",
+      "from": "advanced",
+      "to": "beginner",
+      "r": 500
+    },
+    {
+      "w": "breath",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1611
+    },
+    {
+      "w": "breathe",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1914
+    },
+    {
+      "w": "bridge",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1546
+    },
+    {
+      "w": "bright",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1510
+    },
+    {
+      "w": "calm",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1964
+    },
+    {
+      "w": "capable",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1885
+    },
+    {
+      "w": "celebrate",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1608
+    },
+    {
+      "w": "chain",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1518
+    },
+    {
+      "w": "climate",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1906
+    },
+    {
+      "w": "coast",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1728
+    },
+    {
+      "w": "collapse",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1879
+    },
+    {
+      "w": "column",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1721
+    },
+    {
+      "w": "comfort",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1945
+    },
+    {
+      "w": "commission",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1593
+    },
+    {
+      "w": "compete",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1683
+    },
+    {
+      "w": "confuse",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1919
+    },
+    {
+      "w": "consist",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1547
+    },
+    {
+      "w": "crash",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1867
+    },
+    {
+      "w": "crucial",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1983
+    },
+    {
+      "w": "declare",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1634
+    },
+    {
+      "w": "defeat",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1886
+    },
+    {
+      "w": "defend",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1874
+    },
+    {
+      "w": "derive",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1982
+    },
+    {
+      "w": "deserve",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1872
+    },
+    {
+      "w": "discipline",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1852
+    },
+    {
+      "w": "discount",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1660
+    },
+    {
+      "w": "dozen",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1765
+    },
+    {
+      "w": "draft",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1809
+    },
+    {
+      "w": "efficient",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1969
+    },
+    {
+      "w": "elect",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1578
+    },
+    {
+      "w": "encounter",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1912
+    },
+    {
+      "w": "enhance",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1889
+    },
+    {
+      "w": "fault",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1995
+    },
+    {
+      "w": "formal",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1700
+    },
+    {
+      "w": "graduate",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1548
+    },
+    {
+      "w": "grateful",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1977
+    },
+    {
+      "w": "guarantee",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1570
+    },
+    {
+      "w": "honor",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1625
+    },
+    {
+      "w": "hunt",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1998
+    },
+    {
+      "w": "impose",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1723
+    },
+    {
+      "w": "journey",
+      "from": "advanced",
+      "to": "intermediate",
+      "r": 1621
+    }
+  ],
+  "moveHarder": [
+    {
+      "w": "afraid",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1353
+    },
+    {
+      "w": "angry",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1813
+    },
+    {
+      "w": "autumn",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2792
+    },
+    {
+      "w": "bag",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1252
+    },
+    {
+      "w": "ball",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1201
+    },
+    {
+      "w": "beach",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1297
+    },
+    {
+      "w": "bedroom",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1432
+    },
+    {
+      "w": "bird",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1271
+    },
+    {
+      "w": "bread",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2262
+    },
+    {
+      "w": "brown",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1913
+    },
+    {
+      "w": "busy",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1233
+    },
+    {
+      "w": "cake",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2173
+    },
+    {
+      "w": "careful",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1637
+    },
+    {
+      "w": "cat",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1678
+    },
+    {
+      "w": "chair",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1060
+    },
+    {
+      "w": "chicken",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2339
+    },
+    {
+      "w": "cloud",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2090
+    },
+    {
+      "w": "coffee",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1395
+    },
+    {
+      "w": "cool",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1156
+    },
+    {
+      "w": "cow",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2551
+    },
+    {
+      "w": "cup",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1491
+    },
+    {
+      "w": "desk",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1588
+    },
+    {
+      "w": "dirty",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2255
+    },
+    {
+      "w": "ear",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1664
+    },
+    {
+      "w": "egg",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1381
+    },
+    {
+      "w": "farm",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1083
+    },
+    {
+      "w": "flower",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1301
+    },
+    {
+      "w": "fruit",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1640
+    },
+    {
+      "w": "funny",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1237
+    },
+    {
+      "w": "grey",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1849
+    },
+    {
+      "w": "hello",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2803
+    },
+    {
+      "w": "hi",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1826
+    },
+    {
+      "w": "honest",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2035
+    },
+    {
+      "w": "horse",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1139
+    },
+    {
+      "w": "jump",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1324
+    },
+    {
+      "w": "kitchen",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1307
+    },
+    {
+      "w": "knife",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2657
+    },
+    {
+      "w": "lake",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1822
+    },
+    {
+      "w": "leg",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1097
+    },
+    {
+      "w": "lesson",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1234
+    },
+    {
+      "w": "lucky",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1866
+    },
+    {
+      "w": "milk",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1789
+    },
+    {
+      "w": "moon",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2599
+    },
+    {
+      "w": "mountain",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1245
+    },
+    {
+      "w": "mouse",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1926
+    },
+    {
+      "w": "mouth",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1439
+    },
+    {
+      "w": "nose",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2114
+    },
+    {
+      "w": "orange",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2499
+    },
+    {
+      "w": "pen",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2320
+    },
+    {
+      "w": "pig",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2519
+    },
+    {
+      "w": "pink",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2238
+    },
+    {
+      "w": "plate",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1705
+    },
+    {
+      "w": "proud",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1890
+    },
+    {
+      "w": "quick",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1195
+    },
+    {
+      "w": "quiet",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1313
+    },
+    {
+      "w": "rain",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1232
+    },
+    {
+      "w": "rice",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2695
+    },
+    {
+      "w": "rich",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1012
+    },
+    {
+      "w": "river",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1176
+    },
+    {
+      "w": "sad",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1710
+    },
+    {
+      "w": "sheep",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2710
+    },
+    {
+      "w": "sky",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1720
+    },
+    {
+      "w": "slow",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1118
+    },
+    {
+      "w": "smart",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2023
+    },
+    {
+      "w": "snow",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1950
+    },
+    {
+      "w": "spring",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1332
+    },
+    {
+      "w": "sun",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1361
+    },
+    {
+      "w": "swim",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1391
+    },
+    {
+      "w": "tail",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2540
+    },
+    {
+      "w": "tall",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1785
+    },
+    {
+      "w": "tea",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1599
+    },
+    {
+      "w": "tired",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1331
+    },
+    {
+      "w": "tooth",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2026
+    },
+    {
+      "w": "warm",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1021
+    },
+    {
+      "w": "weak",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1685
+    },
+    {
+      "w": "weather",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1068
+    },
+    {
+      "w": "wind",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1013
+    },
+    {
+      "w": "wing",
+      "from": "beginner",
+      "to": "advanced",
+      "r": 2009
+    },
+    {
+      "w": "winter",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1328
+    },
+    {
+      "w": "yellow",
+      "from": "beginner",
+      "to": "intermediate",
+      "r": 1827
+    }
+  ],
+  "toAdd": [
+    {
+      "w": "claim",
+      "r": 501,
+      "freq": 196
+    },
+    {
+      "w": "relationship",
+      "r": 502,
+      "freq": 196
+    },
+    {
+      "w": "travel",
+      "r": 503,
+      "freq": 195
+    },
+    {
+      "w": "enjoy",
+      "r": 504,
+      "freq": 195
+    },
+    {
+      "w": "death",
+      "r": 505,
+      "freq": 194
+    },
+    {
+      "w": "nice",
+      "r": 506,
+      "freq": 193
+    },
+    {
+      "w": "amount",
+      "r": 507,
+      "freq": 193
+    },
+    {
+      "w": "regard",
+      "r": 511,
+      "freq": 191
+    },
+    {
+      "w": "organization",
+      "r": 512,
+      "freq": 191
+    },
+    {
+      "w": "couple",
+      "r": 514,
+      "freq": 191
+    },
+    {
+      "w": "act",
+      "r": 515,
+      "freq": 190
+    },
+    {
+      "w": "range",
+      "r": 516,
+      "freq": 190
+    },
+    {
+      "w": "quality",
+      "r": 517,
+      "freq": 190
+    },
+    {
+      "w": "project",
+      "r": 518,
+      "freq": 190
+    },
+    {
+      "w": "round",
+      "r": 519,
+      "freq": 189
+    },
+    {
+      "w": "opportunity",
+      "r": 520,
+      "freq": 189
+    },
+    {
+      "w": "road",
+      "r": 521,
+      "freq": 189
+    },
+    {
+      "w": "accord",
+      "r": 522,
+      "freq": 188
+    },
+    {
+      "w": "list",
+      "r": 523,
+      "freq": 187
+    },
+    {
+      "w": "therefore",
+      "r": 525,
+      "freq": 187
+    },
+    {
+      "w": "wear",
+      "r": 526,
+      "freq": 187
+    },
+    {
+      "w": "fund",
+      "r": 527,
+      "freq": 187
+    },
+    {
+      "w": "rest",
+      "r": 528,
+      "freq": 186
+    },
+    {
+      "w": "kid",
+      "r": 529,
+      "freq": 186
+    },
+    {
+      "w": "industry",
+      "r": 530,
+      "freq": 185
+    },
+    {
+      "w": "education",
+      "r": 531,
+      "freq": 185
+    },
+    {
+      "w": "measure",
+      "r": 532,
+      "freq": 185
+    },
+    {
+      "w": "kill",
+      "r": 533,
+      "freq": 184
+    },
+    {
+      "w": "serve",
+      "r": 534,
+      "freq": 184
+    },
+    {
+      "w": "likely",
+      "r": 535,
+      "freq": 183
+    },
+    {
+      "w": "certainly",
+      "r": 536,
+      "freq": 182
+    },
+    {
+      "w": "national",
+      "r": 537,
+      "freq": 181
+    },
+    {
+      "w": "itself",
+      "r": 538,
+      "freq": 181
+    },
+    {
+      "w": "teach",
+      "r": 539,
+      "freq": 181
+    },
+    {
+      "w": "field",
+      "r": 540,
+      "freq": 181
+    },
+    {
+      "w": "security",
+      "r": 541,
+      "freq": 180
+    },
+    {
+      "w": "air",
+      "r": 542,
+      "freq": 179
+    },
+    {
+      "w": "benefit",
+      "r": 543,
+      "freq": 179
+    },
+    {
+      "w": "trade",
+      "r": 544,
+      "freq": 179
+    },
+    {
+      "w": "risk",
+      "r": 545,
+      "freq": 179
+    },
+    {
+      "w": "news",
+      "r": 546,
+      "freq": 178
+    },
+    {
+      "w": "standard",
+      "r": 547,
+      "freq": 178
+    },
+    {
+      "w": "vote",
+      "r": 548,
+      "freq": 177
+    },
+    {
+      "w": "percent",
+      "r": 549,
+      "freq": 177
+    },
+    {
+      "w": "focus",
+      "r": 550,
+      "freq": 177
+    },
+    {
+      "w": "stage",
+      "r": 551,
+      "freq": 177
+    },
+    {
+      "w": "space",
+      "r": 552,
+      "freq": 176
+    },
+    {
+      "w": "instead",
+      "r": 553,
+      "freq": 176
+    },
+    {
+      "w": "realize",
+      "r": 554,
+      "freq": 176
+    },
+    {
+      "w": "usually",
+      "r": 555,
+      "freq": 175
+    },
+    {
+      "w": "data",
+      "r": 556,
+      "freq": 174
+    },
+    {
+      "w": "single",
+      "r": 557,
+      "freq": 174
+    },
+    {
+      "w": "address",
+      "r": 558,
+      "freq": 173
+    },
+    {
+      "w": "performance",
+      "r": 559,
+      "freq": 172
+    },
+    {
+      "w": "accept",
+      "r": 561,
+      "freq": 172
+    },
+    {
+      "w": "society",
+      "r": 562,
+      "freq": 172
+    },
+    {
+      "w": "technology",
+      "r": 563,
+      "freq": 172
+    },
+    {
+      "w": "mention",
+      "r": 564,
+      "freq": 172
+    },
+    {
+      "w": "save",
+      "r": 566,
+      "freq": 171
+    },
+    {
+      "w": "culture",
+      "r": 568,
+      "freq": 170
+    },
+    {
+      "w": "total",
+      "r": 569,
+      "freq": 169
+    },
+    {
+      "w": "material",
+      "r": 571,
+      "freq": 168
+    },
+    {
+      "w": "limit",
+      "r": 572,
+      "freq": 168
+    },
+    {
+      "w": "due",
+      "r": 574,
+      "freq": 167
+    },
+    {
+      "w": "wrong",
+      "r": 575,
+      "freq": 167
+    },
+    {
+      "w": "attention",
+      "r": 578,
+      "freq": 166
+    },
+    {
+      "w": "upon",
+      "r": 579,
+      "freq": 166
+    },
+    {
+      "w": "check",
+      "r": 580,
+      "freq": 166
+    },
+    {
+      "w": "lie",
+      "r": 582,
+      "freq": 166
+    },
+    {
+      "w": "pick",
+      "r": 583,
+      "freq": 166
+    },
+    {
+      "w": "reduce",
+      "r": 584,
+      "freq": 165
+    },
+    {
+      "w": "personal",
+      "r": 585,
+      "freq": 165
+    },
+    {
+      "w": "ground",
+      "r": 586,
+      "freq": 165
+    },
+    {
+      "w": "animal",
+      "r": 587,
+      "freq": 165
+    },
+    {
+      "w": "arrive",
+      "r": 588,
+      "freq": 165
+    },
+    {
+      "w": "current",
+      "r": 590,
+      "freq": 164
+    },
+    {
+      "w": "evidence",
+      "r": 592,
+      "freq": 163
+    },
+    {
+      "w": "exist",
+      "r": 593,
+      "freq": 163
+    },
+    {
+      "w": "similar",
+      "r": 594,
+      "freq": 163
+    },
+    {
+      "w": "fight",
+      "r": 595,
+      "freq": 163
+    },
+    {
+      "w": "leader",
+      "r": 596,
+      "freq": 163
+    },
+    {
+      "w": "fine",
+      "r": 597,
+      "freq": 162
+    },
+    {
+      "w": "street",
+      "r": 598,
+      "freq": 162
+    },
+    {
+      "w": "former",
+      "r": 599,
+      "freq": 162
+    },
+    {
+      "w": "particularly",
+      "r": 601,
+      "freq": 162
+    },
+    {
+      "w": "wife",
+      "r": 602,
+      "freq": 161
+    },
+    {
+      "w": "sport",
+      "r": 603,
+      "freq": 161
+    },
+    {
+      "w": "prepare",
+      "r": 604,
+      "freq": 160
+    },
+    {
+      "w": "discuss",
+      "r": 605,
+      "freq": 160
+    },
+    {
+      "w": "response",
+      "r": 606,
+      "freq": 159
+    },
+    {
+      "w": "voice",
+      "r": 607,
+      "freq": 159
+    },
+    {
+      "w": "piece",
+      "r": 608,
+      "freq": 159
+    },
+    {
+      "w": "finish",
+      "r": 609,
+      "freq": 158
+    },
+    {
+      "w": "suppose",
+      "r": 610,
+      "freq": 157
+    },
+    {
+      "w": "apply",
+      "r": 611,
+      "freq": 157
+    },
+    {
+      "w": "president",
+      "r": 612,
+      "freq": 157
+    },
+    {
+      "w": "court",
+      "r": 615,
+      "freq": 156
+    },
+    {
+      "w": "police",
+      "r": 616,
+      "freq": 156
+    },
+    {
+      "w": "store",
+      "r": 617,
+      "freq": 156
+    },
+    {
+      "w": "knowledge",
+      "r": 619,
+      "freq": 155
+    },
+    {
+      "w": "laugh",
+      "r": 620,
+      "freq": 155
+    },
+    {
+      "w": "heart",
+      "r": 622,
+      "freq": 155
+    },
+    {
+      "w": "source",
+      "r": 623,
+      "freq": 155
+    },
+    {
+      "w": "employee",
+      "r": 624,
+      "freq": 154
+    },
+    {
+      "w": "manage",
+      "r": 625,
+      "freq": 154
+    },
+    {
+      "w": "simply",
+      "r": 626,
+      "freq": 153
+    },
+    {
+      "w": "bank",
+      "r": 627,
+      "freq": 153
+    },
+    {
+      "w": "firm",
+      "r": 628,
+      "freq": 153
+    },
+    {
+      "w": "cell",
+      "r": 629,
+      "freq": 153
+    },
+    {
+      "w": "article",
+      "r": 630,
+      "freq": 152
+    },
+    {
+      "w": "attack",
+      "r": 632,
+      "freq": 151
+    },
+    {
+      "w": "foreign",
+      "r": 633,
+      "freq": 151
+    },
+    {
+      "w": "surprise",
+      "r": 634,
+      "freq": 151
+    },
+    {
+      "w": "feature",
+      "r": 635,
+      "freq": 150
+    },
+    {
+      "w": "factor",
+      "r": 636,
+      "freq": 150
+    },
+    {
+      "w": "recently",
+      "r": 638,
+      "freq": 150
+    },
+    {
+      "w": "affect",
+      "r": 639,
+      "freq": 150
+    },
+    {
+      "w": "drop",
+      "r": 640,
+      "freq": 150
+    },
+    {
+      "w": "recent",
+      "r": 641,
+      "freq": 149
+    },
+    {
+      "w": "relate",
+      "r": 642,
+      "freq": 149
+    },
+    {
+      "w": "official",
+      "r": 643,
+      "freq": 149
+    },
+    {
+      "w": "financial",
+      "r": 644,
+      "freq": 149
+    },
+    {
+      "w": "miss",
+      "r": 645,
+      "freq": 149
+    },
+    {
+      "w": "art",
+      "r": 646,
+      "freq": 149
+    },
+    {
+      "w": "campaign",
+      "r": 647,
+      "freq": 148
+    },
+    {
+      "w": "private",
+      "r": 648,
+      "freq": 148
+    },
+    {
+      "w": "pause",
+      "r": 649,
+      "freq": 148
+    },
+    {
+      "w": "everyone",
+      "r": 650,
+      "freq": 148
+    },
+    {
+      "w": "forget",
+      "r": 651,
+      "freq": 147
+    },
+    {
+      "w": "page",
+      "r": 652,
+      "freq": 147
+    },
+    {
+      "w": "worry",
+      "r": 653,
+      "freq": 147
+    },
+    {
+      "w": "opinion",
+      "r": 656,
+      "freq": 147
+    },
+    {
+      "w": "represent",
+      "r": 658,
+      "freq": 146
+    },
+    {
+      "w": "key",
+      "r": 659,
+      "freq": 146
+    },
+    {
+      "w": "inside",
+      "r": 660,
+      "freq": 145
+    },
+    {
+      "w": "manager",
+      "r": 661,
+      "freq": 145
+    },
+    {
+      "w": "international",
+      "r": 662,
+      "freq": 144
+    },
+    {
+      "w": "notice",
+      "r": 664,
+      "freq": 143
+    },
+    {
+      "w": "wonder",
+      "r": 665,
+      "freq": 143
+    },
+    {
+      "w": "nature",
+      "r": 666,
+      "freq": 143
+    },
+    {
+      "w": "structure",
+      "r": 667,
+      "freq": 143
+    },
+    {
+      "w": "section",
+      "r": 668,
+      "freq": 142
+    },
+    {
+      "w": "myself",
+      "r": 669,
+      "freq": 142
+    },
+    {
+      "w": "exactly",
+      "r": 670,
+      "freq": 142
+    },
+    {
+      "w": "plant",
+      "r": 671,
+      "freq": 142
+    },
+    {
+      "w": "paint",
+      "r": 672,
+      "freq": 142
+    },
+    {
+      "w": "worker",
+      "r": 673,
+      "freq": 141
+    },
+    {
+      "w": "press",
+      "r": 674,
+      "freq": 141
+    },
+    {
+      "w": "whatever",
+      "r": 675,
+      "freq": 141
+    },
+    {
+      "w": "necessary",
+      "r": 676,
+      "freq": 141
+    },
+    {
+      "w": "region",
+      "r": 677,
+      "freq": 141
+    },
+    {
+      "w": "growth",
+      "r": 678,
+      "freq": 140
+    },
+    {
+      "w": "influence",
+      "r": 680,
+      "freq": 140
+    },
+    {
+      "w": "respect",
+      "r": 681,
+      "freq": 140
+    },
+    {
+      "w": "various",
+      "r": 682,
+      "freq": 140
+    },
+    {
+      "w": "catch",
+      "r": 683,
+      "freq": 140
+    },
+    {
+      "w": "thus",
+      "r": 684,
+      "freq": 139
+    },
+    {
+      "w": "skill",
+      "r": 685,
+      "freq": 139
+    },
+    {
+      "w": "attempt",
+      "r": 686,
+      "freq": 139
+    },
+    {
+      "w": "son",
+      "r": 687,
+      "freq": 139
+    },
+    {
+      "w": "simple",
+      "r": 688,
+      "freq": 138
+    },
+    {
+      "w": "medium",
+      "r": 689,
+      "freq": 138
+    },
+    {
+      "w": "stock",
+      "r": 691,
+      "freq": 138
+    },
+    {
+      "w": "management",
+      "r": 692,
+      "freq": 138
+    },
+    {
+      "w": "hit",
+      "r": 695,
+      "freq": 137
+    },
+    {
+      "w": "establish",
+      "r": 696,
+      "freq": 137
+    },
+    {
+      "w": "indeed",
+      "r": 697,
+      "freq": 137
+    },
+    {
+      "w": "final",
+      "r": 698,
+      "freq": 137
+    },
+    {
+      "w": "economy",
+      "r": 699,
+      "freq": 137
+    },
+    {
+      "w": "fit",
+      "r": 700,
+      "freq": 137
+    },
+    {
+      "w": "guy",
+      "r": 701,
+      "freq": 136
+    },
+    {
+      "w": "function",
+      "r": 702,
+      "freq": 135
+    },
+    {
+      "w": "image",
+      "r": 704,
+      "freq": 135
+    },
+    {
+      "w": "size",
+      "r": 705,
+      "freq": 135
+    },
+    {
+      "w": "behavior",
+      "r": 706,
+      "freq": 135
+    },
+    {
+      "w": "addition",
+      "r": 707,
+      "freq": 135
+    },
+    {
+      "w": "station",
+      "r": 709,
+      "freq": 134
+    },
+    {
+      "w": "population",
+      "r": 710,
+      "freq": 134
+    },
+    {
+      "w": "fail",
+      "r": 711,
+      "freq": 134
+    },
+    {
+      "w": "production",
+      "r": 713,
+      "freq": 133
+    },
+    {
+      "w": "contract",
+      "r": 714,
+      "freq": 133
+    },
+    {
+      "w": "player",
+      "r": 715,
+      "freq": 132
+    },
+    {
+      "w": "comment",
+      "r": 716,
+      "freq": 132
+    },
+    {
+      "w": "enter",
+      "r": 717,
+      "freq": 132
+    },
+    {
+      "w": "occur",
+      "r": 718,
+      "freq": 132
+    },
+    {
+      "w": "alone",
+      "r": 719,
+      "freq": 132
+    },
+    {
+      "w": "significant",
+      "r": 720,
+      "freq": 131
+    },
+    {
+      "w": "drug",
+      "r": 721,
+      "freq": 131
+    },
+    {
+      "w": "wall",
+      "r": 722,
+      "freq": 131
+    },
+    {
+      "w": "series",
+      "r": 723,
+      "freq": 131
+    },
+    {
+      "w": "direct",
+      "r": 724,
+      "freq": 131
+    },
+    {
+      "w": "success",
+      "r": 725,
+      "freq": 130
+    },
+    {
+      "w": "director",
+      "r": 727,
+      "freq": 130
+    },
+    {
+      "w": "clearly",
+      "r": 728,
+      "freq": 130
+    },
+    {
+      "w": "lack",
+      "r": 729,
+      "freq": 129
+    },
+    {
+      "w": "review",
+      "r": 730,
+      "freq": 129
+    },
+    {
+      "w": "race",
+      "r": 732,
+      "freq": 129
+    },
+    {
+      "w": "recognize",
+      "r": 733,
+      "freq": 129
+    },
+    {
+      "w": "window",
+      "r": 734,
+      "freq": 129
+    },
+    {
+      "w": "purpose",
+      "r": 735,
+      "freq": 128
+    },
+    {
+      "w": "department",
+      "r": 736,
+      "freq": 128
+    },
+    {
+      "w": "gain",
+      "r": 737,
+      "freq": 128
+    },
+    {
+      "w": "college",
+      "r": 739,
+      "freq": 128
+    },
+    {
+      "w": "board",
+      "r": 741,
+      "freq": 128
+    },
+    {
+      "w": "holiday",
+      "r": 742,
+      "freq": 127
+    },
+    {
+      "w": "mark",
+      "r": 743,
+      "freq": 127
+    },
+    {
+      "w": "church",
+      "r": 744,
+      "freq": 127
+    },
+    {
+      "w": "machine",
+      "r": 745,
+      "freq": 126
+    },
+    {
+      "w": "achieve",
+      "r": 746,
+      "freq": 126
+    },
+    {
+      "w": "item",
+      "r": 747,
+      "freq": 126
+    },
+    {
+      "w": "prove",
+      "r": 748,
+      "freq": 126
+    },
+    {
+      "w": "cent",
+      "r": 749,
+      "freq": 126
+    },
+    {
+      "w": "floor",
+      "r": 751,
+      "freq": 126
+    },
+    {
+      "w": "stuff",
+      "r": 752,
+      "freq": 126
+    },
+    {
+      "w": "wide",
+      "r": 753,
+      "freq": 126
+    },
+    {
+      "w": "anyone",
+      "r": 754,
+      "freq": 126
+    },
+    {
+      "w": "method",
+      "r": 755,
+      "freq": 126
+    },
+    {
+      "w": "analysis",
+      "r": 756,
+      "freq": 126
+    },
+    {
+      "w": "election",
+      "r": 757,
+      "freq": 126
+    },
+    {
+      "w": "military",
+      "r": 758,
+      "freq": 126
+    },
+    {
+      "w": "hotel",
+      "r": 759,
+      "freq": 126
+    },
+    {
+      "w": "club",
+      "r": 760,
+      "freq": 126
+    },
+    {
+      "w": "below",
+      "r": 761,
+      "freq": 126
+    },
+    {
+      "w": "movie",
+      "r": 762,
+      "freq": 126
+    },
+    {
+      "w": "discussion",
+      "r": 764,
+      "freq": 125
+    },
+    {
+      "w": "nation",
+      "r": 767,
+      "freq": 125
+    },
+    {
+      "w": "nearly",
+      "r": 768,
+      "freq": 125
+    },
+    {
+      "w": "statement",
+      "r": 769,
+      "freq": 125
+    },
+    {
+      "w": "link",
+      "r": 770,
+      "freq": 124
+    },
+    {
+      "w": "despite",
+      "r": 771,
+      "freq": 124
+    },
+    {
+      "w": "introduce",
+      "r": 772,
+      "freq": 124
+    },
+    {
+      "w": "advantage",
+      "r": 773,
+      "freq": 124
+    },
+    {
+      "w": "ready",
+      "r": 774,
+      "freq": 124
+    },
+    {
+      "w": "marry",
+      "r": 775,
+      "freq": 124
+    },
+    {
+      "w": "strike",
+      "r": 776,
+      "freq": 124
+    },
+    {
+      "w": "mile",
+      "r": 777,
+      "freq": 124
+    },
+    {
+      "w": "seek",
+      "r": 778,
+      "freq": 123
+    },
+    {
+      "w": "unit",
+      "r": 780,
+      "freq": 123
+    },
+    {
+      "w": "card",
+      "r": 781,
+      "freq": 123
+    },
+    {
+      "w": "hospital",
+      "r": 782,
+      "freq": 123
+    },
+    {
+      "w": "quickly",
+      "r": 783,
+      "freq": 122
+    },
+    {
+      "w": "interview",
+      "r": 784,
+      "freq": 122
+    },
+    {
+      "w": "agreement",
+      "r": 785,
+      "freq": 122
+    },
+    {
+      "w": "release",
+      "r": 786,
+      "freq": 122
+    },
+    {
+      "w": "tax",
+      "r": 787,
+      "freq": 122
+    },
+    {
+      "w": "solution",
+      "r": 788,
+      "freq": 122
+    },
+    {
+      "w": "capital",
+      "r": 789,
+      "freq": 121
+    },
+    {
+      "w": "popular",
+      "r": 790,
+      "freq": 121
+    },
+    {
+      "w": "specific",
+      "r": 791,
+      "freq": 121
+    },
+    {
+      "w": "fear",
+      "r": 793,
+      "freq": 121
+    },
+    {
+      "w": "aim",
+      "r": 794,
+      "freq": 121
+    },
+    {
+      "w": "television",
+      "r": 795,
+      "freq": 120
+    },
+    {
+      "w": "serious",
+      "r": 796,
+      "freq": 120
+    },
+    {
+      "w": "target",
+      "r": 797,
+      "freq": 120
+    },
+    {
+      "w": "degree",
+      "r": 798,
+      "freq": 120
+    },
+    {
+      "w": "pull",
+      "r": 799,
+      "freq": 120
+    },
+    {
+      "w": "husband",
+      "r": 801,
+      "freq": 119
+    },
+    {
+      "w": "access",
+      "r": 802,
+      "freq": 119
+    },
+    {
+      "w": "movement",
+      "r": 803,
+      "freq": 119
+    },
+    {
+      "w": "treat",
+      "r": 804,
+      "freq": 119
+    },
+    {
+      "w": "identify",
+      "r": 805,
+      "freq": 118
+    },
+    {
+      "w": "loss",
+      "r": 806,
+      "freq": 118
+    },
+    {
+      "w": "shall",
+      "r": 807,
+      "freq": 118
+    },
+    {
+      "w": "modern",
+      "r": 808,
+      "freq": 117
+    },
+    {
+      "w": "pressure",
+      "r": 809,
+      "freq": 117
+    },
+    {
+      "w": "bus",
+      "r": 810,
+      "freq": 117
+    },
+    {
+      "w": "treatment",
+      "r": 811,
+      "freq": 117
+    },
+    {
+      "w": "conference",
+      "r": 812,
+      "freq": 117
+    },
+    {
+      "w": "yourself",
+      "r": 813,
+      "freq": 117
+    },
+    {
+      "w": "supply",
+      "r": 814,
+      "freq": 116
+    },
+    {
+      "w": "village",
+      "r": 815,
+      "freq": 116
+    },
+    {
+      "w": "worth",
+      "r": 816,
+      "freq": 116
+    },
+    {
+      "w": "natural",
+      "r": 817,
+      "freq": 116
+    },
+    {
+      "w": "express",
+      "r": 818,
+      "freq": 116
+    },
+    {
+      "w": "indicate",
+      "r": 819,
+      "freq": 116
+    },
+    {
+      "w": "attend",
+      "r": 820,
+      "freq": 116
+    },
+    {
+      "w": "investment",
+      "r": 822,
+      "freq": 116
+    },
+    {
+      "w": "score",
+      "r": 823,
+      "freq": 115
+    },
+    {
+      "w": "organize",
+      "r": 824,
+      "freq": 115
+    },
+    {
+      "w": "beyond",
+      "r": 826,
+      "freq": 115
+    },
+    {
+      "w": "promise",
+      "r": 829,
+      "freq": 115
+    },
+    {
+      "w": "potential",
+      "r": 830,
+      "freq": 115
+    },
+    {
+      "w": "energy",
+      "r": 831,
+      "freq": 115
+    },
+    {
+      "w": "trouble",
+      "r": 832,
+      "freq": 115
+    },
+    {
+      "w": "relation",
+      "r": 833,
+      "freq": 114
+    },
+    {
+      "w": "touch",
+      "r": 834,
+      "freq": 114
+    },
+    {
+      "w": "file",
+      "r": 835,
+      "freq": 114
+    },
+    {
+      "w": "middle",
+      "r": 836,
+      "freq": 114
+    },
+    {
+      "w": "bar",
+      "r": 837,
+      "freq": 114
+    },
+    {
+      "w": "suffer",
+      "r": 838,
+      "freq": 113
+    },
+    {
+      "w": "strategy",
+      "r": 839,
+      "freq": 113
+    },
+    {
+      "w": "deep",
+      "r": 840,
+      "freq": 113
+    },
+    {
+      "w": "except",
+      "r": 841,
+      "freq": 113
+    },
+    {
+      "w": "tend",
+      "r": 843,
+      "freq": 113
+    },
+    {
+      "w": "advance",
+      "r": 844,
+      "freq": 113
+    },
+    {
+      "w": "fill",
+      "r": 845,
+      "freq": 113
+    },
+    {
+      "w": "network",
+      "r": 847,
+      "freq": 112
+    },
+    {
+      "w": "generally",
+      "r": 848,
+      "freq": 112
+    },
+    {
+      "w": "operation",
+      "r": 849,
+      "freq": 112
+    },
+    {
+      "w": "match",
+      "r": 850,
+      "freq": 111
+    },
+    {
+      "w": "avoid",
+      "r": 851,
+      "freq": 111
+    },
+    {
+      "w": "seat",
+      "r": 852,
+      "freq": 111
+    },
+    {
+      "w": "throw",
+      "r": 853,
+      "freq": 111
+    },
+    {
+      "w": "task",
+      "r": 854,
+      "freq": 111
+    },
+    {
+      "w": "normal",
+      "r": 855,
+      "freq": 110
+    },
+    {
+      "w": "goal",
+      "r": 856,
+      "freq": 110
+    },
+    {
+      "w": "associate",
+      "r": 857,
+      "freq": 110
+    },
+    {
+      "w": "positive",
+      "r": 859,
+      "freq": 110
+    },
+    {
+      "w": "option",
+      "r": 860,
+      "freq": 110
+    },
+    {
+      "w": "huge",
+      "r": 862,
+      "freq": 109
+    },
+    {
+      "w": "message",
+      "r": 863,
+      "freq": 109
+    },
+    {
+      "w": "instance",
+      "r": 864,
+      "freq": 109
+    },
+    {
+      "w": "style",
+      "r": 865,
+      "freq": 109
+    },
+    {
+      "w": "refer",
+      "r": 866,
+      "freq": 109
+    },
+    {
+      "w": "push",
+      "r": 868,
+      "freq": 109
+    },
+    {
+      "w": "quarter",
+      "r": 869,
+      "freq": 109
+    },
+    {
+      "w": "assume",
+      "r": 870,
+      "freq": 108
+    },
+    {
+      "w": "successful",
+      "r": 872,
+      "freq": 108
+    },
+    {
+      "w": "competition",
+      "r": 875,
+      "freq": 108
+    },
+    {
+      "w": "theory",
+      "r": 876,
+      "freq": 108
+    },
+    {
+      "w": "propose",
+      "r": 877,
+      "freq": 107
+    },
+    {
+      "w": "reference",
+      "r": 878,
+      "freq": 107
+    },
+    {
+      "w": "argument",
+      "r": 879,
+      "freq": 107
+    },
+    {
+      "w": "adult",
+      "r": 880,
+      "freq": 107
+    },
+    {
+      "w": "document",
+      "r": 882,
+      "freq": 107
+    },
+    {
+      "w": "pattern",
+      "r": 883,
+      "freq": 107
+    },
+    {
+      "w": "application",
+      "r": 884,
+      "freq": 107
+    },
+    {
+      "w": "obviously",
+      "r": 886,
+      "freq": 107
+    },
+    {
+      "w": "unclear",
+      "r": 887,
+      "freq": 106
+    },
+    {
+      "w": "bill",
+      "r": 888,
+      "freq": 106
+    },
+    {
+      "w": "search",
+      "r": 889,
+      "freq": 106
+    },
+    {
+      "w": "separate",
+      "r": 890,
+      "freq": 106
+    },
+    {
+      "w": "central",
+      "r": 891,
+      "freq": 106
+    },
+    {
+      "w": "career",
+      "r": 892,
+      "freq": 106
+    },
+    {
+      "w": "anyway",
+      "r": 893,
+      "freq": 106
+    },
+    {
+      "w": "speech",
+      "r": 894,
+      "freq": 106
+    },
+    {
+      "w": "officer",
+      "r": 896,
+      "freq": 106
+    },
+    {
+      "w": "throughout",
+      "r": 897,
+      "freq": 106
+    },
+    {
+      "w": "oil",
+      "r": 898,
+      "freq": 105
+    },
+    {
+      "w": "dress",
+      "r": 899,
+      "freq": 105
+    },
+    {
+      "w": "profit",
+      "r": 900,
+      "freq": 105
+    },
+    {
+      "w": "guess",
+      "r": 901,
+      "freq": 105
+    },
+    {
+      "w": "fun",
+      "r": 902,
+      "freq": 105
+    },
+    {
+      "w": "protect",
+      "r": 903,
+      "freq": 105
+    },
+    {
+      "w": "resource",
+      "r": 904,
+      "freq": 105
+    },
+    {
+      "w": "science",
+      "r": 905,
+      "freq": 104
+    },
+    {
+      "w": "disease",
+      "r": 906,
+      "freq": 104
+    },
+    {
+      "w": "balance",
+      "r": 907,
+      "freq": 104
+    },
+    {
+      "w": "damage",
+      "r": 908,
+      "freq": 104
+    },
+    {
+      "w": "basis",
+      "r": 909,
+      "freq": 104
+    },
+    {
+      "w": "author",
+      "r": 910,
+      "freq": 104
+    },
+    {
+      "w": "basic",
+      "r": 911,
+      "freq": 104
+    },
+    {
+      "w": "hair",
+      "r": 913,
+      "freq": 104
+    },
+    {
+      "w": "male",
+      "r": 914,
+      "freq": 103
+    },
+    {
+      "w": "operate",
+      "r": 915,
+      "freq": 103
+    },
+    {
+      "w": "reflect",
+      "r": 916,
+      "freq": 103
+    },
+    {
+      "w": "exercise",
+      "r": 917,
+      "freq": 103
+    },
+    {
+      "w": "useful",
+      "r": 918,
+      "freq": 103
+    },
+    {
+      "w": "restaurant",
+      "r": 919,
+      "freq": 103
+    },
+    {
+      "w": "income",
+      "r": 920,
+      "freq": 103
+    },
+    {
+      "w": "property",
+      "r": 921,
+      "freq": 103
+    },
+    {
+      "w": "previous",
+      "r": 922,
+      "freq": 103
+    },
+    {
+      "w": "dark",
+      "r": 923,
+      "freq": 103
+    },
+    {
+      "w": "okay",
+      "r": 925,
+      "freq": 102
+    },
+    {
+      "w": "daughter",
+      "r": 927,
+      "freq": 102
+    },
+    {
+      "w": "post",
+      "r": 928,
+      "freq": 102
+    },
+    {
+      "w": "newspaper",
+      "r": 929,
+      "freq": 102
+    },
+    {
+      "w": "define",
+      "r": 930,
+      "freq": 101
+    },
+    {
+      "w": "conclusion",
+      "r": 931,
+      "freq": 101
+    },
+    {
+      "w": "clock",
+      "r": 932,
+      "freq": 101
+    },
+    {
+      "w": "everybody",
+      "r": 933,
+      "freq": 101
+    },
+    {
+      "w": "weekend",
+      "r": 934,
+      "freq": 101
+    },
+    {
+      "w": "perform",
+      "r": 935,
+      "freq": 101
+    },
+    {
+      "w": "professional",
+      "r": 936,
+      "freq": 101
+    },
+    {
+      "w": "mine",
+      "r": 937,
+      "freq": 101
+    },
+    {
+      "w": "memory",
+      "r": 939,
+      "freq": 101
+    },
+    {
+      "w": "object",
+      "r": 942,
+      "freq": 100
+    },
+    {
+      "w": "maintain",
+      "r": 943,
+      "freq": 100
+    },
+    {
+      "w": "ring",
+      "r": 945,
+      "freq": 100
+    },
+    {
+      "w": "dead",
+      "r": 947,
+      "freq": 99
+    },
+    {
+      "w": "prefer",
+      "r": 949,
+      "freq": 99
+    },
+    {
+      "w": "extend",
+      "r": 950,
+      "freq": 99
+    },
+    {
+      "w": "possibility",
+      "r": 951,
+      "freq": 99
+    },
+    {
+      "w": "direction",
+      "r": 952,
+      "freq": 99
+    },
+    {
+      "w": "facility",
+      "r": 953,
+      "freq": 99
+    },
+    {
+      "w": "variety",
+      "r": 954,
+      "freq": 98
+    },
+    {
+      "w": "daily",
+      "r": 955,
+      "freq": 98
+    },
+    {
+      "w": "clothes",
+      "r": 956,
+      "freq": 98
+    },
+    {
+      "w": "screen",
+      "r": 957,
+      "freq": 98
+    },
+    {
+      "w": "track",
+      "r": 958,
+      "freq": 98
+    },
+    {
+      "w": "completely",
+      "r": 960,
+      "freq": 97
+    },
+    {
+      "w": "female",
+      "r": 961,
+      "freq": 97
+    },
+    {
+      "w": "responsibility",
+      "r": 962,
+      "freq": 97
+    },
+    {
+      "w": "original",
+      "r": 963,
+      "freq": 96
+    },
+    {
+      "w": "rock",
+      "r": 965,
+      "freq": 96
+    },
+    {
+      "w": "dream",
+      "r": 966,
+      "freq": 96
+    },
+    {
+      "w": "nor",
+      "r": 967,
+      "freq": 96
+    },
+    {
+      "w": "university",
+      "r": 968,
+      "freq": 96
+    },
+    {
+      "w": "easily",
+      "r": 969,
+      "freq": 96
+    },
+    {
+      "w": "agency",
+      "r": 970,
+      "freq": 96
+    },
+    {
+      "w": "dollar",
+      "r": 971,
+      "freq": 96
+    },
+    {
+      "w": "fix",
+      "r": 973,
+      "freq": 95
+    },
+    {
+      "w": "ahead",
+      "r": 974,
+      "freq": 95
+    },
+    {
+      "w": "cross",
+      "r": 975,
+      "freq": 95
+    },
+    {
+      "w": "yeah",
+      "r": 976,
+      "freq": 95
+    },
+    {
+      "w": "candidate",
+      "r": 977,
+      "freq": 94
+    },
+    {
+      "w": "weight",
+      "r": 978,
+      "freq": 94
+    },
+    {
+      "w": "legal",
+      "r": 979,
+      "freq": 94
+    },
+    {
+      "w": "proposal",
+      "r": 980,
+      "freq": 94
+    },
+    {
+      "w": "version",
+      "r": 981,
+      "freq": 94
+    },
+    {
+      "w": "conversation",
+      "r": 982,
+      "freq": 93
+    },
+    {
+      "w": "somebody",
+      "r": 983,
+      "freq": 93
+    },
+    {
+      "w": "pound",
+      "r": 984,
+      "freq": 93
+    },
+    {
+      "w": "magazine",
+      "r": 985,
+      "freq": 93
+    },
+    {
+      "w": "shape",
+      "r": 986,
+      "freq": 93
+    },
+    {
+      "w": "immediately",
+      "r": 988,
+      "freq": 93
+    },
+    {
+      "w": "welcome",
+      "r": 989,
+      "freq": 93
+    },
+    {
+      "w": "smile",
+      "r": 990,
+      "freq": 93
+    },
+    {
+      "w": "communication",
+      "r": 991,
+      "freq": 93
+    },
+    {
+      "w": "agent",
+      "r": 992,
+      "freq": 92
+    },
+    {
+      "w": "traditional",
+      "r": 993,
+      "freq": 92
+    },
+    {
+      "w": "replace",
+      "r": 994,
+      "freq": 92
+    },
+    {
+      "w": "judge",
+      "r": 995,
+      "freq": 92
+    },
+    {
+      "w": "herself",
+      "r": 996,
+      "freq": 92
+    },
+    {
+      "w": "suddenly",
+      "r": 997,
+      "freq": 92
+    },
+    {
+      "w": "generation",
+      "r": 998,
+      "freq": 92
+    },
+    {
+      "w": "estimate",
+      "r": 999,
+      "freq": 92
+    },
+    {
+      "w": "favorite",
+      "r": 1000,
+      "freq": 92
+    },
+    {
+      "w": "difficulty",
+      "r": 1001,
+      "freq": 92
+    },
+    {
+      "w": "purchase",
+      "r": 1002,
+      "freq": 91
+    },
+    {
+      "w": "shoot",
+      "r": 1003,
+      "freq": 91
+    },
+    {
+      "w": "unless",
+      "r": 1005,
+      "freq": 91
+    },
+    {
+      "w": "independent",
+      "r": 1006,
+      "freq": 91
+    },
+    {
+      "w": "recommend",
+      "r": 1007,
+      "freq": 91
+    },
+    {
+      "w": "survey",
+      "r": 1008,
+      "freq": 91
+    },
+    {
+      "w": "majority",
+      "r": 1009,
+      "freq": 91
+    },
+    {
+      "w": "stick",
+      "r": 1010,
+      "freq": 91
+    },
+    {
+      "w": "request",
+      "r": 1011,
+      "freq": 90
+    },
+    {
+      "w": "none",
+      "r": 1014,
+      "freq": 90
+    },
+    {
+      "w": "exchange",
+      "r": 1015,
+      "freq": 90
+    },
+    {
+      "w": "famous",
+      "r": 1017,
+      "freq": 89
+    },
+    {
+      "w": "blood",
+      "r": 1018,
+      "freq": 89
+    },
+    {
+      "w": "appropriate",
+      "r": 1019,
+      "freq": 89
+    },
+    {
+      "w": "block",
+      "r": 1020,
+      "freq": 89
+    },
+    {
+      "w": "count",
+      "r": 1022,
+      "freq": 89
+    },
+    {
+      "w": "scene",
+      "r": 1023,
+      "freq": 89
+    },
+    {
+      "w": "writer",
+      "r": 1024,
+      "freq": 89
+    },
+    {
+      "w": "content",
+      "r": 1025,
+      "freq": 89
+    },
+    {
+      "w": "prevent",
+      "r": 1026,
+      "freq": 89
+    },
+    {
+      "w": "safe",
+      "r": 1027,
+      "freq": 89
+    },
+    {
+      "w": "invite",
+      "r": 1028,
+      "freq": 88
+    },
+    {
+      "w": "mix",
+      "r": 1029,
+      "freq": 88
+    },
+    {
+      "w": "element",
+      "r": 1030,
+      "freq": 88
+    },
+    {
+      "w": "effective",
+      "r": 1031,
+      "freq": 88
+    },
+    {
+      "w": "medical",
+      "r": 1033,
+      "freq": 88
+    },
+    {
+      "w": "admit",
+      "r": 1034,
+      "freq": 88
+    },
+    {
+      "w": "beat",
+      "r": 1035,
+      "freq": 87
+    },
+    {
+      "w": "telephone",
+      "r": 1036,
+      "freq": 87
+    },
+    {
+      "w": "committee",
+      "r": 1038,
+      "freq": 87
+    },
+    {
+      "w": "aware",
+      "r": 1039,
+      "freq": 87
+    },
+    {
+      "w": "handle",
+      "r": 1041,
+      "freq": 87
+    },
+    {
+      "w": "glass",
+      "r": 1042,
+      "freq": 87
+    },
+    {
+      "w": "trial",
+      "r": 1043,
+      "freq": 87
+    },
+    {
+      "w": "stress",
+      "r": 1044,
+      "freq": 87
+    },
+    {
+      "w": "radio",
+      "r": 1045,
+      "freq": 86
+    },
+    {
+      "w": "administration",
+      "r": 1046,
+      "freq": 86
+    },
+    {
+      "w": "complex",
+      "r": 1047,
+      "freq": 86
+    },
+    {
+      "w": "text",
+      "r": 1048,
+      "freq": 86
+    },
+    {
+      "w": "context",
+      "r": 1049,
+      "freq": 86
+    },
+    {
+      "w": "ride",
+      "r": 1050,
+      "freq": 86
+    },
+    {
+      "w": "directly",
+      "r": 1051,
+      "freq": 86
+    },
+    {
+      "w": "heavy",
+      "r": 1052,
+      "freq": 86
+    },
+    {
+      "w": "remove",
+      "r": 1053,
+      "freq": 86
+    },
+    {
+      "w": "conduct",
+      "r": 1054,
+      "freq": 86
+    },
+    {
+      "w": "equipment",
+      "r": 1055,
+      "freq": 86
+    },
+    {
+      "w": "otherwise",
+      "r": 1056,
+      "freq": 86
+    },
+    {
+      "w": "title",
+      "r": 1057,
+      "freq": 86
+    },
+    {
+      "w": "extra",
+      "r": 1058,
+      "freq": 85
+    },
+    {
+      "w": "executive",
+      "r": 1059,
+      "freq": 85
+    },
+    {
+      "w": "expensive",
+      "r": 1061,
+      "freq": 85
+    },
+    {
+      "w": "sample",
+      "r": 1062,
+      "freq": 85
+    },
+    {
+      "w": "sex",
+      "r": 1063,
+      "freq": 85
+    },
+    {
+      "w": "video",
+      "r": 1065,
+      "freq": 85
+    },
+    {
+      "w": "connection",
+      "r": 1066,
+      "freq": 85
+    },
+    {
+      "w": "primary",
+      "r": 1067,
+      "freq": 85
+    },
+    {
+      "w": "collect",
+      "r": 1069,
+      "freq": 84
+    },
+    {
+      "w": "inform",
+      "r": 1070,
+      "freq": 84
+    },
+    {
+      "w": "principle",
+      "r": 1071,
+      "freq": 84
+    },
+    {
+      "w": "straight",
+      "r": 1072,
+      "freq": 84
+    },
+    {
+      "w": "appeal",
+      "r": 1073,
+      "freq": 84
+    },
+    {
+      "w": "highly",
+      "r": 1074,
+      "freq": 84
+    },
+    {
+      "w": "trust",
+      "r": 1075,
+      "freq": 84
+    },
+    {
+      "w": "wonderful",
+      "r": 1076,
+      "freq": 84
+    },
+    {
+      "w": "flat",
+      "r": 1077,
+      "freq": 84
+    },
+    {
+      "w": "absolutely",
+      "r": 1078,
+      "freq": 84
+    },
+    {
+      "w": "flow",
+      "r": 1079,
+      "freq": 84
+    },
+    {
+      "w": "fair",
+      "r": 1080,
+      "freq": 84
+    },
+    {
+      "w": "additional",
+      "r": 1081,
+      "freq": 83
+    },
+    {
+      "w": "responsible",
+      "r": 1082,
+      "freq": 83
+    },
+    {
+      "w": "collection",
+      "r": 1084,
+      "freq": 83
+    },
+    {
+      "w": "hang",
+      "r": 1085,
+      "freq": 83
+    },
+    {
+      "w": "negative",
+      "r": 1086,
+      "freq": 83
+    },
+    {
+      "w": "band",
+      "r": 1087,
+      "freq": 83
+    },
+    {
+      "w": "relative",
+      "r": 1088,
+      "freq": 83
+    },
+    {
+      "w": "tour",
+      "r": 1089,
+      "freq": 83
+    },
+    {
+      "w": "alternative",
+      "r": 1090,
+      "freq": 83
+    },
+    {
+      "w": "software",
+      "r": 1091,
+      "freq": 83
+    },
+    {
+      "w": "pair",
+      "r": 1092,
+      "freq": 82
+    },
+    {
+      "w": "ship",
+      "r": 1093,
+      "freq": 82
+    },
+    {
+      "w": "attitude",
+      "r": 1094,
+      "freq": 82
+    },
+    {
+      "w": "cheap",
+      "r": 1095,
+      "freq": 82
+    },
+    {
+      "w": "double",
+      "r": 1096,
+      "freq": 82
+    },
+    {
+      "w": "observe",
+      "r": 1098,
+      "freq": 82
+    },
+    {
+      "w": "sentence",
+      "r": 1099,
+      "freq": 82
+    },
+    {
+      "w": "print",
+      "r": 1100,
+      "freq": 82
+    },
+    {
+      "w": "progress",
+      "r": 1101,
+      "freq": 82
+    },
+    {
+      "w": "truth",
+      "r": 1102,
+      "freq": 82
+    },
+    {
+      "w": "nobody",
+      "r": 1103,
+      "freq": 82
+    },
+    {
+      "w": "examine",
+      "r": 1104,
+      "freq": 81
+    },
+    {
+      "w": "lay",
+      "r": 1105,
+      "freq": 81
+    },
+    {
+      "w": "speed",
+      "r": 1106,
+      "freq": 81
+    },
+    {
+      "w": "politics",
+      "r": 1107,
+      "freq": 81
+    },
+    {
+      "w": "reply",
+      "r": 1108,
+      "freq": 81
+    },
+    {
+      "w": "transfer",
+      "r": 1110,
+      "freq": 81
+    },
+    {
+      "w": "perfect",
+      "r": 1111,
+      "freq": 81
+    },
+    {
+      "w": "slightly",
+      "r": 1112,
+      "freq": 81
+    },
+    {
+      "w": "overall",
+      "r": 1113,
+      "freq": 81
+    },
+    {
+      "w": "intend",
+      "r": 1114,
+      "freq": 80
+    },
+    {
+      "w": "user",
+      "r": 1115,
+      "freq": 80
+    },
+    {
+      "w": "respond",
+      "r": 1116,
+      "freq": 80
+    },
+    {
+      "w": "dinner",
+      "r": 1117,
+      "freq": 80
+    },
+    {
+      "w": "regular",
+      "r": 1119,
+      "freq": 80
+    },
+    {
+      "w": "physical",
+      "r": 1120,
+      "freq": 80
+    },
+    {
+      "w": "apart",
+      "r": 1121,
+      "freq": 80
+    },
+    {
+      "w": "suit",
+      "r": 1122,
+      "freq": 80
+    },
+    {
+      "w": "federal",
+      "r": 1123,
+      "freq": 80
+    },
+    {
+      "w": "reveal",
+      "r": 1124,
+      "freq": 80
+    },
+    {
+      "w": "percentage",
+      "r": 1125,
+      "freq": 79
+    },
+    {
+      "w": "peace",
+      "r": 1126,
+      "freq": 79
+    },
+    {
+      "w": "status",
+      "r": 1127,
+      "freq": 79
+    },
+    {
+      "w": "launch",
+      "r": 1131,
+      "freq": 79
+    },
+    {
+      "w": "warn",
+      "r": 1132,
+      "freq": 79
+    },
+    {
+      "w": "consumer",
+      "r": 1133,
+      "freq": 79
+    },
+    {
+      "w": "favor",
+      "r": 1134,
+      "freq": 79
+    },
+    {
+      "w": "dry",
+      "r": 1135,
+      "freq": 78
+    },
+    {
+      "w": "partner",
+      "r": 1136,
+      "freq": 78
+    },
+    {
+      "w": "institution",
+      "r": 1137,
+      "freq": 78
+    },
+    {
+      "w": "spot",
+      "r": 1138,
+      "freq": 78
+    },
+    {
+      "w": "eventually",
+      "r": 1140,
+      "freq": 78
+    },
+    {
+      "w": "heat",
+      "r": 1141,
+      "freq": 78
+    },
+    {
+      "w": "excite",
+      "r": 1142,
+      "freq": 78
+    },
+    {
+      "w": "reader",
+      "r": 1143,
+      "freq": 78
+    },
+    {
+      "w": "importance",
+      "r": 1144,
+      "freq": 78
+    },
+    {
+      "w": "distance",
+      "r": 1145,
+      "freq": 78
+    },
+    {
+      "w": "guide",
+      "r": 1146,
+      "freq": 78
+    },
+    {
+      "w": "grant",
+      "r": 1147,
+      "freq": 78
+    },
+    {
+      "w": "taxi",
+      "r": 1148,
+      "freq": 77
+    },
+    {
+      "w": "feed",
+      "r": 1149,
+      "freq": 77
+    },
+    {
+      "w": "pain",
+      "r": 1150,
+      "freq": 77
+    },
+    {
+      "w": "sector",
+      "r": 1151,
+      "freq": 77
+    },
+    {
+      "w": "mistake",
+      "r": 1152,
+      "freq": 77
+    },
+    {
+      "w": "ensure",
+      "r": 1153,
+      "freq": 77
+    },
+    {
+      "w": "satisfy",
+      "r": 1154,
+      "freq": 77
+    },
+    {
+      "w": "chief",
+      "r": 1155,
+      "freq": 77
+    },
+    {
+      "w": "expert",
+      "r": 1157,
+      "freq": 77
+    },
+    {
+      "w": "wave",
+      "r": 1158,
+      "freq": 77
+    },
+    {
+      "w": "south",
+      "r": 1159,
+      "freq": 77
+    },
+    {
+      "w": "labor",
+      "r": 1160,
+      "freq": 76
+    },
+    {
+      "w": "surface",
+      "r": 1161,
+      "freq": 76
+    },
+    {
+      "w": "library",
+      "r": 1162,
+      "freq": 76
+    },
+    {
+      "w": "excellent",
+      "r": 1163,
+      "freq": 76
+    },
+    {
+      "w": "edge",
+      "r": 1164,
+      "freq": 76
+    },
+    {
+      "w": "camp",
+      "r": 1165,
+      "freq": 76
+    },
+    {
+      "w": "lift",
+      "r": 1167,
+      "freq": 76
+    },
+    {
+      "w": "procedure",
+      "r": 1168,
+      "freq": 76
+    },
+    {
+      "w": "email",
+      "r": 1169,
+      "freq": 76
+    },
+    {
+      "w": "global",
+      "r": 1170,
+      "freq": 76
+    },
+    {
+      "w": "struggle",
+      "r": 1171,
+      "freq": 76
+    },
+    {
+      "w": "advertise",
+      "r": 1172,
+      "freq": 75
+    },
+    {
+      "w": "select",
+      "r": 1173,
+      "freq": 75
+    },
+    {
+      "w": "surround",
+      "r": 1174,
+      "freq": 75
+    },
+    {
+      "w": "extent",
+      "r": 1175,
+      "freq": 75
+    },
+    {
+      "w": "annual",
+      "r": 1177,
+      "freq": 75
+    },
+    {
+      "w": "fully",
+      "r": 1178,
+      "freq": 75
+    },
+    {
+      "w": "contrast",
+      "r": 1179,
+      "freq": 75
+    },
+    {
+      "w": "roll",
+      "r": 1180,
+      "freq": 74
+    },
+    {
+      "w": "reality",
+      "r": 1181,
+      "freq": 74
+    },
+    {
+      "w": "photograph",
+      "r": 1182,
+      "freq": 74
+    },
+    {
+      "w": "artist",
+      "r": 1183,
+      "freq": 74
+    },
+    {
+      "w": "conflict",
+      "r": 1184,
+      "freq": 74
+    },
+    {
+      "w": "entire",
+      "r": 1185,
+      "freq": 74
+    },
+    {
+      "w": "presence",
+      "r": 1186,
+      "freq": 74
+    },
+    {
+      "w": "crowd",
+      "r": 1187,
+      "freq": 74
+    },
+    {
+      "w": "corner",
+      "r": 1188,
+      "freq": 74
+    },
+    {
+      "w": "gas",
+      "r": 1189,
+      "freq": 74
+    },
+    {
+      "w": "shift",
+      "r": 1190,
+      "freq": 74
+    },
+    {
+      "w": "net",
+      "r": 1191,
+      "freq": 74
+    },
+    {
+      "w": "category",
+      "r": 1192,
+      "freq": 74
+    },
+    {
+      "w": "secretary",
+      "r": 1193,
+      "freq": 74
+    },
+    {
+      "w": "defense",
+      "r": 1194,
+      "freq": 74
+    },
+    {
+      "w": "cook",
+      "r": 1196,
+      "freq": 74
+    },
+    {
+      "w": "spread",
+      "r": 1197,
+      "freq": 73
+    },
+    {
+      "w": "nuclear",
+      "r": 1198,
+      "freq": 73
+    },
+    {
+      "w": "scale",
+      "r": 1199,
+      "freq": 73
+    },
+    {
+      "w": "driver",
+      "r": 1200,
+      "freq": 73
+    },
+    {
+      "w": "cry",
+      "r": 1202,
+      "freq": 73
+    },
+    {
+      "w": "introduction",
+      "r": 1203,
+      "freq": 73
+    },
+    {
+      "w": "requirement",
+      "r": 1204,
+      "freq": 73
+    },
+    {
+      "w": "north",
+      "r": 1205,
+      "freq": 73
+    },
+    {
+      "w": "confirm",
+      "r": 1206,
+      "freq": 73
+    },
+    {
+      "w": "senior",
+      "r": 1207,
+      "freq": 72
+    },
+    {
+      "w": "photo",
+      "r": 1208,
+      "freq": 72
+    },
+    {
+      "w": "refuse",
+      "r": 1209,
+      "freq": 72
+    },
+    {
+      "w": "transport",
+      "r": 1210,
+      "freq": 72
+    },
+    {
+      "w": "map",
+      "r": 1212,
+      "freq": 72
+    },
+    {
+      "w": "island",
+      "r": 1214,
+      "freq": 72
+    },
+    {
+      "w": "reform",
+      "r": 1215,
+      "freq": 72
+    },
+    {
+      "w": "neither",
+      "r": 1216,
+      "freq": 72
+    },
+    {
+      "w": "football",
+      "r": 1217,
+      "freq": 72
+    },
+    {
+      "w": "survive",
+      "r": 1218,
+      "freq": 72
+    },
+    {
+      "w": "flight",
+      "r": 1219,
+      "freq": 72
+    },
+    {
+      "w": "left",
+      "r": 1220,
+      "freq": 72
+    },
+    {
+      "w": "solve",
+      "r": 1221,
+      "freq": 72
+    },
+    {
+      "w": "neighbor",
+      "r": 1222,
+      "freq": 72
+    },
+    {
+      "w": "background",
+      "r": 1223,
+      "freq": 71
+    },
+    {
+      "w": "technique",
+      "r": 1224,
+      "freq": 71
+    },
+    {
+      "w": "traffic",
+      "r": 1225,
+      "freq": 71
+    },
+    {
+      "w": "improvement",
+      "r": 1226,
+      "freq": 71
+    },
+    {
+      "w": "tool",
+      "r": 1227,
+      "freq": 71
+    },
+    {
+      "w": "consequence",
+      "r": 1228,
+      "freq": 71
+    },
+    {
+      "w": "circumstance",
+      "r": 1229,
+      "freq": 71
+    },
+    {
+      "w": "smoke",
+      "r": 1230,
+      "freq": 71
+    },
+    {
+      "w": "reaction",
+      "r": 1231,
+      "freq": 71
+    },
+    {
+      "w": "brain",
+      "r": 1235,
+      "freq": 71
+    },
+    {
+      "w": "mass",
+      "r": 1236,
+      "freq": 71
+    },
+    {
+      "w": "failure",
+      "r": 1239,
+      "freq": 71
+    },
+    {
+      "w": "schedule",
+      "r": 1240,
+      "freq": 71
+    },
+    {
+      "w": "speaker",
+      "r": 1241,
+      "freq": 70
+    },
+    {
+      "w": "bottom",
+      "r": 1242,
+      "freq": 70
+    },
+    {
+      "w": "adopt",
+      "r": 1243,
+      "freq": 70
+    },
+    {
+      "w": "combine",
+      "r": 1244,
+      "freq": 70
+    },
+    {
+      "w": "waste",
+      "r": 1246,
+      "freq": 70
+    },
+    {
+      "w": "hide",
+      "r": 1247,
+      "freq": 70
+    },
+    {
+      "w": "marriage",
+      "r": 1248,
+      "freq": 70
+    },
+    {
+      "w": "ticket",
+      "r": 1249,
+      "freq": 70
+    },
+    {
+      "w": "meal",
+      "r": 1250,
+      "freq": 70
+    },
+    {
+      "w": "repeat",
+      "r": 1253,
+      "freq": 70
+    },
+    {
+      "w": "equal",
+      "r": 1254,
+      "freq": 70
+    },
+    {
+      "w": "expression",
+      "r": 1255,
+      "freq": 70
+    },
+    {
+      "w": "plus",
+      "r": 1256,
+      "freq": 70
+    },
+    {
+      "w": "extremely",
+      "r": 1257,
+      "freq": 70
+    },
+    {
+      "w": "owner",
+      "r": 1258,
+      "freq": 70
+    },
+    {
+      "w": "plane",
+      "r": 1259,
+      "freq": 69
+    },
+    {
+      "w": "commercial",
+      "r": 1260,
+      "freq": 69
+    },
+    {
+      "w": "lady",
+      "r": 1261,
+      "freq": 69
+    },
+    {
+      "w": "duty",
+      "r": 1262,
+      "freq": 69
+    },
+    {
+      "w": "strength",
+      "r": 1263,
+      "freq": 69
+    },
+    {
+      "w": "cultural",
+      "r": 1265,
+      "freq": 69
+    },
+    {
+      "w": "scheme",
+      "r": 1267,
+      "freq": 68
+    },
+    {
+      "w": "payment",
+      "r": 1268,
+      "freq": 68
+    },
+    {
+      "w": "unfortunately",
+      "r": 1269,
+      "freq": 68
+    },
+    {
+      "w": "demonstrate",
+      "r": 1272,
+      "freq": 68
+    },
+    {
+      "w": "contribution",
+      "r": 1273,
+      "freq": 68
+    },
+    {
+      "w": "appreciate",
+      "r": 1274,
+      "freq": 68
+    },
+    {
+      "w": "chapter",
+      "r": 1275,
+      "freq": 68
+    },
+    {
+      "w": "secret",
+      "r": 1276,
+      "freq": 68
+    },
+    {
+      "w": "apparently",
+      "r": 1277,
+      "freq": 68
+    },
+    {
+      "w": "novel",
+      "r": 1278,
+      "freq": 68
+    },
+    {
+      "w": "union",
+      "r": 1279,
+      "freq": 68
+    },
+    {
+      "w": "burn",
+      "r": 1280,
+      "freq": 68
+    },
+    {
+      "w": "trend",
+      "r": 1281,
+      "freq": 68
+    },
+    {
+      "w": "initial",
+      "r": 1282,
+      "freq": 68
+    },
+    {
+      "w": "pleasure",
+      "r": 1283,
+      "freq": 68
+    },
+    {
+      "w": "suggestion",
+      "r": 1284,
+      "freq": 68
+    },
+    {
+      "w": "critical",
+      "r": 1285,
+      "freq": 67
+    },
+    {
+      "w": "gather",
+      "r": 1286,
+      "freq": 67
+    },
+    {
+      "w": "mostly",
+      "r": 1287,
+      "freq": 67
+    },
+    {
+      "w": "earth",
+      "r": 1288,
+      "freq": 67
+    },
+    {
+      "w": "pop",
+      "r": 1289,
+      "freq": 67
+    },
+    {
+      "w": "essential",
+      "r": 1290,
+      "freq": 67
+    },
+    {
+      "w": "promote",
+      "r": 1292,
+      "freq": 67
+    },
+    {
+      "w": "currently",
+      "r": 1293,
+      "freq": 67
+    },
+    {
+      "w": "path",
+      "r": 1295,
+      "freq": 67
+    },
+    {
+      "w": "topic",
+      "r": 1296,
+      "freq": 67
+    },
+    {
+      "w": "powerful",
+      "r": 1300,
+      "freq": 67
+    },
+    {
+      "w": "settle",
+      "r": 1303,
+      "freq": 67
+    },
+    {
+      "w": "boat",
+      "r": 1304,
+      "freq": 66
+    },
+    {
+      "w": "aid",
+      "r": 1305,
+      "freq": 66
+    },
+    {
+      "w": "fan",
+      "r": 1306,
+      "freq": 66
+    },
+    {
+      "w": "twice",
+      "r": 1308,
+      "freq": 66
+    },
+    {
+      "w": "fresh",
+      "r": 1309,
+      "freq": 66
+    },
+    {
+      "w": "safety",
+      "r": 1311,
+      "freq": 66
+    },
+    {
+      "w": "engineer",
+      "r": 1312,
+      "freq": 66
+    },
+    {
+      "w": "insurance",
+      "r": 1314,
+      "freq": 66
+    },
+    {
+      "w": "nurse",
+      "r": 1315,
+      "freq": 66
+    },
+    {
+      "w": "length",
+      "r": 1317,
+      "freq": 66
+    },
+    {
+      "w": "investigation",
+      "r": 1318,
+      "freq": 66
+    },
+    {
+      "w": "package",
+      "r": 1319,
+      "freq": 66
+    },
+    {
+      "w": "somewhere",
+      "r": 1320,
+      "freq": 66
+    },
+    {
+      "w": "expand",
+      "r": 1321,
+      "freq": 66
+    },
+    {
+      "w": "obvious",
+      "r": 1323,
+      "freq": 66
+    },
+    {
+      "w": "weapon",
+      "r": 1325,
+      "freq": 65
+    },
+    {
+      "w": "relatively",
+      "r": 1326,
+      "freq": 65
+    },
+    {
+      "w": "host",
+      "r": 1327,
+      "freq": 65
+    },
+    {
+      "w": "district",
+      "r": 1329,
+      "freq": 65
+    },
+    {
+      "w": "tire",
+      "r": 1331,
+      "freq": 65
+    },
+    {
+      "w": "spirit",
+      "r": 1333,
+      "freq": 64
+    },
+    {
+      "w": "lunch",
+      "r": 1334,
+      "freq": 64
+    },
+    {
+      "w": "actual",
+      "r": 1335,
+      "freq": 64
+    },
+    {
+      "w": "pool",
+      "r": 1336,
+      "freq": 64
+    },
+    {
+      "w": "battle",
+      "r": 1337,
+      "freq": 64
+    },
+    {
+      "w": "tradition",
+      "r": 1338,
+      "freq": 64
+    },
+    {
+      "w": "cash",
+      "r": 1339,
+      "freq": 64
+    },
+    {
+      "w": "hardly",
+      "r": 1340,
+      "freq": 64
+    },
+    {
+      "w": "award",
+      "r": 1341,
+      "freq": 64
+    },
+    {
+      "w": "coach",
+      "r": 1342,
+      "freq": 64
+    },
+    {
+      "w": "experiment",
+      "r": 1343,
+      "freq": 64
+    },
+    {
+      "w": "consideration",
+      "r": 1344,
+      "freq": 64
+    },
+    {
+      "w": "strange",
+      "r": 1345,
+      "freq": 64
+    },
+    {
+      "w": "code",
+      "r": 1346,
+      "freq": 64
+    },
+    {
+      "w": "possibly",
+      "r": 1347,
+      "freq": 64
+    },
+    {
+      "w": "threat",
+      "r": 1348,
+      "freq": 64
+    },
+    {
+      "w": "accident",
+      "r": 1349,
+      "freq": 64
+    },
+    {
+      "w": "impossible",
+      "r": 1350,
+      "freq": 64
+    },
+    {
+      "w": "revenue",
+      "r": 1351,
+      "freq": 64
+    },
+    {
+      "w": "religious",
+      "r": 1356,
+      "freq": 63
+    },
+    {
+      "w": "cancer",
+      "r": 1357,
+      "freq": 63
+    },
+    {
+      "w": "vary",
+      "r": 1359,
+      "freq": 63
+    },
+    {
+      "w": "environmental",
+      "r": 1360,
+      "freq": 63
+    },
+    {
+      "w": "healthy",
+      "r": 1362,
+      "freq": 63
+    },
+    {
+      "w": "blow",
+      "r": 1363,
+      "freq": 63
+    },
+    {
+      "w": "volume",
+      "r": 1364,
+      "freq": 63
+    },
+    {
+      "w": "location",
+      "r": 1365,
+      "freq": 63
+    },
+    {
+      "w": "invest",
+      "r": 1366,
+      "freq": 63
+    },
+    {
+      "w": "proceed",
+      "r": 1367,
+      "freq": 63
+    },
+    {
+      "w": "wash",
+      "r": 1368,
+      "freq": 63
+    },
+    {
+      "w": "actor",
+      "r": 1369,
+      "freq": 63
+    },
+    {
+      "w": "glad",
+      "r": 1370,
+      "freq": 63
+    },
+    {
+      "w": "tape",
+      "r": 1371,
+      "freq": 62
+    },
+    {
+      "w": "whereas",
+      "r": 1372,
+      "freq": 62
+    },
+    {
+      "w": "opposite",
+      "r": 1373,
+      "freq": 62
+    },
+    {
+      "w": "stone",
+      "r": 1374,
+      "freq": 62
+    },
+    {
+      "w": "sum",
+      "r": 1375,
+      "freq": 62
+    },
+    {
+      "w": "murder",
+      "r": 1376,
+      "freq": 62
+    },
+    {
+      "w": "monitor",
+      "r": 1377,
+      "freq": 62
+    },
+    {
+      "w": "soldier",
+      "r": 1378,
+      "freq": 62
+    },
+    {
+      "w": "finance",
+      "r": 1379,
+      "freq": 62
+    },
+    {
+      "w": "hate",
+      "r": 1380,
+      "freq": 62
+    },
+    {
+      "w": "concert",
+      "r": 1382,
+      "freq": 62
+    },
+    {
+      "w": "shock",
+      "r": 1383,
+      "freq": 62
+    },
+    {
+      "w": "comfortable",
+      "r": 1384,
+      "freq": 62
+    },
+    {
+      "w": "usual",
+      "r": 1385,
+      "freq": 62
+    },
+    {
+      "w": "carefully",
+      "r": 1386,
+      "freq": 62
+    },
+    {
+      "w": "pack",
+      "r": 1387,
+      "freq": 62
+    },
+    {
+      "w": "recall",
+      "r": 1388,
+      "freq": 62
+    },
+    {
+      "w": "wine",
+      "r": 1389,
+      "freq": 62
+    },
+    {
+      "w": "manufacture",
+      "r": 1392,
+      "freq": 62
+    },
+    {
+      "w": "theater",
+      "r": 1393,
+      "freq": 61
+    },
+    {
+      "w": "cycle",
+      "r": 1394,
+      "freq": 61
+    },
+    {
+      "w": "totally",
+      "r": 1396,
+      "freq": 61
+    },
+    {
+      "w": "museum",
+      "r": 1397,
+      "freq": 61
+    },
+    {
+      "w": "visitor",
+      "r": 1398,
+      "freq": 61
+    },
+    {
+      "w": "freedom",
+      "r": 1399,
+      "freq": 61
+    },
+    {
+      "w": "construction",
+      "r": 1400,
+      "freq": 61
+    },
+    {
+      "w": "dear",
+      "r": 1401,
+      "freq": 61
+    },
+    {
+      "w": "objective",
+      "r": 1402,
+      "freq": 61
+    },
+    {
+      "w": "moreover",
+      "r": 1403,
+      "freq": 61
+    },
+    {
+      "w": "onto",
+      "r": 1404,
+      "freq": 61
+    },
+    {
+      "w": "historical",
+      "r": 1405,
+      "freq": 61
+    },
+    {
+      "w": "oppose",
+      "r": 1406,
+      "freq": 61
+    },
+    {
+      "w": "branch",
+      "r": 1407,
+      "freq": 61
+    },
+    {
+      "w": "vehicle",
+      "r": 1408,
+      "freq": 61
+    },
+    {
+      "w": "scientist",
+      "r": 1409,
+      "freq": 60
+    },
+    {
+      "w": "route",
+      "r": 1410,
+      "freq": 60
+    },
+    {
+      "w": "bind",
+      "r": 1411,
+      "freq": 60
+    },
+    {
+      "w": "belong",
+      "r": 1412,
+      "freq": 60
+    },
+    {
+      "w": "taste",
+      "r": 1413,
+      "freq": 60
+    },
+    {
+      "w": "tonight",
+      "r": 1414,
+      "freq": 60
+    },
+    {
+      "w": "fashion",
+      "r": 1415,
+      "freq": 60
+    },
+    {
+      "w": "danger",
+      "r": 1416,
+      "freq": 60
+    },
+    {
+      "w": "bomb",
+      "r": 1417,
+      "freq": 60
+    },
+    {
+      "w": "army",
+      "r": 1418,
+      "freq": 60
+    },
+    {
+      "w": "dangerous",
+      "r": 1419,
+      "freq": 60
+    },
+    {
+      "w": "hurt",
+      "r": 1421,
+      "freq": 60
+    },
+    {
+      "w": "council",
+      "r": 1422,
+      "freq": 60
+    },
+    {
+      "w": "editor",
+      "r": 1423,
+      "freq": 59
+    },
+    {
+      "w": "normally",
+      "r": 1424,
+      "freq": 59
+    },
+    {
+      "w": "sight",
+      "r": 1425,
+      "freq": 59
+    },
+    {
+      "w": "generate",
+      "r": 1426,
+      "freq": 59
+    },
+    {
+      "w": "gift",
+      "r": 1427,
+      "freq": 59
+    },
+    {
+      "w": "delivery",
+      "r": 1428,
+      "freq": 59
+    },
+    {
+      "w": "deny",
+      "r": 1429,
+      "freq": 59
+    },
+    {
+      "w": "guest",
+      "r": 1430,
+      "freq": 59
+    },
+    {
+      "w": "anybody",
+      "r": 1431,
+      "freq": 59
+    },
+    {
+      "w": "quote",
+      "r": 1433,
+      "freq": 59
+    },
+    {
+      "w": "climb",
+      "r": 1434,
+      "freq": 59
+    },
+    {
+      "w": "basically",
+      "r": 1435,
+      "freq": 59
+    },
+    {
+      "w": "violence",
+      "r": 1436,
+      "freq": 59
+    },
+    {
+      "w": "minister",
+      "r": 1437,
+      "freq": 59
+    },
+    {
+      "w": "mainly",
+      "r": 1438,
+      "freq": 59
+    },
+    {
+      "w": "noise",
+      "r": 1440,
+      "freq": 59
+    },
+    {
+      "w": "manner",
+      "r": 1441,
+      "freq": 59
+    },
+    {
+      "w": "gun",
+      "r": 1442,
+      "freq": 58
+    },
+    {
+      "w": "square",
+      "r": 1443,
+      "freq": 58
+    },
+    {
+      "w": "occasion",
+      "r": 1444,
+      "freq": 58
+    },
+    {
+      "w": "ignore",
+      "r": 1446,
+      "freq": 58
+    },
+    {
+      "w": "affair",
+      "r": 1448,
+      "freq": 58
+    },
+    {
+      "w": "civil",
+      "r": 1449,
+      "freq": 58
+    },
+    {
+      "w": "locate",
+      "r": 1450,
+      "freq": 58
+    },
+    {
+      "w": "citizen",
+      "r": 1451,
+      "freq": 58
+    },
+    {
+      "w": "temperature",
+      "r": 1452,
+      "freq": 58
+    },
+    {
+      "w": "gold",
+      "r": 1453,
+      "freq": 58
+    },
+    {
+      "w": "domestic",
+      "r": 1454,
+      "freq": 57
+    },
+    {
+      "w": "load",
+      "r": 1455,
+      "freq": 57
+    },
+    {
+      "w": "troop",
+      "r": 1457,
+      "freq": 57
+    },
+    {
+      "w": "technical",
+      "r": 1458,
+      "freq": 57
+    },
+    {
+      "w": "remind",
+      "r": 1459,
+      "freq": 57
+    },
+    {
+      "w": "arrangement",
+      "r": 1460,
+      "freq": 57
+    },
+    {
+      "w": "skin",
+      "r": 1461,
+      "freq": 57
+    },
+    {
+      "w": "prison",
+      "r": 1462,
+      "freq": 57
+    },
+    {
+      "w": "switch",
+      "r": 1463,
+      "freq": 57
+    },
+    {
+      "w": "acquire",
+      "r": 1464,
+      "freq": 57
+    },
+    {
+      "w": "corporate",
+      "r": 1465,
+      "freq": 57
+    },
+    {
+      "w": "fairly",
+      "r": 1466,
+      "freq": 57
+    },
+    {
+      "w": "wood",
+      "r": 1467,
+      "freq": 57
+    },
+    {
+      "w": "participate",
+      "r": 1468,
+      "freq": 57
+    },
+    {
+      "w": "tough",
+      "r": 1469,
+      "freq": 57
+    },
+    {
+      "w": "tear",
+      "r": 1470,
+      "freq": 57
+    },
+    {
+      "w": "representative",
+      "r": 1471,
+      "freq": 57
+    },
+    {
+      "w": "capacity",
+      "r": 1472,
+      "freq": 57
+    },
+    {
+      "w": "border",
+      "r": 1473,
+      "freq": 56
+    },
+    {
+      "w": "shake",
+      "r": 1474,
+      "freq": 56
+    },
+    {
+      "w": "assessment",
+      "r": 1475,
+      "freq": 56
+    },
+    {
+      "w": "shoe",
+      "r": 1476,
+      "freq": 56
+    },
+    {
+      "w": "ought",
+      "r": 1477,
+      "freq": 56
+    },
+    {
+      "w": "ad",
+      "r": 1478,
+      "freq": 56
+    },
+    {
+      "w": "fee",
+      "r": 1479,
+      "freq": 56
+    },
+    {
+      "w": "hall",
+      "r": 1480,
+      "freq": 56
+    },
+    {
+      "w": "regulation",
+      "r": 1481,
+      "freq": 56
+    },
+    {
+      "w": "escape",
+      "r": 1482,
+      "freq": 56
+    },
+    {
+      "w": "studio",
+      "r": 1483,
+      "freq": 56
+    },
+    {
+      "w": "proper",
+      "r": 1484,
+      "freq": 56
+    },
+    {
+      "w": "relax",
+      "r": 1485,
+      "freq": 56
+    },
+    {
+      "w": "tourist",
+      "r": 1486,
+      "freq": 56
+    },
+    {
+      "w": "component",
+      "r": 1487,
+      "freq": 56
+    },
+    {
+      "w": "lawyer",
+      "r": 1489,
+      "freq": 56
+    },
+    {
+      "w": "suspect",
+      "r": 1490,
+      "freq": 56
+    },
+    {
+      "w": "description",
+      "r": 1492,
+      "freq": 56
+    },
+    {
+      "w": "industrial",
+      "r": 1494,
+      "freq": 55
+    },
+    {
+      "w": "perspective",
+      "r": 1496,
+      "freq": 55
+    },
+    {
+      "w": "error",
+      "r": 1497,
+      "freq": 55
+    },
+    {
+      "w": "arrest",
+      "r": 1498,
+      "freq": 55
+    },
+    {
+      "w": "register",
+      "r": 1500,
+      "freq": 55
+    },
+    {
+      "w": "asset",
+      "r": 1501,
+      "freq": 55
+    },
+    {
+      "w": "signal",
+      "r": 1502,
+      "freq": 55
+    },
+    {
+      "w": "finger",
+      "r": 1503,
+      "freq": 55
+    },
+    {
+      "w": "relevant",
+      "r": 1504,
+      "freq": 55
+    },
+    {
+      "w": "explore",
+      "r": 1505,
+      "freq": 55
+    },
+    {
+      "w": "leadership",
+      "r": 1506,
+      "freq": 55
+    },
+    {
+      "w": "commitment",
+      "r": 1507,
+      "freq": 54
+    },
+    {
+      "w": "wake",
+      "r": 1508,
+      "freq": 54
+    },
+    {
+      "w": "necessarily",
+      "r": 1509,
+      "freq": 54
+    },
+    {
+      "w": "frame",
+      "r": 1511,
+      "freq": 54
+    },
+    {
+      "w": "slowly",
+      "r": 1512,
+      "freq": 54
+    },
+    {
+      "w": "bond",
+      "r": 1513,
+      "freq": 54
+    },
+    {
+      "w": "hire",
+      "r": 1514,
+      "freq": 54
+    },
+    {
+      "w": "hole",
+      "r": 1515,
+      "freq": 54
+    },
+    {
+      "w": "tie",
+      "r": 1516,
+      "freq": 54
+    },
+    {
+      "w": "internal",
+      "r": 1517,
+      "freq": 54
+    },
+    {
+      "w": "literature",
+      "r": 1519,
+      "freq": 54
+    },
+    {
+      "w": "victim",
+      "r": 1520,
+      "freq": 54
+    },
+    {
+      "w": "threaten",
+      "r": 1521,
+      "freq": 53
+    },
+    {
+      "w": "division",
+      "r": 1522,
+      "freq": 53
+    },
+    {
+      "w": "secure",
+      "r": 1523,
+      "freq": 53
+    },
+    {
+      "w": "amaze",
+      "r": 1524,
+      "freq": 53
+    },
+    {
+      "w": "device",
+      "r": 1525,
+      "freq": 53
+    },
+    {
+      "w": "birth",
+      "r": 1526,
+      "freq": 53
+    },
+    {
+      "w": "forest",
+      "r": 1527,
+      "freq": 53
+    },
+    {
+      "w": "label",
+      "r": 1528,
+      "freq": 53
+    },
+    {
+      "w": "root",
+      "r": 1529,
+      "freq": 53
+    },
+    {
+      "w": "factory",
+      "r": 1530,
+      "freq": 53
+    },
+    {
+      "w": "expense",
+      "r": 1531,
+      "freq": 53
+    },
+    {
+      "w": "channel",
+      "r": 1532,
+      "freq": 53
+    },
+    {
+      "w": "investigate",
+      "r": 1533,
+      "freq": 53
+    },
+    {
+      "w": "recommendation",
+      "r": 1534,
+      "freq": 53
+    },
+    {
+      "w": "rank",
+      "r": 1535,
+      "freq": 53
+    },
+    {
+      "w": "typical",
+      "r": 1536,
+      "freq": 53
+    },
+    {
+      "w": "west",
+      "r": 1537,
+      "freq": 53
+    },
+    {
+      "w": "friendly",
+      "r": 1538,
+      "freq": 53
+    },
+    {
+      "w": "resident",
+      "r": 1539,
+      "freq": 53
+    },
+    {
+      "w": "provision",
+      "r": 1540,
+      "freq": 53
+    },
+    {
+      "w": "concentrate",
+      "r": 1541,
+      "freq": 53
+    },
+    {
+      "w": "plenty",
+      "r": 1542,
+      "freq": 53
+    },
+    {
+      "w": "export",
+      "r": 1543,
+      "freq": 53
+    },
+    {
+      "w": "entirely",
+      "r": 1544,
+      "freq": 53
+    },
+    {
+      "w": "strongly",
+      "r": 1545,
+      "freq": 53
+    },
+    {
+      "w": "brand",
+      "r": 1549,
+      "freq": 52
+    },
+    {
+      "w": "moral",
+      "r": 1550,
+      "freq": 52
+    },
+    {
+      "w": "insist",
+      "r": 1551,
+      "freq": 52
+    },
+    {
+      "w": "combination",
+      "r": 1552,
+      "freq": 52
+    },
+    {
+      "w": "abuse",
+      "r": 1553,
+      "freq": 52
+    },
+    {
+      "w": "ice",
+      "r": 1554,
+      "freq": 52
+    },
+    {
+      "w": "principal",
+      "r": 1555,
+      "freq": 52
+    },
+    {
+      "w": "master",
+      "r": 1556,
+      "freq": 52
+    },
+    {
+      "w": "definitely",
+      "r": 1557,
+      "freq": 52
+    },
+    {
+      "w": "session",
+      "r": 1558,
+      "freq": 52
+    },
+    {
+      "w": "grade",
+      "r": 1559,
+      "freq": 52
+    },
+    {
+      "w": "nevertheless",
+      "r": 1560,
+      "freq": 52
+    },
+    {
+      "w": "predict",
+      "r": 1561,
+      "freq": 52
+    },
+    {
+      "w": "previously",
+      "r": 1562,
+      "freq": 52
+    },
+    {
+      "w": "protection",
+      "r": 1563,
+      "freq": 52
+    },
+    {
+      "w": "largely",
+      "r": 1564,
+      "freq": 52
+    },
+    {
+      "w": "wed",
+      "r": 1565,
+      "freq": 52
+    },
+    {
+      "w": "rent",
+      "r": 1566,
+      "freq": 52
+    },
+    {
+      "w": "shot",
+      "r": 1567,
+      "freq": 52
+    },
+    {
+      "w": "appearance",
+      "r": 1568,
+      "freq": 52
+    },
+    {
+      "w": "reasonable",
+      "r": 1569,
+      "freq": 52
+    },
+    {
+      "w": "till",
+      "r": 1571,
+      "freq": 52
+    },
+    {
+      "w": "theme",
+      "r": 1572,
+      "freq": 51
+    },
+    {
+      "w": "judgment",
+      "r": 1573,
+      "freq": 51
+    },
+    {
+      "w": "odd",
+      "r": 1574,
+      "freq": 51
+    },
+    {
+      "w": "approve",
+      "r": 1575,
+      "freq": 51
+    },
+    {
+      "w": "loan",
+      "r": 1576,
+      "freq": 51
+    },
+    {
+      "w": "definition",
+      "r": 1577,
+      "freq": 51
+    },
+    {
+      "w": "atmosphere",
+      "r": 1579,
+      "freq": 51
+    },
+    {
+      "w": "farmer",
+      "r": 1580,
+      "freq": 51
+    },
+    {
+      "w": "comparison",
+      "r": 1581,
+      "freq": 51
+    },
+    {
+      "w": "characteristic",
+      "r": 1582,
+      "freq": 51
+    },
+    {
+      "w": "license",
+      "r": 1583,
+      "freq": 51
+    },
+    {
+      "w": "rely",
+      "r": 1584,
+      "freq": 51
+    },
+    {
+      "w": "narrow",
+      "r": 1585,
+      "freq": 51
+    },
+    {
+      "w": "succeed",
+      "r": 1586,
+      "freq": 51
+    },
+    {
+      "w": "identity",
+      "r": 1587,
+      "freq": 51
+    },
+    {
+      "w": "permit",
+      "r": 1589,
+      "freq": 51
+    },
+    {
+      "w": "seriously",
+      "r": 1590,
+      "freq": 51
+    },
+    {
+      "w": "wild",
+      "r": 1591,
+      "freq": 51
+    },
+    {
+      "w": "empty",
+      "r": 1592,
+      "freq": 50
+    },
+    {
+      "w": "unique",
+      "r": 1594,
+      "freq": 50
+    },
+    {
+      "w": "association",
+      "r": 1595,
+      "freq": 50
+    },
+    {
+      "w": "instrument",
+      "r": 1596,
+      "freq": 50
+    },
+    {
+      "w": "investor",
+      "r": 1597,
+      "freq": 50
+    },
+    {
+      "w": "practical",
+      "r": 1598,
+      "freq": 50
+    },
+    {
+      "w": "lovely",
+      "r": 1600,
+      "freq": 50
+    },
+    {
+      "w": "soft",
+      "r": 1601,
+      "freq": 50
+    },
+    {
+      "w": "row",
+      "r": 1602,
+      "freq": 50
+    },
+    {
+      "w": "youth",
+      "r": 1603,
+      "freq": 50
+    },
+    {
+      "w": "lock",
+      "r": 1604,
+      "freq": 50
+    },
+    {
+      "w": "fuel",
+      "r": 1605,
+      "freq": 50
+    },
+    {
+      "w": "expectation",
+      "r": 1606,
+      "freq": 50
+    },
+    {
+      "w": "employment",
+      "r": 1607,
+      "freq": 50
+    },
+    {
+      "w": "sexual",
+      "r": 1609,
+      "freq": 50
+    },
+    {
+      "w": "shoulder",
+      "r": 1610,
+      "freq": 50
+    },
+    {
+      "w": "increasingly",
+      "r": 1612,
+      "freq": 50
+    },
+    {
+      "w": "import",
+      "r": 1613,
+      "freq": 50
+    },
+    {
+      "w": "bottle",
+      "r": 1614,
+      "freq": 50
+    },
+    {
+      "w": "ourselves",
+      "r": 1615,
+      "freq": 49
+    },
+    {
+      "w": "sheet",
+      "r": 1616,
+      "freq": 49
+    },
+    {
+      "w": "engine",
+      "r": 1617,
+      "freq": 49
+    },
+    {
+      "w": "cast",
+      "r": 1618,
+      "freq": 49
+    },
+    {
+      "w": "notion",
+      "r": 1619,
+      "freq": 49
+    },
+    {
+      "w": "conservative",
+      "r": 1620,
+      "freq": 49
+    },
+    {
+      "w": "opposition",
+      "r": 1622,
+      "freq": 49
+    },
+    {
+      "w": "relief",
+      "r": 1623,
+      "freq": 49
+    },
+    {
+      "w": "debt",
+      "r": 1624,
+      "freq": 49
+    },
+    {
+      "w": "outcome",
+      "r": 1626,
+      "freq": 49
+    },
+    {
+      "w": "blame",
+      "r": 1627,
+      "freq": 49
+    },
+    {
+      "w": "explanation",
+      "r": 1628,
+      "freq": 49
+    },
+    {
+      "w": "arise",
+      "r": 1629,
+      "freq": 49
+    },
+    {
+      "w": "musical",
+      "r": 1630,
+      "freq": 49
+    },
+    {
+      "w": "recover",
+      "r": 1631,
+      "freq": 49
+    },
+    {
+      "w": "dad",
+      "r": 1632,
+      "freq": 49
+    },
+    {
+      "w": "stretch",
+      "r": 1633,
+      "freq": 49
+    },
+    {
+      "w": "retire",
+      "r": 1635,
+      "freq": 48
+    },
+    {
+      "w": "tiny",
+      "r": 1636,
+      "freq": 48
+    },
+    {
+      "w": "suitable",
+      "r": 1638,
+      "freq": 48
+    },
+    {
+      "w": "native",
+      "r": 1639,
+      "freq": 48
+    },
+    {
+      "w": "analyze",
+      "r": 1641,
+      "freq": 48
+    },
+    {
+      "w": "witness",
+      "r": 1642,
+      "freq": 48
+    },
+    {
+      "w": "mail",
+      "r": 1643,
+      "freq": 48
+    },
+    {
+      "w": "terrible",
+      "r": 1644,
+      "freq": 48
+    },
+    {
+      "w": "researcher",
+      "r": 1645,
+      "freq": 48
+    },
+    {
+      "w": "ordinary",
+      "r": 1646,
+      "freq": 48
+    },
+    {
+      "w": "selection",
+      "r": 1647,
+      "freq": 48
+    },
+    {
+      "w": "anywhere",
+      "r": 1648,
+      "freq": 48
+    },
+    {
+      "w": "mental",
+      "r": 1649,
+      "freq": 48
+    },
+    {
+      "w": "participant",
+      "r": 1650,
+      "freq": 48
+    },
+    {
+      "w": "vision",
+      "r": 1651,
+      "freq": 47
+    },
+    {
+      "w": "personality",
+      "r": 1652,
+      "freq": 47
+    },
+    {
+      "w": "specifically",
+      "r": 1653,
+      "freq": 47
+    },
+    {
+      "w": "fat",
+      "r": 1654,
+      "freq": 47
+    },
+    {
+      "w": "entry",
+      "r": 1655,
+      "freq": 47
+    },
+    {
+      "w": "fellow",
+      "r": 1656,
+      "freq": 47
+    },
+    {
+      "w": "chemical",
+      "r": 1657,
+      "freq": 47
+    },
+    {
+      "w": "capture",
+      "r": 1658,
+      "freq": 47
+    },
+    {
+      "w": "tip",
+      "r": 1659,
+      "freq": 47
+    },
+    {
+      "w": "peak",
+      "r": 1661,
+      "freq": 47
+    },
+    {
+      "w": "chairman",
+      "r": 1662,
+      "freq": 47
+    },
+    {
+      "w": "proportion",
+      "r": 1663,
+      "freq": 47
+    },
+    {
+      "w": "disappear",
+      "r": 1665,
+      "freq": 47
+    },
+    {
+      "w": "shout",
+      "r": 1666,
+      "freq": 47
+    },
+    {
+      "w": "yard",
+      "r": 1667,
+      "freq": 47
+    },
+    {
+      "w": "constant",
+      "r": 1668,
+      "freq": 47
+    },
+    {
+      "w": "significantly",
+      "r": 1669,
+      "freq": 47
+    },
+    {
+      "w": "hill",
+      "r": 1670,
+      "freq": 46
+    },
+    {
+      "w": "considerable",
+      "r": 1671,
+      "freq": 46
+    },
+    {
+      "w": "instruction",
+      "r": 1672,
+      "freq": 46
+    },
+    {
+      "w": "intelligence",
+      "r": 1673,
+      "freq": 46
+    },
+    {
+      "w": "ideal",
+      "r": 1674,
+      "freq": 46
+    },
+    {
+      "w": "folk",
+      "r": 1675,
+      "freq": 46
+    },
+    {
+      "w": "surely",
+      "r": 1676,
+      "freq": 46
+    },
+    {
+      "w": "guard",
+      "r": 1677,
+      "freq": 46
+    },
+    {
+      "w": "somewhat",
+      "r": 1679,
+      "freq": 46
+    },
+    {
+      "w": "kiss",
+      "r": 1680,
+      "freq": 46
+    },
+    {
+      "w": "presentation",
+      "r": 1681,
+      "freq": 46
+    },
+    {
+      "w": "joint",
+      "r": 1682,
+      "freq": 46
+    },
+    {
+      "w": "poll",
+      "r": 1684,
+      "freq": 46
+    },
+    {
+      "w": "faith",
+      "r": 1686,
+      "freq": 46
+    },
+    {
+      "w": "reduction",
+      "r": 1687,
+      "freq": 46
+    },
+    {
+      "w": "reserve",
+      "r": 1688,
+      "freq": 46
+    },
+    {
+      "w": "complaint",
+      "r": 1689,
+      "freq": 46
+    },
+    {
+      "w": "bore",
+      "r": 1690,
+      "freq": 46
+    },
+    {
+      "w": "mission",
+      "r": 1691,
+      "freq": 46
+    },
+    {
+      "w": "somehow",
+      "r": 1692,
+      "freq": 46
+    },
+    {
+      "w": "tone",
+      "r": 1693,
+      "freq": 46
+    },
+    {
+      "w": "neighborhood",
+      "r": 1694,
+      "freq": 46
+    },
+    {
+      "w": "passenger",
+      "r": 1695,
+      "freq": 46
+    },
+    {
+      "w": "justice",
+      "r": 1696,
+      "freq": 46
+    },
+    {
+      "w": "phase",
+      "r": 1697,
+      "freq": 46
+    },
+    {
+      "w": "thin",
+      "r": 1698,
+      "freq": 46
+    },
+    {
+      "w": "rush",
+      "r": 1699,
+      "freq": 45
+    },
+    {
+      "w": "religion",
+      "r": 1701,
+      "freq": 45
+    },
+    {
+      "w": "employer",
+      "r": 1702,
+      "freq": 45
+    },
+    {
+      "w": "reject",
+      "r": 1703,
+      "freq": 45
+    },
+    {
+      "w": "latter",
+      "r": 1704,
+      "freq": 45
+    },
+    {
+      "w": "ban",
+      "r": 1706,
+      "freq": 45
+    },
+    {
+      "w": "steal",
+      "r": 1707,
+      "freq": 45
+    },
+    {
+      "w": "protest",
+      "r": 1708,
+      "freq": 45
+    },
+    {
+      "w": "index",
+      "r": 1709,
+      "freq": 45
+    },
+    {
+      "w": "frequently",
+      "r": 1711,
+      "freq": 45
+    },
+    {
+      "w": "circle",
+      "r": 1712,
+      "freq": 45
+    },
+    {
+      "w": "helpful",
+      "r": 1713,
+      "freq": 45
+    },
+    {
+      "w": "command",
+      "r": 1714,
+      "freq": 45
+    },
+    {
+      "w": "attractive",
+      "r": 1715,
+      "freq": 45
+    },
+    {
+      "w": "sick",
+      "r": 1716,
+      "freq": 45
+    },
+    {
+      "w": "impression",
+      "r": 1717,
+      "freq": 45
+    },
+    {
+      "w": "unable",
+      "r": 1718,
+      "freq": 45
+    },
+    {
+      "w": "joke",
+      "r": 1719,
+      "freq": 45
+    },
+    {
+      "w": "electronic",
+      "r": 1722,
+      "freq": 45
+    },
+    {
+      "w": "criminal",
+      "r": 1724,
+      "freq": 45
+    },
+    {
+      "w": "besides",
+      "r": 1725,
+      "freq": 44
+    },
+    {
+      "w": "properly",
+      "r": 1726,
+      "freq": 44
+    },
+    {
+      "w": "ancient",
+      "r": 1727,
+      "freq": 44
+    },
+    {
+      "w": "ill",
+      "r": 1729,
+      "freq": 44
+    },
+    {
+      "w": "kick",
+      "r": 1730,
+      "freq": 44
+    },
+    {
+      "w": "closely",
+      "r": 1731,
+      "freq": 44
+    },
+    {
+      "w": "multiple",
+      "r": 1732,
+      "freq": 44
+    },
+    {
+      "w": "yield",
+      "r": 1733,
+      "freq": 44
+    },
+    {
+      "w": "via",
+      "r": 1734,
+      "freq": 44
+    },
+    {
+      "w": "legislation",
+      "r": 1735,
+      "freq": 44
+    },
+    {
+      "w": "county",
+      "r": 1736,
+      "freq": 44
+    },
+    {
+      "w": "unlike",
+      "r": 1737,
+      "freq": 44
+    },
+    {
+      "w": "mobile",
+      "r": 1738,
+      "freq": 44
+    },
+    {
+      "w": "assistant",
+      "r": 1739,
+      "freq": 44
+    },
+    {
+      "w": "implement",
+      "r": 1740,
+      "freq": 44
+    },
+    {
+      "w": "chart",
+      "r": 1741,
+      "freq": 44
+    },
+    {
+      "w": "attach",
+      "r": 1742,
+      "freq": 44
+    },
+    {
+      "w": "hell",
+      "r": 1743,
+      "freq": 44
+    },
+    {
+      "w": "everywhere",
+      "r": 1744,
+      "freq": 44
+    },
+    {
+      "w": "advise",
+      "r": 1745,
+      "freq": 44
+    },
+    {
+      "w": "household",
+      "r": 1746,
+      "freq": 44
+    },
+    {
+      "w": "acknowledge",
+      "r": 1747,
+      "freq": 44
+    },
+    {
+      "w": "reward",
+      "r": 1748,
+      "freq": 43
+    },
+    {
+      "w": "east",
+      "r": 1749,
+      "freq": 43
+    },
+    {
+      "w": "hat",
+      "r": 1750,
+      "freq": 43
+    },
+    {
+      "w": "academic",
+      "r": 1751,
+      "freq": 43
+    },
+    {
+      "w": "voter",
+      "r": 1752,
+      "freq": 43
+    },
+    {
+      "w": "meanwhile",
+      "r": 1753,
+      "freq": 43
+    },
+    {
+      "w": "furthermore",
+      "r": 1754,
+      "freq": 43
+    },
+    {
+      "w": "accuse",
+      "r": 1755,
+      "freq": 43
+    },
+    {
+      "w": "scientific",
+      "r": 1756,
+      "freq": 43
+    },
+    {
+      "w": "wage",
+      "r": 1757,
+      "freq": 43
+    },
+    {
+      "w": "absence",
+      "r": 1758,
+      "freq": 43
+    },
+    {
+      "w": "construct",
+      "r": 1759,
+      "freq": 43
+    },
+    {
+      "w": "remark",
+      "r": 1760,
+      "freq": 43
+    },
+    {
+      "w": "medicine",
+      "r": 1761,
+      "freq": 43
+    },
+    {
+      "w": "professor",
+      "r": 1762,
+      "freq": 43
+    },
+    {
+      "w": "rare",
+      "r": 1763,
+      "freq": 43
+    },
+    {
+      "w": "intention",
+      "r": 1764,
+      "freq": 43
+    },
+    {
+      "w": "settlement",
+      "r": 1766,
+      "freq": 43
+    },
+    {
+      "w": "gap",
+      "r": 1767,
+      "freq": 43
+    },
+    {
+      "w": "widely",
+      "r": 1768,
+      "freq": 43
+    },
+    {
+      "w": "minimum",
+      "r": 1769,
+      "freq": 43
+    },
+    {
+      "w": "northern",
+      "r": 1770,
+      "freq": 43
+    },
+    {
+      "w": "estate",
+      "r": 1771,
+      "freq": 43
+    },
+    {
+      "w": "equally",
+      "r": 1772,
+      "freq": 43
+    },
+    {
+      "w": "expose",
+      "r": 1773,
+      "freq": 43
+    },
+    {
+      "w": "alive",
+      "r": 1774,
+      "freq": 43
+    },
+    {
+      "w": "shut",
+      "r": 1775,
+      "freq": 42
+    },
+    {
+      "w": "victory",
+      "r": 1776,
+      "freq": 42
+    },
+    {
+      "w": "resolve",
+      "r": 1777,
+      "freq": 42
+    },
+    {
+      "w": "critic",
+      "r": 1778,
+      "freq": 42
+    },
+    {
+      "w": "variable",
+      "r": 1779,
+      "freq": 42
+    },
+    {
+      "w": "enormous",
+      "r": 1780,
+      "freq": 42
+    },
+    {
+      "w": "sweet",
+      "r": 1781,
+      "freq": 42
+    },
+    {
+      "w": "permanent",
+      "r": 1782,
+      "freq": 42
+    },
+    {
+      "w": "emotion",
+      "r": 1783,
+      "freq": 42
+    },
+    {
+      "w": "pursue",
+      "r": 1784,
+      "freq": 42
+    },
+    {
+      "w": "urge",
+      "r": 1786,
+      "freq": 42
+    },
+    {
+      "w": "enemy",
+      "r": 1787,
+      "freq": 42
+    },
+    {
+      "w": "appoint",
+      "r": 1788,
+      "freq": 42
+    },
+    {
+      "w": "talent",
+      "r": 1790,
+      "freq": 42
+    },
+    {
+      "w": "smell",
+      "r": 1791,
+      "freq": 42
+    },
+    {
+      "w": "prior",
+      "r": 1792,
+      "freq": 42
+    },
+    {
+      "w": "priority",
+      "r": 1793,
+      "freq": 42
+    },
+    {
+      "w": "online",
+      "r": 1794,
+      "freq": 42
+    },
+    {
+      "w": "phrase",
+      "r": 1795,
+      "freq": 42
+    },
+    {
+      "w": "pilot",
+      "r": 1796,
+      "freq": 42
+    },
+    {
+      "w": "stable",
+      "r": 1797,
+      "freq": 42
+    },
+    {
+      "w": "merely",
+      "r": 1798,
+      "freq": 42
+    },
+    {
+      "w": "resolution",
+      "r": 1799,
+      "freq": 42
+    },
+    {
+      "w": "communicate",
+      "r": 1800,
+      "freq": 42
+    },
+    {
+      "w": "injury",
+      "r": 1801,
+      "freq": 41
+    },
+    {
+      "w": "vast",
+      "r": 1802,
+      "freq": 41
+    },
+    {
+      "w": "exhibition",
+      "r": 1803,
+      "freq": 41
+    },
+    {
+      "w": "producer",
+      "r": 1804,
+      "freq": 41
+    },
+    {
+      "w": "regional",
+      "r": 1805,
+      "freq": 41
+    },
+    {
+      "w": "immediate",
+      "r": 1806,
+      "freq": 41
+    },
+    {
+      "w": "incident",
+      "r": 1807,
+      "freq": 41
+    },
+    {
+      "w": "childhood",
+      "r": 1808,
+      "freq": 41
+    },
+    {
+      "w": "slip",
+      "r": 1810,
+      "freq": 41
+    },
+    {
+      "w": "accompany",
+      "r": 1811,
+      "freq": 41
+    },
+    {
+      "w": "politician",
+      "r": 1812,
+      "freq": 41
+    },
+    {
+      "w": "knock",
+      "r": 1814,
+      "freq": 41
+    },
+    {
+      "w": "seed",
+      "r": 1815,
+      "freq": 41
+    },
+    {
+      "w": "salary",
+      "r": 1816,
+      "freq": 41
+    },
+    {
+      "w": "illustrate",
+      "r": 1817,
+      "freq": 41
+    },
+    {
+      "w": "imply",
+      "r": 1818,
+      "freq": 41
+    },
+    {
+      "w": "breakfast",
+      "r": 1819,
+      "freq": 41
+    },
+    {
+      "w": "temporary",
+      "r": 1820,
+      "freq": 41
+    },
+    {
+      "w": "liberal",
+      "r": 1821,
+      "freq": 41
+    },
+    {
+      "w": "qualify",
+      "r": 1823,
+      "freq": 41
+    },
+    {
+      "w": "competitive",
+      "r": 1824,
+      "freq": 41
+    },
+    {
+      "w": "truly",
+      "r": 1825,
+      "freq": 41
+    },
+    {
+      "w": "habit",
+      "r": 1828,
+      "freq": 41
+    },
+    {
+      "w": "disk",
+      "r": 1829,
+      "freq": 41
+    },
+    {
+      "w": "core",
+      "r": 1830,
+      "freq": 41
+    },
+    {
+      "w": "emotional",
+      "r": 1831,
+      "freq": 41
+    },
+    {
+      "w": "aircraft",
+      "r": 1832,
+      "freq": 40
+    },
+    {
+      "w": "self",
+      "r": 1833,
+      "freq": 40
+    },
+    {
+      "w": "metal",
+      "r": 1834,
+      "freq": 40
+    },
+    {
+      "w": "existence",
+      "r": 1835,
+      "freq": 40
+    },
+    {
+      "w": "bone",
+      "r": 1836,
+      "freq": 40
+    },
+    {
+      "w": "panel",
+      "r": 1837,
+      "freq": 40
+    },
+    {
+      "w": "prime",
+      "r": 1838,
+      "freq": 40
+    },
+    {
+      "w": "appointment",
+      "r": 1839,
+      "freq": 40
+    },
+    {
+      "w": "emphasize",
+      "r": 1840,
+      "freq": 40
+    },
+    {
+      "w": "maximum",
+      "r": 1841,
+      "freq": 40
+    },
+    {
+      "w": "effectively",
+      "r": 1842,
+      "freq": 40
+    },
+    {
+      "w": "elsewhere",
+      "r": 1843,
+      "freq": 40
+    },
+    {
+      "w": "bother",
+      "r": 1844,
+      "freq": 40
+    },
+    {
+      "w": "initiative",
+      "r": 1845,
+      "freq": 40
+    },
+    {
+      "w": "sharp",
+      "r": 1846,
+      "freq": 40
+    },
+    {
+      "w": "diet",
+      "r": 1847,
+      "freq": 40
+    },
+    {
+      "w": "motion",
+      "r": 1848,
+      "freq": 40
+    },
+    {
+      "w": "gray",
+      "r": 1849,
+      "freq": 40
+    },
+    {
+      "w": "plastic",
+      "r": 1850,
+      "freq": 40
+    },
+    {
+      "w": "complicate",
+      "r": 1851,
+      "freq": 40
+    },
+    {
+      "w": "disappoint",
+      "r": 1853,
+      "freq": 40
+    },
+    {
+      "w": "boss",
+      "r": 1854,
+      "freq": 40
+    },
+    {
+      "w": "assumption",
+      "r": 1855,
+      "freq": 40
+    },
+    {
+      "w": "freeze",
+      "r": 1856,
+      "freq": 40
+    },
+    {
+      "w": "extreme",
+      "r": 1857,
+      "freq": 40
+    },
+    {
+      "w": "passage",
+      "r": 1858,
+      "freq": 40
+    },
+    {
+      "w": "reputation",
+      "r": 1859,
+      "freq": 40
+    },
+    {
+      "w": "forth",
+      "r": 1860,
+      "freq": 40
+    },
+    {
+      "w": "negotiation",
+      "r": 1861,
+      "freq": 40
+    },
+    {
+      "w": "mechanism",
+      "r": 1862,
+      "freq": 39
+    },
+    {
+      "w": "coat",
+      "r": 1863,
+      "freq": 39
+    },
+    {
+      "w": "democracy",
+      "r": 1864,
+      "freq": 39
+    },
+    {
+      "w": "pocket",
+      "r": 1865,
+      "freq": 39
+    },
+    {
+      "w": "observation",
+      "r": 1868,
+      "freq": 39
+    },
+    {
+      "w": "meat",
+      "r": 1869,
+      "freq": 39
+    },
+    {
+      "w": "concentration",
+      "r": 1870,
+      "freq": 39
+    },
+    {
+      "w": "implication",
+      "r": 1871,
+      "freq": 39
+    },
+    {
+      "w": "unusual",
+      "r": 1873,
+      "freq": 39
+    },
+    {
+      "w": "classic",
+      "r": 1875,
+      "freq": 39
+    },
+    {
+      "w": "king",
+      "r": 1876,
+      "freq": 39
+    },
+    {
+      "w": "interaction",
+      "r": 1877,
+      "freq": 39
+    },
+    {
+      "w": "repair",
+      "r": 1878,
+      "freq": 39
+    },
+    {
+      "w": "borrow",
+      "r": 1880,
+      "freq": 39
+    },
+    {
+      "w": "fundamental",
+      "r": 1881,
+      "freq": 39
+    },
+    {
+      "w": "dish",
+      "r": 1882,
+      "freq": 39
+    },
+    {
+      "w": "abroad",
+      "r": 1883,
+      "freq": 39
+    },
+    {
+      "w": "soul",
+      "r": 1884,
+      "freq": 39
+    },
+    {
+      "w": "presidential",
+      "r": 1887,
+      "freq": 39
+    },
+    {
+      "w": "perfectly",
+      "r": 1888,
+      "freq": 39
+    },
+    {
+      "w": "emergency",
+      "r": 1891,
+      "freq": 39
+    },
+    {
+      "w": "educational",
+      "r": 1892,
+      "freq": 39
+    },
+    {
+      "w": "distinguish",
+      "r": 1893,
+      "freq": 39
+    },
+    {
+      "w": "substantial",
+      "r": 1894,
+      "freq": 39
+    },
+    {
+      "w": "nearby",
+      "r": 1895,
+      "freq": 38
+    },
+    {
+      "w": "manufacturer",
+      "r": 1896,
+      "freq": 38
+    },
+    {
+      "w": "slide",
+      "r": 1897,
+      "freq": 38
+    },
+    {
+      "w": "valuable",
+      "r": 1898,
+      "freq": 38
+    },
+    {
+      "w": "personally",
+      "r": 1899,
+      "freq": 38
+    },
+    {
+      "w": "breast",
+      "r": 1900,
+      "freq": 38
+    },
+    {
+      "w": "cope",
+      "r": 1901,
+      "freq": 38
+    },
+    {
+      "w": "approximately",
+      "r": 1902,
+      "freq": 38
+    },
+    {
+      "w": "accommodation",
+      "r": 1903,
+      "freq": 38
+    },
+    {
+      "w": "highlight",
+      "r": 1904,
+      "freq": 38
+    },
+    {
+      "w": "reporter",
+      "r": 1905,
+      "freq": 38
+    },
+    {
+      "w": "shirt",
+      "r": 1907,
+      "freq": 38
+    },
+    {
+      "w": "exception",
+      "r": 1908,
+      "freq": 38
+    },
+    {
+      "w": "corporation",
+      "r": 1909,
+      "freq": 38
+    },
+    {
+      "w": "chip",
+      "r": 1910,
+      "freq": 38
+    },
+    {
+      "w": "winner",
+      "r": 1911,
+      "freq": 38
+    },
+    {
+      "w": "excuse",
+      "r": 1915,
+      "freq": 38
+    },
+    {
+      "w": "partly",
+      "r": 1916,
+      "freq": 38
+    },
+    {
+      "w": "tennis",
+      "r": 1917,
+      "freq": 38
+    },
+    {
+      "w": "urban",
+      "r": 1918,
+      "freq": 38
+    },
+    {
+      "w": "southern",
+      "r": 1920,
+      "freq": 38
+    },
+    {
+      "w": "output",
+      "r": 1921,
+      "freq": 38
+    },
+    {
+      "w": "beauty",
+      "r": 1922,
+      "freq": 38
+    },
+    {
+      "w": "massive",
+      "r": 1923,
+      "freq": 38
+    },
+    {
+      "w": "install",
+      "r": 1924,
+      "freq": 38
+    },
+    {
+      "w": "calculate",
+      "r": 1925,
+      "freq": 38
+    },
+    {
+      "w": "mathematics",
+      "r": 1927,
+      "freq": 38
+    },
+    {
+      "w": "upper",
+      "r": 1928,
+      "freq": 38
+    },
+    {
+      "w": "creation",
+      "r": 1929,
+      "freq": 38
+    },
+    {
+      "w": "occupy",
+      "r": 1930,
+      "freq": 38
+    },
+    {
+      "w": "outline",
+      "r": 1931,
+      "freq": 38
+    },
+    {
+      "w": "sufficient",
+      "r": 1932,
+      "freq": 38
+    },
+    {
+      "w": "update",
+      "r": 1933,
+      "freq": 38
+    },
+    {
+      "w": "luck",
+      "r": 1934,
+      "freq": 38
+    },
+    {
+      "w": "preserve",
+      "r": 1935,
+      "freq": 38
+    },
+    {
+      "w": "split",
+      "r": 1936,
+      "freq": 38
+    },
+    {
+      "w": "swing",
+      "r": 1937,
+      "freq": 38
+    },
+    {
+      "w": "illness",
+      "r": 1938,
+      "freq": 38
+    },
+    {
+      "w": "journalist",
+      "r": 1939,
+      "freq": 38
+    },
+    {
+      "w": "sudden",
+      "r": 1940,
+      "freq": 38
+    },
+    {
+      "w": "advertisement",
+      "r": 1941,
+      "freq": 38
+    },
+    {
+      "w": "consistent",
+      "r": 1942,
+      "freq": 38
+    },
+    {
+      "w": "originally",
+      "r": 1943,
+      "freq": 37
+    },
+    {
+      "w": "aside",
+      "r": 1944,
+      "freq": 37
+    },
+    {
+      "w": "secondly",
+      "r": 1946,
+      "freq": 37
+    },
+    {
+      "w": "severe",
+      "r": 1947,
+      "freq": 37
+    },
+    {
+      "w": "gene",
+      "r": 1948,
+      "freq": 37
+    },
+    {
+      "w": "prospect",
+      "r": 1949,
+      "freq": 37
+    },
+    {
+      "w": "plot",
+      "r": 1951,
+      "freq": 37
+    },
+    {
+      "w": "neck",
+      "r": 1952,
+      "freq": 37
+    },
+    {
+      "w": "criteria",
+      "r": 1953,
+      "freq": 37
+    },
+    {
+      "w": "primarily",
+      "r": 1954,
+      "freq": 37
+    },
+    {
+      "w": "integrate",
+      "r": 1955,
+      "freq": 37
+    },
+    {
+      "w": "criticism",
+      "r": 1956,
+      "freq": 37
+    },
+    {
+      "w": "convention",
+      "r": 1957,
+      "freq": 37
+    },
+    {
+      "w": "bet",
+      "r": 1958,
+      "freq": 37
+    },
+    {
+      "w": "retain",
+      "r": 1959,
+      "freq": 37
+    },
+    {
+      "w": "sequence",
+      "r": 1960,
+      "freq": 37
+    },
+    {
+      "w": "plain",
+      "r": 1961,
+      "freq": 37
+    },
+    {
+      "w": "volunteer",
+      "r": 1962,
+      "freq": 37
+    },
+    {
+      "w": "rural",
+      "r": 1963,
+      "freq": 37
+    },
+    {
+      "w": "abandon",
+      "r": 1965,
+      "freq": 37
+    },
+    {
+      "w": "examination",
+      "r": 1966,
+      "freq": 37
+    },
+    {
+      "w": "silence",
+      "r": 1967,
+      "freq": 37
+    },
+    {
+      "w": "rapidly",
+      "r": 1968,
+      "freq": 37
+    },
+    {
+      "w": "revolution",
+      "r": 1970,
+      "freq": 36
+    },
+    {
+      "w": "delight",
+      "r": 1971,
+      "freq": 36
+    },
+    {
+      "w": "spell",
+      "r": 1972,
+      "freq": 36
+    },
+    {
+      "w": "premise",
+      "r": 1973,
+      "freq": 36
+    },
+    {
+      "w": "lean",
+      "r": 1974,
+      "freq": 36
+    },
+    {
+      "w": "dramatic",
+      "r": 1975,
+      "freq": 36
+    },
+    {
+      "w": "differ",
+      "r": 1976,
+      "freq": 36
+    },
+    {
+      "w": "protein",
+      "r": 1978,
+      "freq": 36
+    },
+    {
+      "w": "bike",
+      "r": 1979,
+      "freq": 36
+    },
+    {
+      "w": "distribute",
+      "r": 1980,
+      "freq": 36
+    },
+    {
+      "w": "intellectual",
+      "r": 1981,
+      "freq": 36
+    },
+    {
+      "w": "unemployment",
+      "r": 1984,
+      "freq": 36
+    },
+    {
+      "w": "wheel",
+      "r": 1985,
+      "freq": 36
+    },
+    {
+      "w": "crop",
+      "r": 1986,
+      "freq": 36
+    },
+    {
+      "w": "minority",
+      "r": 1987,
+      "freq": 36
+    },
+    {
+      "w": "origin",
+      "r": 1988,
+      "freq": 36
+    },
+    {
+      "w": "interpretation",
+      "r": 1989,
+      "freq": 36
+    },
+    {
+      "w": "gentleman",
+      "r": 1990,
+      "freq": 36
+    },
+    {
+      "w": "drama",
+      "r": 1991,
+      "freq": 36
+    },
+    {
+      "w": "landscape",
+      "r": 1992,
+      "freq": 36
+    },
+    {
+      "w": "educate",
+      "r": 1993,
+      "freq": 36
+    },
+    {
+      "w": "toy",
+      "r": 1994,
+      "freq": 36
+    },
+    {
+      "w": "exhibit",
+      "r": 1996,
+      "freq": 36
+    },
+    {
+      "w": "minor",
+      "r": 1997,
+      "freq": 36
+    },
+    {
+      "w": "storm",
+      "r": 1999,
+      "freq": 36
+    },
+    {
+      "w": "thick",
+      "r": 2000,
+      "freq": 36
+    }
+  ]
+}

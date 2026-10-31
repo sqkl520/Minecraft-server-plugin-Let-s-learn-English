@@ -81,12 +81,35 @@
 
 | 项目 | 最低要求 | 推荐配置 |
 |------|---------|---------|
-| **服务端核心** | Paper 1.21+（不保证 Spigot 兼容） | Paper 1.21.4（开发与测试版本） |
-| **API 版本** | 1.21 | 1.21.4 |
-| **Java 版本** | Java 21 | Java 21 |
-| **操作系统** | Windows / Linux / macOS | Linux (推荐) |
+| **服务端核心** | Paper 1.21.4（不保证 Spigot 兼容） | Paper 1.21.4 – 1.21.11 或 26.1+，见下方选包表 |
+| **API 版本** | 1.21（`-mc26` 包为 26.1） | 同上 |
+| **Java 版本** | Java 21（`-mc26` 包需 Java 25） | 同上 |
 
-> `plugin.yml` 中 `api-version: "1.21"`；`VersionAdapter` 的运行期版本判定范围为 1.18.x–1.21.x（超出会提示不受支持）。注意该判定只是版本号数字比较，不代表 1.18–1.20 真能运行——插件编译目标为 Paper 1.21.4 API。
+### 两个产物，按服务端版本选一个
+
+本项目发布**两个 JAR**，源码相同、只是编译目标不同：
+
+| 产物 | 支持的服务端 | 需要的 Java | 说明 |
+|---|---|---|---|
+| `Let's Learn English!-<版本>.jar` | **MC 1.21.4 – 1.21.11** | **Java 21+** | 用 paper-api 1.21.4 编译。普适包，绝大多数服主用这个 |
+| `Let's Learn English!-<版本>-mc26.jar` | **MC 26.1+**（含 26.2 / 26.3 / 26.4…） | **Java 25+** | 用 paper-api 26.3 编译。**26.x 服务端必须用这个包** |
+
+**为什么必须分成两个**：Paper 的 API 是编译期绑定的。用 1.21.4 的 API 编出来的代码，
+虽然能在 26.x 的 JVM 上加载运行（实测：1.21.4 编出的 JAR 放进 26.3 的 classpath，
+插件主类 78 个方法全部解析成功），但它**用不到 26.x 新增的 API**；反过来，用 26.x 的
+API 编译又要求构建机装 JDK 25。
+
+**装错包的典型症状**：
+- 在 26.x 服务端装普通包 → 大概率能启动，但若插件某处触发 26.x 才修正的行为，可能报错
+- 在 1.21.x 服务端装 `-mc26` 包 → 服务端直接拒绝加载（`api-version: 26.1` 高于服务端版本）
+
+> `plugin.yml` 中 `api-version` 由构建 profile 注入：普通包 `"1.21"`、`-mc26` 包 `"26.1"`。
+> `VersionAdapter` 的运行期判定范围为 **1.21.4 – 1.21.11**；在 26.x 上它会把版本识别为
+> 「年份式」，并提示「需 Java 25 / 请确认使用了 -mc26 包」。
+>
+> **未经实测的部分**：`-mc26` 包的 `api-version` 定在 `26.1` 是根据「26.1–26.3 属同一代
+> API、只做加法」推断的，手上只有 26.3 的 jar 可核对，没有 26.1 的真实服务端可跑。
+> 若在 26.1 上遇到问题，请反馈。
 >
 > **为什么只保证 Paper**：代码直接使用了 Paper 专属 API——Adventure 的 `net.kyori.adventure.text.Component` / `Title` / `LegacyComponentSerializer`（`AchievementManager.java`、`OnboardingManager.java`、`VersionAdapter.java:58`）与 Paper 的 `Server#getMinecraftVersion()`（`LetsLearnEnglish.java:143`、`VersionAdapter.java:25`）。这些在 Spigot 上不存在，加载即 NoSuchMethodError / NoClassDefFoundError，因此不能用 Spigot 1.21 运行。
 
@@ -918,13 +941,26 @@ database:
 1. 停止服务器
 2. 进入 `plugins/LetsLearnEnglish/backups/` 目录
 3. 找到最新的备份文件（按时间戳命名）
-4. 将备份文件复制覆盖 `playerdata.db`:
+4. **先删掉旧的 `-wal` / `-shm` 副文件**，再覆盖主库：
    ```bash
+   rm -f playerdata.db-wal playerdata.db-shm
    cp backups/playerdata.db.20260601-143022.bak playerdata.db
    ```
 5. 重启服务器
 
-> 备份机制自带完整性校验：备份复制前会执行 `PRAGMA wal_checkpoint(TRUNCATE)` 落盘 WAL，复制后执行 `PRAGMA quick_check`，校验失败会自动删除该备份文件并告警（避免生成损坏备份）。
+> **为什么第 4 步是硬性要求（WAL 模式）**：本插件启动时会把 SQLite 切到
+> `journal_mode=WAL`（写不阻塞读，性能提升数倍）。WAL 模式下**数据库不止 `.db` 一个文件**——
+> 还没合并回主库的事务躺在 `playerdata.db-wal` 里。如果只覆盖 `.db` 而留下旧 `-wal`，
+> 重启时 SQLite 会把那份**旧的** WAL 重放进你刚恢复的库，于是"恢复到备份点"这件事
+> **静默失败**：你想回滚掉的数据会重新出现，且没有任何报错。
+>
+> 更稳的做法是用 SQLite 自带的备份命令（它会正确处理 WAL）：
+> ```bash
+> sqlite3 playerdata.db ".backup 'playerdata.db.restored'"
+> ```
+>
+> 备份机制自带完整性校验：生成备份用 `VACUUM INTO`（WAL 安全，产出的是一份自洽快照），
+> 之后执行 `PRAGMA quick_check`，校验失败会自动删除该备份文件并告警。
 
 ### 6.7 内存溢出
 
@@ -1016,7 +1052,10 @@ stop
 cd plugins/LetsLearnEnglish/
 
 # 2. 先备份（VACUUM 中途磁盘满可能损坏文件，备份是硬性前置）
-cp playerdata.db playerdata.db.bak
+#    注意：WAL 模式下主库不是单个 .db 文件。停服后再做一次 checkpoint 把 WAL 合并回主库，
+#    否则下面的 VACUUM 与备份只覆盖到主库的一部分内容。
+sqlite3 playerdata.db "PRAGMA wal_checkpoint(TRUNCATE);"
+sqlite3 playerdata.db ".backup 'playerdata.db.bak'"
 
 # 3. 就地整理：PRAGMA optimize 刷新查询规划器统计，VACUUM 重建文件回收空闲页
 sqlite3 playerdata.db "PRAGMA optimize; VACUUM;"

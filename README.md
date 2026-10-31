@@ -142,7 +142,11 @@ SQLite 的 `DELETE` / `UPDATE` 只把页面标记为可复用，**不会把空�
 插件为此提供了 `DatabaseManager.runMaintenance()`（`PRAGMA optimize` + `VACUUM`），**当前版本尚未暴露为游戏内命令**，是给未来的 `/lea maintenance` 与运维脚本预留的入口。手动整理的做法：
 
 1. 停服（或至少确认没有备份任务在跑）
-2. 进入 `plugins/LetsLearnEnglish/`，先备份：`cp playerdata.db playerdata.db.bak`
+2. 进入 `plugins/LetsLearnEnglish/`，先备份。**注意：插件启用了 WAL 模式，数据库不是单个 `.db` 文件**——必须先 checkpoint 再用 SQLite 自己的备份命令，直接 `cp playerdata.db` 会漏掉还在 WAL 里的未合并事务：
+   ```bash
+   sqlite3 playerdata.db "PRAGMA wal_checkpoint(TRUNCATE);"
+   sqlite3 playerdata.db ".backup 'playerdata.db.bak'"
+   ```
 3. 用 SQLite 命令行整理，再校验：
    ```bash
    sqlite3 playerdata.db "PRAGMA optimize; VACUUM;"
@@ -154,7 +158,10 @@ SQLite 的 `DELETE` / `UPDATE` 只把页面标记为可复用，**不会把空�
 
 ## 依赖
 
-- Paper 1.21+（开发与测试基于 1.21.4；不保证 Spigot 兼容）
+- Paper **1.21.4 – 1.21.11**（用 `Let's Learn English!-<ver>.jar`，需 **Java 21+**）
+- Paper **26.1+**（用 `Let's Learn English!-<ver>-mc26.jar`，需 **Java 25+**）
+- 两个包源码相同、仅编译目标不同；在 26.x 上装普通包、或在 1.21.x 上装 `-mc26` 包都会出问题，详见 `DEPLOYMENT_WIKI.md`
+- 不保证 Spigot 兼容
 - Java 21
 - 可选：Vault（金币奖励）、PlaceholderAPI（`%lle_*%` 占位符）
 
