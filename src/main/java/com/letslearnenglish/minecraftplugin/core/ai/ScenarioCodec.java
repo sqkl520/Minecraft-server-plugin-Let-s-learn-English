@@ -43,7 +43,7 @@ public class ScenarioCodec {
             //
             // 原实现 new String(bytes, UTF_8) 用的是 REPLACE 策略：损坏字节被换成 U+FFFD
             // 后「解码成功」，于是半截/篡改的分享码会被当成合法场景导入并落盘 —— 玩家看到的
-            // 是一段带 `�` 的乱码提示词，而不是「分享码已损坏」。
+            // 是一段带 `�` 的乱码提示词，而不是「分享码已损坏」。  // enc-guard-allow: 描述 U+FFFD 本身
             String payload;
             try {
                 payload = StandardCharsets.UTF_8.newDecoder()

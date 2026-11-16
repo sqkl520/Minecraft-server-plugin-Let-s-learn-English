@@ -74,7 +74,7 @@ public class VersionAdapter {
         boolean yearBased = false;
         try {
             // 用 '.' 字符类而不是 "\." 转义 —— 两种写法等价，但字符类少一层转义、
-            // 不会被各种工具链的转义规则吃掉反斜杠（本轮就被坑过��次）。
+            // 不会被各种工具链的转义规则吃掉反斜杠（本轮就被坑过一次）。
             String[] parts = version.split("[.]");
             int first = parts.length > 0
                     ? Integer.parseInt(parts[0].replaceAll("[^0-9].*$", "")) : -1;

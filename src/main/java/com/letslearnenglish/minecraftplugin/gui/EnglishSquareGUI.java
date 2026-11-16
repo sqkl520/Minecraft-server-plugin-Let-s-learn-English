@@ -354,6 +354,13 @@ public class EnglishSquareGUI {
         // 否则「先点的第 2 页」可能比「后点的第 3 页」晚落地，把屏幕拽回上一页。
         final long token = OPEN_SEQ.incrementAndGet();
         OPEN_SEQ_BY_PLAYER.put(viewerId, token);
+        // R20-GUI2 守卫三：玩家在异步窗口内「关界面但仍在线」时必须放弃本次渲染。
+        // 与 token/在线复检并列的第三种独立失效方式：数据回来时无脑 openInventory 会让
+        // 界面自己弹回来（玩家 ESC 后去点别的，屏幕却被盖回去）。判据必须是
+        // <b>holder 引用相等</b> —— 本仓库硬纪律：身份只认 holder，绝不比标题
+        //（标题带本地化文案 + "{page}/{total}" 后缀，改文案/切语言即静默失效）。
+        // 照 {@code AchievementWallGUI#stillOnRequestedScreen} 同式。
+        final PluginGuiHolder arrivalHolder = pluginGuiHolderOf(viewer);
 
         BukkitScheduler scheduler = Bukkit.getScheduler();
         if (scheduler == null) {
@@ -402,6 +409,10 @@ public class EnglishSquareGUI {
                     if (!viewer.isOnline()) return;
                     // E1 token：已有更新的打开请求（翻页/切模式/返回），本次作废。
                     if (OPEN_SEQ_BY_PLAYER.getOrDefault(viewerId, -1L) != token) return;
+                    // 守卫三：玩家已关掉界面（仍在线）→ 不把界面强行弹回来。
+                    // 放弃渲染同时意味着快照保持「未渲染」（PAGE_UNRENDERED），点击侧
+                    // 因此不会复用空白快照，而是按屏幕页码从 DB 重建本页（既有分支）。
+                    if (!stillOnArrivalScreen(viewer, arrivalHolder)) return;
                     renderSquare(viewer, effectiveMode, data, layout, leaderboardEnabled,
                             socialEnabled, messages);
                 });
@@ -775,6 +786,40 @@ public class EnglishSquareGUI {
     /** 取数失败的玩家提示（必须主线程调用）。 */
     private void notifyLoadFailed(Player viewer) {
         viewer.sendMessage(plugin.getMessageUtil().getPlayerMessage(viewer, "daily.load-failed"));
+    }
+
+    /**
+     * R20-GUI2 守卫三：玩家是否仍停在「请求发起时那张界面」上。
+     *
+     * <p><b>为什么必须是 holder 引用相等</b>：见 {@code GuiViewKey} 契约 —— 本仓库的界面
+     * 身份唯一来源是 {@link PluginGuiHolder}，标题不参与任何判定。标题是
+     * {@code square.title} + 模式标签 + {@code {page}/{total}} 后缀，既证明不了
+     * 「还是那张屏幕」，也会在管理员改文案 / 玩家切语言后静默失效。
+     * 照 {@code AchievementWallGUI#stillOnRequestedScreen} 同式。
+     *
+     * <p>{@code null == null} 通过是正确的：命令直达时玩家不在插件界面，发起与回填
+     * 两侧都是 null，身份一致（比的是「期间有没有换屏幕」，不是 payload）。
+     *
+     * @param viewer        打开者
+     * @param arrivalHolder 请求发起时其界面 holder（可为 null = 当时不在插件界面）
+     * @return 仍然是同一张界面（或同样都不在插件界面）时 true
+     */
+    private static boolean stillOnArrivalScreen(Player viewer, PluginGuiHolder arrivalHolder) {
+        return pluginGuiHolderOf(viewer) == arrivalHolder;
+    }
+
+    /**
+     * 取玩家当前打开界面的 {@link PluginGuiHolder}；不是插件界面（或没有界面）时返回 null。
+     *
+     * <p>只认 {@code instanceof PluginGuiHolder}，因此玩家背包（holder 是 {@code Player}）
+     * 与原版容器（自己的 holder）一律归为 null —— 不参与身份比较。
+     */
+    private static PluginGuiHolder pluginGuiHolderOf(Player viewer) {
+        if (viewer == null) return null;
+        var view = viewer.getOpenInventory();
+        if (view == null) return null;
+        Inventory top = view.getTopInventory();
+        return (top != null && top.getHolder() instanceof PluginGuiHolder holder) ? holder : null;
     }
 
     /** 日志辅助：{@code plugin.getLogger()} 在纯 JVM 单测的 mock 插件上可能为 null。 */

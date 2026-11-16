@@ -147,6 +147,16 @@ public class WrongBookGUI {
         // 连点/翻页竞态：后发起者胜（旧请求回主线程 render 前比对失败即作废）。
         final long token = OPEN_SEQ.incrementAndGet();
         OPEN_SEQ_BY_PLAYER.put(playerId, token);
+        // 守卫三（R20-GUI2）：玩家在异步窗口内「关界面但仍在线」时必须放弃本次渲染。
+        // 与 token/在线复检是三种独立失效方式，缺任一条都能实测复现：
+        //   · 下线 → 界面无处可开（isOnline 拦）；
+        //   · 连点 → 旧请求晚落地拽回上一页（token 拦）；
+        //   · <b>关界面（仍在线）</b> → 数据回来时无脑 openInventory，界面自己弹回来。
+        // 判据必须是 <b>holder 引用相等</b>（本仓库硬纪律：身份只认 holder，绝不比标题）。
+        // 请求发起时记下玩家所在界面的 holder，回填前重取；不是同一个实例 = 玩家已离开
+        // 那张屏幕（关掉 / 进了别的插件界面 / 回了自己背包），放弃本次打开。
+        // 照 {@code AchievementWallGUI#stillOnRequestedScreen} 同式。
+        final PluginGuiHolder arrivalHolder = pluginGuiHolderOf(player);
 
         BukkitScheduler scheduler = Bukkit.getScheduler();
         if (scheduler == null) {
@@ -189,6 +199,8 @@ public class WrongBookGUI {
                     if (!player.isOnline()) return;
                     // 连点/翻页竞态：已有更新的打开请求（翻页、删词重开），本次作废。
                     if (OPEN_SEQ_BY_PLAYER.getOrDefault(playerId, -1L) != token) return;
+                    // 守卫三：玩家已关掉界面（仍在线）→ 不把界面强行弹回来。
+                    if (!stillOnArrivalScreen(player, arrivalHolder)) return;
                     render(player, entries, safePage, totalPages);
                 });
             });
@@ -263,12 +275,52 @@ public class WrongBookGUI {
      * <p>三件事必须一起做：① 在线复检（异步窗口内玩家可能已下线）；② token 复检
      * （已有更新的打开请求时，这条陈旧提示不该弹）；③ 只发文案、<b>不开界面</b> ——
      * 与旧同步实现逐字一致。
+     *
+     * <p>注意这里<b>不做</b> holder 守卫：失败提示是「你那一下没成功」的反馈，
+     * 玩家即便已关界面也该知道（与 {@code AchievementWallGUI#notifyLoadFailed} 同口径）。
+     * 守卫只用于拦「强行打开界面」。
      */
     private void notifyLoadFailed(Player player, UUID playerId, long token) {
         logWarning("Failed to load wrong book for " + playerId);
         if (!player.isOnline()) return;
         if (OPEN_SEQ_BY_PLAYER.getOrDefault(playerId, -1L) != token) return;
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "daily.load-failed"));
+    }
+
+    /**
+     * R20-GUI2 守卫三：玩家是否仍停在「请求发起时那张界面」上。
+     *
+     * <p><b>为什么必须是 holder 引用相等</b>：本仓库的界面身份唯一来源是
+     * {@link PluginGuiHolder}（{@code GuiViewKey} 契约：标题不参与任何判定）。标题是
+     * 本地化文案 + 动态页码后缀，既证明不了「还是那张屏幕」，也在管理员改文案/切语言时
+     * 静默失效。此处同理 —— 比标题等于给自己埋一个「改了 lang 文件后界面就学会自己弹回来」
+     * 的坑。
+     *
+     * <p>{@code null == null} 是<b>正确</b>的通过：玩家从自己背包（无插件 holder）里
+     * 触发打开时（例如命令直达），发起与回填两侧都没有插件界面，身份一致。
+     * 这和「两个都是 null 所以不知道」不同 —— 我们比的不是 payload，而是「期间有没有换屏幕」。
+     *
+     * @param player        打开者
+     * @param arrivalHolder 请求发起时其界面 holder（可为 null = 当时不在插件界面）
+     * @return 仍然是同一张界面（或同样都不在插件界面）时 true
+     */
+    private static boolean stillOnArrivalScreen(Player player, PluginGuiHolder arrivalHolder) {
+        return pluginGuiHolderOf(player) == arrivalHolder;
+    }
+
+    /**
+     * 取玩家当前打开界面的 {@link PluginGuiHolder}；不是插件界面（或没有界面）时返回 null。
+     *
+     * <p>只认 {@code instanceof PluginGuiHolder}，因此玩家背包（holder 是 {@code Player}）
+     * 与原版容器（自己的 holder）一律归为 null —— 不参与身份比较。
+     * 照 {@code AchievementWallGUI#pluginGuiHolderOf} 同式。
+     */
+    private static PluginGuiHolder pluginGuiHolderOf(Player player) {
+        if (player == null) return null;
+        var view = player.getOpenInventory();
+        if (view == null) return null;
+        Inventory top = view.getTopInventory();
+        return (top != null && top.getHolder() instanceof PluginGuiHolder holder) ? holder : null;
     }
 
     /**

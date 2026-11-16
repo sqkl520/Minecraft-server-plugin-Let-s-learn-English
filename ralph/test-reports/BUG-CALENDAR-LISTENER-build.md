@@ -1,2 +1,0 @@
-# 编译测试报告 BUG-CALENDAR-LISTENER
-### 判定：PASS

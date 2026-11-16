@@ -43,3 +43,12 @@ javac.*.args
 
 # Claude Code agent state (belongs in the parent dir, not the source repo)
 .claude/
+
+# ---- 内部工作记录（不随源码发布） ----
+# tasks/ 与 ralph/ 是施工期的过程档案：Phase 计划、验收报告、dev-findings、
+# 锐评原稿、以及大量对用户的直接引述（"用户原话：..."）。
+# rules/project_rules.md 的上传清单只列了 5 项（Java 源码 / pom / README / CHANGELOG /
+# LICENSE），这两个目录不在其中；它们对任何外部读者都没有意义，却会暴露内部流程细节。
+# 保留在本地磁盘上（git rm --cached 而非 rm），需要时仍可查阅。
+tasks/
+ralph/
