@@ -1,10 +1,102 @@
 [English](README-EN.md) | 简体中文
 
-> ⚠️ **这是一个初中生用AI做的插件，有任何问题建议欢迎提交Issues，如果您喜欢这个项目，就收藏关注一下吧！**
+# Let's Learn English!
 
-# Let's Learn English! —— Minecraft 英语学习插件
+**在 Minecraft 服务器里学英语：玩家不需要装任何客户端 mod，服主装一个插件就能开课。**
+答题学词 → 间隔复习 → AI 情景对话 → 老师出学习报告，四件事都在游戏内完成。
 
-一个面向懒人的 Minecraft 服务器插件，让你在游戏中强制学习英语。
+[![Build & Verify](https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/actions/workflows/build.yml/badge.svg)](https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/actions/workflows/build.yml)
+[![Latest release](https://img.shields.io/github/v/release/sqkl520/Minecraft-server-plugin-Let-s-learn-English?display_name=tag&sort=semver)](https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/releases/latest)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
+
+---
+
+## 快速开始
+
+### 1. 按你的服务端版本选 JAR
+
+**下错包装不上。** 本项目发布两个包，源码相同、编译目标不同：
+
+| 你的服务端 | 下载 | 需要 |
+|---|---|---|
+| **MC 1.21.4 – 1.21.11** | `Let.s.Learn.English.-<版本>.jar` | **Java 21+** |
+| **MC 26.1+**（26.2 / 26.3 / 26.4…） | `Let.s.Learn.English.-<版本>-mc26.jar` | **Java 25+** |
+
+### 2. 装上去
+
+```bash
+# 把 JAR 放进服务端插件目录
+cp Let.s.Learn.English.-1.0.7.jar /path/to/server/plugins/
+
+# 重启服务端（不要用 /reload）
+```
+
+### 3. 确认装对了
+
+游戏内执行：
+
+```
+/lea info
+```
+
+会打印版本、服务端版本兼容性、数据库类型。若版本一行写着 `26.x detected`，说明你在
+26.x 服务端装的是普通包——换成 `-mc26` 那个。
+
+玩家输入 `/le` 打开主菜单。
+
+### 4. （可选）开 AI 对话
+
+编辑 `plugins/LetsLearnEnglish/ai_config.yml`，填入 DeepSeek API 密钥：
+
+```yaml
+api-key: "sk-你的密钥"
+```
+
+改完用 `/lea reload` 热重载，不用重启。
+
+> ⚠️ **多子服（BungeeCord / Velocity）必读**
+>
+> 所有连同一数据库的子服，**JVM 时区必须完全一致**。插件按 `yyyy-MM-dd` 纯日期记账，
+> 两服日界不同会让**签到在同一天被领两次**（双份真钱），答题日限、金币日限、AI 轮次门、
+> 每日挑战也会各算各的。
+>
+> 插件内没有 `timezone` 配置项，无法统一——必须用启动参数钉死，且**写在 `-jar` 之前**：
+>
+> ```bash
+> java -Duser.timezone=Asia/Shanghai -jar paper.jar
+> ```
+>
+> 详见 [`DEPLOYMENT_WIKI.md` 的 5.9 节](DEPLOYMENT_WIKI.md#59-多子服时区一致性硬性前提)。
+
+---
+
+## 它长什么样
+
+<!--
+  截图/GIF 待补：主菜单、答题流程、AI 对话、老师报告。
+  这是本 README 目前最大的缺口 —— 读者无法从文字判断交互质量。
+-->
+
+*截图待补。*
+
+---
+
+## 它解决什么问题
+
+Minecraft 服务器上的“学英语插件”通常停在**刷词卡**：给一个词、选一个意思、加分。
+这能让学生记住，但记不住**怎么用**，也留不住人——一周后没人再打开。
+
+这个插件把四件事接成一条链：
+
+1. **答题学词** —— GUI 显示中文 → 关掉 GUI → 在聊天栏倒计时拼英文。有压力、有连击
+2. **间隔复习** —— 按艾宾浩斯曲线自动排期，答错的词会重新出现
+3. **AI 情景对话** —— 用刚学的词跟 AI 演一段对话，结束后给语法纠错和推荐词
+4. **老师报告** —— `/lea report` 出一份可打印的学习报告，含易错词与进步曲线
+
+区别在于**第 3 步和第 4 步**：市面上多数 MC 英语插件只有第 1 步。
+
+
+---
 
 ## 功能特性
 
@@ -99,17 +191,6 @@
 
 > 注意 1：`letslearnenglish.ai.reload` 与 `/lea reload` **不等价**，前者只刷 AI 段。若你要授予「能改 API key」的人，给这个就够，不必给 `admin`。
 > 注意 2：场景管理页的**删除**入口要求 `admin`，而其**查看/导入**要求 `scenario.import` —— 两者刻意分开（见 `ScenarioSelectListener` 的权限门注释）。
-
-## 安装
-
-1. 下载最新版本的 JAR 文件
-2. 放入服务器的 `plugins/` 目录
-3. 重启服务器或使用 `/reload confirm`
-4. 编辑 `plugins/LetsLearnEnglish/config.yml` 进行配置
-5. （可选）如需 AI 对话与总结点评功能，在 `plugins/LetsLearnEnglish/ai_config.yml` 中填入 DeepSeek API 密钥（`api-key` 字段）
-6. 大部分配置改完用 `/lea reload` 热重载即可，无需重启（少数启动快照键仍需重启，见下方「配置」一节）
-
-> ⚠️ **多子服（BungeeCord / Velocity）必读**：所有连接同一数据库的子服，**JVM 时区必须完全一致**。插件按 `yyyy-MM-dd` 纯日期记账，两服日界不同会让**签到在"同一天"被领两次**（双份真钱），答题日限、金币日限、AI 轮次门、每日挑战也会各算各的。插件没有 `timezone` 配置项，无法在插件内统一——请用启动参数 `-Duser.timezone=Asia/Shanghai` 钉死（必须写在 `-jar` 之前）。详见 `DEPLOYMENT_WIKI.md` 的 [5.9 多子服时区一致性](DEPLOYMENT_WIKI.md#59-多子服时区一致性硬性前提) 一节。
 
 ## 配置
 

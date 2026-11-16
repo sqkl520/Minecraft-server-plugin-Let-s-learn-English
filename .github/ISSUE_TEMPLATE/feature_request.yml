@@ -1,0 +1,63 @@
+name: Feature request
+description: Suggest a change — start from the problem, not the solution
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature requests that start with **a problem** ("students stop reviewing after a
+        week") are much easier to act on than ones that start with **a button**
+        ("add a button that resets streaks"). There may be a better fix than the one
+        either of us first thought of.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you hitting?
+      description: |
+        Who runs into this — you as an admin, your players, a teacher?
+        What happens today, and what does it cost?
+      placeholder: |
+        On our server players get their 7-day streak and then stop logging in.
+        Review reminders are per-player so there's nothing the server can do to
+        pull them back at a class level.
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: What do you do today instead?
+      description: The workaround, if any. If none exists, say so — that is useful information.
+    validations:
+      required: false
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: One way it could work (optional)
+      description: Not a spec — just a starting point so we know what you pictured.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Who is this mainly for?
+      options:
+        - Players
+        - Server admins
+        - Teachers / classes
+        - Not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues for the same request
+          required: true
+        - label: This is server-side only — players still install nothing on their client
+          required: true

@@ -1,0 +1,116 @@
+name: Bug report
+description: Something behaves differently than it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: run **`/lea diagnose save`** in-game. It writes a self-contained
+        report to `plugins/Let'sLearnEnglish/exports/` that answers most of the questions
+        below. Attaching it usually gets you a faster answer than a description alone.
+
+        **Do not paste your API key or database password.**
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: Run `/lea info` — it prints the version and the server version it detected.
+      placeholder: "1.0.7-r2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build
+    attributes:
+      label: Which JAR did you install?
+      description: |
+        There are two builds. The standard one covers MC 1.21.4–1.21.11 (Java 21);
+        the `-mc26` one covers MC 26.1+ (Java 25). Using the wrong one is a common
+        source of "it doesn't start".
+      options:
+        - Standard build (Let's Learn English!-<version>.jar) — MC 1.21.4–1.21.11
+        - 26.x build (Let's Learn English!-<version>-mc26.jar) — MC 26.1+
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: server
+    attributes:
+      label: Server software and version
+      placeholder: "Paper 1.21.11 build 132 / Purpur / Spigot / Folia"
+    validations:
+      required: true
+
+  - type: input
+    id: java
+    attributes:
+      label: Java version
+      description: Output of `java -version`.
+      placeholder: "openjdk 21.0.10 LTS"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database backend
+      options:
+        - SQLite (default)
+        - MySQL / MariaDB
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you did, in order. "It doesn't work" cannot be reproduced.
+      placeholder: |
+        1. Run /le
+        2. Click "Word Learning"
+        3. Answer the first question
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Include exact error text if there is any.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / diagnose output
+      description: |
+        Paste the relevant console output, or drag in the file produced by
+        `/lea diagnose save`. If the server failed to start, include the exception
+        that mentions `LetsLearnEnglish`.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I am running the latest release
+          required: true
+        - label: I checked that I installed the JAR matching my server version
+          required: true
+        - label: I removed any API keys or passwords from what I am pasting
+          required: true

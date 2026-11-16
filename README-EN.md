@@ -1,10 +1,110 @@
 [简体中文](README.md) | English
 
-> ⚠️ **This plugin is made by a junior high school student using AI. Feel free to submit Issues for any problems or suggestions. If you like this project, please star and follow!**
+# Let's Learn English!
 
-# Let's Learn English! —— Minecraft English Learning Plugin
+**English learning for Minecraft servers — players install nothing, admins install one plugin.**
+Vocabulary drills → spaced repetition → AI conversation practice → printable teacher reports,
+all inside the game.
 
-A Minecraft server plugin designed for the unmotivated — it forces you to learn English while you play.
+[![Build & Verify](https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/actions/workflows/build.yml/badge.svg)](https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/actions/workflows/build.yml)
+[![Latest release](https://img.shields.io/github/v/release/sqkl520/Minecraft-server-plugin-Let-s-learn-English?display_name=tag&sort=semver)](https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/releases/latest)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
+
+---
+
+## Quick start
+
+### 1. Pick the JAR that matches your server
+
+**The wrong one will not load.** Two builds ship from the same source; only the compile
+target differs:
+
+| Your server | Download | Needs |
+|---|---|---|
+| **MC 1.21.4 – 1.21.11** | `Let.s.Learn.English.-<version>.jar` | **Java 21+** |
+| **MC 26.1+** (26.2 / 26.3 / 26.4…) | `Let.s.Learn.English.-<version>-mc26.jar` | **Java 25+** |
+
+### 2. Install
+
+```bash
+cp Let.s.Learn.English.-1.0.7.jar /path/to/server/plugins/
+```
+
+Restart the server. Do not use `/reload`.
+
+### 3. Confirm it worked
+
+In-game:
+
+```
+/lea info
+```
+
+Prints the plugin version, whether your server version is supported, and the database
+backend. If the compatibility line says `26.x detected`, you installed the standard build
+on a 26.x server — switch to the `-mc26` one.
+
+Players run `/le` to open the main menu.
+
+### 4. (Optional) Enable AI conversation
+
+Edit `plugins/LetsLearnEnglish/ai_config.yml`:
+
+```yaml
+api-key: "sk-your-key"
+```
+
+Then `/lea reload` — no restart needed.
+
+> ⚠️ **If you run multiple backend servers behind BungeeCord / Velocity**
+>
+> Every backend sharing the same database **must run in the exact same JVM timezone**.
+> The plugin books things by plain `yyyy-MM-dd` dates. Two servers with different day
+> boundaries will let a player **claim the daily check-in twice on the same day** (double
+> coins), and daily answer limits, coin caps, AI turn gates and daily challenges will each
+> count separately.
+>
+> There is no `timezone` config key — it cannot be normalized inside the plugin. Pin it
+> with a JVM flag, and it **must come before `-jar`**:
+>
+> ```bash
+> java -Duser.timezone=Asia/Shanghai -jar paper.jar
+> ```
+
+---
+
+## What it looks like
+
+<!--
+  Screenshots/GIFs pending: main menu, quiz flow, AI conversation, teacher report.
+  This is currently the biggest gap in this README — readers cannot judge
+  interaction quality from prose alone.
+-->
+
+*Screenshots pending.*
+
+---
+
+## What problem this solves
+
+Most "learn English" plugins on Minecraft servers stop at **flashcards**: show a word,
+pick a meaning, award points. Students memorize, but never learn to *use* the words — and
+after a week nobody opens the menu again.
+
+This plugin chains four steps into one loop:
+
+1. **Vocabulary drills** — GUI shows the Chinese meaning, closes, and you type the English
+   word into chat against a countdown. Pressure, and a combo multiplier.
+2. **Spaced repetition** — Ebbinghaus-curve scheduling; words you get wrong come back.
+3. **AI conversation** — role-play a scene using the words you just learned, then get
+   grammar corrections and suggested next words.
+4. **Teacher reports** — `/lea report` produces a printable progress report with the
+   words a student gets wrong most.
+
+The difference is **steps 3 and 4**. Most MC English plugins only have step 1.
+
+
+---
 
 ## Features
 
@@ -99,17 +199,6 @@ The plugin registers 4 permission nodes, all defaulting to OP only.
 
 > Note 1: `letslearnenglish.ai.reload` is **not** equivalent to `/lea reload` — the former only refreshes the AI section. If you want to authorize someone to change the API key, this node is enough; `admin` is not required.
 > Note 2: the scenario management page requires `admin` for **deletion** but `scenario.import` for **viewing/importing** — deliberately separate (see the permission-gate comment in `ScenarioSelectListener`).
-
-## Installation
-
-1. Download the latest JAR file
-2. Place it in your server's `plugins/` directory
-3. Restart the server or use `/reload confirm`
-4. Edit `plugins/LetsLearnEnglish/config.yml` to configure
-5. (Optional) For AI chat and session feedback, put your DeepSeek API key into `plugins/LetsLearnEnglish/ai_config.yml` (the `api-key` field)
-6. Use `/lea reload` to hot-reload most changes without restarting (a few startup-snapshot keys still require a restart — see the Configuration section below)
-
-> ⚠️ **Multi-server (BungeeCord / Velocity) — required reading**: every backend that shares one database **must run in exactly the same JVM timezone**. The plugin keeps its daily records as plain `yyyy-MM-dd` dates; if two backends disagree on what "today" is, **the same player can check in twice on the same day** (two real payouts), and the answer limit, coin daily cap, AI round limit and daily challenges will each count against a different day. There is no `timezone` config option, so this cannot be fixed from inside the plugin — pin it in the launch arguments with `-Duser.timezone=Asia/Shanghai` (it must come **before** `-jar`). See [§5.9 Multi-backend timezone consistency](DEPLOYMENT_WIKI.md#59-多子服时区一致性硬性前提) in `DEPLOYMENT_WIKI.md`.
 
 ## Configuration
 
