@@ -641,4 +641,153 @@ class ReportGeneratorAggregationTest {
         assertFalse(sent.get().contains("MSG:report.generated"),
                 "不得出现「报告已保存」");
     }
+
+    // ============================================================
+    //  ======== round20 独立复核新增（audit-specialist） ========
+    //
+    //  三条缺口，都是原 22 例按构造方式测不到的：
+    //   (G1) 窗口边界全部用**常量日期**，从没用过 LocalDate.now() 相对日期 ——
+    //        而生产路径的周期永远是相对今天算的（week / lastweek / Nd）。
+    //        "30 天窗口到底含不含 30 天前那天"这类上界问题在原套件里没有用例。
+    //   (G2) AI 对话窗口的**时区换算**从没在任何时区下测过。d3 那条仓储测试复刻了
+    //        换算公式，但公式若在 ReportGenerator 里被改错，它照样绿 —— 那是自证。
+    //        本类补一条端到端（设默认时区 +08:00，造 UTC 字符串行，断言正文轮数）。
+    //   (G3) 分母为 0 的**批量**路径：单报的 accuracyText 有守卫（原套件已测），
+    //        批量表走同一个方法但它是逐人渲染的 user 数据驱动，未测过 answered=0 的行。
+    // ============================================================
+
+    /**
+     * 【G1】相对日期窗口：30 天周期含"30 天前"那天，不含"31 天前"那天。
+     *
+     * <p>生产路径上所有周期都从 {@code LocalDate.now()} 反推（{@code ReportPeriod.compute}），
+     * 而原 22 例全部用常量日期（2026-01-05 之类）。"边界那天到底含不含"是 SQL 的
+     * {@code >=} / {@code <=} 决定的，但只有在<b>相对今天</b>的窗口上才暴露成真实故障：
+     * 服用久了，一个 off-by-one 会让家长看到"学习天数 29 天"而孩子明明学了 30 天。
+     */
+    @Test
+    @DisplayName("【G1】30 天相对窗口：含 today-29，不含 today-30（闭区间两端各验一次）")
+    void relativeThirtyDayWindowBoundaries() throws Exception {
+        LocalDate today = LocalDate.now();
+        // 30d = today-29 .. today，共 30 天
+        insertSession(PLAYER, today.toString(), 10, 10, 100L);              // 右端点：含
+        insertSession(PLAYER, today.minusDays(29).toString(), 10, 5, 50L);  // 左端点：含
+        insertSession(PLAYER, today.minusDays(30).toString(), 10, 99, 999L); // 左端点外 1 天：不含
+        insertSession(PLAYER, today.minusDays(365).toString(), 10, 99, 999L); // 去年：不含
+
+        ReportGenerator.ReportPeriod p = ReportGenerator.ReportPeriod.compute("30d", today);
+        assertNotNull(p);
+        assertEquals(today.minusDays(29), p.from());
+        assertEquals(today, p.to());
+
+        String text = generate(p);
+        assertTrue(text.contains("学习天数：2 天"),
+                "30 天窗口应恰好 2 天（today-29 与 today）。"
+                        + "把 `session_date >= ?` 改成 `>` 会漏掉 today-29 → 1 天；"
+                        + "把 30d 算成 today-30 起步 → 3 天（多算左端点外那天）。正文：\n" + text);
+        assertTrue(text.contains("答对单词：15 个"), "10 + 5 = 15；漏算 today-29 会变成 10");
+        assertTrue(text.contains("正确率：75.0（15/20）"), "分子分母必须同窗口");
+    }
+
+    /**
+     * 【G1】1 天周期 = 今天单日：昨天与今天都必须分开算清。
+     *
+     * <p>{@code 1d} 是 {@code ReportPeriod.compute} 的退化边界（{@code today.minusDays(0)}）。
+     * 若实现写成 {@code today.minusDays(days)} 而不是 {@code days-1}，{@code 1d} 就会变成
+     * "昨天到今天"两天 —— 家长看到的学习天数直接翻倍。
+     */
+    @Test
+    @DisplayName("【G1】1d 相对窗口：只含今天，昨天不算")
+    void relativeOneDayWindowIsTodayOnly() throws Exception {
+        LocalDate today = LocalDate.now();
+        insertSession(PLAYER, today.toString(), 10, 8, 80L);
+        insertSession(PLAYER, today.minusDays(1).toString(), 100, 100, 1000L); // 昨天
+
+        String text = generate(ReportGenerator.ReportPeriod.compute("1d", today));
+        assertTrue(text.contains("学习天数：1 天"),
+                "1d 只含今天。若实现用 today.minusDays(1) 起算会得到 2 天。正文：\n" + text);
+        assertTrue(text.contains("答对单词：8 个"), "8（不是 108）");
+    }
+
+    /**
+     * 【G2 端到端】AI 对话窗口的时区换算：+08:00 服上，本地日正确落到 UTC 区间。
+     *
+     * <p>这条是真正守住 {@code ReportGenerator:462-469} 的换算 —— 仓储层那条
+     * {@code d3SqliteBranchUtcWindowConversionIsCorrect} 在测试里自己复刻了公式，
+     * 若 ReportGenerator 的换算被改错，它仍然绿（那是自证）。这里改成端到端：
+     * 设默认时区为 +08:00，往 {@code ai_chat_history} 写 <b>UTC 字符串</b>（与
+     * {@code CURRENT_TIMESTAMP} 同口径），断言正文里"本期 N 轮"。
+     *
+     * <p><b>为什么会错</b>：SQLite 的 {@code timestamp} 是 UTC，本地日边界必须换算。
+     * 换算方向反了 / 忘了换算，跨零点那批对话会整体偏移 8 小时。
+     *
+     * <p><b>构造要点</b>：必须让"不换算（直接用本地字符串比 UTC 列）"与"换算成 UTC
+     * 区间"给出<b>不同</b>答案，否则测试是假绿。{@code leak} 行 UTC 01-10 20:00
+     * = 本地 01-11 04:00，本地视角在窗外，但裸字符串 "2026-01-10 20:00:00" 落在
+     * 本地边界 [01-10 00:00, 01-11 00:00) 内 —— 不换算就会把它错算进 01-10。
+     * （首版用 atStart/inside/atEnd 三行构造，实测对
+     * {@code withZoneSameInstant(UTC)→withZoneSameInstant(sys)} 这个变异是绿的，
+     * 因为那三行的裸字符串与 UTC 区间恰好给出同一计数。已按变异结果重写。）
+     */
+    @Test
+    @DisplayName("【G2】+08:00 时区：本地日 01-10 的 AI 对话窗口正确落到 UTC 区间（跨零点不错位）")
+    void timezoneConversionForAiChatWindow() throws Exception {
+        java.util.TimeZone original = java.util.TimeZone.getDefault();
+        try {
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Asia/Shanghai"));
+            assertEquals("Asia/Shanghai", java.time.ZoneId.systemDefault().getId(),
+                    "测试前提：默认时区必须是 +08:00");
+
+            // 本地日 2026-01-10 (+08) == UTC [2026-01-09 16:00, 2026-01-10 16:00)
+            insertChatRow(PLAYER, "leak", "2026-01-10 20:00:00");   // 本地 01-11 04:00 — 窗外
+            insertChatRow(PLAYER, "inside", "2026-01-10 02:00:00"); // 本地 01-10 10:00 — 窗内
+            insertChatRow(PLAYER, "before", "2026-01-09 15:59:59"); // 本地 01-09 23:59:59 — 窗外
+            insertChatRow(PLAYER, "atEnd", "2026-01-10 16:00:00");  // 本地 01-11 00:00:00 — 窗外
+            insertChatRow(PLAYER, "ancient", "2025-01-10 02:00:00"); // 去年 — 窗外
+
+            String text = generate(new ReportGenerator.ReportPeriod(
+                    LocalDate.of(2026, 1, 10), LocalDate.of(2026, 1, 10)));
+
+            assertTrue(text.contains("本期 1 轮"),
+                    "本地日 01-10 只应含 inside 一行（本地 01-10 10:00）。"
+                            + "漏掉 UTC 换算（用本地字符串直接比 UTC 列）会把 leak 也算进来 → 2 轮；"
+                            + "换算方向反了 → 0 轮。实际正文：\n" + text);
+        } finally {
+            java.util.TimeZone.setDefault(original);
+        }
+    }
+
+    /** 往 ai_chat_history 写一行（UTC 字符串，与 CURRENT_TIMESTAMP 同口径）。 */
+    private void insertChatRow(UUID id, String sessionId, String utcTimestamp) throws Exception {
+        exec("INSERT INTO " + PREFIX + "ai_chat_history"
+                + " (player_uuid, session_id, role, content, timestamp) VALUES ('"
+                + id + "', '" + sessionId + "', 'user', 'x', '" + utcTimestamp + "')");
+    }
+
+    /**
+     * 【G3】批量逐人小节里 answered=0 的那一行：正确率必须是 0.0，不是 NaN。
+     *
+     * <p>单报的零守卫原套件已测（{@code emptyWindowProducesZeroAccuracyNotNaN}），
+     * 但批量走的是<b>同一个</b> {@code accuracyText} 却被逐人数据驱动 —— 某一行的
+     * {@code Σwords_count = 0}（老库/手工修库留下的空行，或 {@code recordSession} 写
+     * 0 题的补记）会让那一行渲染成 NaN，而单报被测的那条路径永远碰不到这个入参。
+     */
+    @Test
+    @DisplayName("【G3】批量逐人行 answered=0 时正确率是 0.0（NaN 只会在这一行出现）")
+    void batchRowWithZeroAnsweredRendersZeroAccuracy() throws Exception {
+        exec("INSERT INTO " + PREFIX + "player_data (uuid, player_name) VALUES ('"
+                + PLAYER + "', 'ZeroRow')");
+        insertSession(PLAYER, "2026-01-05", 0, 0, 0L); // 有行但零答题
+
+        generator.generateBatch(sender, new ReportGenerator.ReportPeriod(
+                LocalDate.of(2026, 1, 5), LocalDate.of(2026, 1, 7)));
+
+        File[] files = reportsDir().listFiles((d, n) -> n.endsWith(".txt"));
+        assertNotNull(files);
+        assertEquals(1, files.length);
+        String text = Files.readString(files[0].toPath(), StandardCharsets.UTF_8);
+        assertFalse(text.toLowerCase().contains("nan"),
+                "批量表不得出现 NaN —— 家长会看到「正确率 NaN」。正文：\n" + text);
+        assertTrue(text.contains("0.0"), "零答题行的正确率应为 0.0。正文：\n" + text);
+        assertTrue(text.contains("ZeroRow"));
+    }
 }

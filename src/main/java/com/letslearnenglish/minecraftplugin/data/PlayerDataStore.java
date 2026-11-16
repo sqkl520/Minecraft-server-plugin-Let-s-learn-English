@@ -2528,7 +2528,7 @@ public class PlayerDataStore {
         // ConcurrentHashMap 访问之前挡住：`profileSettingsCache.get(null)` 抛 NPE，
         // 而它在旧实现里表现为一次「读设置就炸」的莫名其妙失败。
         if (playerId == null) {
-            plugin.getLogger().warning("R-39: setAge called with null playerId; age "
+            plugin.getLogger().warning("setAge called with null playerId; age "
                     + age + " discarded.");
             return;
         }
@@ -2539,7 +2539,7 @@ public class PlayerDataStore {
             clamped = ProfileSettings.MAX_VALID_AGE;
         }
         if (clamped != age) {
-            plugin.getLogger().warning("R-39: clamped invalid age " + age
+            plugin.getLogger().warning("clamped invalid age " + age
                     + " to " + clamped + " for " + playerId);
         }
         // 只窥视，绝不 computeIfAbsent：未命中时"不存在"本身就是要保住的信息
@@ -2580,7 +2580,7 @@ public class PlayerDataStore {
         // 而那个集合不接受 null 键 —— 于是原始 NPE 被"吞掉又重抛"，失败点从一眼可见的
         // 「参数非法」变成捉摸不透的「集合不接受 null」。警告比栈更深一层更好用。
         if (playerId == null) {
-            plugin.getLogger().warning("R-39: setAge called with null playerId; age " + age
+            plugin.getLogger().warning("setAge called with null playerId; age " + age
                     + " discarded.");
             return;
         }

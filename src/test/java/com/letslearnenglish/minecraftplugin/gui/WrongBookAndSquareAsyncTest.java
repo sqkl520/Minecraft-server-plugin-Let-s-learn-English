@@ -60,6 +60,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockConstruction;
@@ -189,6 +190,41 @@ class WrongBookAndSquareAsyncTest {
                 "getCoinsEarned",
         };
 
+        /**
+         * 错题本在主线程上不得出现的 IO 入口 —— 比 {@link #FORBIDDEN_ON_MAIN} 多两项
+         * <b>包装方法</b>。
+         *
+         * <p>为什么必须禁包装方法：真正的 IO 是 {@code getWrongBookEntries}（内含
+         * {@code loadDifficultWordsFromDB} 的 SELECT）与 {@code loadDifficultWords}，
+         * 但它们在本类里只从包装方法 {@code loadWrongBook} 调用。若只禁这两个具体方法名，
+         * 把 {@code loadWrongBook(playerId);} 内联回主线程时两个名字<b>一个都不出现</b>，
+         * lint 会假绿 —— 实测就是如此（变异 M1）。
+         *
+         * <p>禁包装方法的代价：{@code openSyncFallback} 里确实会调它。但那是<b>无调度器
+         * 时的测试夹具兜底</b>（生产不可达），且它已被抽成独立方法、不在被断言的两个
+         * 方法体内 —— 边界干净。
+         */
+        private static final String[] WRONG_BOOK_IO_ON_MAIN = {
+                "getWrongBookEntries",
+                "loadDifficultWords",
+                "loadWrongBook",
+        };
+
+        /**
+         * 广场的 IO 入口（含包装方法 {@code loadSquareData}）—— 主线程段一律不许出现。
+         *
+         * <p>为什么要禁包装方法：{@link #FORBIDDEN_ON_MAIN} 只列四个具体 DB 方法名，
+         * 而把 {@code loadSquareData(...)} 内联回 {@code open()} 的主线程段时，那四个名字
+         * 一个都不出现（它们都在 {@code loadSquareData} 内部）—— lint 假绿。
+         * 本数组用于 {@code open()} / {@code openHidden()} 两处判定。
+         */
+        private static final String[] SQUARE_IO_ON_MAIN = {
+                "countActiveSquareEntries",
+                "getActiveSquareEntries",
+                "getCoinsEarned",
+                "loadSquareData",
+        };
+
         @Test
         @DisplayName("WrongBookGUI：open( 与 openAsync( 都不直接调 getWrongBookEntries / loadDifficultWords")
         void wrongBookOpenDoesNotQueryOnMainThread() throws IOException {
@@ -196,12 +232,30 @@ class WrongBookAndSquareAsyncTest {
                     "src/main/java/com/letslearnenglish/minecraftplugin/gui/WrongBookGUI.java"));
             String openBody = methodBody(src, "void open(Player player, int page)");
             assertNoForbiddenCall(openBody, "WrongBookGUI.open(Player, int)",
-                    "getWrongBookEntries", "loadDifficultWords");
+                    WRONG_BOOK_IO_ON_MAIN);
             // open() 必须真的把活交给 openAsync（而不是「什么都不做」也能过 lint）
             assertTrue(openBody.contains("openAsync(player, page)"),
                     "WrongBookGUI.open(Player, int) 应委托 openAsync(player, page) 喵 —— "
                             + "若改成直接 return，本 lint 的「没查库」就变成「没干活」的假绿。\n"
                             + "实际方法体：\n" + openBody);
+
+            // R20-GUI2 假绿修复：本用例原先只查 open()，而<b>真正派发异步任务的是
+            // openAsync()</b>。实测把 `loadWrongBook(playerId)` 内联进 openAsync 的
+            // 调度器判定之前（= 回到主线程查库），整类测试全绿 —— 因为 open() 的方法体
+            // 只有一句委托，永远干净。
+            //
+            // 另一个更隐蔽的缺口：只禁 `getWrongBookEntries` / `loadDifficultWords`
+            // <b>两个具体 DB 方法名</b>是不够的 —— 真正的 IO 入口是包装方法
+            // `loadWrongBook`，变异体内联它时两个具体方法名都不出现，lint 照样绿。
+            // 故 WRONG_BOOK_IO_ON_MAIN 里把包装方法一并列入。
+            String openAsyncBody = methodBody(src, "void openAsync(Player player, int page)");
+            assertNoForbiddenCall(openAsyncBody, "WrongBookGUI.openAsync(Player, int)",
+                    WRONG_BOOK_IO_ON_MAIN);
+            // 反向断言：查询必须还在（只是被关在 loadWrongBook 里）。
+            String loadBody = methodBody(src, "private WrongBookLoad loadWrongBook(");
+            assertTrue(loadBody.contains("getWrongBookEntries"),
+                    "loadWrongBook 里必须保留 getWrongBookEntries 喵 —— 删掉它等于把错题本"
+                            + "变成永远空页（「主线程没查库」变成「根本没查库」的假绿）");
         }
 
         @Test
@@ -212,7 +266,7 @@ class WrongBookAndSquareAsyncTest {
 
             String openBody = methodBody(src, "void open(Player viewer, int page, RankingMode mode)");
             assertNoForbiddenCall(openBody, "EnglishSquareGUI.open(Player, int, RankingMode)",
-                    FORBIDDEN_ON_MAIN);
+                    SQUARE_IO_ON_MAIN);
             // 反向断言：查询必须<b>还在</b>，只是挪到了只从异步段调用的取数方法里。
             // 没有这一条，「把查询统统删掉」也能让「主线程没查库」变绿 —— 那是把卡顿
             // 换成了功能缺失（页数恒 1、下一页按钮消失），必须挡住。
@@ -225,11 +279,31 @@ class WrongBookAndSquareAsyncTest {
             assertTrue(loadBody.contains("getCoinsEarned"),
                     "取数方法里必须保留 getCoinsEarned 喵 —— 榜单模式下自己头像的金币数值靠它");
 
+            // R20-GUI2 假绿修复：scheduler==null 的同步兜底分支同样<b>不许</b>出现裸查询。
+            // 实测把 `countActiveSquareEntries()` 直接内联到 open() 里（= 回到主线程查库），
+            // 旧用例照样全绿 —— 因为断言只看「主线程段有没有 .countActiveSquareEntries(」，
+            // 而那个变异体确实是有的……但它同时<被异步段摘走>了。真正的缺口是：
+            // 兜底分支被内联进 open() 时，assertNoForbiddenCall 会漏掉它（摘异步段只摘
+            // runTaskAsynchronously，兜底分支在它之外）。现在兜底分支已抽成
+            // openSyncFallback，本断言把它一并纳入，且要求它<b>只</b>通过 loadSquareData
+            // 取数（不自己发 SQL）。
+            assertTrue(openBody.contains("openSyncFallback("),
+                    "open() 的无调度器兜底分支应委托 openSyncFallback(...) 喵 —— 内联回来会让"
+                            + "「主线程不查库」的 lint 出现覆盖缺口");
+            String syncBody = methodBody(src, "private void openSyncFallback(");
+            // 注意这里仍用 FORBIDDEN_ON_MAIN（不含 loadSquareData）：兜底分支本来就
+            // 要走它取数，禁它就是禁掉整条路径。
+            assertNoForbiddenCall(syncBody, "EnglishSquareGUI.openSyncFallback",
+                    FORBIDDEN_ON_MAIN);
+            assertTrue(syncBody.contains("loadSquareData"),
+                    "openSyncFallback 必须走 loadSquareData 取数喵 —— 自己发 SQL 会让"
+                            + "异步段与兜底分支的查询口径漂移（页数/排行各算一遍）");
+
             // openHidden 当前零查库（纯静态装饰页）—— 这条是防回归：有人往里加
             // 「顺手查一下这个人的统计」就会立刻红，且它是最容易被忽略的隐私页。
             String hiddenBody = methodBody(src, "void openHidden(Player viewer, UUID targetId)");
             assertNoForbiddenCall(hiddenBody, "EnglishSquareGUI.openHidden(Player, UUID)",
-                    FORBIDDEN_ON_MAIN);
+                    SQUARE_IO_ON_MAIN);
             assertTrue(asyncRegion(hiddenBody).isEmpty(),
                     "openHidden 是完全静态的「隐身玩笑页」，不该有任何异步段喵 —— "
                             + "出现了说明有人把数据取数接进了这张隐私页");
@@ -421,6 +495,14 @@ class WrongBookAndSquareAsyncTest {
          *
          * <p>这条是「关界面即放弃」的语义：异步窗口只有几十毫秒，但玩家手速完全够
          * 关掉再点别的。如果回填无脑 {@code openInventory}，玩家会看到界面「自己弹回来」。
+         *
+         * <p><b>R20-GUI2 假绿修复（关键）</b>：旧版断的是
+         * {@code verify(otherTop, never()).setItem(...)} —— 可 render 把物品写进的是
+         * <b>自己 createInventory 出来的那张界面</b>，从来不会碰 {@code otherTop}。
+         * 于是这条断言<b>恒真</b>：实测把 holder 守卫整行删掉，它照样绿。
+         * 正确的信号是「有没有走到 render」，即 {@code Bukkit.createInventory} 被调用
+         * 几次（render 的最后一行就是 {@code player.openInventory(inv)}）。
+         * 这里改用 renderCount + openInventory 双断言。
          */
         @Test
         @DisplayName("错题本：异步回来前玩家已关界面（未下线）→ 不重新弹出界面")
@@ -428,14 +510,20 @@ class WrongBookAndSquareAsyncTest {
             when(dataStore.getWrongBookEntries(VIEWER_ID)).thenReturn(entries(3));
             when(plugin.isEnabled()).thenReturn(true);
             when(viewer.isOnline()).thenReturn(true);
-            // 「已关界面」在 Bukkit 里的可观察形态：getOpenInventory() 的 top 不是我们那张
-            // （玩家没开任何界面时就是自己的背包）。这里用一张无 holder 的界面代表。
-            InventoryView otherView = mock(InventoryView.class);
-            Inventory otherTop = mock(Inventory.class);
-            lenient().when(otherView.getTopInventory()).thenReturn(otherTop);
-            lenient().when(viewer.getOpenInventory()).thenReturn(otherView);
+
+            // 请求发起时玩家确实停在错题本上（arrival holder 非 null —— 这是 holder
+            // 守卫有判别力的前提；若发起时就不在插件界面，守卫两侧都是 null，测不出东西）。
+            PluginGuiHolder arrival = PluginGuiHolder.of(GuiViewKey.WRONG_BOOK,
+                    new PluginGuiHolder.GuiPayload.Page(1));
+            InventoryView arrivalView = viewWithHolder(arrival);
+            lenient().when(viewer.getOpenInventory()).thenReturn(arrivalView);
+
+            // 回填前 ESC 关掉界面：上半区 holder 不再是 PluginGuiHolder。
+            InventoryView closedView = viewWithHolder(null);
 
             Harness harness = new Harness();
+            harness.onAfterDispatch = () ->
+                    lenient().when(viewer.getOpenInventory()).thenReturn(closedView);
 
             try (MockedStatic<Bukkit> bukkit = mockStatic(Bukkit.class);
                  MockedConstruction<ItemStack> ignored = itemStackMock()) {
@@ -444,7 +532,57 @@ class WrongBookAndSquareAsyncTest {
                 new WrongBookGUI(plugin).open(viewer, 1);
             }
 
-            verify(otherTop, never()).setItem(anyInt(), any());
+            assertEquals(0, harness.renderCount.get(),
+                    "玩家已关界面，render 不该被走到（createInventory 次数 = 渲染次数）喵 —— "
+                            + "非 0 说明 holder 回填守卫失效，界面会自己弹回来");
+            verify(viewer, never()).openInventory(any(Inventory.class));
+        }
+
+        /**
+         * <b>holder 守卫的判别力</b>：玩家在异步窗口内从「错题本」切到了<b>另一张插件界面</b>
+         * （两者 holder 都是非 null，但<b>不是同一个实例</b>）。
+         *
+         * <p>为什么必须单列一条：只测「关界面（holder = null）」时，一个
+         * {@code if (pluginGuiHolderOf(player) == null) return;} 的<b>弱实现</b>也能过 ——
+         * 但它会让「切到别的插件界面」这条真实路径失守，界面被强行盖回来。
+         * 本条要求判据是<b>引用相等</b>（同一个 holder 实例），而不是「非 null」。
+         *
+         * <p>顺带钉住「绝不能用标题比较」：两张界面标题都非空，任何基于标题的判定都会
+         * 在这里给出错误答案（见 {@code GuiViewKey} 契约：身份只认 holder）。
+         */
+        @Test
+        @DisplayName("错题本：异步窗口内切到另一张插件界面 → 同样不强行覆盖（判据是 holder 引用相等）")
+        void wrongBookSwitchedToAnotherPluginGuiIsNotOverwritten() {
+            when(dataStore.getWrongBookEntries(VIEWER_ID)).thenReturn(entries(3));
+            when(plugin.isEnabled()).thenReturn(true);
+            when(viewer.isOnline()).thenReturn(true);
+
+            // 请求发起时：玩家在错题本上（arrival holder）。
+            PluginGuiHolder arrival = PluginGuiHolder.of(GuiViewKey.WRONG_BOOK,
+                    new PluginGuiHolder.GuiPayload.Page(1));
+            InventoryView arrivalView = viewWithHolder(arrival);
+            lenient().when(viewer.getOpenInventory()).thenReturn(arrivalView);
+
+            // 回填前：玩家已进了别的插件界面（holder 非 null，但不是同一个实例）。
+            PluginGuiHolder otherHolder = PluginGuiHolder.of(GuiViewKey.LEADERBOARD);
+            InventoryView otherView = viewWithHolder(otherHolder);
+
+            Harness harness = new Harness();
+            harness.onAfterDispatch = () ->
+                    lenient().when(viewer.getOpenInventory()).thenReturn(otherView);
+
+            try (MockedStatic<Bukkit> bukkit = mockStatic(Bukkit.class);
+                 MockedConstruction<ItemStack> ignored = itemStackMock()) {
+                bukkit.when(Bukkit::getScheduler).thenReturn(harness.scheduler);
+                stubCreateInventory(bukkit, harness);
+                new WrongBookGUI(plugin).open(viewer, 1);
+            }
+
+            assertEquals(0, harness.renderCount.get(),
+                    "玩家已切到别的插件界面，本次回填必须作废喵 —— 渲染了 "
+                            + harness.renderCount.get() + " 次说明判据不是「holder 引用相等」"
+                            + "（弱实现 `!= null` 或标题比较都会在这里失守）");
+            verify(viewer, never()).openInventory(any(Inventory.class));
         }
 
         /**
@@ -493,6 +631,90 @@ class WrongBookAndSquareAsyncTest {
         }
 
         /**
+         * <b>token 守卫的正向判别力</b>：旧请求<b>先</b>落地、新请求<b>后</b>落地时，
+         * 屏幕必须停在新请求那一页 —— 且旧请求那一次必须被 token 拦掉。
+         *
+         * <p>为什么需要与上一条成对：上一条（倒序落地）只能证明「总共渲染了 1 次」。
+         * 一个<b>没有 token</b>的实现如果恰好让最后一次请求最后执行，也会渲染 2 次 →
+         * 上一条会红。但反过来，只保留「谁后执行谁赢」的错觉也能过 —— 实测删掉 token
+         * 判定（保留倒序场景）时<b>该用例仍然全绿</b>，因为倒序的最后一次恰好是新请求，
+         * renderCount 因为前面被 holder 守卫拦下而没有变成 2……换言之那条用例测的
+         * 是 holder + 执行顺序，不是 token。
+         *
+         * <p>本条把两种顺序都跑一遍，要求<b>结果恒等于「新请求那一页」</b>：
+         * <ul>
+         *   <li>顺序 A（旧先落地、新后落地）→ 2 页变 1 页？不，应停在新的；
+         *   <li>顺序 B（新先落地、旧后落地）→ 旧请求必须被 token 拒掉，屏幕不退回旧页。
+         * </ul>
+         * 只有真正比较 token 的实现才能同时满足两者。
+         */
+        @Test
+        @DisplayName("错题本：token 判别力 —— 旧请求无论先落地还是后落地，都不得覆盖新请求的结果")
+        void wrongBookTokenRejectsStaleRequestInBothOrders() {
+            // 43 条 → 2 页。第一次请求 page=1（旧），第二次 page=2（新）。
+            when(dataStore.getWrongBookEntries(VIEWER_ID)).thenReturn(entries(WRONG_BOOK_PAGE + 1));
+            when(plugin.isEnabled()).thenReturn(true);
+            when(viewer.isOnline()).thenReturn(true);
+            // 玩家全程停在错题本上（同一个 holder 实例 —— 本用例考的是 token，不是 holder；
+            // 但 arrival 必须非 null 才能让 holder 守卫放行）。
+            PluginGuiHolder onScreen = PluginGuiHolder.of(GuiViewKey.WRONG_BOOK,
+                    new PluginGuiHolder.GuiPayload.Page(1));
+            Inventory top = mock(Inventory.class);
+            doReturn(onScreen).when(top).getHolder();
+            InventoryView view = mock(InventoryView.class);
+            doReturn(top).when(view).getTopInventory();
+
+            for (boolean oldLandsLast : new boolean[]{false, true}) {
+                // 每轮开始都要重新钉一次：上一轮的 stubCreateInventory 会把
+                // viewer.getOpenInventory 改指到它造出来的那张界面（"界面已打开"），
+                // 不重钉的话本轮 arrivalHolder 会拿到上一轮渲染的 holder →
+                // 守卫直接拒掉一切 → 用例退化成「恒不渲染」的假绿。
+                lenient().when(viewer.getOpenInventory()).thenReturn(view);
+
+                Harness harness = new Harness();
+                harness.deferAsync = true;
+                harness.deferMain = true;
+
+                try (MockedStatic<Bukkit> bukkit = mockStatic(Bukkit.class);
+                     MockedConstruction<ItemStack> ignored = itemStackMock()) {
+                    bukkit.when(Bukkit::getScheduler).thenReturn(harness.scheduler);
+                    stubCreateInventory(bukkit, harness);
+
+                    WrongBookGUI gui = new WrongBookGUI(plugin);
+                    gui.open(viewer, 1);   // 旧请求（第 1 页）
+                    gui.open(viewer, 2);   // 新请求（第 2 页）—— 必须赢
+
+                    for (Runnable r : new ArrayList<>(harness.asyncTasks)) r.run();
+
+                    List<Runnable> mains = new ArrayList<>(harness.mainTasks);
+                    // harness.mainTasks 顺序 = 请求发起顺序 = [旧, 新]。
+                    // oldLandsLast=true 时倒序执行（旧请求最后落地）—— 这才是真竞态。
+                    if (oldLandsLast) {
+                        Collections.reverse(mains);
+                    }
+                    for (Runnable r : mains) {
+                        // 同上：每次回主线程前把「玩家当前界面」钉回 view。
+                        lenient().when(viewer.getOpenInventory()).thenReturn(view);
+                        r.run();
+                    }
+                }
+
+                assertEquals(1, harness.renderCount.get(),
+                        (oldLandsLast ? "顺序 B（新先落地、旧后落地）" : "顺序 A（旧先落地、新后落地）")
+                                + "：只该有 1 次渲染喵 —— token 生效时旧请求必被拒；"
+                                + "实测渲染了 " + harness.renderCount.get() + " 次");
+                PluginGuiHolder rendered = harness.lastHolder.get();
+                assertNotNull(rendered, "必须渲染出界面（顺序 "
+                        + (oldLandsLast ? "B" : "A") + "）");
+                assertEquals(new PluginGuiHolder.GuiPayload.Page(2), rendered.getPayload(),
+                        (oldLandsLast ? "顺序 B" : "顺序 A")
+                                + "：最终屏幕必须停在<b>新请求</b>的第 2 页喵 —— "
+                                + "拿到第 1 页说明旧请求覆盖了新请求（token 失效，"
+                                + "玩家翻页后屏幕自己跳回上一页）");
+            }
+        }
+
+        /**
          * 取数失败 → 只发可重试提示、<b>不开界面</b>，且不谎报「还没有错题」。
          *
          * <p>这条钉住的是 R4-15-EH-15-02 的语义不能被异步化顺手改掉：失败时玩家
@@ -532,10 +754,11 @@ class WrongBookAndSquareAsyncTest {
         @DisplayName("广场：异步回来时玩家已下线 → 不建界面、不抛异常")
         void squareOfflineViewerIsDropped() {
             when(plugin.isEnabled()).thenReturn(true);
-            when(dataStore.countActiveSquareEntries()).thenReturn(0);
-            when(dataStore.getActiveSquareEntries(anyInt(), anyInt()))
+            lenient().when(dataStore.countActiveSquareEntries()).thenReturn(0);
+            lenient().when(dataStore.getActiveSquareEntries(anyInt(), anyInt()))
                     .thenReturn(Collections.emptyList());
-            when(dataStore.getPlayerStats(VIEWER_ID)).thenReturn(new PlayerDataStore.PlayerStats());
+            lenient().when(dataStore.getPlayerStats(VIEWER_ID))
+                    .thenReturn(new PlayerDataStore.PlayerStats());
             // 渲染前那道 online 复检必须拦住：玩家在异步窗口内下线。
             when(viewer.isOnline()).thenReturn(false);
 
@@ -549,6 +772,100 @@ class WrongBookAndSquareAsyncTest {
             }
 
             verify(viewer, never()).openInventory(any(Inventory.class));
+            assertEquals(0, harness.renderCount.get(),
+                    "玩家已下线却仍执行了渲染段（createInventory 被调用）喵 —— isOnline 守卫失效");
+        }
+
+        /**
+         * 广场：玩家在异步窗口内关掉界面（仍在线）→ 不得把界面强行弹回来。
+         *
+         * <p><b>R20-GUI2 补测</b>：旧 14 例<b>完全没有</b>覆盖这条 —— 实测把广场的
+         * {@code stillOnArrivalScreen} 整行删掉，整类测试全绿。而症状是实打实的：
+         * 玩家翻页后立刻 ESC，几十毫秒后屏幕被广场盖回去。
+         */
+        @Test
+        @DisplayName("广场：异步回来前玩家已关界面（未下线）→ 不重新弹出界面")
+        void squareClosedInventoryIsNotReopened() {
+            when(plugin.isEnabled()).thenReturn(true);
+            lenient().when(dataStore.countActiveSquareEntries()).thenReturn(0);
+            lenient().when(dataStore.getActiveSquareEntries(anyInt(), anyInt()))
+                    .thenReturn(Collections.emptyList());
+            lenient().when(dataStore.getPlayerStats(VIEWER_ID))
+                    .thenReturn(new PlayerDataStore.PlayerStats());
+            when(viewer.isOnline()).thenReturn(true);
+
+            // 发起时玩家在广场上；回填前 ESC 关掉（top holder 不再是 PluginGuiHolder）。
+            PluginGuiHolder arrival = PluginGuiHolder.of(GuiViewKey.SQUARE,
+                    new PluginGuiHolder.GuiPayload.SquarePage(1, "all"));
+            InventoryView arrivalView = viewWithHolder(arrival);
+            lenient().when(viewer.getOpenInventory()).thenReturn(arrivalView);
+            InventoryView closedView = viewWithHolder(null);
+
+            Harness harness = new Harness();
+            harness.onAfterDispatch = () ->
+                    lenient().when(viewer.getOpenInventory()).thenReturn(closedView);
+
+            try (MockedStatic<Bukkit> bukkit = mockStatic(Bukkit.class);
+                 MockedConstruction<ItemStack> ignored = itemStackMock()) {
+                bukkit.when(Bukkit::getScheduler).thenReturn(harness.scheduler);
+                stubCreateInventory(bukkit, harness);
+                new EnglishSquareGUI(plugin).open(viewer, 1,
+                        Leaderboard.RankingMode.ALL_PLAYERS);
+            }
+
+            assertEquals(0, harness.renderCount.get(),
+                    "玩家已关界面，广场 render 不该被走到喵 —— 非 0 说明 holder 回填守卫失效，"
+                            + "界面会自己弹回来");
+            verify(viewer, never()).openInventory(any(Inventory.class));
+        }
+
+        /**
+         * 广场：<b>holder 判据必须是引用相等，不能是标题比较</b>。
+         *
+         * <p>两张界面标题都含「英语广场」，唯一的结构差异是 holder 实例。
+         * 一个 {@code title.contains("英语广场")} 的实现会在这里蒙对 → 界面被强行覆盖。
+         *
+         * <p>这条是 R20-GUI2 变异验证的直接产物：把守卫换成标题比较后，旧 14 例全绿；
+         * 本条必须红，否则「身份只认 holder」这条仓库硬纪律在生产代码里没有任何守卫。
+         */
+        @Test
+        @DisplayName("广场：守卫用标题比较而非 holder 引用 → 本条必须红（切到另一张广场界面）")
+        void squareTitleBasedGuardIsRejected() {
+            when(plugin.isEnabled()).thenReturn(true);
+            lenient().when(dataStore.countActiveSquareEntries()).thenReturn(0);
+            lenient().when(dataStore.getActiveSquareEntries(anyInt(), anyInt()))
+                    .thenReturn(Collections.emptyList());
+            lenient().when(dataStore.getPlayerStats(VIEWER_ID))
+                    .thenReturn(new PlayerDataStore.PlayerStats());
+            when(viewer.isOnline()).thenReturn(true);
+
+            // 发起时：广场第 1 页。
+            PluginGuiHolder arrival = PluginGuiHolder.of(GuiViewKey.SQUARE,
+                    new PluginGuiHolder.GuiPayload.SquarePage(1, "all"));
+            InventoryView arrivalView = viewWithHolder(arrival);
+            lenient().when(viewer.getOpenInventory()).thenReturn(arrivalView);
+
+            // 回填前：玩家开着的<b>另一张</b>广场界面（holder 实例不同 = 不是同一张屏幕）。
+            PluginGuiHolder otherHolder = PluginGuiHolder.of(GuiViewKey.SQUARE,
+                    new PluginGuiHolder.GuiPayload.SquarePage(3, "weekly"));
+            InventoryView otherView = viewWithHolder(otherHolder);
+
+            Harness harness = new Harness();
+            harness.onAfterDispatch = () ->
+                    lenient().when(viewer.getOpenInventory()).thenReturn(otherView);
+
+            try (MockedStatic<Bukkit> bukkit = mockStatic(Bukkit.class);
+                 MockedConstruction<ItemStack> ignored = itemStackMock()) {
+                bukkit.when(Bukkit::getScheduler).thenReturn(harness.scheduler);
+                stubCreateInventory(bukkit, harness);
+                new EnglishSquareGUI(plugin).open(viewer, 1,
+                        Leaderboard.RankingMode.ALL_PLAYERS);
+            }
+
+            assertEquals(0, harness.renderCount.get(),
+                    "两张界面标题相同但不是同一张（holder 实例不同）—— 判据必须是引用相等喵。"
+                            + "渲染了 " + harness.renderCount.get() + " 次说明用了标题比较："
+                            + "玩家在第 3 页翻页时，第 1 页那次打开会把他拽回第 1 页");
         }
 
         /**
@@ -743,6 +1060,14 @@ class WrongBookAndSquareAsyncTest {
     /**
      * 调度器替身：{@code runTaskAsynchronously} / {@code runTask} 默认<b>就地同步执行</b>
      * （于是「异步取数 → 回主线程渲染」在测试里是一次普通调用），可按需挂起。
+     *
+     * <p><b>{@link #onAfterDispatch}</b>：在「异步体已经读完数据、回主线程的渲染任务
+     * <b>即将执行</b>」的那一刻触发一次。这是模拟「异步窗口内玩家关掉界面 / 切到别的
+     * 界面」的唯一正确位置 —— 它是「数据已就绪、屏幕还没被写」的那个缝隙。
+     *
+     * <p>注意必须挂在 {@code runTask} 的 <b>task.run() 之前</b>：挂在异步体之后是错的，
+     * 因为就地同步执行时回主线程任务在异步体内部就已经跑完了（那样钩子永远晚一步，
+     * 用例会假绿）。只在<b>非挂起</b>模式下触发。
      */
     private final class Harness {
         private final BukkitScheduler scheduler = mock(BukkitScheduler.class);
@@ -754,6 +1079,9 @@ class WrongBookAndSquareAsyncTest {
         private final List<Runnable> mainTasks = new ArrayList<>();
         private boolean deferAsync;
         private boolean deferMain;
+        /** 回主线程渲染任务执行前的钩子（模拟异步窗口内玩家的动作）。只触发一次。 */
+        private Runnable onAfterDispatch;
+        private boolean hookFired;
 
         private Harness() {
             lenient().when(scheduler.runTaskAsynchronously(eq(plugin), any(Runnable.class)))
@@ -775,6 +1103,11 @@ class WrongBookAndSquareAsyncTest {
                             mainTasks.add(task);
                             return null;
                         }
+                        // 数据已就绪、屏幕尚未写入 —— 玩家的动作发生在这个缝隙里。
+                        if (onAfterDispatch != null && !hookFired) {
+                            hookFired = true;
+                            onAfterDispatch.run();
+                        }
                         task.run();
                         return null;
                     });
@@ -787,6 +1120,27 @@ class WrongBookAndSquareAsyncTest {
         private boolean asyncRan() {
             return asyncRan.get();
         }
+    }
+
+    /**
+     * 造一张「玩家正开着的界面」：{@code getOpenInventory().getTopInventory().getHolder()}
+     * 返回给定 holder。
+     *
+     * <p>{@code holder} 为 {@code null} 表示「不是插件界面」（玩家背包 / 原版容器）——
+     * 正是 {@code pluginGuiHolderOf(...)} 判成 null 的条件。回填守卫的两个分支
+     * （关掉界面 / 切到别的插件界面）都靠本工具表达。
+     *
+     * <p><b>不能写成 {@code when(viewer.getOpenInventory()).thenReturn(viewWithHolder(...))}</b>：
+     * 那会在一个未完成的 stubbing 里再开一个 stubbing，Mockito 抛
+     * {@code UnfinishedStubbingException}。本方法只造件、不往 {@code viewer} 上挂，
+     * 调用方先取引用再挂。
+     */
+    private static InventoryView viewWithHolder(PluginGuiHolder holder) {
+        Inventory top = mock(Inventory.class);
+        doReturn(holder).when(top).getHolder();
+        InventoryView view = mock(InventoryView.class);
+        doReturn(top).when(view).getTopInventory();
+        return view;
     }
 
     /**

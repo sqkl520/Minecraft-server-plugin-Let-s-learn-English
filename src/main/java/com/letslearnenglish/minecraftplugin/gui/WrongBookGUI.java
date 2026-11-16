@@ -156,6 +156,7 @@ public class WrongBookGUI {
         // 请求发起时记下玩家所在界面的 holder，回填前重取；不是同一个实例 = 玩家已离开
         // 那张屏幕（关掉 / 进了别的插件界面 / 回了自己背包），放弃本次打开。
         // 照 {@code AchievementWallGUI#stillOnRequestedScreen} 同式。
+        loadWrongBook(playerId); // MUTANT: 主线程同步查库
         final PluginGuiHolder arrivalHolder = pluginGuiHolderOf(player);
 
         BukkitScheduler scheduler = Bukkit.getScheduler();
@@ -164,15 +165,7 @@ public class WrongBookGUI {
             // 同步取数 + 渲染，与修复前的同步实现逐行等价。生产环境
             // Bukkit.getScheduler() 永不为 null，故该分支不参与线上路径 —— 它存在的
             // 唯一理由是「已经能跑通的既有夹具不该因为线程模型改造而被判红」。
-            // 本分支**不查 plugin.isEnabled()**：夹具里的 mock 插件默认 isEnabled=false，
-            // 而在无调度器窗口里"插件已停用"这个前提根本不成立。
-            WrongBookLoad load = loadWrongBook(playerId);
-            if (!load.ok()) {
-                notifyLoadFailed(player, playerId, token);
-                return;
-            }
-            int totalPages = totalPagesOf(load.entries());
-            render(player, load.entries(), clampPage(page, totalPages), totalPages);
+            openSyncFallback(player, page, playerId, token);
             return;
         }
         try {
@@ -207,6 +200,28 @@ public class WrongBookGUI {
         } catch (IllegalStateException ignored) {
             // 插件停用窗口（调度器已关闭）：放弃本次打开（玩家也已不可能看到界面）。
         }
+    }
+
+    /**
+     * 无调度器环境的同步兜底（<b>仅测试夹具路径</b>，生产不可达 —— {@code Bukkit.getScheduler()}
+     * 在活服务器上永不为 null）。
+     *
+     * <p>抽成独立方法而不是内联在 {@link #openAsync(Player, int)} 里，是为了让源码 lint
+     * 的锚点精确：{@code openAsync} 的主线程段必须<b>只剩调度逻辑</b>，任何"顺手在这里
+     * 查一次库"的写法都要能被静态抓住。抽出来之后，本方法的存在本身就是一条声明：
+     * 「同步取数只允许发生在这里，而这里只在无调度器时被调用」。
+     *
+     * <p>本分支**不查 {@code plugin.isEnabled()}**：夹具里的 mock 插件默认
+     * {@code isEnabled=false}，而在无调度器窗口里"插件已停用"这个前提根本不成立。
+     */
+    private void openSyncFallback(Player player, int page, UUID playerId, long token) {
+        WrongBookLoad load = loadWrongBook(playerId);
+        if (!load.ok()) {
+            notifyLoadFailed(player, playerId, token);
+            return;
+        }
+        int totalPages = totalPagesOf(load.entries());
+        render(player, load.entries(), clampPage(page, totalPages), totalPages);
     }
 
     /**

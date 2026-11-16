@@ -370,16 +370,10 @@ public class EnglishSquareGUI {
             // 不该因为线程模型改造而被判红」。本分支**不查 plugin.isEnabled()**：夹具里的
             // mock 插件默认 isEnabled=false，而在无调度器窗口里"插件已停用"并不成立。
             //
-            // 取行口用方法引用（{@link #fetchSquarePage}）：查询语句本身留在异步段，
-            // 这条纯夹具分支才不必在 lint 里开例外 —— 例外一开，真回归就跟着溜进去。
-            SquareData data = loadSquareData(viewerId, requestedPage, effectiveMode,
-                    displayCount, langForLog, this::fetchSquarePage);
-            if (data == null) {
-                notifyLoadFailed(viewer);
-                return;
-            }
-            renderSquare(viewer, effectiveMode, data, layout, leaderboardEnabled, socialEnabled,
-                    messages);
+            // 抽成独立方法（{@link #openSyncFallback}）而不是内联：这样 open() 的主线程段
+            // 只剩调度逻辑 + 纯配置准备，源码 lint 才能对「把取数搬回主线程」精确变红。
+            openSyncFallback(viewer, effectiveMode, requestedPage, displayCount, langForLog,
+                    layout, leaderboardEnabled, socialEnabled, messages);
             return;
         }
         try {
@@ -425,7 +419,7 @@ public class EnglishSquareGUI {
     /**
      * 广场全量模式的「取一页行」实现（{@code (page-1)*每页容量} 的 OFFSET）。
      *
-     * <p><b>只被无调度器的夹具分支使用</b>（见 {@code open(...)} 的 scheduler==null 注释）。
+     * <p><b>只被无调度器的夹具分支使用</b>（见 {@link #openSyncFallback} 的调用点）。
      * 生产路径用的是 {@code open(...)} 异步 lambda 里的同名匿名实现 —— 两份实现共用
      * {@link #PLAYERS_PER_PAGE} 与同一个算术，语义逐字等价。为什么不合一：查询语句必须
      * 留在 {@code open()} 方法体内（分页契约 lint 锚定此处），而夹具分支不能出现在
@@ -439,6 +433,28 @@ public class EnglishSquareGUI {
         List<LeaderboardEntry> rows =
                 plugin.getPlayerDataStore().getActiveSquareEntries(PLAYERS_PER_PAGE, offset);
         return rows != null ? rows : Collections.emptyList();
+    }
+
+    /**
+     * 无调度器环境的同步兜底（<b>仅测试夹具路径</b>，生产不可达 —— {@code Bukkit.getScheduler()}
+     * 在活服务器上永不为 null）。
+     *
+     * <p>抽成独立方法而不是内联在 {@link #open(Player, int, RankingMode)} 里：{@code open()}
+     * 的主线程段必须只剩「纯配置准备 + 调度」，任何"顺手在这里查一次库"的写法都要能被
+     * 源码 lint 静态抓住。本方法的存在本身就是那条声明 —— 同步取数只允许发生在这里，
+     * 而这里只在无调度器时被调用。取行口用方法引用（{@link #fetchSquarePage}）与生产路径
+     * 共用同一算术。
+     */
+    private void openSyncFallback(Player viewer, RankingMode mode, int page, int displayCount,
+                                  String lang, int[] layout, boolean leaderboardEnabled,
+                                  boolean socialEnabled, FileConfiguration messages) {
+        SquareData data = loadSquareData(viewer.getUniqueId(), page, mode,
+                displayCount, lang, this::fetchSquarePage);
+        if (data == null) {
+            notifyLoadFailed(viewer);
+            return;
+        }
+        renderSquare(viewer, mode, data, layout, leaderboardEnabled, socialEnabled, messages);
     }
 
     /**

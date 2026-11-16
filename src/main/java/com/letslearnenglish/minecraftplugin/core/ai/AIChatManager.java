@@ -1752,7 +1752,7 @@ public class AIChatManager {
             } catch (Exception e) {
                 // 计数器都拿不到就无法判定成就，直接收口（不影响 ③ 的挑战进度？会 ——
                 // 但原实现在此处的异常同样会中断后续两笔，保持同语义，只是不再冒到线程外）。
-                loggerWarnQuietly("R-16 conversation-count settlement failed for "
+                loggerWarnQuietly("conversation-count settlement failed for "
                         + playerName + " (" + playerId + ")", e);
                 return;
             }
@@ -1760,7 +1760,7 @@ public class AIChatManager {
             try {
                 plugin.getAchievementManager().checkAIChatAchievement(playerId, count);
             } catch (Exception e) {
-                loggerWarnQuietly("R-16 AI-chat achievement check failed for "
+                loggerWarnQuietly("AI-chat achievement check failed for "
                         + playerName + " (" + playerId + ")", e);
             }
             // ③ 每日挑战（可能触发奖励发放；本条失败不得影响已完成的 ①②）。
@@ -1769,7 +1769,7 @@ public class AIChatManager {
                 // getAIChatManager）；无递归栈风险，事件化重构成本大于收益，保持现状。
                 plugin.getDailyChallengeManager().updateProgress(playerId, ChallengeType.AI_CHAT_5, 1);
             } catch (Exception e) {
-                loggerWarnQuietly("R-16 daily-challenge progress failed for "
+                loggerWarnQuietly("daily-challenge progress failed for "
                         + playerName + " (" + playerId + ")", e);
             }
         }

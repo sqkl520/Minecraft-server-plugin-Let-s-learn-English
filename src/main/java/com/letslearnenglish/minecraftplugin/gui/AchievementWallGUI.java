@@ -420,7 +420,7 @@ public class AchievementWallGUI {
         truncationWarningLogged = true;
         plugin.getLogger().warning("Achievement wall grid overflow: " + visibleCount
                 + " enabled achievements exceed the " + MAX_GRID_SLOTS
-                + " display slots — the remainder is silently dropped (PF-ACH-07). "
+                + " display slots — the remainder is silently dropped. "
                 + "Add paging before expanding the achievement list further.");
     }
 

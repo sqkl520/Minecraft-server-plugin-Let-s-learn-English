@@ -790,4 +790,241 @@ class ReportRepositoryTest {
         public void close() {
         }
     }
+
+    //  ======== 第 12 节起：round20 独立复核新增（audit-specialist） ========
+    //
+    //  上面 27 例经独立复核后判定：断言手法全部合格（真 SQLite + 第二条 JDBC 连接造数，
+    //  无自证桩；两条 @Disabled 措辞诚实，断言期望值而非现状）。但有三处覆盖缺口需要在
+    //  这里补，它们不是"重新测一遍"，而是原套件按构造方式测不到的口径问题：
+    //
+    //   (1) 【D1】Q9 的 active_days 用 COUNT(*) 而不是 COUNT(DISTINCT)。原套件已把
+    //       "老库无 UNIQUE 会算多"钉住（batchActiveDaysUsesCountStarNotDistinct），
+    //       但没钉住同一报表内部两个出口：Q1（单报学习天数 = rows().size()）与
+    //       Q9（批量学习天数 = COUNT(*)）遇重复行一起算多，而成就墙
+    //       （AchievementRepository.countDistinctStudyDays）用 COUNT(DISTINCT) —— 同
+    //       一个"学习天数"在报告与成就墙给出不同数字。
+    //   (2) 【D2】Q8 的 COUNT(*) 把 degradeStale 写的"自动放弃"行算进"本期完成"分子
+    //       （它写 completed=1, claimed=1）。发钱面为零（降级路径显式拒发），但报告会
+    //       说"完成 3/3"而孩子只做了 2 个。
+    //   (3) 【D3 已证伪】初始假设是"MySQL 的 <= 23:59:59 上界丢最后一秒"，在真实
+    //       MariaDB 13.0.2 上被证伪（TIMESTAMP(0) 截断小数秒，两分支等价）。留下的是
+    //       一条"两分支等价"的回归护栏 + 一条非 UTC 时区换算的事实钉桩。
+    //       证伪过程写在 d3BothDialectsAgreeAtSecondPrecision 的 javadoc 里。
+    // ============================================================
+    /**
+     * 【D1 事实钉桩 · LOW-MEDIUM，不修，仅记录】Q1 与 Q9 对"学习天数"的口径分叉。
+     *
+     * <p>这不是新缺陷的重复报告，而是把同一份报表内部两个出口的对不上钉住：
+     * <ul>
+     *   <li>Q1（queryDailyRows）→ ReportGenerator 用 rows().size() 当"学习天数"。
+     *       UNIQUE 保证一天一行时正确，老库有重复行时会数成 N 行 = N 天。</li>
+     *   <li>Q9（queryBatchStatsOrFail）→ COUNT(*)，同样口径。</li>
+     * </ul>
+     * 两者一致地错（都按行数），因此报表自洽 —— 这一点必须说清楚，否则会被误判成 HIGH。
+     * 真正的对照方是 AchievementRepository.countDistinctStudyDays 的
+     * COUNT(DISTINCT session_date)：同一天在成就墙与报告上显示不同天数。
+     *
+     * <p>为什么定 LOW-MEDIUM 而不是更高：唯一进入生产线的建表语句
+     * （DatabaseManager.createTables）自 1.0.6 起就带 UNIQUE(uuid, session_date)
+     * （已核 jar 常量池：1.0.0~1.0.5 无该表、1.0.6 起有且带 UNIQUE），且 recordSession
+     * 用 UPSERT 累加。要产生重复行必须满足"1.0.5 及更早的库 + 从未重建 + 手工插行"
+     * 三者同时成立。本测试用等价老 schema 复现该条件，证明的是假设成立时的后果。
+     */
+    @Test
+    @DisplayName("【D1】Q1 与 Q9 的'学习天数'同为行数口径：重复行时两处一起算多（与成就墙 COUNT(DISTINCT) 分叉）")
+    void d1StudyDayCountIsRowCountNotDistinct() throws Exception {
+        exec("DROP TABLE " + PREFIX + "player_sessions");
+        exec("CREATE TABLE " + PREFIX + "player_sessions ("
+                + " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                + " uuid VARCHAR(36) NOT NULL,"
+                + " session_date DATE NOT NULL,"
+                + " words_count INT DEFAULT 0,"
+                + " correct_count INT DEFAULT 0,"
+                + " score BIGINT DEFAULT 0,"
+                + " mode VARCHAR(32),"
+                + " review_words INT DEFAULT 0)");
+        insertSession(PLAYER, "2026-01-05", 10, 5, 50L);
+        insertSession(PLAYER, "2026-01-05", 10, 5, 50L); // 同一天第二行
+
+        // 真值：这一天 = 1 天（这是成就墙 countDistinctStudyDays 的口径）
+        assertEquals(1, scalar("SELECT COUNT(DISTINCT session_date) FROM " + PREFIX
+                + "player_sessions WHERE uuid = '" + PLAYER + "'"), "真实学习天数");
+
+        // Q1 出口：ReportGenerator 用 rows().size() 当学习天数
+        ReportRepository.DailyRows q1 = repo.queryDailyRows(PLAYER, "2026-01-01", "2026-01-31");
+        assertTrue(q1.complete());
+        assertEquals(2, q1.rows().size(),
+                "Q1 按行返回 —— ReportGenerator 的'学习天数'就是 rows().size()，得 2");
+
+        // Q9 出口：COUNT(*) 同样是 2，两处自洽（都错成同一个方向）
+        ReportRepository.BatchRows q9 =
+                repo.queryBatchStatsOrFail("2026-01-01", "2026-01-31", 10, false);
+        assertTrue(q9.complete());
+        assertEquals(2, q9.rows().get(0).activeDays(), "Q9 的 COUNT(*) 也得 2");
+        assertEquals(q1.rows().size(), q9.rows().get(0).activeDays(),
+                "报表内部自洽：单报与批量对同一天给出同一个（偏大的）天数。"
+                        + "真正对不上的地方是成就墙的 COUNT(DISTINCT)=1。");
+    }
+
+    /**
+     * 【D2 口径钉桩 · 已 @Disabled 表达期望】Q8 的"本期完成每日挑战 done/all"分子把
+     * degradeStale 的"自动放弃"算成"完成"。
+     *
+     * <p>缺陷本体（ReportRepository:276-278）：
+     * <pre>
+     *   SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) AS done,   -- 只认 completed=1
+     *   COUNT(*) AS total                                          -- 窗口内全部行
+     * </pre>
+     * 分母 total 含所有已分配的挑战行（这本身是设计意图："本期发了 N 个任务、完成 M 个"），
+     * 但 DailyChallengeRepository.degradeStale（R-21 存量降级）会把既未完成也未领取的
+     * AI_CHAT_5 行直接写成 completed=1, claimed=1（"自动放弃，不发奖励"，见
+     * DailyChallengeManager:501-514）。降级行在报告里与"孩子真的完成了"同形。
+     *
+     * <p>真实用户影响：AI Key 失效（或 ai-chat.enabled=false）的服上，每个进过挑战界面的
+     * 玩家当天都会有一条降级行。家长报告会写"本期完成每日挑战 3/3"，而孩子实际只完成 2 个。
+     * 方向是多报（把没做算成做了），金额面为零。
+     *
+     * <p>为什么定 LOW-MEDIUM 而不是更高：①不发钱、不删数据；②只在 AI 不可用且玩家当天
+     * 有 AI_CHAT_5 行时触发；③模板文案只说"本期完成"，未限定"孩子亲手完成"。
+     *
+     * <p>修法：不是纯 SQL 能修的 —— 当前 schema 没有列能区分"完成"与"降级"
+     * （两者都是 completed=1, claimed=1；progress=0 也不可靠，COMBO_5 走二进制完成时
+     * progress 同样是 0）。需先加列。这正是本条留在 @Disabled 的理由。
+     */
+    @Test
+    @Disabled("已知缺陷 LOW-MEDIUM：Q8 把 degradeStale 的'自动放弃'计入'本期完成'分子；"
+            + "当前 schema 无列可区分完成与降级，不是纯 SQL 能修。"
+            + "本测试断言的是期望行为 —— 摘掉 @Disabled 即红。")
+    @DisplayName("【D2】【期望】自动放弃（degradeStale）的挑战不应计入'本期完成'")
+    void d2AutoAbandonedChallengeShouldNotCountAsCompleted() throws Exception {
+        // 孩子真的完成 1 个
+        insertChallenge(PLAYER, "2026-01-05", "answer_10", true);
+        // 另外 2 个是 R-21 降级写的：completed=1, claimed=1，孩子一个都没做
+        insertChallengeClaimedNoWork(PLAYER, "2026-01-05", "ai_chat_5");
+        insertChallengeClaimedNoWork(PLAYER, "2026-01-06", "ai_chat_5");
+
+        ReportRepository.ChallengeRows r =
+                repo.countDailyChallengesOrFail(PLAYER, "2026-01-05", "2026-01-07");
+        assertTrue(r.complete());
+        assertEquals(1, r.progress().done(),
+                "孩子实际只亲手完成 1 个。现状得到 3（两个降级行也算 completed=1）—— "
+                        + "家长看到'本期完成每日挑战 3/3'，其中 2/3 是系统放弃的。");
+    }
+
+    /** 造一行"降级形态"的挑战：completed=1 + claimed=1 但 progress=0（孩子零进度）。 */
+    private void insertChallengeClaimedNoWork(UUID id, String date, String challengeId)
+            throws Exception {
+        exec("INSERT INTO " + PREFIX + "daily_challenges"
+                + " (uuid, challenge_date, challenge_id, progress, completed, claimed)"
+                + " VALUES ('" + id + "', '" + date + "', '" + challengeId + "', 0, 1, 1)");
+    }
+
+    /**
+     * 【D2 附带事实】降级行与真实完成行在报告 SQL 里不可区分 —— 钉住"为什么 D2 不能
+     * 纯 SQL 修"。degradeStale 写出的行（completed=1/claimed=1/progress=0）与"玩家真的
+     * 完成并已领"（completed=1/claimed=1/progress=target）唯一差别是 progress，而
+     * progress=0 又是 COMBO_5 二进制完成的合法形态。三态没有正交的列组合可判。
+     */
+    @Test
+    @DisplayName("【D2 附带】降级行与真实完成行在报告 SQL 里不可区分（progress=0 也不可靠）")
+    void d2DegradedRowIsIndistinguishableFromRealCompletion() throws Exception {
+        // 真完成并已领取
+        exec("INSERT INTO " + PREFIX + "daily_challenges"
+                + " (uuid, challenge_date, challenge_id, progress, completed, claimed)"
+                + " VALUES ('" + PLAYER + "', '2026-01-05', 'answer_10', 10, 1, 1)");
+        // 降级（自动放弃）
+        insertChallengeClaimedNoWork(PLAYER, "2026-01-06", "ai_chat_5");
+
+        ReportRepository.ChallengeRows r =
+                repo.countDailyChallengesOrFail(PLAYER, "2026-01-05", "2026-01-07");
+        assertEquals(2, r.progress().done(), "报告 SQL 只看 completed=1，两行都计入。");
+
+        assertEquals(1, scalar("SELECT COUNT(*) FROM " + PREFIX + "daily_challenges"
+                        + " WHERE uuid = '" + PLAYER + "' AND completed = 1 AND claimed = 1"
+                        + " AND progress = 0"),
+                "progress=0 不能当降级判据：COMBO_5 走二进制完成时 progress 也是 0。");
+    }
+
+    /**
+     * 【D3 已证伪 · 保留为回归护栏】Q4 两分支在<b>产品自带 DDL 的精度下</b>给出相同结果。
+     *
+     * <p><b>审计过程必须诚实记录</b>：round20 复核时我的初始假设是"MySQL 分支的
+     * {@code <= '23:59:59'} 上界丢掉当天最后一秒"（因为 SQLite 分支用的是精确半开区间）。
+     * 该假设在真实 MariaDB 13.0.2 上被<b>证伪</b>：
+     * <pre>
+     *   CREATE TABLE ... timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP   -- 产品 DDL 原文
+     *   INSERT ... '2026-01-10 23:59:59.500'
+     *   SELECT CAST(timestamp AS CHAR) --&gt; '2026-01-10 23:59:59'      -- 小数秒被截断
+     * </pre>
+     * {@code TIMESTAMP}（精度 0）在 MySQL/MariaDB 上把输入微秒截断，因此"最后一秒"里
+     * <b>只可能存在 23:59:59.000 这一个值</b>，{@code <= '23:59:59'} 与
+     * {@code < '2026-01-11 00:00:00'} 覆盖完全相同的行集。两分支等价。
+     *
+     * <p>对照实测（同 4 个本地时刻，两后端各自写自己的形态）：
+     * <pre>
+     *   SQLite：UTC 半开区间 [01-09 16:00, 01-10 16:00)  → 2 轮
+     *   MySQL ：本地闭区间 [01-10 00:00, 01-10 23:59:59] → 2 轮
+     * </pre>
+     * 只有把列改成 {@code TIMESTAMP(6)} 才会出现差异 —— 那不是产品 DDL。
+     *
+     * <p><b>因此本测试断言的是"两分支等价"，而不是"两分支有差异"。</b>它的价值在于：
+     * 若有人日后把 DDL 的 {@code timestamp} 升到 {@code TIMESTAMP(6)}（一个看似无害的
+     * "提高精度"改动），MySQL 分支立刻开始漏当天的亚秒行，而这条测试是唯一会红的。
+     * 这就是"证伪一个假设"仍然值得留下一条护栏的理由。
+     */
+    @Test
+    @DisplayName("【D3】Q4 两分支在 timestamp 秒级精度下等价（亚秒行被 DDL 截断，故 23:59:59 上界不漏）")
+    void d3BothDialectsAgreeAtSecondPrecision() throws Exception {
+        // 产品 DDL 的 timestamp 列在 SQLite 上是 TEXT affinity，在 MySQL 上是 TIMESTAMP(0)。
+        // 这里直接验证 SQLite 侧的存储形态：写 .500 会原样保留（TEXT affinity 不截断）——
+        // 但生产写入路径是 CURRENT_TIMESTAMP，它只产生秒级字符串，所以 .500 这类值
+        // 只能来自手工插入，不是"报告算错"的现实场景。
+        insertChat(PLAYER, "s_lastsec", "2026-01-10 23:59:59");
+
+        int inclusive = repo.countAiConversationsOrFail(
+                PLAYER, "2026-01-10 00:00:00", "2026-01-10 23:59:59", false).value();
+        int exclusive = repo.countAiConversationsOrFail(
+                PLAYER, "2026-01-10 00:00:00", "2026-01-11 00:00:00", true).value();
+
+        assertEquals(1, inclusive, "秒级精度的最后一条落在 23:59:59，闭区间含它");
+        assertEquals(1, exclusive, "半开区间同样含它 —— 两分支在这一行上等价");
+        assertEquals(inclusive, exclusive,
+                "在产品 DDL 的秒级精度下，MySQL 的 <= 23:59:59 与 SQLite 的 < 次日00:00 等价。"
+                        + "若这条变红，检查 ai_chat_history.timestamp 是否被改成了 TIMESTAMP(6)："
+                        + "那会让 MySQL 分支开始漏掉当天的亚秒行。");
+    }
+    /**
+     * 【事实】Q4 的 SQLite 分支在非 UTC 时区下把"本地日"正确换算成 UTC 区间。
+     *
+     * <p>写这条的理由：原 27 例里没有一处测过非 UTC 时区的窗口换算（全部用纯字符串
+     * 常量）。本仓库踩过时区坑（P3-12），而这个换算是 Q4 唯一依赖调用方正确性的地方 ——
+     * 换算方向反了会让"本期对话数"整体偏移 8 小时，跨零点那批全错。
+     * 本测试复刻 ReportGenerator:465-468 的换算并校验仓储按该区间取值正确。
+     */
+    @Test
+    @DisplayName("【事实】Q4 SQLite 分支：+08:00 的本地日正确换算成 UTC 区间，跨零点不错位")
+    void d3SqliteBranchUtcWindowConversionIsCorrect() throws Exception {
+        java.time.ZoneId plus8 = java.time.ZoneId.of("+08:00");
+        java.time.LocalDate localDay = java.time.LocalDate.of(2026, 1, 10);
+        java.time.format.DateTimeFormatter f =
+                java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        // 复刻 ReportGenerator:465-468 的换算
+        String lo = localDay.atStartOfDay(plus8)
+                .withZoneSameInstant(java.time.ZoneOffset.UTC).format(f);
+        String hi = localDay.plusDays(1).atStartOfDay(plus8)
+                .withZoneSameInstant(java.time.ZoneOffset.UTC).format(f);
+
+        assertEquals("2026-01-09 16:00:00", lo, "本地 01-10 00:00 (+08) = UTC 01-09 16:00");
+        assertEquals("2026-01-10 16:00:00", hi, "本地 01-11 00:00 (+08) = UTC 01-10 16:00");
+
+        insertChat(PLAYER, "before", "2026-01-09 15:59:59");  // 本地 01-09 23:59:59 — 窗口前
+        insertChat(PLAYER, "atStart", "2026-01-09 16:00:00"); // 本地 01-10 00:00:00 — 含
+        insertChat(PLAYER, "inside", "2026-01-10 03:00:00");  // 本地 01-10 11:00 — 含
+        insertChat(PLAYER, "atEnd", "2026-01-10 16:00:00");   // 本地 01-11 00:00:00 — 不含
+
+        int count = repo.countAiConversationsOrFail(PLAYER, lo, hi, true).value();
+        assertEquals(2, count,
+                "本地日 01-10 应恰好覆盖 atStart + inside。换算方向反了会得到 0 或 4 —— "
+                        + "8 小时偏移在跨零点那批对话上全额体现。");
+    }
 }
