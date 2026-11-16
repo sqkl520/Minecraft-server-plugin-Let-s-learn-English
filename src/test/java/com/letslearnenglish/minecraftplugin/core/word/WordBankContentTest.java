@@ -290,6 +290,18 @@ class WordBankContentTest {
                         String v = e.fields().get(f);
                         // 空列表 "[]" 是合法值（功能词没有可靠同反义词时统一写 []，
                         // 见 words/README.md），不算缺失 —— 这里只拦「键本身不存在」与空白
+                        //
+                        // unv-tests-F-07（round1 遗留 MEDIUM，本轮补修）：块状列表的占位符
+                        // "__BLOCK__" 不是空串也不是空白，会让「字段非空」在
+                        //     synonyms:
+                        //     （后面一个 "- " 行都没有）
+                        // 这种情况下**假通过** —— 解析器把键记成占位符，断言看到非空就当有值。
+                        // 这是「零元素块」被当作有效列表的漏洞，必须显式挡掉。
+                        if ("__BLOCK__".equals(v)) {
+                            bad.add(t + "/" + e.english() + " 的 " + f
+                                    + " 是块状列表但没有任何元素（解析占位符未消解）");
+                            continue;
+                        }
                         if (v == null || v.isBlank()) {
                             bad.add(t + "/" + e.english() + " 缺 " + f);
                         }

@@ -140,5 +140,41 @@ class VersionAdapterTest {
                 assertFalse(supported(v), "\"" + v + "\" 不应被判为支持");
             }
         }
+
+        /**
+         * E6（R9 补齐）：年份版本号但<b>次版本解析失败</b>时，yearBased 必须一并回退。
+         *
+         * <p>原实现先 {@code yearBased = true} 再 {@code parseInt}，NFE 时 catch 只回滚
+         * {@code parsedMinor}，于是返回 {@code (-1, 1)} —— 这个「像成功」的组合恰好绕过
+         * 构造器的告警条件（{@code parsed[0] < 0 && parsed[1] == 0}），解析失败被
+         * {@code describeCompatibility} 的 yearBased 分支报成「26.x detected」。
+         *
+         * <p><b>输入选择是实测校准过的</b>：{@code "26.2-pre"} 经 {@code replaceAll("[^0-9].*$","")}
+         * 会变成 {@code "2"}，能成功解析，因此<b>不是</b>失败用例（原审计报告把它当例子是错的，
+         * 本用例初版照抄后立刻被测试抓出来）。真正会抛 NFE 的是次版本段没有任何数字的输入。
+         *
+         * <p>变异检验：把 catch 里的 {@code yearBased = false} 删掉，本用例立刻变红
+         * （{@code expected: <0> but was: <1>}）。
+         */
+        @Test
+        @DisplayName("E6 — 26.x 但次版本解析失败时，yearBased 必须回退为 false")
+        void yearBasedResetsWhenMinorParseFails() {
+            for (String v : new String[] {"26.x", "26.abc", "26.-"}) {
+                int[] r = VersionAdapter.parseServerVersion(v);
+                assertEquals(-1, r[MINOR], "\"" + v + "\" 的次版本应为未知(-1)");
+                assertEquals(0, r[YEAR_BASED],
+                        "\"" + v + "\" 解析失败时 yearBased 必须为 false —— 否则 (-1, true)"
+                                + " 会绕过构造器的告警条件，把解析失败伪装成「26.x detected」");
+            }
+        }
+
+        /** 对照：{@code "26.2-pre"} 的次版本段含数字，应正常解析为 2（不是失败用例）。 */
+        @Test
+        @DisplayName("E6 对照 — \"26.2-pre\" 能正常解析出次版本 2")
+        void prereleaseWithNumericMinorParses() {
+            int[] r = VersionAdapter.parseServerVersion("26.2-pre");
+            assertEquals(2, r[MINOR], "\"26.2-pre\" 的次版本段含数字 2，应解析成功");
+            assertEquals(1, r[YEAR_BASED], "成功解析的 26.x 应标记为 yearBased");
+        }
     }
 }

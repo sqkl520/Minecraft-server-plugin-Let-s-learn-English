@@ -261,9 +261,34 @@ public class ScenarioSelectListener implements Listener {
         new PersonalScenarioGUI(plugin).open(player, null);
     }
 
+    /**
+     * 「刷新 API 密钥」按钮（slot 26）的执行尾。
+     *
+     * <p><b>权限门是 {@code letslearnenglish.admin}，不是 {@code scenario.import}</b>。
+     * 理由是这个按钮的动作是 {@link AIChatManager#reload()} —— 全局重读
+     * {@code ai_config.yml}（API Key / 模型 / 超时 / 每日轮次上限 …）+ {@code ai_scenarios.yml}
+     * （全部场景与难度）。命令侧最接近的等价物 {@code /lea reload} 要求 {@code admin}，
+     * 而 {@code scenario.import} 的语义是「导入分享码 / 管理自己的个人场景」（会被下发给
+     * 老师、内容作者），不该顺带授予「让全局 AI 配置从磁盘重载」的能力。
+     *
+     * <p><b>R-55m 沿革与本次回退</b>：R-55m 曾把这里从 {@code admin} 放宽到
+     * {@code scenario.import}，理由是「与 /le load_scenario 对齐」。但两者动作不同量级——
+     * 导入分享码写的是<b>自己</b>的个人场景，本方法写的是<b>全服</b>的 AI 运行时配置，
+     * 且 {@code AIChatManager.loadScenariosConfig()} 内的
+     * {@code maybeUpgradeScenariosFile} 在旧版出厂文件上会 {@code saveResource(..., true)}
+     * <b>覆盖磁盘文件</b>。对齐的应该是「动作」，不是「按钮所在页面」。
+     *
+     * <p><b>这是行为变更</b>：见 {@link ScenarioSelectGUI#RELOAD_API_PERMISSION} 的注释与
+     * DEPLOYMENT_WIKI 的升级说明。
+     *
+     * <p>节点名写字面量（不用常量）：{@code PermissionContractLintTest} 只认字面量，
+     * 常量间接会让「代码查了哪个节点」静态不可知；两处门的一致性由
+     * {@code ScenarioSelectReloadPermissionTest} 的行为用例钉住。
+     *
+     * @param player 点击者
+     */
     private void handleReloadAPI(Player player) {
-        // R-55m：权限与 /le load_scenario 对齐（原 letslearnenglish.admin）
-        if (!player.hasPermission("letslearnenglish.scenario.import")) {
+        if (!player.hasPermission("letslearnenglish.ai.reload")) {
             // P2-24 音效盲点收口（3A-5）：无权限分支与 AI 未配置分支同用失败音，
             // 与有效点击（menu-click）听觉可区分。
             SoundManager.playSound(player, "incorrect");

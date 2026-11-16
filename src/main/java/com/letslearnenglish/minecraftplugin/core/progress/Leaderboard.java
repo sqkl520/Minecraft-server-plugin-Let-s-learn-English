@@ -120,7 +120,18 @@ public class Leaderboard {
             default -> entries = Collections.emptyList();
         }
 
-        return entries.size() > count ? entries.subList(0, count) : entries;
+        return deterministicRanks(entries, count);
+    }
+
+    // 09-logic-F-R4L-01：同分次序由后端定而 rank 换算奖金档位，故加 (score DESC, uuid ASC)。
+    private static List<LeaderboardEntry> deterministicRanks(List<LeaderboardEntry> entries, int count) {
+        List<LeaderboardEntry> sorted = new ArrayList<>(entries);
+        sorted.sort((a, b) -> {
+            int cmp = Long.compare(b.score, a.score);
+            return cmp != 0 ? cmp : a.playerId.compareTo(b.playerId);
+        });
+        for (int i = 0; i < sorted.size(); i++) sorted.set(i, sorted.get(i).withRank(i + 1));
+        return sorted.size() > count ? sorted.subList(0, count) : sorted;
     }
 
     /**
@@ -135,21 +146,28 @@ public class Leaderboard {
     }
 
     /**
-     * Get a player's rank from the in-memory scores map.
+     * 查玩家名次。
+     *
+     * <p><b>slice-09-F-09-03/04/05（round1 遗留 MEDIUM，round10 裁决实施）：改为委托
+     * 权威查询，不再读内存 {@code scores}。</b>
+     *
+     * <p>原实现有**两个名次真相源且口径不同**：
+     * <ul>
+     *   <li>这里读 {@code scores} —— 启动快照（上限 1000 行）+ 本服增量、5 分钟刷一次，
+     *       WHERE 里<b>只有隐身门</b>；</li>
+     *   <li>广场榜走实时 SQL，WHERE 里除了隐身门还有<b>答题门</b>
+     *       （{@code EXISTS word_progress ... correct+incorrect > 0}）。</li>
+     * </ul>
+     * 于是「刚进服、还没答过题」的玩家在 {@code %lle_rank%} 里有名次，在广场榜上却不在。
+     *
+     * <p>现在统一到 {@link PlayerDataStore#getAuthoritativeRank}，与广场侧同一套 WHERE
+     * 与 tie-break。调用点仍保留原签名，调用方零改动。
+     *
+     * @return 1-based 名次；不在榜上返回 {@link #NOT_RANKED}
      */
     public int getPlayerRank(UUID playerId) {
-        List<Map.Entry<UUID, Long>> sorted = new ArrayList<>(scores.entrySet());
-        // R4-L2：并列分数以 UUID 自然序为 secondary key —— 确定性、全序的 tie-break，
-        // 保证同分两玩家多次查询 rank 恒定（不引入需持久化的"首上榜时间"字段）。
-        sorted.sort(Map.Entry.<UUID, Long>comparingByValue().reversed()
-                .thenComparing(Map.Entry.comparingByKey()));
-
-        for (int i = 0; i < sorted.size(); i++) {
-            if (sorted.get(i).getKey().equals(playerId)) {
-                return i + 1;
-            }
-        }
-        return NOT_RANKED;
+        int rank = plugin.getPlayerDataStore().getAuthoritativeRank(playerId);
+        return rank > 0 ? rank : NOT_RANKED;
     }
 
     /**

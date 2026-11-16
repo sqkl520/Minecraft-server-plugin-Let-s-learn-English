@@ -87,6 +87,58 @@ public class LeaderboardGUI {
     /** 赛季榜缓存读取上限（plan-season §1.7：与 Leaderboard.DEFAULT_CACHE_LIMIT=50 对齐）。 */
     private static final int SEASON_CACHE_LIMIT = 50;
 
+    /**
+     * R12-slot：本界面用到的 6 个 {@code gui-layout.leaderboard.*.slot} 键与出厂默认值。
+     *
+     * <p>顺序与 {@code config.yml} 的 {@code gui-layout.leaderboard} 段一致，便于服主
+     * 对着日志里的配置路径找到那一行。默认值全部引用上面的 {@code public static final}
+     * 常量（而不是重新写字面量）—— 那些常量同时被点击侧 {@code SocialListener} 用作
+     * fallback，两边共用一个真相源就不会出现「渲染回落 8、点击回落 9」的错位。
+     */
+    private static final String[] LAYOUT_SLOT_KEYS = {
+            "tab-season", "season-info", "back-button", "tab-coins", "tab-words", "tab-combo"
+    };
+    /** 与 {@link #LAYOUT_SLOT_KEYS} 逐位对应的默认槽位。 */
+    private static final int[] LAYOUT_SLOT_DEFAULTS = {
+            TAB_SEASON_SLOT, SEASON_INFO_SLOT, BACK_SLOT,
+            TAB_COINS_SLOT, TAB_WORDS_SLOT, TAB_COMBO_SLOT
+    };
+    /** {@link #LAYOUT_SLOT_KEYS} 中 {@code tab-season} 的下标。 */
+    private static final int IDX_TAB_SEASON = 0;
+    /** {@link #LAYOUT_SLOT_KEYS} 中 {@code season-info} 的下标。 */
+    private static final int IDX_SEASON_INFO = 1;
+    /** {@link #LAYOUT_SLOT_KEYS} 中 {@code back-button} 的下标。 */
+    private static final int IDX_BACK = 2;
+    /** {@link #LAYOUT_SLOT_KEYS} 中 {@code tab-coins} 的下标。 */
+    private static final int IDX_TAB_COINS = 3;
+    /** {@link #LAYOUT_SLOT_KEYS} 中 {@code tab-words} 的下标。 */
+    private static final int IDX_TAB_WORDS = 4;
+    /** {@link #LAYOUT_SLOT_KEYS} 中 {@code tab-combo} 的下标。 */
+    private static final int IDX_TAB_COMBO = 5;
+
+    /**
+     * R12-slot：读出并校验本界面 6 个配置槽位（越界 → 整组回落默认表 + WARNING）。
+     *
+     * <p><b>缺陷本体</b>：{@code ConfigManager#getGuiSlot} 无校验直读，本界面固定 54 格。
+     * 服主把任一 {@code leaderboard.*.slot} 写成 54 或负数时，{@code inv.setItem} 抛
+     * {@code ArrayIndexOutOfBoundsException}，且发生在 {@code player.openInventory(inv)}
+     * 之前 —— 玩家看到「/le leaderboard 点了没反应」，服主看到日志里一条栈。
+     *
+     * <p><b>为什么整组回落</b>（与 {@code MainMenu} / {@code WordLearningGUI} /
+     * {@code EnglishSquareGUI} 同一策略）：四处的策略必须一致，否则「主菜单越界会回落、
+     * 排行榜越界会崩」这种分裂本身就是新的坑。整组回落还顺带压住同槽错位 ——
+     * 逐键回落时两个键可以落到同一格，而 tab 点击是 if-else「先命中者胜」
+     * （{@code SocialListener:709-748}），会出现「看到金币榜、点下去进单词榜」。
+     *
+     * @param cm     配置管理器
+     * @param logger 日志出口，可为 null（纯 JVM 单测）
+     * @return 长度 6 的槽位表，与 {@link #LAYOUT_SLOT_KEYS} 逐位对应
+     */
+    private static int[] resolveLayoutSlots(ConfigManager cm, java.util.logging.Logger logger) {
+        return GUIUtils.readSlots(cm, logger, "leaderboard",
+                LAYOUT_SLOT_KEYS, LAYOUT_SLOT_DEFAULTS, GUI_SIZE);
+    }
+
     private final LetsLearnEnglish plugin;
     private int activeTab; // 0=coins, 1=words, 2=combo, 3=season
     private List<UUID> displayedPlayerIds;
@@ -194,27 +246,33 @@ public class LeaderboardGUI {
         Inventory inv = Bukkit.createInventory(
                 PluginGuiHolder.of(GuiViewKey.LEADERBOARD), GUI_SIZE, title);
 
+        // R12-slot：槽位在渲染之前一次性读出并校验（越界 → 整组回落 + WARNING）。
+        // 之后全部 setItem 都用本表，不在各方法里重复 getGuiSlot —— 重复读会让
+        // /lea reload 落在两次读之间时同一个键取到两个值，界面自相矛盾。
+        int[] layout = resolveLayoutSlots(cm, plugin.getLogger());
+
         // ---- Tab buttons (slots 0, 1, 2, 3) ----
-        addTabButton(inv, cm, messages, TAB_COINS_SLOT, TAB_COINS_INDEX, "tab-coins",
+        addTabButton(inv, cm, messages, layout[IDX_TAB_COINS], TAB_COINS_INDEX, "tab-coins",
                 Material.GOLD_INGOT, "leaderboard.tab-coins");
-        addTabButton(inv, cm, messages, TAB_WORDS_SLOT, TAB_WORDS_INDEX, "tab-words",
+        addTabButton(inv, cm, messages, layout[IDX_TAB_WORDS], TAB_WORDS_INDEX, "tab-words",
                 Material.BOOK, "leaderboard.tab-words");
-        addTabButton(inv, cm, messages, TAB_COMBO_SLOT, TAB_COMBO_INDEX, "tab-combo",
+        addTabButton(inv, cm, messages, layout[IDX_TAB_COMBO], TAB_COMBO_INDEX, "tab-combo",
                 Material.DIAMOND_SWORD, "leaderboard.tab-combo");
         if (seasonAvailable) {
-            addTabButton(inv, cm, messages, TAB_SEASON_SLOT, SEASON_TAB_INDEX, "tab-season",
+            addTabButton(inv, cm, messages, layout[IDX_TAB_SEASON], SEASON_TAB_INDEX, "tab-season",
                     Material.NETHER_STAR, "leaderboard.tab-season");
         } else {
             // S-H 灰玻璃模式（EnglishSquareGUI.addDisabledModePlaceholder 同款）：模块
             // 关闭的入口以灰玻璃占位出镜；点击侧读同一 gui-layout 键回落模块提示。
-            int disabledSlot = cm.getGuiSlot("leaderboard", "tab-season", TAB_SEASON_SLOT);
+            int disabledSlot = layout[IDX_TAB_SEASON];
             inv.setItem(disabledSlot, createItem(Material.GRAY_STAINED_GLASS_PANE, " ",
                     Collections.emptyList()));
         }
 
         // ---- Season info board (season tab only; plan-season §2.1 slot 4) ----
         if (tab == SEASON_TAB_INDEX) {
-            renderSeasonInfoBoard(inv, cm, messages, player, season, seasonRows, remainingLine);
+            renderSeasonInfoBoard(inv, cm, messages, player, season, seasonRows, remainingLine,
+                    layout[IDX_SEASON_INFO]);
         }
 
         // ---- Top 10 entries ----
@@ -269,7 +327,7 @@ public class LeaderboardGUI {
         // ---- Back button (slot 8) ----
         String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
                 MessageUtil.getGuiMsg(messages, "gui.back-button"));
-        int backSlot = cm.getGuiSlot("leaderboard", "back-button", BACK_SLOT);
+        int backSlot = layout[IDX_BACK];
         Material backMaterial = cm.getGuiMaterial("leaderboard", "back-button", Material.RED_STAINED_GLASS_PANE);
         inv.setItem(backSlot, createItem(backMaterial, backLabel,
                 Collections.singletonList(ChatColor.translateAlternateColorCodes('&', "&7" +
@@ -328,12 +386,14 @@ public class LeaderboardGUI {
      * 第一行赛季号（season.title）、剩余整行（season.remaining，{days}/{hours}）、
      * 本人名次（season.your-rank 或 season.unranked；{rank} 复用 placeholder.rank-unranked
      * 未上榜文本 — 与 PAPI %lle_season_rank% 同语义）。全部读内存缓存，零查库。
+     *
+     * <p>R12-slot：{@code slot} 由调用方传入已裁决的槽位（{@link #resolveLayoutSlots}），
+     * 本方法不读配置 —— 保证整张界面用同一份布局快照。
      */
     private void renderSeasonInfoBoard(Inventory inv, ConfigManager cm, FileConfiguration messages,
                                        Player player, SeasonManager season,
                                        List<SeasonManager.SeasonRankRow> seasonRows,
-                                       String remainingLine) {
-        int slot = cm.getGuiSlot("leaderboard", "season-info", SEASON_INFO_SLOT);
+                                       String remainingLine, int slot) {
         Material material = cm.getGuiMaterial("leaderboard", "season-info", Material.PAPER);
 
         int seasonId = season.currentSeasonId(LocalDate.now());
@@ -369,10 +429,15 @@ public class LeaderboardGUI {
         inv.setItem(slot, createItem(material, displayName, lore));
     }
 
+    /**
+     * 渲染一个榜单切换 tab。
+     *
+     * <p>R12-slot：{@code slot} 由调用方传入已裁决值，本方法不再读配置（理由同
+     * {@code EnglishSquareGUI.addModeButton}：避免同键在一次渲染里读两次）。
+     */
     private void addTabButton(Inventory inv, ConfigManager cm, FileConfiguration messages,
-                              int defaultSlot, int tabIndex, String configKey,
+                              int slot, int tabIndex, String configKey,
                               Material defaultMaterial, String messageKey) {
-        int slot = cm.getGuiSlot("leaderboard", configKey, defaultSlot);
         Material mat = cm.getGuiMaterial("leaderboard", configKey, defaultMaterial);
         boolean selected = (activeTab == tabIndex);
         Material displayMat = selected ? Material.LIME_STAINED_GLASS_PANE : mat;

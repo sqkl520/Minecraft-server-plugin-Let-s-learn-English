@@ -612,6 +612,14 @@ public class ProfileGUI {
 
         Inventory top = viewer.getOpenInventory().getTopInventory();
 
+        // 15-EH-03：已启用类目取数失败（快照字段为 null）时，占位会永久停在「加载中…」——
+        // 给可重试的终态提示。金币列不计入：economy 可能在异步窗口内被关闭，null 非失败。
+        if ((!hideResults && snapshot.stats() == null)
+                || (achievementsEnabled && snapshot.unlockedCount() == null)
+                || (duelRowRendered && snapshot.duel() == null)) {
+            viewer.sendMessage(plugin.getMessageUtil().getPlayerMessage(viewer, "daily.load-failed"));
+        }
+
         // ---- 统计三卡 11 / 12 / 14 ----
         if (!hideResults && snapshot.stats() != null) {
             PlayerDataStore.PlayerStats stats = snapshot.stats();

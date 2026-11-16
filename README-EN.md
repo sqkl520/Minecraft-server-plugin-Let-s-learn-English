@@ -83,6 +83,23 @@ A Minecraft server plugin designed for the unmotivated — it forces you to lear
 | `/lea ignore-update` | Dismiss the update notice |
 | `/lea help` | View admin help |
 
+### Permission nodes
+
+The plugin registers 4 permission nodes, all defaulting to OP only.
+
+**Almost all player-facing features require no permission** — `/le menu`, `/le word`, `/le review`, `/le square`, `/le profile`, `/le wrong`, `/le checkin`, `/le duel`, `/le history`, `/le season` and friends are gated by the module switches in `config.yml`, not by permissions.
+**The one exception is scenario import**: `/le load_scenario` and the personal-scenario management page require `letslearnenglish.scenario.import`, because they let outside content into a server's scenario list and therefore deserve separate authorization from ordinary play.
+
+| Node | Default | Purpose |
+|------|:---:|------|
+| `letslearnenglish.admin` | op | All `/lea` subcommands (`reload` / `reset` / `info` / `export` / `exportwordbank` / `importwordbank` / `broadcast` / `duel cancel` / `class` / `diagnose` / `ignore-update` / `help`), plus the delete action on the scenario management page |
+| `letslearnenglish.report` | op | **Only** `/lea report`. Lets you grant "generate parent reports" to a teacher or parent representative without handing out full admin |
+| `letslearnenglish.ai.reload` | op | **Only** reloads the AI config (`ai_config.yml` + `ai_scenarios.yml`), equivalent to the "refresh API key" button in the GUI. Unlike `/lea reload`, it does not reload other modules, so it can be granted to a content maintainer on its own |
+| `letslearnenglish.scenario.import` | op | **The only player-facing feature needing explicit authorization**: `/le load_scenario` share-code import, plus viewing/deleting on the personal scenario management page |
+
+> Note 1: `letslearnenglish.ai.reload` is **not** equivalent to `/lea reload` — the former only refreshes the AI section. If you want to authorize someone to change the API key, this node is enough; `admin` is not required.
+> Note 2: the scenario management page requires `admin` for **deletion** but `scenario.import` for **viewing/importing** — deliberately separate (see the permission-gate comment in `ScenarioSelectListener`).
+
 ## Installation
 
 1. Download the latest JAR file
@@ -91,6 +108,8 @@ A Minecraft server plugin designed for the unmotivated — it forces you to lear
 4. Edit `plugins/LetsLearnEnglish/config.yml` to configure
 5. (Optional) For AI chat and session feedback, put your DeepSeek API key into `plugins/LetsLearnEnglish/ai_config.yml` (the `api-key` field)
 6. Use `/lea reload` to hot-reload most changes without restarting (a few startup-snapshot keys still require a restart — see the Configuration section below)
+
+> ⚠️ **Multi-server (BungeeCord / Velocity) — required reading**: every backend that shares one database **must run in exactly the same JVM timezone**. The plugin keeps its daily records as plain `yyyy-MM-dd` dates; if two backends disagree on what "today" is, **the same player can check in twice on the same day** (two real payouts), and the answer limit, coin daily cap, AI round limit and daily challenges will each count against a different day. There is no `timezone` config option, so this cannot be fixed from inside the plugin — pin it in the launch arguments with `-Duser.timezone=Asia/Shanghai` (it must come **before** `-jar`). See [§5.9 Multi-backend timezone consistency](DEPLOYMENT_WIKI.md#59-多子服时区一致性硬性前提) in `DEPLOYMENT_WIKI.md`.
 
 ## Configuration
 
@@ -134,6 +153,27 @@ Everything else (including all module `enabled` switches, `ai-chat.*`, language 
 > Exceptions: `word-system.review.intervals` and `mastered-review-interval-days` (the review intervals are snapshotted when `ReviewScheduler` is constructed) and `database.*` (initialised only in `onEnable`) also require a restart. See `DEPLOYMENT_WIKI.md` §5.7.1.
 
 > One caveat: `daily-reminder.enabled` and `word-system.review.enabled` can only be turned **off** via reload if the task was scheduled at startup; if they were `false` at startup (task never scheduled), switching them back to `true` requires a restart. See `DEPLOYMENT_WIKI.md` §5.7.1.
+
+### Cross-server network security (`proxy` section)
+
+If you link several backend servers with **BungeeCord / Velocity**, the `proxy` section has two keys worth configuring:
+
+| Key | Meaning |
+|-----|---------|
+| `proxy.server-name` | This backend's name in your proxy config. Used to suppress duplicate season start/settle broadcasts. Empty = standalone mode (at worst one duplicate broadcast; payouts stay protected by the ledger's idempotency). |
+| `proxy.inbound-secret` | **Shared secret for inbound messages. Strongly recommended for any multi-server network.** |
+
+**Why `inbound-secret` is a real security requirement, not a nice-to-have**: Bukkit dispatches both "plugin message forwarded by the proxy" and "custom payload sent by any player's client" to the **same callback**, and that callback has no reliable provenance. A player with a modified client can therefore forge any of these frames, and the effect is identical to a genuine backend server sending them:
+
+- `GlobalMessage` → broadcast arbitrary text to the whole server (can impersonate an owner announcement)
+- `AchievementUnlock` → attach any achievement to any player name and broadcast it
+- `SeasonSettled` → trigger season reward delivery and a "season ended" broadcast (amounts cannot double-pay thanks to the ledger's conditional-claim, but the **timing** of payouts is attacker-controlled)
+
+Once you set any **long random string only you know** (the output of `openssl rand -hex 32` is a good choice), every inbound frame must carry a valid HMAC-SHA256 signature or it is dropped with a WARNING. **Every backend in the network must use the same value**, otherwise they will drop each other's frames too.
+
+Empty (the default) = signature checking disabled, byte-identical to the behaviour before this feature existed — fine for a single server or a pure LAN setup.
+
+> Note: this is not transport encryption like HTTPS. Messages still cross the proxy in cleartext. This mechanism stops *ordinary players* from forging cross-server commands; it does not stop someone who can sniff traffic and read your secret.
 
 ## Requirements
 

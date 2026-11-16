@@ -15,7 +15,6 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -34,6 +33,16 @@ public class MainMenu {
     };
     /** R8-L3（D3-7）：9 个按钮的默认槽位（任一配置槽位越界时整组回落此表）。 */
     private static final int[] MENU_SLOT_DEFAULTS = { 11, 13, 15, 17, 10, 14, 18, 12, 16 };
+    /**
+     * 与 {@link #MENU_SLOT_KEYS} 逐位对应的显示名 i18n 键（冲突报错里给玩家看"是哪两个按钮"）。
+     * 刻意复用各按钮<b>正式</b>的显示名键，而不是新造一套：同一个按钮在菜单里和冲突提示里
+     * 必须叫同一个名字，否则服主对着玩家截图改配置时得自己翻译一遍。
+     */
+    private static final String[] MENU_SLOT_MESSAGE_KEYS = {
+            "main-menu.word-learning", "main-menu.dialogue-practice", "main-menu.progress-stats",
+            "main-menu.square", "main-menu.daily-challenge", "main-menu.wrong-book",
+            "language.button", "main-menu.duel", "main-menu.checkin"
+    };
 
     private final LetsLearnEnglish plugin;
 
@@ -65,25 +74,32 @@ public class MainMenu {
         // ArrayIndexOutOfBoundsException（开菜单即崩），任一非法即整组回落默认槽位表 +
         // WARNING。点击侧（MainMenuListener）按裁决不动、仍读原配置——配置合法时两侧
         // 天然一致；配置非法时属管理员自担（WARNING 已明示），本批只保不崩。
+        //
+        // R12-slot：逐键校验 + 整组回落的实现已抽到 {@link GUIUtils#readSlots}，与
+        // WordLearningGUI / EnglishSquareGUI / LeaderboardGUI 三处共用同一份逻辑 ——
+        // 这条守卫原本是「四处各写一遍」的形状，四份实现就是四个漂移面：改一处漏三处，
+        // 表现是「主菜单改了策略，别的 GUI 还按旧策略崩」。
         ConfigManager cm = plugin.getConfigManager();
-        int[] menuSlots = new int[MENU_SLOT_KEYS.length];
-        boolean menuSlotsValid = true;
-        for (int i = 0; i < MENU_SLOT_KEYS.length; i++) {
-            menuSlots[i] = cm.getGuiSlot("main-menu", MENU_SLOT_KEYS[i], MENU_SLOT_DEFAULTS[i]);
-            if (menuSlots[i] < 0 || menuSlots[i] >= size) {
-                plugin.getLogger().warning("Invalid gui-layout.main-menu." + MENU_SLOT_KEYS[i]
-                        + ".slot: " + menuSlots[i] + " (must be 0.." + (size - 1)
-                        + "). Falling back to default main-menu layout.");
-                menuSlotsValid = false;
-            }
+        int[] menuSlots = GUIUtils.readSlots(cm, plugin.getLogger(), "main-menu",
+                MENU_SLOT_KEYS, MENU_SLOT_DEFAULTS, size);
+
+        // Fail-fast（用户裁决，取代原「仅告警不阻止」）：同槽 = 拒绝打开该菜单。
+        //
+        // 为什么必须 fail-fast：渲染是「后写覆盖先写」，点击是 if-else「先命中者胜」，
+        // 两者方向相反 —— 槽位 11 同时给了 word-learning(idx0) 与 duel(idx7) 时，玩家看到
+        // 的是 duel 的图标，点下去执行的却是 word-learning。图标与功能错位，玩家没有任何
+        // 途径自救，只有服主改配置能修。原「仅告警」把不可用伪装成可用，是最坏的一类静默失败。
+        //
+        // 判据用「当前 gate 下真正会渲染的项」，不是「配置里的 9 个键」：duel 与 checkin
+        // 都配 12 但 duel.enabled=false 时，玩家侧只有签到可见，界面完全无歧义 —— 这种
+        // 情形若也拒绝打开，等于拿「配置难看」惩罚一个没有实伤的服。被 gate 隐藏的重复
+        // 槽仍会单独 WARNING 告知服主（开着模块就会炸），不静默。
+        List<SlotConflict> conflicts = findRenderedSlotConflicts(menuSlots, cm);
+        if (!conflicts.isEmpty()) {
+            reportSlotConflict(player, messages, conflicts);
+            return;
         }
-        if (!menuSlotsValid) {
-            menuSlots = MENU_SLOT_DEFAULTS.clone();
-        } else if (hasDuplicateSlots(menuSlots)) {
-            // 同槽重复：仅告警不阻止（后渲染的按钮覆盖先渲染的，点击侧两分支取先命中者）
-            plugin.getLogger().warning("Duplicate slot(s) in gui-layout.main-menu: "
-                    + Arrays.toString(menuSlots) + " — buttons may overlap.");
-        }
+        warnHiddenSlotConflicts(menuSlots, cm, conflicts);
 
         // R5-2：挂 holder —— 主菜单尺寸随 gui.menu-size 变化（27/36/45/54），
         // 故 MAIN_MENU 的枚举构造值为 -1（不参与尺寸判定，该值仅作文档记录，
@@ -207,15 +223,162 @@ public class MainMenu {
         player.openInventory(menu);
     }
 
-    /** R8-L3（D3-7）：排序后相邻相等即存在同槽（仅告警，不阻止）。 */
-    private static boolean hasDuplicateSlots(int[] slots) {
-        int[] sorted = slots.clone();
-        Arrays.sort(sorted);
-        for (int i = 1; i < sorted.length; i++) {
-            if (sorted[i] == sorted[i - 1]) return true;
+    /**
+     * 找出「当前模块门下真正会渲染」的菜单项之间的全部同槽冲突。
+     *
+     * <p><b>为什么判据是「会渲染的项」而不是「配置里的 9 个键」</b>：本方法要防的实伤是
+     * 「玩家看到的图标和点出来的功能不是同一个」。这个实伤只在两个项<b>都真的画上去了</b>
+     * 时才成立 —— 渲染是后写覆盖先写，点击是 if-else 先命中者胜，两者方向相反，同槽即错位。
+     * 若某一项被模块门挡住（例如 {@code duel.enabled=false}），它根本没画上去，也就谈不上
+     * 错位。用配置级判据会把这种「配置难看但零实伤」的服一并打成开不了界面，属于过度拒绝。
+     *
+     * <p>被门挡住的那部分重复不改判据，但仍由 {@link #warnHiddenSlotConflicts} 告警明示 ——
+     * 服主今天开模块，明天界面就废，这个预警必须留下。
+     *
+     * @param slots 已通过越界校验的 9 个槽位（下标与 {@link #MENU_SLOT_KEYS} 对齐）
+     * @param cm    配置管理器（模块门的唯一来源，与渲染/点击同源）
+     * @return 全部冲突（按首项下标升序，至多 4 对）；无冲突返回空列表
+     */
+    private static List<SlotConflict> findRenderedSlotConflicts(int[] slots, ConfigManager cm) {
+        List<SlotConflict> conflicts = new ArrayList<>(2);
+        for (int i = 0; i < slots.length; i++) {
+            if (!isRendered(i, cm)) continue;
+            for (int j = i + 1; j < slots.length; j++) {
+                if (!isRendered(j, cm)) continue;
+                if (slots[i] == slots[j]) conflicts.add(new SlotConflict(slots[i], i, j));
+            }
         }
-        return false;
+        return conflicts;
     }
+
+    /**
+     * 某个菜单项在当前模块门下是否真的会渲染进菜单（可见性判据的<b>唯一</b>来源）。
+     *
+     * <p>必须与 {@link #open(Player)} 里的 9 段渲染分支逐位一致。之所以抽成一格表而不是
+     * 复用渲染分支：渲染分支是「读配置 + 造 ItemStack + setItem」，纯 JVM 下造不了 ItemStack
+     * （无 RegistryAccess），无法在单测里当判据用；这张表只读布尔门，可被直接钉住。
+     *
+     * <p>注意 {@code dialogue-practice}（下标 1）：API Key 缺失时画成 GRAY_DYE 灰态，
+     * <b>仍然占槽渲染</b>，所以只要 {@code ai-chat.enabled=true} 就算可见 —— 灰态是
+     * 「模块开着但服务不可用」，与本判据无关。
+     */
+    private static boolean isRendered(int index, ConfigManager cm) {
+        return switch (index) {
+            // 0 word-learning / 5 wrong-book：同归 word-system 门（错题本是单词学习从属面）
+            case 0, 5 -> cm.isWordSystemEnabled();
+            case 1 -> cm.isAIChatEnabled();
+            case 4 -> cm.isDailyChallengesEnabled();
+            case 7 -> cm.isDuelEnabled();
+            case 8 -> cm.isCheckinEnabled();
+            // 2 personal-profile / 3 english-square / 6 language-toggle：不设门，恒可见
+            default -> true;
+        };
+    }
+
+    /**
+     * 拒绝打开并把冲突说清楚：服主看 SEVERE 日志（含完整配置路径），玩家看聊天提示。
+     *
+     * <p><b>为什么不静默</b>：静默等于把「服务器配坏了」伪装成「按钮坏了」，玩家会一直点、
+     * 一直以为是自己网络问题。<b>为什么不抛异常</b>：19 个调用点分布在命令与监听器里，
+     * 抛出去就是一条英文堆栈，且部分调用点在 {@code runTaskLater} 里（异常只会进控制台，
+     * 玩家侧彻底静默）。所以这里是「明确拒绝 + 双侧可见」。
+     *
+     * <p>日志每次打开都打，不做去重：与本文件既有的 {@code gui.menu-size} / 槽位越界告警
+     * 同款处理（配置错误本就该吵），且去重会让「第二次起就查不到原因」。
+     */
+    private void reportSlotConflict(Player player, FileConfiguration messages,
+                                    List<SlotConflict> conflicts) {
+        StringBuilder log = new StringBuilder();
+        log.append("Main menu refused: ").append(conflicts.size())
+                .append(" duplicate slot(s) in gui-layout.main-menu. ")
+                .append("Rendering is last-write-wins but click handling is first-match-wins, ")
+                .append("so the icon shown and the action executed would differ.");
+        for (SlotConflict c : conflicts) {
+            log.append("\n  slot ").append(c.slot()).append(": '")
+                    .append(MENU_SLOT_KEYS[c.firstIndex()]).append("' (")
+                    .append(slotConfigPath(c.firstIndex())).append(") and '")
+                    .append(MENU_SLOT_KEYS[c.secondIndex()]).append("' (")
+                    .append(slotConfigPath(c.secondIndex()))
+                    .append(") both resolve to it");
+        }
+        log.append("\n  Fix gui-layout.main-menu.<item>.slot in config.yml, then re-open the menu.");
+        plugin.getLogger().severe(log.toString());
+
+        player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                guiMsgOrFallback(messages, "gui.main-menu-slot-conflict-header",
+                        "&cThe main menu cannot be opened: its configuration has a slot conflict.")));
+        for (SlotConflict c : conflicts) {
+            String template = guiMsgOrFallback(messages, "gui.main-menu-slot-conflict-line",
+                    "  &cslot {slot}: &e{first} &cand &e{second}");
+            player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                    fillConflictPlaceholders(template, c, messages)));
+        }
+        player.sendMessage(ChatColor.translateAlternateColorCodes('&',
+                guiMsgOrFallback(messages, "gui.main-menu-slot-conflict-footer",
+                        "&7Ask the server admin to fix &fgui-layout.main-menu.*.slot &7in config.yml.")));
+    }
+
+    /**
+     * 被模块门挡住的重复槽：当前无害，但一开模块就会变成实伤，必须提前告警。
+     *
+     * <p>已经作为 {@code conflict} 报过的组合不再重复告警（那边玩家控制台已经吵过了）。
+     */
+    private void warnHiddenSlotConflicts(int[] slots, ConfigManager cm, List<SlotConflict> conflict) {
+        List<String> hidden = new ArrayList<>(0);
+        for (int i = 0; i < slots.length; i++) {
+            for (int j = i + 1; j < slots.length; j++) {
+                if (slots[i] != slots[j]) continue;
+                boolean bothRendered = isRendered(i, cm) && isRendered(j, cm);
+                final int firstIndex = i;
+                final int secondIndex = j;
+                final int slot = slots[i];
+                boolean alreadyReported = conflict.stream()
+                        .anyMatch(c -> c.slot() == slot
+                                && c.firstIndex() == firstIndex && c.secondIndex() == secondIndex);
+                if (bothRendered || alreadyReported) continue;
+                hidden.add("slot " + slot + ": '" + MENU_SLOT_KEYS[firstIndex] + "' and '"
+                        + MENU_SLOT_KEYS[secondIndex] + "' (harmless only while one of them stays hidden "
+                        + "by its module switch)");
+            }
+        }
+        if (hidden.isEmpty()) return;
+        plugin.getLogger().warning("Duplicate slot(s) in gui-layout.main-menu that are currently "
+                + "hidden by a module switch, but will break the menu once enabled:\n  "
+                + String.join("\n  ", hidden));
+    }
+
+    /** 冲突行的 {@code {slot}} / {@code {first}} / {@code {second}} 替换（按玩家语言取显示名）。 */
+    private static String fillConflictPlaceholders(String template, SlotConflict conflict,
+                                                   FileConfiguration messages) {
+        return template
+                .replace("{slot}", String.valueOf(conflict.slot()))
+                .replace("{first}", ChatColor.stripColor(ChatColor.translateAlternateColorCodes('&',
+                        guiMsgOrFallback(messages, MENU_SLOT_MESSAGE_KEYS[conflict.firstIndex()],
+                                MENU_SLOT_KEYS[conflict.firstIndex()]))))
+                .replace("{second}", ChatColor.stripColor(ChatColor.translateAlternateColorCodes('&',
+                        guiMsgOrFallback(messages, MENU_SLOT_MESSAGE_KEYS[conflict.secondIndex()],
+                                MENU_SLOT_KEYS[conflict.secondIndex()]))));
+    }
+
+    /**
+     * 读一条 GUI 文案；<b>键缺失时回落到内置英文</b>，而不是让玩家看到 {@code [?key]}。
+     *
+     * <p>为什么不直接用 {@link MessageUtil#getGuiMsg}：冲突提示是本菜单唯一的「开不了」出口，
+     * 它必须在语言文件还没补上新键时<b>依然说人话</b>。{@code [?gui.main-menu-slot-conflict-line]}
+     * 对玩家等于零信息，而这一刻恰恰是玩家最需要信息的时候。键补齐后自动切到本地化文案。
+     */
+    private static String guiMsgOrFallback(FileConfiguration messages, String key, String fallback) {
+        String value = MessageUtil.getGuiMsg(messages, key);
+        return value.startsWith("[?") ? fallback : value;
+    }
+
+    /** 冲突项对应的配置路径片段，给服主直接照着改。 */
+    private static String slotConfigPath(int index) {
+        return "gui-layout.main-menu." + MENU_SLOT_KEYS[index] + ".slot";
+    }
+
+    /** 一次主菜单槽位冲突：冲突的槽位号 + 两个互斥菜单项（下标指向 {@link #MENU_SLOT_KEYS}）。 */
+    private record SlotConflict(int slot, int firstIndex, int secondIndex) { }
 
     /**
      * AI 服务是否真的可用（渲染侧灰态判定的唯一来源）。

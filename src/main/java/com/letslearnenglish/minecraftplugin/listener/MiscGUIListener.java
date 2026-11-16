@@ -3,8 +3,10 @@ package com.letslearnenglish.minecraftplugin.listener;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.GuiNavigationManager;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.core.progress.RewardEngine;
 import com.letslearnenglish.minecraftplugin.core.word.WordModes;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import com.letslearnenglish.minecraftplugin.data.repository.DailyChallengeRepository;
 import com.letslearnenglish.minecraftplugin.gui.DailyChallengeGUI;
 import com.letslearnenglish.minecraftplugin.gui.MainMenu;
 import com.letslearnenglish.minecraftplugin.gui.ProfileGUI;
@@ -19,10 +21,13 @@ import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.InventoryView;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Listener for Privacy Settings, Word Bank Select, and Learning Calendar GUI interactions.
@@ -32,17 +37,66 @@ public class MiscGUIListener implements Listener {
     private final LetsLearnEnglish plugin;
 
     /**
+     * round4 F2 / EH-12-02：领取台账的三态写入口。
+     *
+     * <p>为什么本类直接持仓储而不是走 {@code DailyChallengeManager.claimReward}：后者的
+     * 返回类型是 {@code double}，把「护栏不满足」与「SQL 写失败」折叠成同一个 {@code 0}，
+     * 调用方<b>无法</b>分流——这正是本条缺陷的根因。仓储构造无副作用（只存两个引用），
+     * 与 {@code ReportGenerator} 内自建仓储同一做法。
+     */
+    private final DailyChallengeRepository claimRepository;
+
+    /**
      * R-02: behavioral-claim stripe locks. A fixed array of 32 monitors —
      * indexed by UUID hash — so the full "check → deposit → mark" critical
      * section runs serialized per player with no growing map and no cleanup.
+     *
+     * <p><b>R15（wave3 后继审计 · 并发专场）—— 这里原先是第二个独立锁数组。</b>
+     * {@code DailyChallengeManager} 与 {@code MiscGUIListener} 各持一份
+     * {@code new Object[32]}，而 {@code getClaimStripeLock} 的实现逐字相同。锁的有效性
+     * 完全依赖「所有竞争方拿的是<b>同一个</b> monitor」这个前提 —— 两个不同的数组
+     * 意味着两处的 {@code synchronized} <b>互不排斥</b>。
+     *
+     * <p>后果：R-02 的注释写着「两次快速点击同一按钮绝不会交错出双发」，但那只在
+     * <b>同一类内部</b>成立。挑战领奖有两个入口 —— GUI 点击（本类
+     * {@code claimBehavioralChallenge}）与命令/其它路径（{@code DailyChallengeManager}
+     * 的 claim 方法）。两者并发时各自持不同的锁，`check → deposit → mark` 仍可交错，
+     * 双发保护形同虚设。
+     *
+     * <p>现在委托给 {@code DailyChallengeManager} 的同一份锁数组：单一真相源，
+     * 结构上不可能再分叉。
      */
-    private final Object[] claimStripeLocks = new Object[32];
+    private Object[] claimStripeLocks() {
+        return plugin.getDailyChallengeManager().getClaimStripeLocks();
+    }
+
+    /** R15：取本玩家在本进程内的唯一领奖 stripe monitor（与 DailyChallengeManager 共用）。 */
+    private Object getClaimStripeLock(UUID playerId) {
+        Object[] locks = claimStripeLocks();
+        return locks[(playerId.hashCode() & 0x7fffffff) % locks.length];
+    }
+
+    /**
+     * round4 F2 / EH-12-02：**已付款但台账写失败**的领取键（{@code uuid|challengeId|date}）。
+     *
+     * <p>为什么必须有它：{@code markClaimedOrFail} 返回 {@code WRITE_FAILED} 时磁盘上的
+     * {@code claimed} 仍是 0，{@code getTodayChallenges} 下次仍报"未领取"，{@code cp.claimed}
+     * 仍为 false —— 只要不禁，玩家再点一次就会<b>二次付款</b>。GUI 重开与否都不改变这一点。
+     * 故在本进程内记住这一格，任何后续点击直接拒绝付款并提示联系管理员。
+     *
+     * <p>有界性与生命周期：每个玩家每天最多被记 1 条；进程重启即清空（此前的欠账由 SEVERE
+     * 日志交给运维对账，本集合不承担持久化责任）。并发实现与 {@code dailyWordStateCache} 同款。
+     */
+    private final Set<String> paidButUnmarked = ConcurrentHashMap.newKeySet();
 
     public MiscGUIListener(LetsLearnEnglish plugin) {
         this.plugin = plugin;
-        for (int i = 0; i < claimStripeLocks.length; i++) {
-            claimStripeLocks[i] = new Object();
-        }
+        // 仓储只存 (DatabaseManager, Logger) 两个引用，无 I/O、无建表；DatabaseManager
+        // 的 initialize() 已在插件装配阶段完成（本监听器在 :946 构造，晚于 DB 初始化）。
+        this.claimRepository = new DailyChallengeRepository(
+                plugin.getDatabaseManager(), plugin.getLogger());
+        // R15：锁数组改为向 DailyChallengeManager 借用（见 claimStripeLocks() 的注释），
+        // 本类不再自建第二份 —— 两个数组 = 两把锁 = 保护失效。
     }
 
     @EventHandler
@@ -358,36 +412,142 @@ public class MiscGUIListener implements Listener {
         // Wave 1 fan-in（S-H 上报收口）：判定改走 RewardEngine 公开并集
         // （isRewardsEnabled() && money.enabled）——原先只读 money 键，关奖励伞时漏判。
         boolean moneyEnabled = plugin.getProgressManager().getRewardEngine().isMoneyEnabled();
+        // round4 F2：本进程已为同一格子付过款但台账没写成 —— 再付一次就是重复发放。
+        // 检查放在 stripe lock 内（调用方已持），键含日期，跨天自然失效。
+        String claimKey = player.getUniqueId() + "|" + cp.type.id + "|" + LocalDate.now();
+        if (paidButUnmarked.contains(claimKey)) {
+            // 不重开 GUI：重开只会把玩家送回一个仍显示"可领取"的按钮，形成点击循环。
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "daily.claimed"));
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "general.error", "message",
+                    "该挑战奖励已发放，但领取记录写入失败；请联系管理员核对，不要重复领取 / "
+                            + "reward already paid, claim record not saved, "
+                            + "contact an admin"));
+            return;
+        }
         if (!moneyEnabled) {
-            plugin.getDailyChallengeManager().claimReward(player.getUniqueId(), cp.type);
+            // round4 F2：本条无 Vault 转账，"付款"这一步不存在，但仍须分流台账写失败——
+            // 否则 claimed 位没落盘，按钮永远可点、玩家每次点都收到同一条提示。
+            DailyChallengeRepository.ClaimMark mark = claimRepository.markClaimedOrFail(
+                    player.getUniqueId(), LocalDate.now().toString(), cp.type.id);
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "daily-challenge.economy-disabled"));
+            if (mark == DailyChallengeRepository.ClaimMark.WRITE_FAILED) {
+                plugin.getLogger().warning("economy-disabled claim row NOT marked — player="
+                        + player.getName() + " challenge=" + cp.type.id
+                        + " — the claim button will stay clickable");
+            }
             new DailyChallengeGUI(plugin).openAsync(player);
             return;
         }
-        if (depositChallengeReward(player, reward)) {
-            double marked = plugin.getDailyChallengeManager()
-                    .claimReward(player.getUniqueId(), cp.type);
-            if (marked > 0) {
-                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                        "daily.reward-claimed", "reward", String.valueOf((int) marked)));
+        boolean reopenGui = true;
+        // R-16：把「应发面值」与「实发额」一起带下来。缺陷本体就在这一行 —— 过去
+        // depositChallengeReward 只回 boolean，下面所有分支都只能拿面值 reward 渲染，
+        // 日限截断时玩家被告知 +100 而实际只到 0.20，且台账照样标「已领」，
+        // 剩下那 80 永久不可追回。
+        RewardEngine.CappedPayout payout = depositChallengeReward(player, reward);
+        if (payout.paid() > 0) {
+            // round4 F2 / EH-12-02：`markClaimed` 的布尔把「护栏不满足」与「SQL 写失败」
+            // 折叠成同一个 false，调用方无法分流；`marked == 0` 原先<b>没有任何分支</b>
+            // —— 钱已到账、台账未落、玩家零提示、GUI 立即重开且按钮仍可点（可重复领取）。
+            // 改用三态 ClaimMark：MARKED / NOT_ELIGIBLE / WRITE_FAILED 各自有终态处理。
+            // 锁纪律：本方法由 handleDailyChallenge 持本类 stripe lock 调用，仓储只取
+            // connectionLock（L→M 同向），无反向路径。
+            //
+            // R-16 裁决（行为挑战，逐格）：<b>截断也照常收盘，但如实报实发额</b>。
+            // 理由：本格台账是 daily_challenges 的 (uuid, challenge_date, challenge_id) 行，
+            // 质地与单词挑战不同 —— 它是<b>按日一格</b>的，不收盘该行就一直停在
+            // completed=1/claimed=0，按钮天天显示「可领取」；而跨天后 getTodayChallenges
+            // 只读<b>当日</b>行，昨日的 pending 行再没有任何补发入口（午夜 rollover 的
+            // 补发只走 hasPendingWordRewardForDate，即单词挑战那一路）。留 pending 换不来
+            // 「明天补发」，只换来一个永远点不完的按钮 + 玩家每次点都看到同一条提示 ——
+            // 这与本类 round4 F2 的 paidButUnmarked 循环是同一形态的坑。
+            // 所以：收盘 + 用 daily.reward-capped 说明「实际发放 X（应发 Y）」，把
+            // 不可追回的事实<b>告诉玩家</b>，而不是用一个假数字盖住它。
+            DailyChallengeRepository.ClaimMark mark = claimRepository.markClaimedOrFail(
+                    player.getUniqueId(), LocalDate.now().toString(), cp.type.id);
+            switch (mark) {
+                case MARKED -> player.sendMessage(claimMessage(player, "daily.reward-claimed", payout));
+                case NOT_ELIGIBLE -> {
+                    // 护栏未命中：本次存款前 cp.claimed 为 false，故该行是在"检查→标记"之间
+                    // 被别的实例/线程标掉的（或 completed 被重置）。钱已到账，对玩家是
+                    // "已领取"，但台账与本次付款未必一一对应 —— 留 WARNING 供运维对账。
+                    plugin.getLogger().warning("Daily challenge reward paid, but claim row was"
+                            + " already marked/unmarkable — player=" + player.getName()
+                            + " challenge=" + cp.type.id + " reward=" + reward
+                            + " paid=" + payout.paid()
+                            + " — possible duplicate payout, verify the ledger");
+                    player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                            "daily.claimed"));
+                }
+                case WRITE_FAILED -> {
+                    // 最坏的一格：钱已到账、台账未落。① SEVERE 留痕供人工对账；
+                    // ② 对玩家不谎报"发放失败"（金币确实到了），只说明领取记录没写成；
+                    // ③ **不重开 GUI** —— 台账未标，按钮会继续显示"可领取"，重开等于
+                    //    把玩家送回重复领取的入口。
+                    plugin.getLogger().severe("Daily challenge reward PAID but claim row NOT marked"
+                            + " — player=" + player.getName()
+                            + " challenge=" + cp.type.id
+                            + " reward=" + reward
+                            + " date=" + LocalDate.now()
+                            + " — manual ledger repair required");
+                    // 进程内防重复付款（见 paidButUnmarked 的 javadoc）：磁盘 claimed 仍为 0，
+                    // 不禁就会二次发放。
+                    paidButUnmarked.add(claimKey);
+                    player.sendMessage(claimMessage(player, "daily.reward-claimed", payout));
+                    player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                            "general.error", "message",
+                            "领取记录写入失败，请勿重复领取，请联系管理员核对 / "
+                                    + "claim record not saved, do not claim again, "
+                                    + "contact an admin"));
+                    reopenGui = false;
+                }
             }
         } else {
+            // R-16：这里报的是**面值**（"未丢失"指的是这笔面额仍挂在该行上可重试），
+            // 与成功分支不同口径是有意的 —— 一分钱都没发时没有"实发额"可报。
+            // 同时顺手修掉 `(int)` 截断：99.9 会被渲染成 99，与 CappedPayout 的
+            // 两位小数格式化不一致。
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "daily.claim-failed", "reward", String.valueOf((int) reward)));
+                    "daily.claim-failed", "reward", payout.nominalText()));
         }
-        new DailyChallengeGUI(plugin).openAsync(player);
+        if (reopenGui) {
+            new DailyChallengeGUI(plugin).openAsync(player);
+        }
     }
 
     /**
-     * R-02: stripe-lock lookup. Fixed-size array, so there is nothing to
-     * evict — unlike a per-player lock map which would leak without cleanup.
+     * R-16：领奖结果的玩家可见文案 —— <b>未截断走原子，被日限截断走 {@code daily.reward-capped}
+     * 并同时给出实发与面值</b>。
      *
-     * @param playerId the player
-     * @return the stripe monitor for this player
+     * <p>三个领奖点（本类行为挑战、{@code DailyChallengeManager} 单词挑战、
+     * {@code CheckInManager} 签到）此前各写一遍「拿面值拼字符串」，同一个算术抄三份必然漂移；
+     * 而「是否截断」的判断已收口在 {@link RewardEngine.CappedPayout#capped()}。
+     *
+     * <p><b>为什么不用 {@code getPlayerMessage} 拼 {@code genericKey}</b>：缺键时它回落的是
+     * 可见占位符 {@code [?daily.reward-capped]}，玩家会看到一串方括号。但截断这件事本身
+     * 不可省略（帧一：不报实发＝谎报金额），故取「两段都必发、各自可独立缺键」的形状：
+     * 截断时先发一句实发说明，再发原子（未截断就只发原子）。原子保持既有键与占位符，
+     * 既有 yml 不用改。
+     *
+     * @param player the player to message
+     * @param baseKey {@code daily.reward-claimed} 一类既有键
+     * @param payout  面值与实发额
+     * @return 要发给玩家的完整消息（多行已用换行拼接）
      */
-    private Object getClaimStripeLock(UUID playerId) {
-        return claimStripeLocks[(playerId.hashCode() & 0x7fffffff) % claimStripeLocks.length];
+    private String claimMessage(Player player, String baseKey, RewardEngine.CappedPayout payout) {
+        String base = plugin.getMessageUtil().getPlayerMessage(player,
+                baseKey, "reward", payout.paidText());
+        if (!payout.capped()) {
+            return base;
+        }
+        // 截断：先把「实际发了多少 / 应发多少」讲清楚，再接原子。
+        String capped = plugin.getMessageUtil().getPlayerMessage(player,
+                "daily.reward-capped",
+                "paid", payout.paidText(),
+                "nominal", payout.nominalText());
+        return capped + "\n" + base;
     }
 
     /**
@@ -395,23 +555,27 @@ public class MiscGUIListener implements Listener {
      * {@link com.letslearnenglish.minecraftplugin.core.progress.RewardEngine#depositCappedReward}
      * so it obeys {@code money.daily-cap} and updates the today-coins ledger, and so coin
      * stats are recorded inside the reward layer — this listener no longer calls Vault or
-     * {@code DatabaseManager.recordCoinsEarned} directly. Returns the actual amount paid;
-     * {@code >0} means money arrived (caller marks claimed), {@code 0} on no-Vault / cap /
-     * failure keeps the reward unclaimed and re-claimable (M12 preserved).
+     * {@code DatabaseManager.recordCoinsEarned} directly.
+     *
+     * <p><b>R-16：返回 {@link RewardEngine.CappedPayout} 而不是 boolean。</b>旧签名把
+     * 「发没发」答得很清楚、把「发了多少」整个丢掉，调用方只能拿<b>面值</b>渲染文案
+     * （见 {@code claimMessage} 与调用点的 R-16 说明）。{@code paid > 0} 仍然等价于
+     * 「钱到了」（调用方据此决定要不要写 claimed），只是现在同时带着实发额。
+     * 无 Vault 时如实返回 {@code paid=0} —— 与旧行为一致（不写 claimed、可重试）。
      *
      * @param player the player
-     * @param reward the reward amount
-     * @return true only if money actually arrived (paid &gt; 0)
+     * @param reward the nominal reward amount
+     * @return 面值 + 实发额（{@code paid() > 0} 才表示钱真的到了）
      */
-    private boolean depositChallengeReward(Player player, double reward) {
+    private RewardEngine.CappedPayout depositChallengeReward(Player player, double reward) {
         var eco = plugin.getEconomy();
         if (eco == null) {
             plugin.getLogger().warning("Daily challenge reward of " + reward
                     + " for " + player.getName() + " not paid: Vault economy unavailable");
-            return false;
+            return new RewardEngine.CappedPayout(reward, 0);
         }
         double paid = plugin.getProgressManager().getRewardEngine().depositCappedReward(player, reward);
-        return paid > 0;
+        return new RewardEngine.CappedPayout(reward, paid);
     }
 
     private void handleChallengeComplete(Player player, int slot) {

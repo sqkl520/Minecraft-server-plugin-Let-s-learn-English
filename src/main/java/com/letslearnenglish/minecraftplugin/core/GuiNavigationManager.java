@@ -19,15 +19,38 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class GuiNavigationManager {
 
+    /**
+     * FIX 6（round14 F4）：单玩家返回栈深度上限。
+     *
+     * <p>为什么是 32：GUI 真实导航链最长也就 4~5 层（English Square → Profile →
+     * Achievement Wall → 会话详情 → 反馈页），32 给足 6 倍余量，正常玩家永远撞不到；
+     * 同时它又小到每个玩家最多只留 32 个闭包 —— 每个闭包捕获 Player + plugin +
+     * GUI 回调，32 个的量级完全可控。
+     *
+     * <p>为什么需要上限：原先无界，push 没有任何拒绝路径，clearPlayer 只在 quit
+     * 时跑。玩家在两个 GUI 页之间反复点前进/返回，每秒能压进上千帧，堆只增不减。
+     */
+    private static final int MAX_BACK_DEPTH = 32;
+
     private final Map<UUID, Deque<Runnable>> profileBackActions = new ConcurrentHashMap<>();
 
     /**
      * Store a back-navigation action for a player.
      * Pushes onto the front of the player's navigation deque so that
      * successive navigations do not overwrite earlier entries.
+     *
+     * <p>FIX 6（round14 F4）：超出 {@link #MAX_BACK_DEPTH} 时丢<b>最旧</b>的一帧（队尾），不是拒绝最新的：
+     * 返回键的语义是「回到我最近来的那个地方」，最近的导航才是玩家真正要的，
+     * 远古的栈底帧几乎不可能被点到（要连按 32 次返回）。ArrayDeque 实现了 Deque，
+     * {@code removeLast()} 是 O(1)，且在非空时不会抛 NoSuchElementException ——
+     * 这里刚 push 过所以必然非空。
      */
     public void pushBack(UUID playerId, Runnable action) {
-        profileBackActions.computeIfAbsent(playerId, k -> new ArrayDeque<>()).push(action);
+        Deque<Runnable> deque = profileBackActions.computeIfAbsent(playerId, k -> new ArrayDeque<>());
+        deque.push(action);
+        while (deque.size() > MAX_BACK_DEPTH) {
+            deque.removeLast();
+        }
     }
 
     /**

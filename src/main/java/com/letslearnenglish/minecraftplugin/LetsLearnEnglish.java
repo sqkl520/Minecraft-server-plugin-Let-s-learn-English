@@ -40,6 +40,7 @@ import com.letslearnenglish.minecraftplugin.listener.SocialListener;
 import com.letslearnenglish.minecraftplugin.listener.WordLearningListener;
 import com.letslearnenglish.minecraftplugin.expansion.LLEPapiExpansion;
 import com.letslearnenglish.minecraftplugin.gui.identity.GuiIdentity;
+import com.letslearnenglish.minecraftplugin.util.AtomicFileWriter;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import com.letslearnenglish.minecraftplugin.util.VersionAdapter;
 import com.letslearnenglish.minecraftplugin.core.UpdateChecker;
@@ -70,18 +71,57 @@ import org.bukkit.scheduler.BukkitTask;
 
 public final class LetsLearnEnglish extends JavaPlugin {
 
-    private static LetsLearnEnglish instance;
+    /**
+     * 本插件的静态单例句柄（{@link #getInstance()} 返回它）。
+     *
+     * <p><b>为什么是 volatile</b>：写侧全部在插件主线程（{@code onLoad} 赋值、
+     * {@code disableAll} 的 D10 清空），读侧却<b>不限于</b>主线程 ——
+     * {@code SoundManager.playSound / playSoundByName} 是 {@code static} 工具方法，
+     * 调用方遍布 {@code DuelManager} / {@code SocialManager} / {@code SeasonManager}
+     * 等处的定时器与异步段，它们各自调 {@code getInstance()} 取插件再取 Manager。
+     * 非 volatile 时这些线程理论上可能读到 {@code null}（启动瞬间）或读到已被清空的
+     * 陈旧句柄（停用瞬间），表现为「音效偶发不响」或「拿到的实例所有 getter 都返回 null」。
+     *
+     * <p><b>定级：LOW，不是线上 bug。</b>正常路径上不可达 —— Bukkit 的
+     * {@code onLoad → onEnable → 监听器注册 → 调度器投递任务} 这条链自带
+     * happens-before，任何真正会被调度器执行的异步任务都发生在 {@code onLoad} 之后。
+     * 所以这里修的是「理论可达、实践中几乎撞不上」的可见性缺口，
+     * <b>不加锁、不做 double-checked locking</b>：{@code getInstance()} 在热路径上，
+     * 为一条不可达路径引入同步开销是净亏损，且会改变方法语义。
+     */
+    private static volatile LetsLearnEnglish instance;
 
-    private ConfigManager configManager;
-    private DatabaseManager databaseManager;
-    private PlayerDataStore playerDataStore;
+    /**
+     * 配置门面（{@code /lea reload} 会持有它并重载内部所有配置对象）。
+     *
+     * <p><b>为什么是 volatile</b>：{@code onEnable} 在主线程写入，而
+     * {@code SeasonManager} 的结算 sweep、{@code ReportGenerator}、统计 HTTP 服务等
+     * 会在异步线程经 {@code plugin.getConfigManager().getMainConfig()} 读。
+     * 非 volatile 时异步段理论上可能看到 {@code null}（启动瞬间）而 NPE，
+     * 或者长期读到陈旧引用。定级 LOW：与 {@link #instance} 同一条 happens-before 论证。
+     */
+    private volatile ConfigManager configManager;
+
+    /**
+     * 数据层入口（全仓 SQL 的持有者）。
+     *
+     * <p><b>为什么是 volatile</b>：它被<b>最多</b>的异步路径读 ——
+     * {@code AIChatManager} 的会话结算（{@code runTaskAsynchronously}）、
+     * {@code SeasonManager} 的结算 sweep、{@code ReportGenerator}、PAPI 的补读退避
+     * 全部在非主线程调 {@code plugin.getDatabaseManager()}。非 volatile 时这些线程
+     * 可能读到 {@code null} 而 NPE（启动瞬间），停用时则可能继续拿着已关闭的实例。
+     * 定级 LOW：同 {@link #instance} 的 happens-before 论证。
+     */
+    private volatile DatabaseManager databaseManager;
+    // R4-CON-01：API 把下列字段转发给第三方插件，故 volatile 保证可见性。
+    private volatile PlayerDataStore playerDataStore;
     private MessageUtil messageUtil;
     private VersionAdapter versionAdapter;
 
-    private WordManagerImpl wordManager;
-    private AIChatManager aiChatManager;
+    private volatile WordManagerImpl wordManager;
+    private volatile AIChatManager aiChatManager;
     private ChatFeedbackManager chatFeedbackManager;
-    private ProgressManagerImpl progressManager;
+    private volatile ProgressManagerImpl progressManager;
 
     private AdminCommandHandler adminCommandHandler;
     private DataExporter dataExporter;
@@ -95,7 +135,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
     private UpdateChecker updateChecker;
 
     private WordLearningManager wordLearningManager;
-    private AchievementManager achievementManager;
+    private volatile AchievementManager achievementManager;
 
     private SoundManager soundManager;
     private TtsManager ttsManager;
@@ -108,18 +148,54 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     private GuiNavigationManager guiNavigationManager;
 
-    private DailyChallengeManager dailyChallengeManager;
+    /**
+     * 每日挑战管理器（GUI / 命令 / 答题进度三条入口消费）。
+     *
+     * <p><b>为什么是 volatile</b>：它的读点里有一条确定在<b>异步线程</b>上 ——
+     * {@code AIChatManager.runConversationSettlement}（由 {@code runTaskAsynchronously}
+     * 投递，见 R-16）会调 {@code plugin.getDailyChallengeManager().updateProgress(...)}。
+     * 主线程在 {@code onEnable} 写、{@code disableAll} 的 D10 置 null；异步线程读。
+     * 非 volatile 时异步段理论上可能读到 {@code null} 而 NPE，或读到已置空的陈旧值。
+     * 定级 LOW：Bukkit 的启动/停用链自带 happens-before，正常路径撞不上。
+     */
+    private volatile DailyChallengeManager dailyChallengeManager;
 
     private DuelManager duelManager;
 
-    private CheckInManager checkInManager;
+    /**
+     * 签到管理器（命令入口 + quit 时 unloadPlayer）。
+     *
+     * <p><b>为什么是 volatile</b>：与 {@link #dailyChallengeManager} 同一条理由 ——
+     * 主线程写、若干异步段（会话/报表侧的间接读取）读。定级 LOW：正常路径有
+     * happens-before 兜底，这是把「已认可的 volatile 纪律」补齐而不是修一个已知故障。
+     */
+    private volatile CheckInManager checkInManager;
 
     private OnboardingManager onboardingManager;
 
-    private SocialManager socialManager;
+    /**
+     * 广场社交管理器（GUI / 监听器 / 成就接线四处消费）。
+     *
+     * <p><b>为什么是 volatile</b>：{@code AchievementManager} 与
+     * {@code WordLearningManager} 的成就会话结算路径可能在异步段被触发，
+     * 它们都会判空后再调 {@code getSocialManager()}。主线程写、异步读，
+     * 非 volatile 时理论上可读到 {@code null}（启动瞬间）或陈旧句柄。定级 LOW。
+     */
+    private volatile SocialManager socialManager;
 
-    /** Wave 3 域 5 批次 A：赛季系统（窗口计算/结算/奖励补发；isEnabled 门控默认关）。 */
-    private SeasonManager seasonManager;
+    /**
+     * Wave 3 域 5 批次 A：赛季系统（窗口计算/结算/奖励补发；isEnabled 门控默认关）。
+     *
+     * <p><b>为什么是 volatile</b>：本字段是全仓<b>最</b>确定被跨线程读的管理器之一 ——
+     * {@code SeasonManager} 自己的结算 sweep 就跑在 {@code runTaskAsynchronously}
+     * 投递的线程上，{@code PlayerJoinListener}、{@code ProxyMessenger}、
+     * {@code LLEPapiExpansion} 也都在非主线程上下文调
+     * {@code plugin.getSeasonManager()}。主线程在 {@code onEnable} 写、D10 置 null。
+     * 非 volatile 时异步 sweep 理论上可能读到 {@code null}（启动瞬间）而 NPE，
+     * 或不必要地继续引用一个已被替换的实例。定级 LOW：仍然有 Bukkit 的
+     * 启动/停用 happens-before 兜底，这是可见性纪律的补齐。
+     */
+    private volatile SeasonManager seasonManager;
 
     private StatisticsHttpServer statisticsHttpServer;
 
@@ -127,8 +203,26 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
     private final Map<UUID, String> playerLanguage = new ConcurrentHashMap<>();
 
+    /** R4-EH-01：player_lang.yml 是否已被读过一次（落盘侧的「绝不覆盖没读过的文件」闸）。 */
+    private volatile boolean playerLanguagesLoaded;
+
     /** R-75：自递归午夜 rollover 任务的当前引用（重载先 cancel 再重排，停用 cancel）。主线程访问。 */
     private BukkitTask midnightTask;
+
+    /** R4-CON-02：午夜主线程段句柄（由异步段派发，句柄在异步线程返回，故不走 modules().track）。 */
+    private volatile BukkitTask midnightMainPhaseTask;
+
+    // ---------------- 午夜「昨日 pending 补发」预读（R-17）----------------
+    //
+    // 取值与 DailyChallengeManager.COMPLETION_READ_ATTEMPTS / COMPLETION_READ_BACKOFF_MS
+    // 逐字一致。为什么在这里再声明一份：那两个常量是 core 包的包级私有，
+    // 入口类跨包不可见，而本类**不许**改 DailyChallengeManager（并行批次分工）。
+    // 两处一旦漂移，后果是主线程/异步段的重试次数不同 —— 不是正确性问题（预读只是
+    // 「谁需要上主线程」的提示），但会让人误以为分行的是同一份策略，故在此显式对齐。
+    /** 昨日「是否全完成」预读的重试次数（含首次尝试），对齐 DailyChallengeManager 的同名策略。 */
+    private static final int MIDNIGHT_SETTLE_READ_ATTEMPTS = 3;
+    /** 同上重试的退避毫秒；**只在异步线程**睡，主线程段绝不出现 sleep（见 R-17 lint）。 */
+    private static final long MIDNIGHT_SETTLE_READ_BACKOFF_MS = 50L;
 
     // ---------------- 动态装卸（/lea reload 切换 server.enabled）----------------
     //
@@ -150,8 +244,10 @@ public final class LetsLearnEnglish extends JavaPlugin {
      * <p>它与 {@code isEnabled()} 的区别是本类停用逻辑的全部要害：{@code /lea reload} 期间
      * {@code isEnabled()} 恒为 true，只有这个字段能在「配置已读成 false、Manager 还没拆完」
      * 的窗口里立刻回答「现在不能再派发业务」。
+     *
+     * <p><b>为什么是 volatile</b>（R4-CON-02）：午夜 rollover 的异步段在非主线程读它。
      */
-    private boolean runtimeActive;
+    private volatile boolean runtimeActive;
 
     /**
      * onEnable 的计时起点：{@link #enableAll()} 末尾打印加载耗时用。
@@ -362,6 +458,10 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
         this.api = new LetsLearnEnglishAPI(this);
 
+        // R4-LOG-01：runtimeActive 必须在 startScheduledTasks() 之前置真 —— 否则
+        // scheduleNextMidnightRollover() 首行守卫在首次装配时必为假，日更链永不启动。
+        runtimeActive = true;
+
         registerListeners();
         registerCommands();
         startScheduledTasks();
@@ -391,7 +491,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
         getLogger().info("============================================");
 
         // F0-08：checker 实例照常创建（PlayerJoinListener 会调用 notifyPlayer——未发起/未完成
-        // 检查时其内部 isUpdateAvailable/checkComplete 守卫为 safe no-op，不会 NPE）；
+        // 检查时其内部 isUpdateAvailable/checkFinished 守卫为 safe no-op，不会 NPE）；
         // 仅"发起联网检查"受 general.check-updates 控制，关=不连 GitHub API。
         this.updateChecker = new UpdateChecker(this);
         if (configManager.getMainConfig().getBoolean("general.check-updates", true)) {
@@ -406,7 +506,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
         // 绝不中断 enable。玩家投诉"奖励没发"时，服主先看这里再看 /lea diagnose。
         com.letslearnenglish.minecraftplugin.command.DiagnoseCommand.logStartupSummary(this);
 
-            runtimeActive = true;
+            // R4-LOG-01：runtimeActive = true 已上移到 startScheduledTasks() 之前，不在此重复。
         } catch (Throwable t) {
             // 半装配必须能安全收尾：/lea reload 期没有 Bukkit 兜底 disable。
             // disableAll() 每步都有 null 守卫 + try/catch，天然能吃下半成品。
@@ -476,6 +576,8 @@ public final class LetsLearnEnglish extends JavaPlugin {
         // 禁用态留下一个活任务。（守卫已加 isRuntimeActive() 做纵深防御，见 A7。）
         cancelTaskQuietly("midnight-rollover", midnightTask);
         midnightTask = null;
+        cancelTaskQuietly("midnight-rollover-main", midnightMainPhaseTask);
+        midnightMainPhaseTask = null;
         // 兜底：tasksSnapshot() 里的任何漏网句柄（例如将来有人 track 了新任务却忘了写
         // 显式字段）。只清记账，真正的 cancel 在本类做 —— RuntimeModules 不调 Bukkit 方法。
         for (BukkitTask task : modules().tasksSnapshot()) {
@@ -606,6 +708,21 @@ public final class LetsLearnEnglish extends JavaPlugin {
                             + " during unload: " + t.getMessage());
                 }
             }
+            // R5-DC-01 二修（round6）：这里原本还有一段「离线补差集落盘」——遍历
+            // getActivePlayerIds()，对不在线的 UUID 逐个 saveProfileSettings。它要解决的是
+            // 「API setAge 只改缓存、只在线上玩家被落盘」。但那段 sweep 本身是净损失：
+            //   ① 它是隐私翻转的放大器。PlayerDataStore.setAge 旧实现走 computeIfAbsent，
+            //      离线 UUID 会在缓存里凭空多出一条「新玩家默认值」（showResults /
+            //      showInSquare 全 true，见 ProfileSettings 字段初值）；sweep 再对它做
+            //      7 列整对象 UPSERT，于是玩家主动关掉的 show_in_square 被一次 setAge
+            //      永久翻回 1（round5 验收实测：0/0 → 1/1）。
+            //   ② 修好 setAge 之后它恒空转：setAge 现在只在缓存<b>命中</b>时就地改 age，
+            //      未命中时直接走窄列 saveAge 落盘、不建缓存条目 —— 离线 UUID 不再进入
+            //      getActivePlayerIds() 的候选集，sweep 对它没有任何可写的东西。
+            //   ③ 留着它等于给未来埋雷：任何一次新的「展示读/旁路写污染 profile 缓存」
+            //      都会在 5 分钟/关服两个窗口里被静默转成不可撤销的库写入。
+            // 因此撤掉 sweep，年龄的持久化由 PlayerDataStore.setAge → saveAge 立即保证
+            // （不依赖任何 sweep 兜底）。
             if (savedPlayers > 0) {
                 getLogger().info("Saved data for " + savedPlayers + " player(s).");
             }
@@ -658,6 +775,23 @@ public final class LetsLearnEnglish extends JavaPlugin {
                 achievementManager.clearCache();
             } catch (Throwable t) {
                 getLogger().warning("Failed to clear achievement cache: " + t.getMessage());
+            }
+        }
+        // R12c-F1：TTS 自建下载线程池 —— 全仓此前<b>零调用点</b>，TtsManager.shutdown()
+        // 上写的「中断在途下载，不拖住关服」这条承诺没有执行者。后果是每轮
+        // /lea reload 泄漏 1 个 LLEP-TTS 线程 + 一个持有本插件引用的 TtsManager 实例
+        // （线程是 daemon，不拖 JVM，但钉住插件 ClassLoader），以及在途下载在停用后
+        // 继续跑完、往 audio/ 写缓存。
+        //
+        // 位置：D8 而非 D10。它是能写文件（AtomicFileWriter → audio/*.wav）的生产者，
+        // 与 statisticsHttpServer 同类 —— 都要在「拆运行时」这一侧收，且必须早于 D10 置空字段。
+        // shutdown() 内部先置 closed 单向闩再 shutdownNow()，顺序与本仓
+        // AIChatManager.shuttingDown / ChatFeedbackManager.accepting 一致。
+        if (ttsManager != null) {
+            try {
+                ttsManager.shutdown();
+            } catch (Throwable t) {
+                getLogger().warning("Failed to shut down TTS manager: " + t.getMessage());
             }
         }
 
@@ -877,16 +1011,16 @@ public final class LetsLearnEnglish extends JavaPlugin {
      * 异常自吞（不阻断 reload 主流程）；由 HotReloadManager.reloadAll 尾部调用。
      */
     public void restartStatisticsServerIfNeeded() {
-        if (statisticsHttpServer != null && statisticsHttpServer.isRunning()) {
-            statisticsHttpServer.stop();
-        }
-        boolean enabled = configManager.getMainConfig()
-                .getBoolean("statistics-server.enabled", false);
-        if (!enabled) {
-            statisticsHttpServer = null;
-            return;
-        }
         try {
+            if (statisticsHttpServer != null && statisticsHttpServer.isRunning()) {
+                statisticsHttpServer.stop();
+            }
+            boolean enabled = configManager.getMainConfig()
+                    .getBoolean("statistics-server.enabled", false);
+            if (!enabled) {
+                statisticsHttpServer = null;
+                return;
+            }
             statisticsHttpServer = new StatisticsHttpServer(this, databaseManager);
             statisticsHttpServer.start();
         } catch (Exception e) {
@@ -990,6 +1124,10 @@ public final class LetsLearnEnglish extends JavaPlugin {
             List<UUID> onlinePlayerIds = getServer().getOnlinePlayers().stream()
                     .map(Player::getUniqueId)
                     .toList();
+            // R5-DC-01 二修（round6）：这里原本还会对 getActivePlayerIds() 里的离线 UUID
+            // 逐个 saveProfileSettings（profile 缓存键 ∪ 在线的整对象 UPSERT）。撤掉的理由
+            // 与 onDisable 同段一致：它是隐私翻转的放大器，而在 setAge 改走窄列 saveAge 之后
+            // 恒空转。详见 onDisable 的 R5-DC-01 二修注释。
             getServer().getScheduler().runTaskAsynchronously(this, () -> {
                 // R7-C（P1-1）：周期保存走增量 saveDirty —— 只 UPSERT 脏词 + player_data 行，
                 // 空闲玩家零 SQL（R7-A 的 saveDirty 此前已写好但无调用点，"写放大"实际没降）。
@@ -997,7 +1135,20 @@ public final class LetsLearnEnglish extends JavaPlugin {
                 // savePlayerData，这是 R7-A 的既定语义（见 PlayerDataStore:savePlayerData javadoc）。
                 // 顺序上必须先于本接线修掉 P1-3（快照在锁外取），否则会激活旧值覆盖竞态。
                 onlinePlayerIds.forEach(playerId -> playerDataStore.saveDirty(playerId));
-                onlinePlayerIds.forEach(playerId -> playerDataStore.saveProfileSettings(playerId));
+                // R13：回收离线玩家的缓存。展示路径（成就墙 / 导出 / 报表）能对离线玩家
+                // 调 getPlayerStats，把十几张表全灌进内存，而 quit 永远轮不到他们 ——
+                // 每看一个离线玩家主页就永久多一份缓存。这里定期回收。
+                // 必须在 saveDirty 之后：先落盘再丢弃，顺序反了会把脏玩家的缓存清掉。
+                int evicted = playerDataStore.evictOfflinePlayerCaches(onlinePlayerIds);
+                if (evicted > 0) {
+                    // FINE：这是正常回收不是异常，但排查「内存为什么没降」时需要能看到。
+                    getLogger().fine("[auto-save] evicted caches for " + evicted
+                            + " offline player(s)");
+                }
+                // R5-DC-01 二修（round6）：此处原有的「离线 profile 补差集落盘」
+                // （profileIds.forEach(profileStore::saveProfileSettings)）已撤掉 ——
+                // 理由见上一条注释与 onDisable。在线玩家的 profile 由 quit 时的
+                // unloadProfileSettings / reload flush / onDisable 三处照常落盘。
             });
         }, saveInterval * 1200L, saveInterval * 1200L);
         modules().track(autoSaveTask);
@@ -1123,7 +1274,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
     private String buildDailyReminderMessage(Player player) {
         String rawMessage = configManager.getMainConfig().getString("daily-reminder.message",
                 "{prefix}&6It's time to learn English! Use &e/le menu &6to start!");
-        String defaultLang = configManager.getMainConfig().getString("general.language", "zh");
+        String defaultLang = configManager.getDefaultLanguage();
         String prefix = configManager.getMainConfig().getString("prefix." + defaultLang, "&8[&b英语学习&8] &f");
         String message = rawMessage
                 .replace("{player}", player.getName())
@@ -1199,21 +1350,55 @@ public final class LetsLearnEnglish extends JavaPlugin {
             // 顺序重排说明：checkAndAssign 只碰"今日"行 + 词库（异步安全）；
             // countUnclaimedForDate 只读"昨日"行；hasPendingWordRewardForDate 碰"昨日"
             // 行 + 内存补发标记——三者集合不相交，重排无语义漂移。
+            //
+            // R-17 补完（残留的那一半主线程 IO）：上面这次两段式**没有**把
+            // hasPendingWordRewardForDate 的读库从主线程挪走 —— 它只是从"每人一次"变成
+            // "仍然每人一次，只是换了位置"。而它的读链含
+            // readWordChallengeCompletionWithRetry（3 次尝试、两次 Thread.sleep(50ms)），
+            // 于是主线程段的最坏停顿仍是 在线人数 × 100ms：100 人在线 = 10 秒卡服。
+            // 难被发现的原因：本段与 getQuest 的旧注释都只写"含 Bukkit.getPlayer / Vault
+            // 发币 / sendMessage"，没人提到 sleep 也在里面。
+            //
+            // 现方案（**只前置"读"，不碰"付"**）：异步段先把每人的"昨日是否还需补发"
+            // 预读成三态 hint，主线程段只对其中 NEEDS_PAYOUT 的那部分真正调用
+            // hasPendingWordRewardForDate。安全性的关键不变量：
+            // 预读**只能决定"跳过"**，永远不能作为"可以发钱"的授权 —— NEEDS_PAYOUT
+            // 只是"值得上主线程问一次"，真正的判定（内存已付位 / DB 台账 / 三态 /
+            // 补发后的同日期复判）全部仍在 DailyChallengeManager 里原样重跑一遍。
+            // 因此本改动在失败方向上只会"少跳过"，绝不会多发一笔钱。
             final String yesterday = LocalDate.now().minusDays(1).toString();
             final List<UUID> onlineIds = new ArrayList<>();
             for (Player p : getServer().getOnlinePlayers()) {
                 onlineIds.add(p.getUniqueId());
             }
             try {
-                getServer().getScheduler().runTaskAsynchronously(this, () -> {
-                    // 异步段：昨日作废计数 + 今日分配（线程干净已逐一核实）
+                // R4-CON-02：句柄在主线程取得（本 lambda 由 runTaskLater 派发），可安全 track。
+                final BukkitTask asyncPhase = getServer().getScheduler().runTaskAsynchronously(this, () -> {
+                    // 异步段：昨日作废计数 + 今日分配 + 「昨日是否还需补发」预读
+                    // （线程干净已逐一核实；预读走数据层三态读，无 Bukkit 世界 API）
                     final Map<UUID, Integer> voidedBehaviorByPlayer = new HashMap<>();
+                    final Map<UUID, Boolean> needsSettlementByPlayer = new HashMap<>();
                     try {
-                        if (!isEnabled()) return;
+                        // R4-CON-02：内层守卫与首行守卫同构 —— reload 期间 isEnabled() 恒 true。
+                        if (!isEnabled() || !isRuntimeActive()) return;
                         for (UUID id : onlineIds) {
                             voidedBehaviorByPlayer.put(id,
                                     dailyChallengeManager.countUnclaimedForDate(id, yesterday));
                             dailyChallengeManager.checkAndAssign(id);
+                        }
+                        // R-17：把 hasPendingWordRewardForDate 的**读**前置到这里，使主线程段
+                        // 不必再为每个在线玩家跑一次「DB 台账 SELECT + 三态读（最多 3 次尝试、
+                        // 两次 50ms 退避）」。返回值语义：
+                        //   true  = 该玩家值得上主线程问一次（可能真要补发）
+                        //   false = 该玩家昨日已结清 / 未全完成 / 压根没有挑战行 → 主线程可跳过
+                        // 注意它**不是**补发授权：主线程段仍原样调用 hasPendingWordRewardForDate
+                        // 做全部判定（见本段首注释的"保守跳过"不变量）。
+                        //
+                        // 读失败（READ_FAILED 三态，或连接层运行期异常）一律按 true 记 ——
+                        // 「不知道」必须走保守方向：宁可让主线程多问一次（那里会记 SEVERE 并
+                        // 保留 pending 等人工处置），也不能因为本预读读不到就静默跳过结清。
+                        for (UUID id : onlineIds) {
+                            needsSettlementByPlayer.put(id, preReadNeedsSettlement(id, yesterday));
                         }
                     } catch (Exception e) {
                         getLogger().log(java.util.logging.Level.WARNING,
@@ -1239,14 +1424,35 @@ public final class LetsLearnEnglish extends JavaPlugin {
                                     "Midnight AI chat history cleanup failed", e);
                         }
                     }
-                    if (!isEnabled()) return;
+                    if (!isEnabled() || !isRuntimeActive()) return;
                     try {
-                        getServer().getScheduler().runTask(this, () -> {
+                        // R4-CON-02：主线程段句柄存 volatile 字段，由 D1 显式 cancel。
+                        midnightMainPhaseTask = getServer().getScheduler().runTask(this, () -> {
                             // 主线程段：R-31 补发（含 Bukkit 调用）+ 发消息 + 内存清理 + 自续
+                            // R-17：本段只对异步段预读判定为「值得问一次」的玩家才进补发链。
+                            // 这里**不得**再出现 Thread.sleep 的任何上游（见 R-17 lint）：
+                            // 预读已经把 readWordChallengeCompletionWithRetry 的退避消化在
+                            // 异步线程上了，主线程段剩下的只有内存判定 + 可能的一次短读 + 投递。
                             try {
+                                // R4-CON-02：本段在下一个 tick 才执行，与拆解窗口天然重叠；
+                                // 异步段通过守卫不代表执行时仍成立，必须再判一次。
+                                if (!isEnabled() || !isRuntimeActive()) return;
                                 for (UUID id : onlineIds) {
                                     Player player = getServer().getPlayer(id);
                                     if (player == null || !player.isOnline()) continue;
+                                    // R-17：false = 异步段已确认该玩家昨日无事可结清 →
+                                    // 跳过整条 hasPendingWordRewardForDate（它才是 sleep 的来源）。
+                                    // 缺键（异步段提前 return 未填）按 true 处理：保守方向。
+                                    if (!needsSettlementByPlayer.getOrDefault(id, Boolean.TRUE)) {
+                                        // 但行为挑战那一路的提示不受影响：它由
+                                        // voidedBehaviorByPlayer 单独承载，与单词补发判定无关。
+                                        int voidedBehaviorOnly = voidedBehaviorByPlayer.getOrDefault(id, 0);
+                                        if (voidedBehaviorOnly > 0) {
+                                            player.sendMessage(messageUtil.getPlayerMessage(player,
+                                                    "daily-challenge.rollover-voided"));
+                                        }
+                                        continue;
+                                    }
                                     boolean voidedWord = dailyChallengeManager
                                             .hasPendingWordRewardForDate(id, yesterday);
                                     int voidedBehavior = voidedBehaviorByPlayer.getOrDefault(id, 0);
@@ -1291,6 +1497,7 @@ public final class LetsLearnEnglish extends JavaPlugin {
                         // 自续本就不会重排（scheduleNextMidnightRollover 首行守卫）。
                     }
                 });
+                modules().track(asyncPhase);
             } catch (IllegalStateException ignored) {
                 // 停用窗口：异步段未派发，无自续需求（同上）。
             }
@@ -1299,6 +1506,113 @@ public final class LetsLearnEnglish extends JavaPlugin {
 
         getLogger().info("Midnight rollover scheduled, next run in "
                 + (delayTicks / 20L) + " seconds.");
+    }
+
+    /**
+     * R-17：午夜 rollover 的<b>读前置</b>——异步线程上判断「这个玩家的昨日是否值得上主线程结算」。
+     *
+     * <h2>它修的缺陷</h2>
+     * <p>F2-11 的两段式只把 {@code countUnclaimedForDate} / {@code checkAndAssign} 挪进了异步段，
+     * {@code hasPendingWordRewardForDate} 仍留在主线程的 per-online-player 循环里。那条链的读路径是
+     * {@code retryPendingClaimLedgerWrites → isWordChallengeClaimedOn → isDailyWordRewardClaimed
+     * (SELECT) → readWordChallengeCompletionWithRetry}，而最后一个方法带
+     * {@code COMPLETION_READ_ATTEMPTS = 3} 次尝试、尝试之间 {@code Thread.sleep(50ms)}
+     * ——<b>主线程每个玩家最坏睡 100ms</b>。100 人在线就是 10 秒卡服，而调用点注释只写了
+     * "含 Bukkit.getPlayer / Vault 发币 / sendMessage"，完全没提 sleep。这就是它能活到现在的理由。
+     *
+     * <h2>为什么这个预读是安全的（不变量，改本方法前必读）</h2>
+     * <p><b>预读只能决定「跳过」，永远不能作为「可以发钱」的授权。</b>
+     * 返回值 {@code true} 的语义仅是"值得上主线程问一次"，主线程段仍会原样调用
+     * {@link DailyChallengeManager#hasPendingWordRewardForDate} 把全部判定重跑一遍
+     * （内存已付位 → DB 台账 → 三态 → 补发后同日期复判）。所以：
+     * <ul>
+     *   <li>预读说 false → 主线程跳过。必须 false 的两个来源都是<b>确定结论</b>：
+     *       该日已有付款记录（内存或 DB 台账），或该日挑战未全完成 / 没有挑战行；</li>
+     *   <li>预读说 true → 只是"去问一次"，问的结果仍完全由 manager 决定。</li>
+     * </ul>
+     * 任何<b>不确定</b>（读失败、连接层运行期异常、三态 READ_FAILED）都返回 {@code true}
+     * —— 失败方向必须是「多问一次」而不是「静默跳过一笔该结清的钱」。这与
+     * {@code readWordChallengeCompletionWithRetry} 的 READ_FAILED 不变量同一方向。
+     *
+     * <h2>线程</h2>
+     * <p>只在 rollover 的异步段调用。不碰任何 Bukkit 世界 API（不发消息、不取 Player
+     * ——玩家在线与否与本判定无关，真正的在线复检在主线程段），也不写任何内存状态。
+     *
+     * <p>退避 {@code Thread.sleep(50ms)} 的那个缺陷**不在这里**（本方法与
+     * {@code DailyChallengeManager} 各有一份重试；后者在主线程段被调用）。
+     * 本方法的重试是为了让预读自己也有一次自愈机会，它睡在异步线程上，不阻塞 tick。
+     *
+     * @param playerId 玩家
+     * @param date     要结算的那一天（rollover 传昨日）
+     * @return {@code true} = 该玩家昨日仍需上主线程结算（保守：任何不确定都归此类）
+     */
+    private boolean preReadNeedsSettlement(UUID playerId, String date) {
+        DatabaseManager db = databaseManager;
+        if (db == null) {
+            // DI 未就绪（正常不可达：rollover 只会在装配完成后排程）。保守 true。
+            return true;
+        }
+        try {
+            // ① DB 台账（daily_word_reward_claims）：该日已付 → 一定无需补发。
+            //    读失败在本方法内部按 false 返回（"按未付处理"），故它不会把已付误判成未付
+            //    的方向出问题 —— 后续三态读会把它兜回保守 true。
+            if (db.isDailyWordRewardClaimed(playerId, date)) {
+                return false;
+            }
+            // ② 三态「该日是否全完成」，带与 manager 同口径的有界重试。
+            //    COMPLETED → 可能欠一笔补发，交给主线程判定（true）；
+            //    NOT_COMPLETED → 确定无事可结清（false）；
+            //    READ_FAILED → 不知道 → true（不静默跳过）。
+            DatabaseManager.WordChallengeCompletion completion =
+                    readCompletionWithRetryForPreRead(db, playerId, date);
+            if (completion == DatabaseManager.WordChallengeCompletion.NOT_COMPLETED) {
+                return false;
+            }
+            return true;
+        } catch (RuntimeException e) {
+            // 连接层故障（getConnection 抛未检查异常）不是 SQLException，数据层接不到。
+            // 同上：不确定 → true，让主线程段去记 SEVERE 并保留 pending。
+            getLogger().log(java.util.logging.Level.WARNING,
+                    "Midnight pre-read for " + playerId + " / " + date
+                            + " failed; falling back to the main-thread settlement path", e);
+            return true;
+        }
+    }
+
+    /**
+     * R-17：{@link #preReadNeedsSettlement} 用的有界重试读（<b>只在异步线程调用</b>）。
+     *
+     * <p>与 {@code DailyChallengeManager.readWordChallengeCompletionWithRetry} 同口径
+     * （同样的次数/退避/READ_FAILED 语义），再造一份的理由只有一个：<b>那个方法是私有的</b>，
+     * 且处于并行批次的分工保护下不可改。两处策略必须保持一致，常量在字段区显式对齐。
+     *
+     * <p>{@code null} 只可能来自替换实现/测试替身（生产实现的三态永不返回 null）——
+     * 按 READ_FAILED 处理，绝不落进"不是 NOT_COMPLETED ⇒ 全完成"的默认分支。
+     */
+    private DatabaseManager.WordChallengeCompletion readCompletionWithRetryForPreRead(
+            DatabaseManager db, UUID playerId, String date) {
+        DatabaseManager.WordChallengeCompletion result =
+                DatabaseManager.WordChallengeCompletion.READ_FAILED;
+        for (int attempt = 1; attempt <= MIDNIGHT_SETTLE_READ_ATTEMPTS; attempt++) {
+            result = db.loadWordChallengeCompletion(playerId, date);
+            if (result == null) {
+                result = DatabaseManager.WordChallengeCompletion.READ_FAILED;
+            }
+            if (result != DatabaseManager.WordChallengeCompletion.READ_FAILED) {
+                return result;
+            }
+            if (attempt < MIDNIGHT_SETTLE_READ_ATTEMPTS) {
+                try {
+                    // 退避在 connectionLock 之外（loadWordChallengeCompletion 自己加锁、自己释放），
+                    // 且本方法只在异步线程跑 —— 不阻塞 tick，也不阻塞别人太久。
+                    Thread.sleep(MIDNIGHT_SETTLE_READ_BACKOFF_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return DatabaseManager.WordChallengeCompletion.READ_FAILED;
+                }
+            }
+        }
+        return result;
     }
 
     private void backupDatabase(int maxBackups) {
@@ -1582,46 +1896,97 @@ public final class LetsLearnEnglish extends JavaPlugin {
         return proxyMessenger;
     }
 
+    /**
+     * 玩家当前语言，返回值<b>必定</b>是 {@code "zh"} 或 {@code "en"}。
+     *
+     * <p>R14-F3：这是全仓语言读取的唯一出口（9 处 {@code equalsIgnoreCase} 兄弟调用点都从这里
+     * 拿值）。三处入口都必须归一化，缺一处就还能漏出非规范值：</p>
+     * <ol>
+     *   <li>回落值 —— {@code general.language} 的原始字符串可能是 "cn"/"ZH"/"fr"；</li>
+     *   <li>内存表 —— {@link #setPlayerLanguage} 已归一化，但测试/反射注入的表内容是外部给的；</li>
+     *   <li>磁盘 —— {@link #loadPlayerLanguages} 已归一化，同样以此为准。</li>
+     * </ol>
+     * <p>在这里再归一化一次是<b>有意的重复</b>：读路径归一化后，下游 {@code "zh".equalsIgnoreCase(lang)}
+     * 与 {@code ConfigManager.getMessageConfig(lang)} 内部的 {@code isZh(lang)} 对同一次调用
+     * 必然得到同一个结论，"半英半中"在结构上不再可能，而不是靠每个调用点的比较方式恰好一致。</p>
+     */
     public String getPlayerLanguage(Player player) {
-        return playerLanguage.getOrDefault(player.getUniqueId(),
-                configManager.getMainConfig().getString("general.language", "zh"));
+        String stored = playerLanguage.getOrDefault(player.getUniqueId(),
+                configManager.getDefaultLanguage());
+        // canonicalLanguage 对 null / 未知值回落 zh，且不会返回 null。
+        return ConfigManager.canonicalLanguage(stored);
     }
 
     public void setPlayerLanguage(Player player, String lang) {
-        playerLanguage.put(player.getUniqueId(), lang);
+        // R14-F3：入口归一化。player_lang.yml 是落盘文件，写进去的必须只有 zh/en，
+        // 否则下次启动 loadPlayerLanguages 读回来又得靠下游各自猜一遍。
+        playerLanguage.put(player.getUniqueId(), ConfigManager.canonicalLanguage(lang));
         savePlayerLanguages();
     }
 
     private void loadPlayerLanguages() {
         File langFile = new File(getDataFolder(), "player_lang.yml");
         if (!langFile.exists()) {
+            // R4-EH-01：文件不存在也算加载路径走完（真·首次启动），落盘无数据可毁。
+            playerLanguagesLoaded = true;
             return;
         }
         FileConfiguration langConfig = YamlConfiguration.loadConfiguration(langFile);
         // T0-04：缺省与 getPlayerLanguage 同源（config general.language，默认 zh），
         // 旧值 "en" 会在玩家条目只有 UUID 无值时才命中，属不一致的隐性回归。
-        String defaultLang = configManager.getMainConfig().getString("general.language", "zh");
+        //
+        // R14-F3：本文件是数据目录里可手改的，读进来的值同样要归一化 —— 否则
+        // `"ZH"` / `"cn"` / `"fr"` 会原样进入内存表，再被下游 9 处 equalsIgnoreCase 与
+        // ConfigManager 的精确比较各自判成不同结果。与 setPlayerLanguage 的入口归一同源，
+        // 保证「磁盘 → 内存 → 磁盘」这条环路只会出现 zh/en 两个值。
+        String defaultLang = configManager.getDefaultLanguage();
         for (String key : langConfig.getKeys(false)) {
             try {
                 UUID uuid = UUID.fromString(key);
-                playerLanguage.put(uuid, langConfig.getString(key, defaultLang));
+                String stored = langConfig.getString(key, defaultLang);
+                String canonical = ConfigManager.canonicalLanguage(stored);
+                if (!ConfigManager.isRecognizedLanguage(stored)) {
+                    // 静默修正会让服主以为手改生效了；点名到 UUID 才能定位是哪一行。
+                    getLogger().warning("Invalid language '" + stored + "' for " + uuid
+                            + " in player_lang.yml (accepted: zh/en, case-insensitive;"
+                            + " 'cn' is an alias of 'zh'); using '" + canonical + "'.");
+                }
+                playerLanguage.put(uuid, canonical);
             } catch (IllegalArgumentException e) {
                 getLogger().warning("Invalid UUID in player_lang.yml: " + key);
             }
         }
+        playerLanguagesLoaded = true;
         getLogger().info("Loaded " + playerLanguage.size() + " player language preferences.");
     }
 
     private void savePlayerLanguages() {
         File langFile = new File(getDataFolder(), "player_lang.yml");
+        // R4-EH-01：没读过这个文件就不许写它。loadAllConfigs() 抛异常会让
+        // loadPlayerLanguages() 轮不到，onDisable 的落盘就会用空表覆盖全服语言偏好。
+        // 加 exists() 是因为无文件时无数据可毁（ServerToggleTest 的关闭态用例正是这一格）。
+        if (!playerLanguagesLoaded && langFile.exists()) {
+            getLogger().warning("Player language preferences were never loaded; refusing to"
+                    + " overwrite the existing player_lang.yml with an empty in-memory table.");
+            return;
+        }
         FileConfiguration langConfig = new YamlConfiguration();
         for (Map.Entry<UUID, String> entry : playerLanguage.entrySet()) {
             langConfig.set(entry.getKey().toString(), entry.getValue());
         }
-        try {
-            langConfig.save(langFile);
-        } catch (IOException e) {
-            getLogger().warning("Failed to save player language preferences: " + e.getMessage());
+        // R-11（第三批）：原子写。原实现是这个位置上的 langConfig.save(langFile) ——
+        // 直接覆写目标文件。这里是 onDisable 路径：**没有人会看到返回值**，
+        // 而一次「写到一半」的停用（服主 kill -9 / 磁盘满是停服时的常见形态）
+        // 会留下半截 player_lang.yml；下次启动 loadPlayerLanguages 解析失败 →
+        // 全服玩家的语言偏好一起回落到默认值。原子写让这种情况下磁盘上仍是
+        // 上一份完整文件（旧偏好，而不是坏文件）。
+        // 失败语义不变：onDisable 里没有交互方，记日志就是全部可做的。
+        // 父目录：getDataFolder() 在插件 enable 时就由 Bukkit 建好，onDisable 期间必然存在；
+        // AtomicFileWriter 仍会兜底 createDirectories，不依赖这个前提。
+        if (!AtomicFileWriter.write(langFile.toPath(), langConfig::saveToString, getLogger())) {
+            getLogger().warning("Failed to save player language preferences: "
+                    + langFile.getAbsolutePath() + " (target left untouched; reusing the previous"
+                    + " complete file instead of a partially written one)");
         }
     }
 }

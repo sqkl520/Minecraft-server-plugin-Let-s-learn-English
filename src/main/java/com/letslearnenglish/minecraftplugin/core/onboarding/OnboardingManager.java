@@ -4,6 +4,7 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.word.LearningSession;
 import com.letslearnenglish.minecraftplugin.core.word.WordModes;
+import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.gui.WordLearningGUI;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import net.kyori.adventure.text.Component;
@@ -105,7 +106,21 @@ public class OnboardingManager implements Listener {
             return;
         }
         UUID playerId = player.getUniqueId();
-        int step = plugin.getDatabaseManager().getOnboardingStep(playerId);
+        // R4-07-eh-02：读失败被折叠成 0（= STEP_UNINITIALIZED），0 + 老号会把在途引导写成已完成。
+        // 治本点在读侧：loadOnboardingStep 的三态让"读失败"不再等于 0；这里只做分流。
+        int step;
+        try {
+            DatabaseManager.OnboardingLoad load =
+                    plugin.getDatabaseManager().loadOnboardingStep(playerId);
+            if (load.readFailed()) {
+                plugin.getLogger().warning("Onboarding read failed, retry next join: " + playerId);
+                return;
+            }
+            step = load.step();
+        } catch (RuntimeException e) {
+            plugin.getLogger().warning("Onboarding read failed, retry next join: " + e.getMessage());
+            return;
+        }
         stepCache.put(playerId, step);
 
         if (step == STEP_UNINITIALIZED) {
@@ -475,9 +490,15 @@ public class OnboardingManager implements Listener {
         if (cached != null) {
             return cached;
         }
-        int loaded = plugin.getDatabaseManager().getOnboardingStep(playerId);
-        stepCache.put(playerId, loaded);
-        return loaded;
+        // R4-07-eh-02：读失败不得写进缓存 —— 否则一次 DB 抖动会把 step 0 钉死到 quit，
+        // 后续 advanceStep 的单调门（to <= current）会连正常推进一起挡掉。
+        DatabaseManager.OnboardingLoad load =
+                plugin.getDatabaseManager().loadOnboardingStep(playerId);
+        if (load.readFailed()) {
+            return STEP_UNINITIALIZED;
+        }
+        stepCache.put(playerId, load.step());
+        return load.step();
     }
 
     /** step 单调写：to ≤ 当前不写（杜绝 quit/rejoin 竞态与重复回调把进度写回退）。 */

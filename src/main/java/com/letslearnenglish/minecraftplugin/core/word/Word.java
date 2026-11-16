@@ -140,6 +140,20 @@ public class Word {
         return difficulty;
     }
 
+    /**
+     * 词条在文件里标注的难度等级（1 = 最简单）。
+     *
+     * <p><b>unv-words-F3（round1 遗留 MEDIUM，本轮补记）：当前是「只写不读」的死字段。</b>
+     * 三档词库（beginner / intermediate / advanced）都会写这个键，导出/导入也会原样往返，
+     * 但<b>没有任何运行时路径读它</b>来决定抽词、计分或复习排程 —— 真正的难度分档来自
+     * 「词条所在的文件名」（{@code WordBank} 的 difficulty 参数）。
+     *
+     * <p>保留而不删除的理由：它是词库文件格式的一部分（手写/导入的 YAML 都带这个键），
+     * 删掉会让 export → import 往返丢一个键，而对外部词库作者是破坏性变更。
+     * 若将来要做「同档内按难度细分抽词」，这个字段就是现成的输入。
+     *
+     * <p>⚠️ 因此：<b>不要</b>把这个值当作可靠的分档依据 —— 它是词条元数据，不是调度依据。
+     */
     public int getDifficultyLevel() {
         return difficultyLevel;
     }

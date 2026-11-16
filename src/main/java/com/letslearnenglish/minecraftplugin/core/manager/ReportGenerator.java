@@ -5,15 +5,14 @@ import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
+import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.data.repository.ReportRepository;
+import com.letslearnenglish.minecraftplugin.util.AtomicFileWriter;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -28,7 +27,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 
 /**
@@ -40,10 +41,10 @@ import java.util.logging.Level;
  * messages/*.yml 读 {@code report.*} 纯文本模板渲染；聊天摘要卡按执行者语言走
  * {@link com.letslearnenglish.minecraftplugin.util.MessageUtil}。
  *
- * <p>线程模型（plan §3.4）：命令回调（主线程）只做参数解析、UUID 解析与在线
- * 快照 {@link CumulativeSnapshot}；<strong>全部 DB 查询、文本渲染与文件写入在异步
- * 线程</strong>（DatabaseManager 的 connectionLock 同步块在异步线程调用安全，见
- * PlayerDataStore 先例）；聊天反馈回主线程发送。异步完成时复查
+ * <p>线程模型（plan §3.4）：命令回调（主线程）只做参数解析与 UUID 解析；
+ * <strong>全部 DB 查询、文本渲染与文件写入在异步线程</strong>（DatabaseManager 的
+ * connectionLock 同步块在异步线程调用安全，见 PlayerDataStore 先例）；聊天反馈回
+ * 主线程发送。异步完成时复查
  * {@code plugin.isEnabled()} 并吞掉调度器关闭竞态（S2 shutdown 守卫同款）。
  *
  * <p>协议化返回（P2-09 教训落地）：内部判定一律走 {@link ReportResult} 字段，
@@ -69,6 +70,21 @@ public class ReportGenerator {
     /** 趋势判定阈值：后半窗口正确率与前半差超过 2 个百分点才提示涨/跌。 */
     private static final double TREND_THRESHOLD = 0.02;
 
+    /**
+     * UTF-8 BOM（U+FEFF）。
+     *
+     * <p>FIX 2 起落盘走 {@code AtomicFileWriter#write(Path, Supplier&lt;String&gt;, Logger)}，
+     * 它内部是 {@code Files.writeString(..., UTF_8)}。U+FEFF 按 UTF-8 编码正好是
+     * {@code EF BB BF}，因此用字符形式拼在正文最前面与原实现的三字节前缀<b>逐字节等价</b>，
+     * 不必为此改用 {@code writeStream}（那需要自己拿 {@code OutputStream} 写 BOM，
+     * 反而多一对容易写错的字节魔数）。
+     *
+     * <p>用 {@code (char) 0xFEFF} 而非把 U+FEFF 字面量直接写进源码：那是一个
+     * <b>零宽不可见</b>字符，混在编辑器里既看不出来也搜不到，任何一次
+     * "删掉行首空白"的重排都可能把它悄悄删掉，而症状只是"报告用旧记事本打开是乱码"。
+     */
+    private static final char BOM = (char) 0xFEFF;
+
     private final LetsLearnEnglish plugin;
     private final DatabaseManager databaseManager;
     private final WordManagerImpl wordManager;
@@ -76,10 +92,41 @@ public class ReportGenerator {
     private final ReportRepository reportRepository;
 
     /**
-     * 惰性清理闸：首次生成报告时清理一次过期的 report_*.txt（keep-days）。
-     * 不在启动期接线（本类白名单外不新增启动任务），由生成路径顺带触发。
+     * FIX 1（round14 F2）：惰性清理闸 —— 从"每进程一次"改为"每个自然日一次"。
+     *
+     * <p><b>为什么必须改</b>：原实现是 {@code AtomicBoolean cleanupDone}，语义是
+     * "整个 JVM 生命周期内只清理一次"。这对"开一局就关"的单机没问题，但家长报告
+     * 的典型宿主是 24/7 服：进程连续跑几周，第一次生成报告之后<b>再也没有任何一次</b>
+     * 清理，{@code exports/reports/} 只会增长。更深一层的危害是"磁盘写满"——
+     * 盘满之后每一次报告落盘都失败，管理员得到的是 {@code report.failed}，
+     * 而唯一能腾地方的那条清理路径恰好已被闸门永久关闭，形成"只能手工删文件"的死结。
+     *
+     * <p><b>为什么用日期而不是定时器</b>：本类白名单外不新增启动任务（见类 javadoc
+     * 的线程模型与"接线位置"约定），清理由生成路径顺带触发；而报告生成本就低频
+     * （一天最多几次），"生成时顺手看一眼是不是换了天"比多挂一个 Bukkit 定时任务
+     * 更省资源，也不会引入新的关服竞态。
+     *
+     * <p><b>线程安全</b>：报告全部在异步线程生成，可能并发（两个管理员同时敲
+     * {@code /lea report}）。用 {@link AtomicReference} 的 {@code compareAndSet}
+     * 保证同一天只有一个线程真正去 list/delete 目录；CAS 失败的线程直接返回，
+     * 不重复扫盘。残留的竞态只是"两个线程几乎同时跨日" —— CAS 只有一个成功，
+     * 另一个下一天再清，语义正确。
      */
-    private final AtomicBoolean cleanupDone = new AtomicBoolean(false);
+    private final AtomicReference<LocalDate> lastPruneDate = new AtomicReference<>();
+
+    /**
+     * FIX 3（round14 F2）：同一秒内多次生成报告的文件名唯一化序号。
+     *
+     * <p>原文件名只有 {@code HHmmss}（1 秒分辨率）+ 玩家名/日期区间，没有唯一成分：
+     * 同一秒内跑两次 {@code /lea report}（控制台脚本、两个管理员、或
+     * {@code report all} 紧跟在一份单报之后）会得到<b>完全相同</b>的路径，第二次
+     * 原子替换掉第一次，而两条命令都回一句"报告已保存"——第一份报告静默丢失。
+     *
+     * <p>用 {@link AtomicLong} 而非随机数：序号在一个进程内单调，运维按文件名排序
+     * 就是生成先后顺序；同时再叠一段随机后缀，覆盖"重启后序号归零 + 同一秒撞上
+     * 重启前那个文件"的极小概率窗口（跨进程唯一性只能靠随机/时钟，序号给不了）。
+     */
+    private final AtomicLong fileSequence = new AtomicLong();
 
     /** 构造注入（plan §3.1，仿 DataExporter 位置）；两依赖均只赋值一次、内部原地变更，持引用安全。 */
     public ReportGenerator(LetsLearnEnglish plugin, DatabaseManager databaseManager,
@@ -95,9 +142,7 @@ public class ReportGenerator {
     // ============================================================
 
     /**
-     * 在线玩家累计数快照（plan §1.5：主线程命令入口处取"与 /le stats 同源"的
-     * 缓存快照，随参数传入异步生成器——异步线程绝不触碰 PlayerDataStore 缓存
-     * 的懒加载路径）。离线玩家传 {@code null}，累计数在异步线程读库直查。
+     * 在线玩家累计数快照（plan §1.5：与 /le stats 同源）。F3：取数在异步段完成。
      */
     public record CumulativeSnapshot(int totalCorrect, int sessions, long score,
                                      int conversations, int unlockedCount) {}
@@ -165,26 +210,40 @@ public class ReportGenerator {
                                  int achTotal, int streak, int challengeDone, int challengeTotal) {}
 
     private record SingleData(String playerName, ReportPeriod period, List<DailyRow> daily,
-                              List<WeakWord> weak, CumulativeOut cum, boolean windowEmpty) {}
+                              List<WeakWord> weak, CumulativeOut cum, boolean windowEmpty,
+                              boolean dataIncomplete) {}
 
     private record BatchRow(UUID uuid, String name, int days, int answered, int correct, long score) {}
+
+    /** Q9 + 完整性位（round4 F3）：{@code complete=false} = 批量聚合失败/中途失败，
+     *  {@code rows} 只是部分行——调用方<b>不得</b>据此宣布"本周期无人学习"。 */
+    private record BatchFetch(List<BatchRow> rows, boolean complete) {}
+
+    /**
+     * FIX 5（round14 F2）：批量逐人错题的预取结果（一条记录 = 一个人的 Top-N）。
+     *
+     * <p>{@code complete=false} 来自仓储的 {@code *OrFail} 位：读失败时 {@code words}
+     * 只是已累积的部分行，渲染器必须打"数据不完整"标记，不能写成"该生没有错题"。
+     */
+    private record BatchWeak(List<WeakWord> words, boolean complete) {}
 
     // ============================================================
     //  入口（主线程调用；方法内部自管异步派发与回主线程反馈）
     // ============================================================
 
     /**
-     * 生成单个玩家的报告（plan §3.4 三段式：主线程快照 → 异步查询+渲染+写文件
-     * → 回主线程发摘要卡）。
+     * 生成单个玩家的报告（plan §3.4 三段式：主线程解析 → 异步快照求值+查询+渲染+
+     * 写文件 → 回主线程发摘要卡）。
      *
      * @param sender     命令执行者（玩家/控制台），用于聊天反馈
      * @param playerId   已解析的目标 UUID（调用方已过三级查找）
      * @param displayName 玩家名回落值（在线为 Bukkit 名；离线为命令参数）
      * @param period     统计周期
-     * @param snapshot   在线累计快照；离线传 {@code null}
+     * @param snapshotReady 玩家此刻是否在线；F3：在线快照由本方法在异步段读取，
+     *                      {@code false} 时按离线处理（累计数走库内直查）。
      */
     public void generateSingle(CommandSender sender, UUID playerId, String displayName,
-                               ReportPeriod period, CumulativeSnapshot snapshot) {
+                               ReportPeriod period, boolean snapshotReady) {
         ReportSettings settings = captureSettings();
         runAsync(() -> {
             try {
@@ -194,7 +253,9 @@ public class ReportGenerator {
                     return;
                 }
                 cleanupOldReportsIfDue(settings);
-                SingleData data = collectSingle(playerId, displayName, period, settings, snapshot);
+                // F3：快照在此（异步段）读；取不到就退化为库内直查，不让整份报告失败。
+                CumulativeSnapshot snap = snapshotReady ? readSnapshot(playerId) : null;
+                SingleData data = collectSingle(playerId, displayName, period, settings, snap);
                 ReportResult result = writeSingleFile(data, settings);
                 if (!result.success()) {
                     String reason = result.errorMessage();
@@ -225,12 +286,29 @@ public class ReportGenerator {
         runAsync(() -> {
             try {
                 cleanupOldReportsIfDue(settings);
-                List<BatchRow> fetched = queryBatchRows(period, settings);
+                BatchFetch fetch = queryBatchRows(period, settings);
+                // round4 F3 / EH-03：先判"库挂了"，再判"没人学习"。顺序不可颠倒——
+                // 失败时 rows 可能为空（部分行）或非空（中途失败），两种都不得当真实数据。
+                if (!fetch.complete()) {
+                    plugin.getLogger().warning("Batch report rows are incomplete for "
+                            + period.from() + ".." + period.to()
+                            + "; refusing to render a report from partial data.");
+                    // FIX 4：这条失败原因原先直接嵌硬编码中文常量。失败原因是<b>聊天</b>，
+                    // 走执行者语言（与同方法内其余 report.failed 调用点同口径）。
+                    // 取值放在回主线程的 lambda 内：getSenderMessage 对玩家会读玩家语言，
+                    // 本类其余聊天取词一律在主线程做（异步段只碰 DB/文件）。
+                    sendOnMainThread(() -> sender.sendMessage(plugin.getMessageUtil()
+                            .getSenderMessage(sender, "report.failed",
+                                    "reason", chatIncompleteNotice(sender))));
+                    return;
+                }
+                List<BatchRow> fetched = fetch.rows();
                 final boolean truncated = fetched.size() > settings.batchMax();
                 final List<BatchRow> rows = truncated
                         ? new ArrayList<>(fetched.subList(0, settings.batchMax()))
                         : fetched;
                 if (rows.isEmpty()) {
+                    // 只有 complete=true 且真的 0 行，才能说"没有学习数据"
                     sendOnMainThread(() -> sender.sendMessage(plugin.getMessageUtil()
                             .getSenderMessage(sender, "report.no-data")));
                     return;
@@ -301,9 +379,16 @@ public class ReportGenerator {
         }
         sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                 "report.generated", "file", relative));
-        if (data.windowEmpty()) {
-            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
-                    "report.no-data"));
+        if (data.windowEmpty() || data.dataIncomplete()) {
+            // EH-05：查询失败时不得对家长说"没有学习数据"（事实性谎报）。
+            // FIX 4：这一句原本是硬编码中文常量，聊天摘要卡其余每一行都走
+            // getSenderMessage（执行者语言），两者语言不一致时同一张卡会中英混排。
+            // 聊天路径刻意用 getSenderMessage 而<b>不是</b>正文那套 report.language：
+            // 卡片是给"敲命令的人"看的（可能是英文服主），正文是给家长看的（由
+            // report.language 定），沿用本类既有的"两种受众两套语言来源"约定。
+            sender.sendMessage(data.dataIncomplete()
+                    ? ChatColor.RED + chatIncompleteNotice(sender)
+                    : plugin.getMessageUtil().getSenderMessage(sender, "report.no-data"));
         }
     }
 
@@ -314,7 +399,17 @@ public class ReportGenerator {
 
     private SingleData collectSingle(UUID playerId, String displayName, ReportPeriod period,
                                      ReportSettings settings, CumulativeSnapshot snapshot) {
-        List<DailyRow> daily = queryDailyRows(playerId, period);
+        // EH-05：complete 标记原先止步于一行 WARNING，渲染层拿不到 → 失败被写成「无学习活动」
+        ReportRepository.DailyRows q1 = reportRepository.queryDailyRows(
+                playerId, period.from().toString(), period.to().toString());
+        List<DailyRow> daily = new ArrayList<>();
+        for (ReportRepository.DailyRow r : q1.rows()) {
+            daily.add(new DailyRow(r.date(), r.answered(), r.correct(), r.score()));
+        }
+        // round4 EH-12-01：原先 dataIncomplete 只采样 Q1，Q2/Q3/Q4/Q5/Q6/Q8 的
+        // null/0 回落被当真实数字印给家长（"累计正确词 0"）。现改为按"任一查询失败"
+        // 逐位累积（|=，不覆盖），线下任一查询失败都会让整份报告打上不完整标记。
+        boolean dataIncomplete = !q1.complete();
 
         // 终身汇总 + 库内名字（Q2）
         String dbName = null;
@@ -322,20 +417,21 @@ public class ReportGenerator {
         long cumSessions = 0L;
         long cumScore = 0L;
         int cumConversations = 0;
-        ReportRepository.LifetimeRow lifetime = reportRepository.fetchLifetime(playerId);
-        if (lifetime != null) {
-            dbName = lifetime.playerName();
-            cumCorrect = lifetime.totalCorrect();
-            cumSessions = lifetime.sessions();
-            cumScore = lifetime.score();
-            cumConversations = lifetime.conversations();
+        ReportRepository.LifetimeRows lifetime = reportRepository.fetchLifetimeOrFail(playerId);
+        dataIncomplete |= !lifetime.complete();
+        if (lifetime.row() != null) {
+            dbName = lifetime.row().playerName();
+            cumCorrect = lifetime.row().totalCorrect();
+            cumSessions = lifetime.row().sessions();
+            cumScore = lifetime.row().score();
+            cumConversations = lifetime.row().conversations();
         }
-        // 在线玩家以主线程快照覆盖（与 /le stats 同源；plan §1.5）
+        // 在线快照覆盖（plan §1.5）。DC-01：零值可能是读失败产物，累计量单调故取较大值。
         if (snapshot != null) {
-            cumCorrect = snapshot.totalCorrect();
-            cumSessions = snapshot.sessions();
-            cumScore = snapshot.score();
-            cumConversations = snapshot.conversations();
+            cumCorrect = Math.max(cumCorrect, snapshot.totalCorrect());
+            cumSessions = Math.max(cumSessions, snapshot.sessions());
+            cumScore = Math.max(cumScore, snapshot.score());
+            cumConversations = Math.max(cumConversations, snapshot.conversations());
         }
 
         // 成就：总数 + 窗口内新解锁（Q3；unlocked_at 为毫秒长整）
@@ -345,13 +441,15 @@ public class ReportGenerator {
                 .toInstant().toEpochMilli();
         int unlockedDb = 0;
         int recentAchievements = 0;
-        ReportRepository.AchievementCounts ach =
-                reportRepository.countAchievements(playerId, windowStart, windowEndExclusive);
-        if (ach != null) {
-            unlockedDb = ach.total();
-            recentAchievements = ach.recent();
+        ReportRepository.AchievementRows ach =
+                reportRepository.countAchievementsOrFail(playerId, windowStart, windowEndExclusive);
+        dataIncomplete |= !ach.complete();
+        if (ach.counts() != null) {
+            unlockedDb = ach.counts().total();
+            recentAchievements = ach.counts().recent();
         }
-        int unlocked = snapshot != null ? snapshot.unlockedCount() : unlockedDb;
+        // DC-01：零值快照不得盖掉库内真实解锁数（成就只增不减）。
+        int unlocked = snapshot != null ? Math.max(unlockedDb, snapshot.unlockedCount()) : unlockedDb;
 
         // AI 对话：窗口内完成的对话会话数（Q4）。R9-H2（读取侧换算）：SQLite 的
         // timestamp 是 CURRENT_TIMESTAMP 写入的 UTC 字符串（P3-12 时区统一只统了
@@ -376,23 +474,31 @@ public class ReportGenerator {
         }
         // R6-A：SQL 片段选择（< / <=）已收口进仓储的两套完整 SQL；边界换算与
         // isSQLite 判定仍在本类。
-        int recentConversations =
-                reportRepository.countAiConversations(playerId, lowerBound, upperBound, exclusiveUpper);
+        ReportRepository.ConversationCount conv = reportRepository.countAiConversationsOrFail(
+                playerId, lowerBound, upperBound, exclusiveUpper);
+        dataIncomplete |= !conv.complete();
+        int recentConversations = conv.value();
 
         // 错题本 Top N（Q5，当前状态）
-        List<WeakWord> weak = queryWeakWords(playerId, settings.weakLimit());
+        ReportRepository.WeakWords weakRows = reportRepository.queryWeakWordsOrFail(
+                playerId, settings.weakLimit());
+        dataIncomplete |= !weakRows.complete();
+        List<WeakWord> weak = decorateWeakWords(weakRows.rows());
 
         // 当前连续签到（Q6）
-        int streak = reportRepository.fetchCheckinStreak(playerId);
+        ReportRepository.StreakValue streakValue = reportRepository.fetchCheckinStreakOrFail(playerId);
+        dataIncomplete |= !streakValue.complete();
+        int streak = streakValue.value();
 
         // 每日挑战完成度（Q8，窗口；完成行数/总行数）
         int challengeDone = 0;
         int challengeTotal = 0;
-        ReportRepository.ChallengeProgress challenge = reportRepository.countDailyChallenges(
+        ReportRepository.ChallengeRows challenge = reportRepository.countDailyChallengesOrFail(
                 playerId, period.from().toString(), period.to().toString());
-        if (challenge != null) {
-            challengeDone = challenge.done();
-            challengeTotal = challenge.total();
+        dataIncomplete |= !challenge.complete();
+        if (challenge.progress() != null) {
+            challengeDone = challenge.progress().done();
+            challengeTotal = challenge.progress().total();
         }
 
         // 名字优先级：在线（有快照）= 实时 Bukkit 名；离线 = player_data 的落盘名
@@ -403,23 +509,18 @@ public class ReportGenerator {
         CumulativeOut cum = new CumulativeOut(cumCorrect, cumSessions, cumScore,
                 cumConversations, recentConversations, unlocked, recentAchievements,
                 Achievement.values().length, streak, challengeDone, challengeTotal);
-        return new SingleData(name, period, daily, weak, cum, daily.isEmpty());
-    }
-
-    /** Q1：窗口逐日会话行（UNIQUE(uuid, session_date) 保证一天一行）。 */
-    private List<DailyRow> queryDailyRows(UUID playerId, ReportPeriod period) {
-        List<DailyRow> rows = new ArrayList<>();
-        for (ReportRepository.DailyRow row : reportRepository.queryDailyRows(
-                playerId, period.from().toString(), period.to().toString())) {
-            rows.add(new DailyRow(row.date(), row.answered(), row.correct(), row.score()));
+        if (!q1.complete()) {
+            plugin.getLogger().log(Level.WARNING, "Daily rows for " + playerId
+                    + " are incomplete; the report will under-report this window.");
         }
-        return rows;
+        // EH-05：把查询完整性一并带出去（原先该标记在本方法内就被丢弃）
+        return new SingleData(name, period, daily, weak, cum, daily.isEmpty(), dataIncomplete);
     }
 
-    /** Q5：当前错题本 Top N（按错误次数降序；附内存词库中文义与难度，已删词回落纯英文）。 */
-    private List<WeakWord> queryWeakWords(UUID playerId, int limit) {
+    /** 把仓储原始错题行补上内存词库的中文义与难度（已删词回落纯英文）。 */
+    private List<WeakWord> decorateWeakWords(List<ReportRepository.WeakWordRow> rows) {
         List<WeakWord> out = new ArrayList<>();
-        for (ReportRepository.WeakWordRow row : reportRepository.queryWeakWords(playerId, limit)) {
+        for (ReportRepository.WeakWordRow row : rows) {
             String word = row.word();
             int wrongCount = row.wrongCount();
             // 词库内存索引（ConcurrentHashMap）只读查询，异步安全（plan §3.4）
@@ -438,13 +539,17 @@ public class ReportGenerator {
      * 传 {@code batchMax + 1} 条探测截断；respect-privacy=true 时按与榜单/广场
      * 同款口径过滤隐身玩家（COALESCE(show_in_square,1)<>0）。
      */
-    private List<BatchRow> queryBatchRows(ReportPeriod period, ReportSettings settings) {
+    private BatchFetch queryBatchRows(ReportPeriod period, ReportSettings settings) {
         List<BatchRow> rows = new ArrayList<>();
         // R6-A：SQL 组装（含隐私 LEFT JOIN 分支）已收口进仓储；UUID 解析、脏行
         // 跳过与名字回落仍在本类判定。
-        for (ReportRepository.BatchStatRow stat : reportRepository.queryBatchStats(
+        // round4 F3：走 queryBatchStatsOrFail 而不是旧 queryBatchStats——旧签名把
+        // complete 位折叠成裸 List，SQL 失败退化成空 list，与"窗口内确实没人学习"
+        // 不可区分，最终被渲染成 report.no-data（对家长的事实性谎报）。
+        ReportRepository.BatchRows fetched = reportRepository.queryBatchStatsOrFail(
                 period.from().toString(), period.to().toString(),
-                settings.batchMax() + 1, settings.respectPrivacy())) {
+                settings.batchMax() + 1, settings.respectPrivacy());
+        for (ReportRepository.BatchStatRow stat : fetched.rows()) {
             UUID uuid;
             try {
                 uuid = UUID.fromString(stat.uuid());
@@ -458,7 +563,7 @@ public class ReportGenerator {
             rows.add(new BatchRow(uuid, name, stat.activeDays(), stat.answered(),
                     stat.correct(), stat.score()));
         }
-        return rows;
+        return new BatchFetch(rows, fetched.complete());
     }
 
     /**
@@ -473,42 +578,69 @@ public class ReportGenerator {
     //  文件写入（异步线程）
     // ============================================================
 
+    /**
+     * 单报落盘（round14 F2 + FIX 3）。
+     *
+     * <p>先在内存里把整份正文渲染完，再交给 {@link #writeTextFile(File, String)}：
+     * 渲染期异常（{@code RuntimeException}）保持原有语义——冒泡到
+     * {@code generateSingle} 的 {@code catch (Exception)} 走 {@code report.failed}，
+     * 且此刻磁盘上<b>什么都没写</b>（不会留下半个文件）。
+     */
     private ReportResult writeSingleFile(SingleData data, ReportSettings settings) {
-        try {
-            File dir = reportsDir();
-            String stamp = new SimpleDateFormat("HHmmss").format(new Date());
-            String name = data.playerName().replaceAll("[^A-Za-z0-9_-]", "_");
-            String fileName = "report_" + name
-                    + "_" + data.period().from().format(DateTimeFormatter.BASIC_ISO_DATE)
-                    + "-" + data.period().to().format(DateTimeFormatter.BASIC_ISO_DATE)
-                    + "_" + stamp + ".txt";
-            File file = new File(dir, fileName);
-            writeTextFile(file, renderSingle(data, settings));
-            return new ReportResult(true, file, null);
-        } catch (IOException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to write report file", e);
-            return new ReportResult(false, null,
-                    e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
-        }
+        String name = data.playerName().replaceAll("[^A-Za-z0-9_-]", "_");
+        String fileName = "report_" + name
+                + "_" + data.period().from().format(DateTimeFormatter.BASIC_ISO_DATE)
+                + "-" + data.period().to().format(DateTimeFormatter.BASIC_ISO_DATE)
+                + "_" + uniqueFileStamp() + ".txt";
+        String content = renderSingle(data, settings);
+        return writeTextFile(new File(reportsDir(), fileName), content);
     }
 
+    /**
+     * 批量报落盘（round14 F2 + FIX 3 + FIX 5）。
+     *
+     * <p>FIX 5：逐人错题在<b>这里</b>（渲染之前、异步线程、一次性顺序）预取，
+     * {@link #renderBatch} 退化为纯函数、零 DB IO。原先的 N+1 是嵌在
+     * {@code renderBatch} 的 for 循环里，每行一次 {@code queryWeakWordsOrFail}、
+     * 每次都要抢一次 {@code connectionLock}——把写盘前的"最后一步"变成了
+     * 最长持锁的一段。
+     */
     private ReportResult writeBatchFile(List<BatchRow> rows, boolean truncated, ReportPeriod period,
                                         ReportSettings settings) {
-        try {
-            File dir = reportsDir();
-            String stamp = new SimpleDateFormat("HHmmss").format(new Date());
-            String fileName = "report_all_"
-                    + period.from().format(DateTimeFormatter.BASIC_ISO_DATE)
-                    + "-" + period.to().format(DateTimeFormatter.BASIC_ISO_DATE)
-                    + "_" + stamp + ".txt";
-            File file = new File(dir, fileName);
-            writeTextFile(file, renderBatch(rows, truncated, period, settings));
-            return new ReportResult(true, file, null);
-        } catch (IOException e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to write batch report file", e);
-            return new ReportResult(false, null,
-                    e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+        String fileName = "report_all_"
+                + period.from().format(DateTimeFormatter.BASIC_ISO_DATE)
+                + "-" + period.to().format(DateTimeFormatter.BASIC_ISO_DATE)
+                + "_" + uniqueFileStamp() + ".txt";
+        Map<UUID, BatchWeak> weakByPlayer = prefetchBatchWeakWords(rows);
+        String content = renderBatch(rows, truncated, period, settings, weakByPlayer);
+        return writeTextFile(new File(reportsDir(), fileName), content);
+    }
+
+    /**
+     * FIX 5（选项 a）：批量逐人错题的预取阶段。
+     *
+     * <p><b>为什么是"挪出去"而不是"合成一条 SQL"</b>：合成
+     * {@code WHERE player_uuid IN (?,?,...)} 需要 {@code ReportRepository} 暴露批量
+     * 方法，而该文件不在本批改动范围内（同批另有其他代理持有），四个仓方法
+     * 也都各自钉着 {@code complete} 位语义。在只有两个文件的约束下，选 a：
+     * 把查询<b>整体</b>从渲染器里搬到这里，渲染器变成纯函数。
+     *
+     * <p><b>诚实的边界</b>：这一步<b>没有</b>减少查询条数（仍是一人一条，受
+     * {@code batch.max-players} 上限约束），它买到的是：渲染期零持锁 IO、
+     * 失败标记与数据同时准备好、以及后续若要换单条 SQL 只需改这一个方法。
+     *
+     * <p>每条都返回记录（失败时 {@code complete=false} 且 {@code words} 为空），
+     * 渲染器据此打"数据不完整"标记，绝不把读失败写成"该生没有错题"。
+     */
+    private Map<UUID, BatchWeak> prefetchBatchWeakWords(List<BatchRow> rows) {
+        Map<UUID, BatchWeak> out = new LinkedHashMap<>();
+        for (BatchRow row : rows) {
+            ReportRepository.WeakWords weakRows =
+                    reportRepository.queryWeakWordsOrFail(row.uuid(), BATCH_WEAK_LIMIT);
+            out.put(row.uuid(),
+                    new BatchWeak(decorateWeakWords(weakRows.rows()), weakRows.complete()));
         }
+        return out;
     }
 
     /** exports/reports/ 目录（不存在则创建，plan §1.8 约定 exports/ 家族）。 */
@@ -523,36 +655,87 @@ public class ReportGenerator {
     /**
      * UTF-8 + BOM + CRLF 落盘（plan §1.8：Windows 记事本友好；BOM 防旧记事本
      * 识别成 ANSI 乱码）。内容按 '\n' 组装，写前统一替换为 '\r\n'。
+     *
+     * <p><b>FIX 2（round14 F2）：走 {@link AtomicFileWriter}，不再直写目标文件。</b>
+     * 原实现 {@code Files.write(file, out)} 直接覆写目标：磁盘满 / 进程被杀 /
+     * I/O 错误时会在 {@code exports/reports/} 里留下<b>半截报告</b>，而调用方
+     * 无论如何都返回 {@code success=true}、打一条 {@code Report generated:}、
+     * 再对管理员说"报告已保存: xxx"——管理员拿着一份半截 TXT 去给家长看，
+     * 根本不知道数字被截断了。
+     *
+     * <p>现在：写同目录 {@code <target>.tmp} → 原子 rename。失败时目标文件保持原样
+     * （新文件名不会与旧文件同名，所以"原样"即"没这个文件"），并且<b>返回值如实
+     * 为失败</b>——成功日志与 {@code report.generated} 都不会再出现。
+     *
+     * <p>BOM 用 {@link #BOM} 常量而不是手工拼字节：{@code AtomicFileWriter}
+     * 走 {@code Files.writeString(UTF_8)}，U+FEFF 按 UTF-8 编码正好是 EF BB BF，
+     * 与原先的三字节写法逐字节等价（不必为了 BOM 去用 {@code writeStream}）。
+     * 行序列同理：{@code Files.writeString} 不做任何换行转换，{@code \n → \r\n}
+     * 仍由本方法自己替换，所以 BOM 只需一个前缀字符、不需要再包一层字节数组。
      */
-    private void writeTextFile(File file, String content) throws IOException {
-        byte[] bom = {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
-        byte[] text = content.replace("\n", "\r\n").getBytes(StandardCharsets.UTF_8);
-        byte[] out = new byte[bom.length + text.length];
-        System.arraycopy(bom, 0, out, 0, bom.length);
-        System.arraycopy(text, 0, out, bom.length, text.length);
-        Files.write(file.toPath(), out);
+    private ReportResult writeTextFile(File file, String content) {
+        String windows = BOM + content.replace("\n", "\r\n");
+        boolean written = AtomicFileWriter.write(file.toPath(), () -> windows, plugin.getLogger());
+        if (!written) {
+            // AtomicFileWriter 自己已记 SEVERE；这里补一条带目标路径的 WARNING，
+            // 因为它的日志只有临时文件路径，运维排查时更需要知道"哪份报告没出来"。
+            plugin.getLogger().warning("Failed to write report file: " + file.getAbsolutePath());
+            return new ReportResult(false, null, "write failed: " + file.getName());
+        }
+        return new ReportResult(true, file, null);
     }
 
     /**
-     * 惰性清理：整个进程生命周期内首个报告生成时执行一次，删除
-     * exports/reports/report_*.txt 中修改时间超过 keep-days 的旧文件
-     * （keep-days<=0 不清理；对齐 cleanupOldChatHistory 模式的产物侧版本）。
+     * FIX 1（round14 F2）：按自然日惰性清理。
+     *
+     * <p>删除 {@code exports/reports/} 下属于本类的产物（{@code report_*.txt} 以及
+     * 原子写残留的 {@code report_*.txt.tmp}）中修改时间超过 keep-days 的旧文件；
+     * {@code keep-days<=0} 仍表示"清理关闭"（契约不变）。与 {@code cleanupOldChatHistory}
+     * 同款产物侧清理，但闸门从"每进程一次"改成"每天一次"——见
+     * {@link #lastPruneDate} 的字段注释。
+     *
+     * <p><b>为什么 keep-days<=0 的早退在 CAS 之前</b>：清理由报告生成顺带触发，
+     * 若把"关闭"也写进 {@code lastPruneDate}，服主当天改了配置也仍要等到明天
+     * 才第一次清理——早退放在闸门之前才能让配置改动当天生效。
      */
     private void cleanupOldReportsIfDue(ReportSettings settings) {
-        if (settings.keepDays() <= 0 || !cleanupDone.compareAndSet(false, true)) {
-            return;
+        if (settings.keepDays() <= 0) {
+            return; // 显式关闭：不清理，也不占用当天的闸门
+        }
+        LocalDate today = LocalDate.now();
+        LocalDate last = lastPruneDate.get();
+        if (today.equals(last)) {
+            return; // 今天已经清过
+        }
+        if (!lastPruneDate.compareAndSet(last, today)) {
+            return; // 另一个异步线程刚跨日领走了本次清理
         }
         File[] files = reportsDir().listFiles(
-                (dir, name) -> name.startsWith("report_") && name.endsWith(".txt"));
+                (dir, name) -> name.startsWith("report_") && isReportArtifact(name));
         if (files == null) {
             return;
         }
         long cutoff = System.currentTimeMillis() - settings.keepDays() * 86400000L;
         for (File f : files) {
+            // 只删"够旧"的：正在写入的 .tmp 是刚创建的，永远远新于 cutoff。
             if (f.lastModified() < cutoff && f.delete()) {
                 plugin.getLogger().info("Old report deleted: " + f.getName());
             }
         }
+    }
+
+    /**
+     * 本类落在 {@code exports/reports/} 的产物名（含原子写的残留临时文件）。
+     *
+     * <p>FIX 2 引入了新的失败形态：原子写崩在 rename 之前会留下
+     * {@code report_xxx.txt.tmp}。若清理只看 {@code .txt}，这些半截文件永不回收，
+     * FIX 1 的"防止盘满"就只覆盖了报告本身那一半。因此这里把两种后缀都算产物。
+     */
+    private static boolean isReportArtifact(String name) {
+        if (!name.startsWith("report_")) {
+            return false;
+        }
+        return name.endsWith(".txt") || name.endsWith(".txt" + AtomicFileWriter.TMP_SUFFIX);
     }
 
     // ============================================================
@@ -575,9 +758,14 @@ public class ReportGenerator {
         int answered = sumAnswered(data.daily());
         int correct = sumCorrect(data.daily());
         sb.append('\n').append(t(settings, "report.section-overview")).append('\n');
-        if (data.windowEmpty()) {
+        if (data.dataIncomplete()) {
+            // EH-05：查询失败（含中途）都须留可见标记；中途失败的"数字偏小"更隐蔽，故与下方并列
+            // FIX 4：改走 i18n（report.language 口径），不再嵌硬编码中文常量。
+            sb.append("  ").append(incompleteNotice(settings)).append('\n');
+        }
+        if (data.windowEmpty() && !data.dataIncomplete()) {
             // plan §4.2：窗口零活动照常出报告，概览节后加一行提示（文件版模板，
-            // 无 & 码/无 prefix——与聊天键 report.no-data 是两个受众的两种形态）
+            // 无 & 码/无 prefix——与聊天键 report.no-data 是两个受众的两种形态）。
             sb.append("  ").append(t(settings, "report.no-data-file")).append('\n');
         }
         sb.append("  ").append(t(settings, "report.overview-days",
@@ -672,8 +860,17 @@ public class ReportGenerator {
         return sb.toString();
     }
 
+    /**
+     * 批量报告正文渲染（FIX 5：<b>纯函数，零 DB IO</b>）。
+     *
+     * <p>逐人错题由调用方在 {@link #prefetchBatchWeakWords} 里预取后经
+     * {@code weakByPlayer} 传入。原先这里在 for 循环内直接调
+     * {@code reportRepository.queryWeakWordsOrFail(...)}，即"渲染器持锁查库"——
+     * 默认 {@code batch.max-players=50} 时是 50 次串行抢 {@code connectionLock}，
+     * 把写盘前的最后一步变成了整条批量流程里最长的一段持锁时间（并拖慢周期性保存）。
+     */
     private String renderBatch(List<BatchRow> rows, boolean truncated, ReportPeriod period,
-                               ReportSettings settings) {
+                               ReportSettings settings, Map<UUID, BatchWeak> weakByPlayer) {
         StringBuilder sb = new StringBuilder(4096);
         sb.append(BORDER).append('\n');
         sb.append("           ").append(t(settings, "report.batch-title")).append('\n');
@@ -717,7 +914,19 @@ public class ReportGenerator {
                     "total", String.valueOf(row.answered()))).append('\n');
             sb.append("  ").append(t(settings, "report.overview-score",
                     "score", scoreText(row.score()))).append('\n');
-            List<WeakWord> weak = queryWeakWords(row.uuid(), BATCH_WEAK_LIMIT);
+            // round4 EH-12-01：批量逐人错题同样走完整性位——读失败不能渲染成"该生没有错题"。
+            // FIX 5：查询已由 writeBatchFile 预取（见方法 javadoc），这里只读内存 Map。
+            // FIX 4：不完整标记走 i18n（report.language 口径）。
+            BatchWeak weakEntry = weakByPlayer.get(row.uuid());
+            if (weakEntry == null) {
+                // 理论上走不到（预取覆盖 rows 的每个 uuid）。真出现说明渲染器与预取
+                // 的键集脱钩了——按"不完整"渲染，绝不静默当成"没有错题"。
+                weakEntry = new BatchWeak(List.of(), false);
+            }
+            if (!weakEntry.complete()) {
+                sb.append("  ").append(incompleteNotice(settings)).append('\n');
+            }
+            List<WeakWord> weak = weakEntry.words();
             if (!weak.isEmpty()) {
                 StringBuilder items = new StringBuilder();
                 for (int i = 0; i < weak.size(); i++) {
@@ -752,6 +961,12 @@ public class ReportGenerator {
     private List<String> adviceLines(SingleData data, ReportSettings settings) {
         List<String> lines = new ArrayList<>();
         int days = data.daily().size();
+        if (data.dataIncomplete()) {
+            // EH-05：0 天 + 查询失败 ≠ "没有学习记录"
+            // FIX 4：同上，走 report.language 的 i18n 查找。
+            lines.add(incompleteNotice(settings));
+            return lines;
+        }
         if (days == 0) {
             lines.add(t(settings, "report.advice-none"));
             return lines;
@@ -879,6 +1094,59 @@ public class ReportGenerator {
         return value;
     }
 
+    /**
+     * EH-05 + FIX 4（round14 F2）：数据不完整标记 —— 必须永远可见，绝不可回落成
+     * no-data-file / advice-none。
+     *
+     * <p><b>为什么不再用 Java 常量</b>：原实现是硬编码中文 {@code INCOMPLETE_NOTICE}，
+     * 而这个模块的正文语言由 {@code report.language} 决定。{@code report} 段的所有
+     * 文案（标题、每一条明细、脚注）都走 {@link #t}，唯独这一句是常量 ——
+     * {@code report.language: en} 时整份英文报告里会突兀地嵌一段中文，
+     * 而它恰恰是全篇最需要被读懂的一句（"这些数字可能不准"）。
+     *
+     * <p><b>为什么用 {@link #t} 而不是 {@code MessageUtil}</b>：正文渲染的语言来源是
+     * {@code report.language}（{@link #captureSettings} 里读的 {@code main} 配置），
+     * 而 {@code MessageUtil#getSenderMessage} 用的是"执行者的玩家语言"。两者可以不同
+     * （服主自己是 en、报告配成 zh 给家长看），走 MessageUtil 会让同一个文件里出现
+     * 两种语言。这里刻意复用渲染器已有的 ({@code ReportSettings}, {@code t}) 这一条
+     * 查找路径，不新增第二条。
+     *
+     * <p>key 缺失时 {@link #t} 会打 WARNING 并返回可见占位 {@code [?report.incomplete-notice]}
+     * ——仍然是"永远可见"，不会静默成空行。
+     *
+     * <p><b>为什么要额外清掉 {@code {prefix}}</b>：这个 key 有两个读者 —— 文件正文
+     * （本方法）与聊天摘要卡（走 {@link com.letslearnenglish.minecraftplugin.util.MessageUtil}，
+     * 那里会自动把 {@code {prefix}} 填成服务器前缀）。文案作者若按聊天口径把它写成
+     * {@code "{prefix}【数据不完整】…"}，正文里就会原样印出 {@code {prefix}} 这串噪音。
+     * 正文侧主动清空该占位符，两个读者都能得到正确形态，而<b>不必要求文案作者记住
+     * 这个键有两个消费者</b>。
+     *
+     * <p><b>为什么这里不翻译 {@code &} 颜色码</b>：{@code report.*} 段的文件模板
+     * 按约定是纯文本（zh.yml 该段头的注释即如此声明），{@link #t} 对整段的其余键也
+     * 从不翻译颜色码。若只对这一句做 {@code translateAlternateColorCodes}，任何合法的
+     * 字面 {@code &} 都会被当成颜色码吃掉一个字符（实测 {@code "R&D"} → {@code "R"}，
+     * {@code "A&B"} → {@code "A"}），而缺字比方括号占位符更难被发现。要与整段保持
+     * 同一条约定，就不要在这里开特例。
+     */
+    private String incompleteNotice(ReportSettings settings) {
+        return t(settings, "report.incomplete-notice").replace("{prefix}", "");
+    }
+
+    /**
+     * FIX 4 的聊天侧取词：{@code report.incomplete-notice} 按<b>执行者语言</b>解析。
+     *
+     * <p>与正文侧（{@link #incompleteNotice(ReportSettings)}）分开是刻意的：两者的
+     * 语言来源本来就不同（正文 {@code report.language}，聊天执行者语言），共用一个
+     * 方法就必须把 {@code CommandSender} 塞进渲染器，渲染器反而被绑到 Bukkit 会话上。
+     *
+     * <p><b>必须主线程调用</b>：{@code getSenderMessage} 对玩家要读
+     * {@code plugin.getPlayerLanguage(player)}。本类所有 {@code sendOnMainThread}
+     * lambda 都在主线程执行，因此三个调用点都满足该前提。
+     */
+    private String chatIncompleteNotice(CommandSender sender) {
+        return plugin.getMessageUtil().getSenderMessage(sender, "report.incomplete-notice");
+    }
+
     /** 无日志的模板查询（difficulty 显示名等"可缺省"键用）。 */
     private String lookup(ReportSettings settings, String key) {
         String value = settings.messages() != null ? settings.messages().getString(key) : null;
@@ -925,6 +1193,35 @@ public class ReportGenerator {
 
     private String generatedAt() {
         return new SimpleDateFormat("yyyy-MM-dd HH:mm").format(new Date());
+    }
+
+    /**
+     * FIX 3（round14 F2）：文件名里"人可读时间 + 进程内序号 + 随机段"的唯一戳。
+     *
+     * <p>原实现只有 {@code HHmmss}：同一秒内的两次生成拿到同一个文件名，
+     * 第二次原子替换掉第一次，两条命令却都报成功（第一份报告静默消失）。
+     *
+     * <p>三段各自的用处：
+     * <ul>
+     *   <li>{@code HHmmss} —— 运维看文件名就能知道大概什么时候生成的（保持原有的
+     *       人可读前缀，不因为修 bug 让运维失去这个信息）；</li>
+     *   <li>{@link #fileSequence} —— 进程内单调递增，保证"同一秒内 N 次生成"彼此不同，
+     *       且按文件名排序即生成先后顺序；</li>
+     *   <li>随机段 —— 序号在重启后归零，若重启前后恰好在同一秒生成过报告，
+     *       单靠序号仍会撞名；随机段把这个跨进程窗口也堵掉。</li>
+     * </ul>
+     *
+     * <p>时间戳用 {@code HHmmss} 而非完整日期，是因为文件名里已经带了统计周期
+     * （{@code yyyyMMdd-yyyyMMdd}），再叠日期只会把文件名撑得更长；
+     * 但 {@code HHmmss} 单独看会跨天重复，所以唯一性完全由后两段保证。
+     */
+    private String uniqueFileStamp() {
+        String time = new SimpleDateFormat("HHmmss").format(new Date());
+        long seq = fileSequence.incrementAndGet();
+        // 0x10000 上界 ⇒ 固定 4 位十六进制，文件名长度稳定、可被 glob 精确匹配。
+        String random = String.format(Locale.ROOT, "%04x",
+                ThreadLocalRandom.current().nextInt(0x10000));
+        return time + "-" + String.format(Locale.ROOT, "%04d", seq) + "-" + random;
     }
 
     private int sumAnswered(List<DailyRow> rows) {
@@ -994,6 +1291,19 @@ public class ReportGenerator {
             plugin.getServer().getScheduler().runTaskAsynchronously(plugin, task);
         } catch (IllegalStateException e) {
             plugin.getLogger().fine("Report task skipped: scheduler unavailable (plugin disabling).");
+        }
+    }
+
+    /** F3：在线快照只许在异步段读（cache miss 时同步查库）；失败退化为 null 走库内直查。 */
+    private CumulativeSnapshot readSnapshot(UUID playerId) {
+        try {
+            PlayerDataStore store = plugin.getPlayerDataStore();
+            PlayerDataStore.PlayerStats s = store.getPlayerStats(playerId);
+            return new CumulativeSnapshot(s.getTotalCorrect(), s.getTotalSessions(), s.getTotalScore(),
+                    store.getConversationCount(playerId),
+                    plugin.getAchievementManager().getUnlockedCount(playerId));
+        } catch (RuntimeException e) {
+            return null;
         }
     }
 

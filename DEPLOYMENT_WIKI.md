@@ -14,6 +14,7 @@
 3. [前置依赖组件](#3-前置依赖组件)
 4. [详细安装步骤](#4-详细安装步骤)
 5. [服务端配置指南](#5-服务端配置指南)
+   - [5.9 多子服时区一致性（硬性前提）](#59-多子服时区一致性硬性前提)
 6. [常见问题排查与解决方案](#6-常见问题排查与解决方案)
 7. [更新与维护流程](#7-更新与维护流程)
 8. [命令行指令参考](#8-命令行指令参考)
@@ -604,7 +605,7 @@ words:
 
 > **不再重载/不再读取的部分**: `achievements.yml`（废弃文件，不参与运行）；`dialogues/*.yml`（幽灵目录，代码零加载点）。
 >
-> **AI 场景热加载**：场景选择 GUI 的「刷新 API 密钥」按钮同样走 `AIChatManager.reload()`（权限与 `/le load_scenario` 对齐：`letslearnenglish.scenario.import`），与 `/lea reload` 效果一致。
+> **AI 场景热加载**：场景选择 GUI 的「刷新 API 密钥」按钮同样走 `AIChatManager.reload()`，与 `/lea reload` 的 AI 段效果一致。**权限门是 `letslearnenglish.admin`**（R12 起）：该动作重读的是全局 `ai_config.yml` + `ai_scenarios.yml`，与命令侧 `/lea reload` 同量级；R-55m 曾短暂放宽到 `letslearnenglish.scenario.import`，R12 已收回（详见 8.3 节升级提示）。
 >
 > **赛季/社交/报告等新段**：无独立 reload 钩子，但均为点读式（每次使用时直读 `config.yml`），`/lea reload` 后改动立即生效（如 `season.enabled`、`social.feed.retention-days`、`report.period` 等）。
 
@@ -778,11 +779,9 @@ season:
   announce: true              # 开始/结束是否全服广播（跨服经 proxy.server-name 子通道）
 ```
 
-> 赛季奖励不走 `money.daily-cap`（一次性、有排名门槛、台账幂等防重），直发 Vault + lifetime 记账。多子服连同一数据库时必须与主机同时区。
+> 赛季奖励不走 `money.daily-cap`（一次性、有排名门槛、台账幂等防重），直发 Vault + lifetime 记账。多子服连同一数据库时，各子服必须完全同时区（赛季轴由 `anchor-date` 纯函数按日界推导，对日界偏差尤其敏感）——这是硬性部署前提，见 [5.9 多子服时区一致性](#59-多子服时区一致性硬性前提)。
 
 #### 5.8.10 班级系统 (class-system)
-
-<!-- TODO: 待确认：班级系统为 Wave 4 并行施工项，当前仓库 config.yml 尚未包含本段；以下为已冻结规格，若最终实现有出入以发布版 config.yml 为准 -->
 
 ```yaml
 class-system:
@@ -842,6 +841,158 @@ progress-system:
 - **数据库版本 (config-version)**：主 config 当前为 `2`；插件对缺失的新键采用「读取时回落默认值」策略，无需迁移。
 
 > **发音功能的真实行为**：仓库内没有 `sounds.json` / `pack.mcmeta`，也没有任何资源包；点击发音按钮实际播放的是 `BLOCK_NOTE_BLOCK_PLING`（回落 `ENTITY_EXPERIENCE_ORB_PICKUP`）音符盒提示音（`TtsManager.playPronunciationCue`，`TtsManager.java:210-220`），**不会播放下载的 `.wav` 语音**。配置 VoiceRSS 密钥后，插件只在后台把音频下载到 `audio/` 作缓存（为未来资源包预留），当前版本无任何播放路径；不配密钥时只显示音标。
+
+---
+
+### 5.9 多子服时区一致性（硬性前提）
+
+> **这是部署前提，不是插件缺陷。** 两台子服共享同一个数据库时，**所有子服的 JVM 时区必须一致**。不一致会直接导致重复发钱，见下面 5.9.2。
+>
+> **插件本身没有 `timezone` 配置项**（全仓 `config.yml` 无此键），因此**无法在插件内强制统一**——统一只能在启动参数或操作系统层面完成。这正是它必须写成部署前提的原因：没有配置项可以补救。
+
+#### 5.9.1 硬要求
+
+插件存储的"每日"是 `yyyy-MM-dd` 格式的**纯日期字符串**（`DATE` 列），不是时间戳。「今天」由各服 JVM 的 `systemDefault` 时区在 `LocalDate.now()` 处决定，全仓共 **74 处** `LocalDate.now()` 调用。
+
+因此硬要求是：**所有连接到同一数据库的子服，其 JVM 时区必须彼此完全一致。** 只要两台子服对"今天"给出不同的 `yyyy-MM-dd`，下面的问题就会发生。
+
+受影响的「每日台账」（全部按各服自己算出的日历日归集）：
+
+| 台账 | 配置键 | 表 / 列 |
+|------|--------|---------|
+| 每日签到 | `checkin.enabled` | `checkin_data.last_checkin_date` |
+| 每日单词挑战 | `daily-challenges` | `daily_challenge_words.challenge_date`、`daily_word_reward_claims.challenge_date` |
+| 答题日限 | `word-system.daily-limit` | `daily_answer_counters.answer_date` |
+| 金币日限 | `money.daily-cap` | `daily_coin_counters.coin_date` |
+| AI 轮次门 | `ai-chat.daily-round-limit` | `ai_round_counters.round_date` |
+| 广场动态合并 | `social` / `english-square` | `social_feed.feed_date` |
+
+#### 5.9.2 不一致会发生什么
+
+**各服按各自日历记账**——同一玩家在服 A 眼里"今天"是 3 月 1 日，在服 B 眼里可能是 2 月 28 日。轻则额度被多算（日限翻倍、AI 轮次翻倍、动态重复合并），重则重复发真钱。
+
+**最严重的一条：签到可以在"同一天"领两次。**
+
+签到权的抢占判据是「本次传入的日期与库里存的日期**不相等**」。两服日期差一天时，两次调用传入的日期值不同，因此**两边都判定自己抢到了签到权**，两边都发钱。真 SQLite 实测（服 A = UTC+8，服 B = UTC-5，同一玩家）：
+
+```
+服A(时区UTC+8) today=2026-03-01 -> CLAIMED(发钱)
+服B(时区UTC-5) today=2026-02-28 -> CLAIMED(发钱)   ← 同一玩家、第二份钱
+次日服A        today=2026-03-02 -> CLAIMED(发钱)
+最终行: 2026-03-02 / streak=3
+```
+
+根因是结构性的：`checkin_data` 只存「最后一次签到日期」这一个**当前态**，表达不了「同一天两个不同的日期值」。这不是条件写入写错了，而是判据本身比不出来。同类问题也存在于其它按 `(玩家, 日期)` 去重的台账——它们靠唯一键防重，两个不同日期就是两个不同的键，同样会各记一份。
+
+**赛季系统**：`season.anchor-date` 与各季窗口由纯函数从日期推导（`floor(DAYS.between(anchor, today) / duration) + 1`），时区不一致会让两服算出的"当前季号"错位，可能一服提前进入下一季、另一服还在上一季，结算广播与榜单窗口都对不上。`settled_at` 本身是 `System.currentTimeMillis()` 的 epoch 毫秒（与时区无关），所以**奖励不会重复发**——抢占语义保证只有一个赢家——但**结算时机与赛季边界会错**。
+
+#### 5.9.3 怎么查
+
+**1）看这台服的 JVM 到底有没有被钉死（唯一可靠的判据）**
+
+Java 的时区由 `user.timezone` 系统属性决定；该属性**未显式设置时，JVM 会去问操作系统**。关键在于：这个属性是**惰性写入**的——JVM 首次碰到 `TimeZone` / `ZoneId` 时才把解析结果回填进去。实测（JDK 21）：
+
+```
+BEFORE touch: prop=null
+AFTER  touch: prop=Asia/Shanghai     ← 同一进程，触发了 ZoneId.systemDefault() 之后
+```
+
+所以**不能**用 `jinfo -sysprops | grep user.timezone` 判断"有没有钉死"。实测反例：本机一个**启动参数里完全没写 `-Duser.timezone`** 的 Paper 进程（`-Xms2G -Xmx3G -XX:+UseG1GC -jar paper-1.21.4-232.jar nogui`），`jinfo` 却查得出 `user.timezone=Asia/Shanghai`——那只是它跑了一会、代码里早就碰过日期类，把系统默认值回填进去了。看到这行就以为"配好了"是**假阳性**。
+
+判断"有没有钉死"要看**启动参数本身**：
+
+```bash
+jps -l                                          # 找 paper-*.jar 的 pid
+jcmd <pid> VM.command_line                      # 看 jvm_args 一行有没有 -Duser.timezone
+```
+
+`jvm_args` 里出现 `-Duser.timezone=...` = 真钉死了；没出现 = 跟随操作系统，改系统时区就会漂。实测输出对照：
+
+```
+# 没钉死（本机真实 Paper）
+jvm_args: -Xms2G -Xmx3G -XX:+UseG1GC
+
+# 钉死了
+jvm_args: -Duser.timezone=Asia/Shanghai
+```
+
+**2）看当前实际生效的时区是什么**
+
+上面判定"没钉死"之后，实际生效值就是操作系统的时区。Linux：
+
+```bash
+timedatectl                           # 看 "Time zone:" 一行
+timedatectl show -p Timezone --value  # 只要时区值，便于脚本比对
+date +%z                              # 当前偏移，如 +0800
+```
+
+Windows：
+
+```cmd
+tzutil /g
+```
+
+输出 Windows 时区 ID（如 `China Standard Time`）。**注意两点**：① 在 CMD / PowerShell 里直接跑 `tzutil /g`；若你用的是 **Git Bash / MSYS**，直接把 `tzutil /g` 敲进去会报 `无效参数 G:/`（MSYS 把 `/g` 当路径转换掉了），改用 `cmd //c "tzutil /g"` 或 `tzutil.exe //g` 可正确输出。② 这个 ID **不能**直接填进 `-Duser.timezone`，原因见 5.9.4。
+
+**3）跨服比对只比"启动参数"和"系统时区"两项**
+
+因为 `jinfo` 会因惰性回填给出假阳性，跨服核对时请固定用这两项，逐台比对：
+
+```bash
+jcmd <pid> VM.command_line | grep jvm_args     # 或直接看你自己的启动脚本
+timedatectl show -p Timezone --value           # Windows: tzutil /g
+```
+
+判定规则：
+- 每台服的 `jvm_args` **都**带同一个 `-Duser.timezone=...` → 合格（最稳）
+- 都没带，但各服系统时区相同 → 暂时一致，但会被 NTP / 夏令时 / 容器默认 UTC 改掉，建议按 5.9.4 补上
+- 出现两种不同的时区值 → **不合格，按 5.9.2 会重复发钱**
+
+> **不要用 `java -XshowSettings:properties -version | grep user.timezone` 去检查正在跑的服务器**——那条命令启动的是一个**全新的裸 JVM**，它当然没有你在启动脚本里给的 `-Duser.timezone`，永远输出空。它只能用来确认"我这条命令本身有没有带 `-D`"。要查服务器，只用上面第 1 条的 `jcmd <pid> VM.command_line`。
+
+#### 5.9.4 怎么修
+
+**推荐做法：在每台服的启动脚本里显式指定 `-Duser.timezone`**，不要依赖系统默认。
+
+理由：系统默认会被三件事悄悄改掉——NTP 校时跳变、夏令时切换、以及容器镜像的时区默认值（常见的基础 JDK 镜像默认是 UTC，与宿主机时区无关）。（最后一条属常见做法，未在本仓库环境验证；请按下面 5.9.3 第 2 条在你自己的镜像上实测。）
+
+Linux（`start.sh`）：
+
+```bash
+java -Xms2G -Xmx3G -Duser.timezone=Asia/Shanghai -jar paper.jar nogui
+```
+
+Windows（`start.bat`）：
+
+```bat
+java -Xms2G -Xmx3G -Duser.timezone=Asia/Shanghai -jar paper.jar nogui
+```
+
+**`-D` 参数必须写在 `-jar` 之前。** 写在 `-jar` 之后就变成了传给服务端程序的普通参数，JVM 不认，时区不会生效（实测：`java -jar x.jar -Duser.timezone=UTC` 的 `ZoneId.systemDefault()` 仍是本机时区）。
+
+**时区值必须是 IANA 名字**（`Asia/Shanghai`、`America/New_York`、`Europe/Berlin`、`UTC`）。
+
+> **不要用 Windows 的时区 ID 填这个参数。** `tzutil /g` 输出的 `China Standard Time`、`Pacific Standard Time` 这类名字**不能**直接填进 `-Duser.timezone`。实测 JDK 21：填 `Pacific Standard Time` 会被**静默接受但不识别**，`ZoneId.systemDefault()` 退化成 `GMT+08:00` 这个**固定偏移**（`isFixedOffset=true`，没有夏令时规则），而 `user.timezone` 属性里仍原样显示 `Pacific Standard Time`——看起来配了，实际是错的。填无意义字符串（如 `NotARealZone`）同样静默回落、不报错。**这就是必须用 IANA 名字的原因。**
+>
+> 反过来说：**不要靠"读回 `user.timezone`"来验证配置对不对**——它对错值也是原样回显的。要验证就用 `jcmd <pid> VM.command_line` 确认启动参数写对了（IANA 名字），并在游戏里核对实际日期/签到行为。
+
+**如果改用容器部署**，还要单独确认容器内的时区，别假设它跟宿主机一致：
+
+```bash
+docker run --rm <你的镜像> date      # 看结尾是 UTC 还是 +0800
+```
+
+（用 `date` 而不是 `timedatectl`：精简镜像常常没有 systemd，`timedatectl` 会直接报命令不存在。）挂载宿主机的 `/etc/localtime` 与 `/etc/timezone` 也能生效，但**显式 `-Duser.timezone` 更稳定**——它不依赖镜像里有没有 tzdata 文件。
+
+**改完之后**：每台服重启，再用 5.9.3 第 1 条复查一遍（`jcmd <pid> VM.command_line`），确认所有子服的 `jvm_args` 里是同一个 IANA 时区。
+
+#### 5.9.5 边界说明
+
+- 单服（含 SQLite 单机）不需要关心这一节：只有一个 JVM，自己跟自己永远一致。
+- 多子服共用 **SQLite 网络盘**属于不支持的配置，不在本节讨论范围——直接用 MySQL。
+- 本节的"一致"指**子服之间日界一致**。不要求你选的时区在地理上"合理"（选 `UTC` 也行，只要不跨零点太多、玩家能接受），只要求**所有子服取值相同**。
+- **数据库主机时区的影响范围比子服小得多，别混淆两者**：判定"今天是几号"的日期值，全部由子服 JVM 用 `LocalDate.now()` 算好后作为字符串绑参写入（`checkin_data.last_checkin_date`、`daily_answer_counters.answer_date`、`daily_coin_counters.coin_date`、`ai_round_counters.round_date`、`daily_challenge_words.challenge_date`、`social_feed.feed_date` 都是 `setString` 绑的）。数据库只负责存这个字符串，**不参与"今天是几号"的判定**，所以库主机时区偏移**不会**造成重复发钱。它实际起作用的地方有两处，都不影响当天发钱：① **保留期清理**——`cleanupOldChatHistory` 的 `date('now', ?)`（SQLite）/ `DATE_SUB(CURDATE(), INTERVAL ? DAY)`（MySQL）用库侧时钟决定"删掉早于 N 天的台账行"；② **几个由库默认值填的时间戳列**（`claimed_at` / `completed_at` 的 `DEFAULT CURRENT_TIMESTAMP`），它们只作审计留痕、不被业务逻辑读回。
+- 因此优先级是：**子服之间一致 = 必须**（否则重复发钱）；**子服与库主机一致 = 建议**（否则保留期清理边界偏一天、审计时间戳偏移，均无经济后果）。若只想改一处，先保证所有子服一致。
 
 ---
 
@@ -1106,38 +1257,53 @@ sqlite3 playerdata.db "PRAGMA freelist_count; PRAGMA page_count;"
 
 ### 8.1 玩家指令 `/le` (别名: `/learnenglish`, `/learn`, `/english`)
 
+> **本表的「权限」列已按代码逐行核对**（口径：`grep -rn "hasPermission" src/main/java/`）。
+> 结论：`/le` 一族**没有权限门**，只有**模块开关门**（`config.yml` 里的 `*.enabled`）。
+> 整张表里真正由权限节点控制的只有两行：`/le load_scenario` 与 `/le duel cancel`。
+> 其余行标「无（模块开关）」是**事实陈述，不是省略** —— 在 LuckPerms 里给这些命令配节点
+> 不会有任何效果，想关功能请用模块开关（见 5.8 节）。
+>
+> 早期版本的本表曾把这些命令标注为 `letslearnenglish.use` / `.word.*` / `.dialogue.*` /
+> `.progress.*`，而那四个节点在代码里**从未被检查过**（见 8.3 节沿革说明），
+> 服主据此配置会得到一套完全不生效的策略。该四个节点已在 R12 从 `plugin.yml` 移除。
+
 | 命令 | 说明 | 权限 |
 |------|------|------|
-| `/le menu` | 打开英语学习主菜单 | `letslearnenglish.use` |
-| `/le` | 同上，无参数默认打开主菜单 | `letslearnenglish.use` |
-| `/le word` | 打开词库选择 GUI | `letslearnenglish.word.*` |
-| `/le word <词库名>` | 直接开始指定词库答题（默认模式：优先 choice） | `letslearnenglish.word.*` |
-| `/le word <词库名> <模式>` | 指定词库和模式开始答题 | `letslearnenglish.word.*` |
-| `/le review` | 查看待复习单词数量及开始复习 | `letslearnenglish.word.*` |
-| `/le wrong` | 查看错题本（答错 3+ 次的困难单词） | `letslearnenglish.word.*` |
-| `/le dialogue` | 打开 AI 情景对话场景选择菜单 | `letslearnenglish.dialogue.*` |
-| `/le dialogue <场景名>` | 直接开始指定场景对话（再次执行可退出当前对话） | `letslearnenglish.dialogue.*` |
-| `/le history` | 查看 AI 对话历史（详情页含会话小结与 AI 点评） | `letslearnenglish.dialogue.*` |
-| `/le save_scenario <名称>` | 将当前对话场景导出为分享码 | `letslearnenglish.dialogue.*` |
-| `/le load_scenario <编码>` | 导入分享的场景码（保存为个人场景） | `letslearnenglish.scenario.import` |
-| `/le progress` | 查看个人主页 | `letslearnenglish.progress.*` |
-| `/le profile` | 查看自己的个人主页 | `letslearnenglish.progress.*` |
-| `/le profile <玩家名>` | 查看指定玩家的个人主页（隐身玩家会被拒绝） | `letslearnenglish.progress.*` |
-| `/le stats` | 查看学习统计（同个人主页） | `letslearnenglish.progress.*` |
-| `/le leaderboard` | 查看排行榜（金币/单词/连击/赛季榜） | `letslearnenglish.progress.*` |
-| `/le challenge` | 查看今日挑战进度（全部完成后重开庆祝页） | `letslearnenglish.use` |
-| `/le square [模式]` | 进入英语广场（模式: feed/weekly/monthly/alltime/all） | `letslearnenglish.use` |
-| `/le duel <玩家名>` | 发起单词对决；`accept` 接受 / `quit` 退出 / `gui` 重开界面 | `letslearnenglish.use` |
-| `/le checkin` | 每日签到获取金币 | `letslearnenglish.use` |
-| `/le season` | 查看当前赛季、剩余时间与你的排名 | `letslearnenglish.use` |
-| `/le guide` | 查看新手引导进度 / 重新领取引导手册 | `letslearnenglish.use` |
-| `/le class` | 查看我的班级与班级榜 <!-- TODO: 待确认（班级系统 Wave 4 施工中；若最终未上线将随该批移除） --> | `letslearnenglish.use` |
-| `/le help` | 查看帮助 | `letslearnenglish.use` |
+| `/le menu` | 打开英语学习主菜单 | 无（模块开关） |
+| `/le` | 同上，无参数默认打开主菜单 | 无（模块开关） |
+| `/le word` | 打开词库选择 GUI | 无（`word-system.enabled`） |
+| `/le word <词库名>` | 直接开始指定词库答题（默认模式：优先 choice） | 无（`word-system.enabled`） |
+| `/le word <词库名> <模式>` | 指定词库和模式开始答题 | 无（`word-system.enabled` + 该模式 `word-system.modes.*.enabled`） |
+| `/le review` | 查看待复习单词数量及开始复习 | 无（`word-system.enabled`） |
+| `/le wrong` | 查看错题本（答错 3+ 次的困难单词） | 无（`word-system.enabled`） |
+| `/le dialogue` | 打开 AI 情景对话场景选择菜单 | 无（`ai-chat.enabled` + AI 可用性） |
+| `/le dialogue <场景名>` | 直接开始指定场景对话（再次执行可退出当前对话） | 无（`ai-chat.enabled`） |
+| `/le history` | 查看 AI 对话历史（详情页含会话小结与 AI 点评） | 无（模块开关） |
+| `/le save_scenario <名称>` | 将当前对话场景导出为分享码 | 无（仅导出自己的对话） |
+| `/le load_scenario <编码>` | 导入分享的场景码（保存为个人场景） | **`letslearnenglish.scenario.import`** |
+| `/le progress` | 查看个人主页 | 无（模块开关） |
+| `/le profile` | 查看自己的个人主页 | 无（模块开关） |
+| `/le profile <玩家名>` | 查看指定玩家的个人主页（隐身玩家会被拒绝） | 无权限门；走目标玩家的 `showInSquare` 隐私开关 |
+| `/le stats` | 查看学习统计（同个人主页） | 无（模块开关） |
+| `/le leaderboard` | 查看排行榜（金币/单词/连击/赛季榜） | 无（`progress-system.enabled` + `leaderboard.enabled`） |
+| `/le challenge` | 查看今日挑战进度（全部完成后重开庆祝页） | 无（`daily-challenges.enabled`） |
+| `/le square [模式]` | 进入英语广场（模式: feed/weekly/monthly/alltime/all） | 无（`social.enabled`） |
+| `/le duel <玩家名>` | 发起单词对决；`accept` 接受 / `quit` 退出 / `gui` 重开界面 | 无（`duel.enabled`） |
+| `/le checkin` | 每日签到获取金币 | 无（`checkin.enabled`） |
+| `/le season` | 查看当前赛季、剩余时间与你的排名 | 无（赛季可用性） |
+| `/le guide` | 查看新手引导进度 / 重新领取引导手册 | 无（`onboarding.enabled`） |
+| `/le class` | 查看我的班级与班级榜 | 无（`class-system.enabled` + 赛季可用性） |
+| `/le help` | 查看帮助 | 无（模块开关） |
 
 > 补充说明:
-> - 表中"权限"列为节点归属参考——`use` / `word.*` / `dialogue.*` / `progress.*` 当前为声明性节点（不加限制即可使用，详见 8.3 节说明）；实际强制执行的节点已在表中标注专名。
-> - `/le duel cancel <玩家名>` 仅对拥有 `letslearnenglish.admin` 的玩家可见与执行（管理员解散通道，功能等同 `/lea duel cancel`）。
+> - **本表「权限」列 = 代码里的 `hasPermission` 判定**，与 8.3 节的节点表一一对应。
+>   若某行写「无」，表示 `LearnCommand` 在该子命令路径上没有任何 `hasPermission` 调用 ——
+>   给玩家配置 `letslearnenglish.*` 节点不会改变这一行的可用性。
+> - `/le duel cancel <玩家名>` 仅对拥有 `letslearnenglish.admin` 的玩家可见与执行
+>   （管理员解散通道，功能等同 `/lea duel cancel`）。它不在上表主行内，因为它是
+>   `duel` 子命令的隐藏分支，本体由 `/lea` 侧执行。
 > - 所有子命令在对应模块被关闭（如 `duel.enabled: false`）时会收到统一提示「该功能已被服务器管理员关闭」。
+> - 模块开关是**点读**的，`/lea reload` 后立即生效；改完不需要重启。
 
 **答题模式参数**:
 
@@ -1178,7 +1344,7 @@ sqlite3 playerdata.db "PRAGMA freelist_count; PRAGMA page_count;"
 | `/lea broadcast <消息>` | 通过代理向所有子服广播（需 Velocity / BungeeCord） | `letslearnenglish.admin` |
 | `/lea duel cancel <玩家名>` | 强制解散该玩家的单词对决（不判胜负） | `letslearnenglish.admin` |
 | `/lea report <玩家\|all> [week\|lastweek\|<N>d]` | 生成家长/老师学习报告（TXT，落 `exports/reports/`） | `letslearnenglish.report` 或 `letslearnenglish.admin` |
-| `/lea class create\|delete\|add\|remove\|list` | 班级管理（需启用班级系统） <!-- TODO: 待确认（班级系统 Wave 4 施工中；权限节点名以待最终实现为准，预计仍为 admin，或另设 letslearnenglish.class） --> | `letslearnenglish.admin` |
+| `/lea class create\|delete\|add\|remove\|list` | 班级管理（需启用班级系统） | `letslearnenglish.admin` |
 | `/lea ignore-update` | 忽略本次启动的更新提醒 | `letslearnenglish.admin` |
 | `/lea help` | 查看管理命令帮助 | `letslearnenglish.admin` |
 
@@ -1198,36 +1364,54 @@ sqlite3 playerdata.db "PRAGMA freelist_count; PRAGMA page_count;"
 
 ### 8.3 权限节点完整列表
 
+> **本表就是全部节点 —— 没有第五条。** 口径：`plugin.yml` 的 `permissions:` 段与
+> `grep -rn "hasPermission" src/main/java/` 逐行核对，两侧一一对应（契约由
+> `PermissionContractLintTest` 双向钉死）。任何「声明了但代码不查」或「代码查了但没声明」
+> 都会让该测试变红。
+
 | 权限节点 | 说明 | 默认授予 |
 |----------|------|---------|
-| `letslearnenglish.use` | 使用基本学习功能（声明性节点，见下方说明） | 所有玩家 (true) |
-| `letslearnenglish.admin` | 使用管理员功能（实际强制执行） | OP (op) |
-| `letslearnenglish.word.*` | 使用所有单词学习功能（声明性节点） | 所有玩家 (true) |
-| `letslearnenglish.dialogue.*` | 使用所有 AI 情景对话功能（声明性节点） | 所有玩家 (true) |
-| `letslearnenglish.progress.*` | 查看所有进度信息（声明性节点） | 所有玩家 (true) |
-| `letslearnenglish.scenario.import` | 导入/管理个人场景（`/le load_scenario`、场景管理 GUI、刷新 API 密钥；实际强制执行） | OP (op) |
-| `letslearnenglish.report` | 生成学习报告（`/lea report`，可单独授予老师/家长代表；实际强制执行） | OP (op) |
+| `letslearnenglish.admin` | 管理功能：`/lea` 全部子命令（`report` 除外）、`/le duel cancel`、场景选择页的「刷新 API 密钥」按钮 | OP (op) |
+| `letslearnenglish.scenario.import` | 导入/管理个人场景：`/le load_scenario`、场景选择页「管理我的场景」、个人场景删除 | OP (op) |
+| `letslearnenglish.report` | 生成学习报告：`/lea report`（可单独授予老师/家长代表，不含其他管理能力） | OP (op) |
 
-> **强制执行范围说明**: 代码中实际做权限判定的只有 `letslearnenglish.admin`、`letslearnenglish.scenario.import`、`letslearnenglish.report` 三个节点（前者门控 `/lea` 全部管理子命令与 `/le duel cancel`，后两者见上表）。`use` / `word.*` / `dialogue.*` / `progress.*` 四个节点在 `plugin.yml` 中声明（默认所有玩家拥有），供权限管理插件做分组管理，但当前版本代码未对其进行判定——**玩家功能默认对所有人开放**，无法用这几个节点单独禁用某类功能（如需关闭请用模块开关，见 5.8 节）。
+> **玩家功能没有权限门，这是设计而非遗漏。** `/le menu` / `word` / `dialogue` / `progress`
+> 等全部子命令**默认对所有玩家开放**，要按类关闭请用**模块开关**（`config.yml` 的
+> `word-system.enabled` / `ai-chat.enabled` / `social.enabled` / `duel.enabled` /
+> `checkin.enabled` / `daily-challenges.enabled` / `progress-system.enabled` /
+> `leaderboard.enabled` / `class-system.enabled` / `onboarding.enabled` 等，见 5.8 节），
+> 不要试图用权限节点做这件事。
+>
+> **R12 升级提示（重要）**：早期版本在 `plugin.yml` 里声明过四个**代码从不检查**的节点
+> ——`letslearnenglish.use` / `.word.*` / `.dialogue.*` / `.progress.*`。四个节点已于 R12
+> **移除**。它们此前是纯装饰：
+> - 代码里零 `hasPermission` 引用，撤权不会关掉任何功能；
+> - 三个 `.*` 节点**没有 `children:` 段**，而 Bukkit 的通配展开只发生在有 children 的
+>   父节点上（`PermissibleBase.hasPermission(String)` 是纯精确名字查表，无前缀匹配），
+>   因此它们连子节点都不存在，`letslearnenglish.word.spelling` 恒为 `false`。
+>
+> 如果你在 LuckPerms 里给过这四个节点，**可以安全删除对应条目** —— 删与不删行为完全一致。
+> 删除不会让任何玩家失去能力（它们本来就什么都没控制）。
 
 **LuckPerms 权限配置示例**:
 ```
-# 授予玩家基本使用权限（通常不需要，默认已有）
-/lp user Steve permission set letslearnenglish.use true
-
-# 授予管理员
+# 授予管理员（唯一的管理入口）
 /lp user Admin permission set letslearnenglish.admin true
 
-# 授予老师：只发报告权限（不含 reset/reload 等）
+# 授予老师：只发报告权限（不含 reset/reload/broadcast/刷新 API 密钥等管理能力）
 /lp user Teacher permission set letslearnenglish.report true
 
-# 授予个人场景导入权限
+# 授予内容作者：导入/管理个人场景（注意：不含刷新 API 密钥，那需要 admin）
 /lp user Steve permission set letslearnenglish.scenario.import true
 
 # 授予组
-/lp group default permission set letslearnenglish.use true
 /lp group admin permission set letslearnenglish.admin true
+/lp group teacher permission set letslearnenglish.report true
 ```
+
+> **注意**：玩家功能（`/le` 一族）不需要授任何权限，默认对所有人开放。
+> 早期文档示例里的 `/lp user Steve permission set letslearnenglish.use true` 已删除 ——
+> 该节点不存在了，执行它只会得到一个无效条目。
 
 ### 8.4 可选 PlaceholderAPI 占位符
 

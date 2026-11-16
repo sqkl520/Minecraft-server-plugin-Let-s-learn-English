@@ -33,6 +33,13 @@ ai_config.yml
 build.log
 jacoco.exec
 .tmp-*/
+# JVM 崩溃转储与诊断输出：构建/测试内存不足时 JVM 会在**工作目录**生成这些文件，
+# 内含完整的内存映射、线程栈、jar 路径（可能带本机用户名/目录结构）。
+# 它们对任何读者都无意义，且体积极大（单份 replay 日志可达数百 MB）。
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
+javac.*.args
 
-# ---- Claude Code agent state (belongs in the parent dir, not the source repo) ----
+# Claude Code agent state (belongs in the parent dir, not the source repo)
 .claude/

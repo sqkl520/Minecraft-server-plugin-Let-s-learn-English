@@ -5,6 +5,7 @@ import com.letslearnenglish.minecraftplugin.RuntimeModules;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import org.bukkit.entity.Player;
 
+import java.util.UUID;
 import java.util.logging.Level;
 
 /**
@@ -161,9 +162,15 @@ public class HotReloadManager {
             }
         }
         reloadWordBanks();
-        flushOnlinePlayerData();
-        plugin.getPlayerDataStore().clearCache();
-        plugin.getPlayerDataStore().clearProfileCache();
+        // EH-02：落盘成功才清缓存，否则"留待下轮重试"的脏标记会被 clearCache 冲掉（进度静默丢失）。
+        if (flushOnlinePlayerData()) {
+            plugin.getPlayerDataStore().clearCache();
+            // 08-logic-LG-02：不调 clearProfileCache() —— 它"清空 + 从库重建"，而
+            // saveProfileSettings 失败不可观测也不产生脏标记，重建只会读回库里未更新的旧行。
+        } else {
+            plugin.getLogger().warning("Hot-reload flushed player data with failures; "
+                    + "cache was NOT cleared so the dirty markers survive for the next auto-save retry.");
+        }
         // C3：RewardEngine 实例常驻不重建，其每日金币累计缓存必须随 reload 清空，
         // 否则今日累计会跨越 reload 继续累加（day 边界仍按自然日懒清零）。
         if (plugin.getProgressManager() != null && plugin.getProgressManager().getRewardEngine() != null) {
@@ -194,11 +201,19 @@ public class HotReloadManager {
     /**
      * H9：把所有在线玩家的缓存数据落盘（与 onDisable 同一套落盘调用）。
      * 离线玩家数据已在 quit 时由 unload* 落盘，此处无需处理。
+     *
+     * <p>EH-02：返回是否全部落盘成功 —— savePlayerData 失败不清脏标记，故落盘后仍有待写数据即说明没写成。
      */
-    private void flushOnlinePlayerData() {
+    private boolean flushOnlinePlayerData() {
+        boolean allSaved = true;
         for (Player online : plugin.getServer().getOnlinePlayers()) {
-            plugin.getPlayerDataStore().savePlayerData(online.getUniqueId());
-            plugin.getPlayerDataStore().saveProfileSettings(online.getUniqueId());
+            UUID id = online.getUniqueId();
+            plugin.getPlayerDataStore().savePlayerData(id);
+            plugin.getPlayerDataStore().saveProfileSettings(id);
+            if (plugin.getPlayerDataStore().hasPendingWrites(id)) {
+                allSaved = false;
+            }
         }
+        return allSaved;
     }
 }

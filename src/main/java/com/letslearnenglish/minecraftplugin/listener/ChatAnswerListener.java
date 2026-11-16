@@ -30,8 +30,24 @@ public class ChatAnswerListener implements Listener {
     // （最多 3 秒）收不到广播。
     // R4-choice：改为 static —— GUI 点选作答（WordLearningListener）与聊天作答共用
     // 同一个广播入口 presentAnswerResult，两条通道共享这份缓存，不各自再建一份。
-    private static volatile Collection<? extends Player> cachedOnlinePlayers;
-    private static volatile long playersCacheTimestamp;
+    /**
+     * 在线玩家快照 + 生成时刻，<b>作为一个不可变整体</b>发布。
+     *
+     * <p><b>slice-16-concurrency-04（round1 遗留 LOW，本轮补修）：原实现是两个各自
+     * volatile 的字段</b>（{@code cachedOnlinePlayers} + {@code playersCacheTimestamp}）。
+     * 单字段可见性有保证，但「先读快照、再读时间戳」这两次 volatile read 之间可以被
+     * 另一次完整写入插入，于是读者可能拿到「<b>旧快照配新时间戳</b>」，把过期快照
+     * 再多用满 3 秒。两个字段之间没有任何原子性保证。
+     *
+     * <p>当前所有调用点都在主线程，所以撕裂不可观测 —— 但这两个字段被显式声明为
+     * {@code static} 正是为了两条通道共享（聊天作答 + GUI 点选），一旦将来有第三条
+     * 从异步线程调用的通道，缺陷立刻生效。改成一个 {@link AtomicReference} 持有的
+     * record，读写都是一次原子操作，代价是一次对象分配 / 3 秒。
+     */
+    private record PlayerSnapshot(Collection<? extends Player> players, long takenAt) { }
+
+    private static final java.util.concurrent.atomic.AtomicReference<PlayerSnapshot> PLAYER_SNAPSHOT =
+            new java.util.concurrent.atomic.AtomicReference<>();
 
     /** 广播玩家名最大长度：stripColor 后截断，防超长刷屏（C2） */
     private static final int BROADCAST_NAME_MAX_LENGTH = 50;
@@ -66,11 +82,14 @@ public class ChatAnswerListener implements Listener {
      */
     private static void broadcastCorrectAnswer(LetsLearnEnglish plugin, Player answerer, int score) {
         long now = System.currentTimeMillis();
-        Collection<? extends Player> snapshot = cachedOnlinePlayers;
-        if (snapshot == null || now - playersCacheTimestamp > 3000) {
+        // 一次 atomic read 拿到「快照 + 时刻」的一致组合，不存在撕裂。
+        PlayerSnapshot snap = PLAYER_SNAPSHOT.get();
+        Collection<? extends Player> snapshot;
+        if (snap == null || now - snap.takenAt() > 3000) {
             snapshot = new ArrayList<>(Bukkit.getOnlinePlayers());
-            cachedOnlinePlayers = snapshot;
-            playersCacheTimestamp = now;
+            PLAYER_SNAPSHOT.set(new PlayerSnapshot(snapshot, now));
+        } else {
+            snapshot = snap.players();
         }
         String safeName = sanitizeBroadcastName(answerer.getName());
         String scoreText = String.valueOf(score);
@@ -133,6 +152,11 @@ public class ChatAnswerListener implements Listener {
         });
     }
 
+    /**
+     * F-16-05：消费型 handler 只能用 LOWEST —— 必须抢在 {@link ChatScenarioListener}
+     * （HIGH）的 {@code isCancelled()} 让路检查之前 cancel，否则 AI 对话先吞答题输入
+     * （与 {@code GlobalGuiActionGuardListener} 的"只守不消费"LOWEST 意图相反）。
+     */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
@@ -160,6 +184,23 @@ public class ChatAnswerListener implements Listener {
                 return;
             }
             event.setCancelled(true);
+            // R-16（低危积压 FIX 4）：**补齐**收件人清空 —— 与决斗抢答分支（本方法开头）和
+            // 主答题分支（本方法末尾）对齐。原实现是三条消费分支里唯一漏掉这条的，
+            // 属真疏漏而非有意为之：
+            //   1) {@link ChatScenarioListener} 的 F-16-05 javadoc 明确把「答题 / 错题练习 /
+            //      决斗抢答」三条并列为「命中即 setCancelled(true) + getRecipients().clear()」，
+            //      文档契约与代码原本不符；
+            //   2) 三条分支的意图完全相同 —— 玩家敲的这行字是<b>答案</b>，不该被任何人看见。
+            //
+            // 为什么 setCancelled(true) 不够：它只让 Bukkit 的默认发送路径不投递，而
+            // {@code getRecipients()} 是别的插件（聊天管理、记录/日志、聊天过滤、分析插件）
+            // 在**同一个事件**上读的收件人列表 —— 只要它们不看 isCancelled（或只看自己的
+            // 判定）就仍会把答案当公开聊天记下来。错题练习泄漏的内容比普通答题更敏感：
+            // Wrong Book 里躺的正是玩家自己不认识的词，泄漏的就是"他不会什么"。
+            //
+            // 清空放在 cancel 之后、分支分流之前：本段下面有"cancel 指令退练习"和"提交判分"
+            // 两个出口，两条都已被 cancel，一次清空即可覆盖，不必在两处各清一遍。
+            event.getRecipients().clear();
             String answer = event.getMessage();
 
             // Check for cancel command
@@ -188,6 +229,21 @@ public class ChatAnswerListener implements Listener {
             return;
         }
 
+        // 16-L-16-01：题号票据 — 异步栈帧内**立即取值**快照（留到任务里再读会恒等，且必须早于
+        // isAnswering 门才能覆盖"门与快照之间正好超时"）。同一 tick 连发两条 chat 包时两条都过
+        // 得了该门，第二条会被结算到玩家还没看到提示的下一题。等价闸见 GUI 通道 drawnQuestion 比对。
+        //
+        // R10-s16dc-04：票据从「题号」升级为「题号 + 结算序号」。题号是 Session 的维度，
+        // 普通会话每题结算都 advance()，所以题号单调递增、天然能区分"同一题被结算第二次"；
+        // 但**教程会话的答错/超时是原地重试**（recordTutorialRetry 只加计数，不 advance，
+        // 见 WordLearningManager 教程分支），题号在整段教程会话里可能一直是 0 ——
+        // 票据退化为恒真，同一 tick 连发的两条包都能穿过闸门，incorrectCount 被重复累加。
+        // settleSeq 由 QuizState 在每次结算的 finally 里 +1，是"同一道题被结算了几次"的
+        // 单调递增维度：题号不动时它仍然前进，两个维度组合后票据才真正不可绕过。
+        final WordLearningManager.QuizState ticket = wlManager.getQuizState(player.getUniqueId());
+        final int ticketIndex = ticket == null ? -1 : ticket.session.getCurrentIndex();
+        final int ticketSeq = ticket == null ? -1 : ticket.settleSeq.get();
+
         if (!wlManager.isAnswering(player.getUniqueId())) {
             return;
         }
@@ -208,6 +264,19 @@ public class ChatAnswerListener implements Listener {
         // C2：答题广播（含答案文本的旧 answer-broadcast）已删除 — 改为判分后仅答对广播
         // "答对+分"（broadcastCorrectAnswer，不含答案文本），见 presentAnswerResult。
         Bukkit.getScheduler().runTask(plugin, () -> {
+            // 16-L-16-01：执行时刻复核票据 — 会话已换或题号已推进 = 预输入的第二条消息，
+            // 按迟到答案丢弃，不得改记到当前题（否则误判错 + 误记错题本）。
+            // R10-s16dc-04：除题号外还比对结算序号 —— 教程会话原地重试时题号不变，
+            // 只有序号能区分"同一题的第一次与第二次结算"。缺了它，同一 tick 连发的
+            // 两条包都会拿 ticketIndex==liveIndex 通过闸门并各记一次错误。
+            WordLearningManager.QuizState live = wlManager.getQuizState(player.getUniqueId());
+            if (ticket != null && live != null && (live.session != ticket.session
+                    || live.session.getCurrentIndex() != ticketIndex
+                    || live.settleSeq.get() != ticketSeq)) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "word-learning-gui.answer-expired"));
+                return;
+            }
             // FEAT-MODE-01：按会话 mode 分流判定 — mode 取自 WordLearningManager，
             // 判分收敛于 AnswerChecker.check（submitAnswer 内部调用），本分支只喂答案。
             String mode = wlManager.getMode(player.getUniqueId());

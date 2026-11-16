@@ -278,6 +278,8 @@ public class WordLearningManager implements Listener {
                 // 返回 tutorial=true 的"不推进"结果，ChatAnswerListener 据此改发
                 // onboarding.retry-wrong 并重开同题 GUI（音效保持 incorrect）。
                 if (state.isTutorial) {
+                    // slice-04-logic::F2：重试只记错误计数，不推进（见 recordTutorialRetry）。
+                    session.recordTutorialRetry();
                     return new AnswerResult(false, correctAnswer,
                             session.getCurrentIndex(), session.getTotalWords(),
                             session.getTotalCorrect(), session.getTotalIncorrect(),
@@ -305,7 +307,19 @@ public class WordLearningManager implements Listener {
 
             return buildResult(id, state, correct, correctAnswer, comboScore,
                     state.consecutiveCorrect, getComboMultiplier(state.consecutiveCorrect));
+        } catch (RuntimeException e) {
+            // EH-01（round4）：原先只有 finally，异常逃出后 submitting 复位但 quizStates
+            // 残留、倒计时已取消、玩家零反馈。清理会话并明确告知（sendMessage 对离线是空操作）。
+            plugin.getLogger().log(java.util.logging.Level.WARNING, "submitAnswer failed for " + id, e);
+            try { endQuiz(id); } catch (RuntimeException ignored) { quizStates.remove(id); }
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessageSafe(player,
+                    "word-learning-gui.session-ended"));
+            return null;
         } finally {
+            // R10-s16dc-04：先推进结算序号、再释放 submitting —— 让任何排队中的第二条
+            // 已捕获旧票据的投递在复核时立刻看到新序号并作废；顺序颠倒会留下一个
+            // "序号未变但锁已释放"的窗口（第二条恰好在此间隙通过复核）。
+            state.settleSeq.incrementAndGet();
             state.submitting.set(false);
         }
     }
@@ -336,6 +350,8 @@ public class WordLearningManager implements Listener {
             // 不累计今日答题数 / 不入错题本 / 不发复习惩罚 —— session 零推进，
             // 下一轮仍对同一题计时（超时文案改走 onboarding.retry-timeout，不显示答案）。
             if (state.isTutorial) {
+                // slice-04-logic::F2：超时重试同 submitAnswer 的答错分支口径一致。
+                session.recordTutorialRetry();
                 return new AnswerResult(false, currentWord.getEnglish(),
                         session.getCurrentIndex(), session.getTotalWords(),
                         session.getTotalCorrect(), session.getTotalIncorrect(),
@@ -376,7 +392,26 @@ public class WordLearningManager implements Listener {
 
             return buildResult(id, state, false, correctAnswer,
                     -INCORRECT_PENALTY, 0, 1.0);
+        } catch (RuntimeException e) {
+            // R10-s16dc-04 / EH-01 同口径收口：本方法原先与 submitAnswer 结构相同但只有
+            // finally —— 异常从这里逃进 Bukkit 定时任务（唯一调用方 startAnswerTimer 的
+            // 到点分支不包 try），被 Bukkit 吞进日志。后果是比"崩一次"更糟的**僵死**：
+            // 首行 cancelAnswerTimer 已把 cancelled=true / isAnswering=false，而 quizStates
+            // 仍留着该条目 —— hasActiveQuiz 恒 true（入口守卫不放行新会话），但
+            // ChatAnswerListener 的 isAnswering 门直接 return（聊天既不被消费也不判分），
+            // 同时 WordLearningListener.onInventoryClose 会因 isAnswering=false 重新
+            // startAnswerForCurrentWord 给同一题重新起表 → 从"僵死"退化成"同一题可无限重答"。
+            // 与 submitAnswer 完全一致：记 WARNING + 清会话 + 明确告知玩家（sendMessage 对
+            // 离线是空操作），返回 null 让调用方按"无结果"处理（不弹超时文案、不重开 GUI）。
+            plugin.getLogger().log(java.util.logging.Level.WARNING, "handleTimeout failed for " + id, e);
+            try { endQuiz(id); } catch (RuntimeException ignored) { quizStates.remove(id); }
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessageSafe(player,
+                    "word-learning-gui.session-ended"));
+            return null;
         } finally {
+            // R10-s16dc-04：与 submitAnswer 同口径 —— 超时也是一次"结算"，
+            // 同样要推进序号（教程会话超时同样原地重试，题号不动，靠本序号区分）。
+            state.settleSeq.incrementAndGet();
             state.submitting.set(false);
         }
     }
@@ -588,12 +623,29 @@ public class WordLearningManager implements Listener {
         return state != null ? state.effectiveTimeout : getAnswerTimeout();
     }
 
+    /**
+     * DC-08：中断局补记 player_sessions。原 recordSession 唯一调用点是 showSessionComplete，
+     * stopQuiz / endQuiz / clearAllSessions 只走 endSession（分数仅进 player_data.total_score），
+     * 而周/月/赛季榜只 SUM(player_sessions.score) → 中断局的分系统性不入榜。
+     * endSession 已裁定 rage quit 不豁免、分数照记，故按同一口径补记（words_count = 答对+答错）。
+     * 一题未答的中断不写行，避免造全零会话。
+     */
+    private void recordInterruptedSession(QuizState state) {
+        int correct = state.session.getTotalCorrect();
+        int incorrect = state.session.getTotalIncorrect();
+        if (correct + incorrect > 0) {
+            plugin.getPlayerDataStore().recordSession(state.session.getPlayerId(),
+                    correct + incorrect, correct, state.session.getScore(), state.session.getMode());
+        }
+    }
+
     public void stopQuiz(Player player) {
         UUID id = player.getUniqueId();
         QuizState state = quizStates.get(id);
         if (state == null) return;
 
         cancelAnswerTimer(player);
+        recordInterruptedSession(state); // DC-08：中断局同样入 player_sessions
         wordManager.endSession(id);
 
         int maxComboReached = state.maxComboReached;
@@ -629,6 +681,9 @@ public class WordLearningManager implements Listener {
             plugin.getServer().getScheduler().cancelTask(state.answerTaskId.get());
         }
         quizStates.remove(playerId);
+        if (state != null) {
+            recordInterruptedSession(state); // DC-08：quit 路径同 stopQuiz
+        }
         wordManager.endSession(playerId);
     }
 
@@ -637,6 +692,9 @@ public class WordLearningManager implements Listener {
             QuizState state = quizStates.get(playerId);
             if (state != null && state.answerTaskId.get() != -1) {
                 plugin.getServer().getScheduler().cancelTask(state.answerTaskId.get());
+            }
+            if (state != null) {
+                recordInterruptedSession(state); // DC-08：关服路径同理
             }
             wordManager.endSession(playerId);
         }
@@ -792,9 +850,12 @@ public class WordLearningManager implements Listener {
         // checkSessionAchievements → checkDailyStreak 直接查 player_sessions 统计连续
         // 学习天数；若先判定后落库，今天这一行还不在表里，连续天数会少算一天（差一天），
         // DAILY_STREAK_3/7 永远晚一天解锁。调序后今天即算入，阈值逻辑不动。
+        // DC-01（round4）：words_count 改存"已答题数"= 答对+答错（含教程重试，与
+        // LearningSession.getTotalIncorrect 同口径）；原传 totalWords 而内存计入重试，
+        // player_sessions 无重试列 → 两口径永久分叉。无重试会话两值相等。
         plugin.getPlayerDataStore().recordSession(
                 player.getUniqueId(),
-                result.totalWords,
+                result.correctCount + result.incorrectCount,
                 result.correctCount,
                 result.score,
                 result.mode
@@ -870,10 +931,37 @@ public class WordLearningManager implements Listener {
 
         if (correct) {
             store.decrementWrongCount(playerId, word);
+            // A5/D5（LOW-MEDIUM）：只有「错题本被完整读到过」时，
+            // getWrongCount 的 0 才能被当成「这个词已经攻克」。
+            // 读失败时该缓存从未与 DB 对齐（wrongCountCache 可能是 null、也可能是
+            // computeIfAbsent 现场建出的只含个别词的残表）→ getWrongCount 返回 0 →
+            // 旧逻辑走 newCount <= 0 分支，执行 removeDifficultWord（**DB DELETE**）与
+            // incrementWrongBookCleared（成就计数 +1）：一次库抖动把整行错题永久删掉，
+            // 而这个词可能明明 wrong_count=7。
+            // 判据与 PlayerDataStore.flushDifficultWords 的守卫同构（同一个
+            // difficultWordsReadComplete 标志），只是那条路径护的是刷盘，这条护的是
+            // 练习删除 —— 有意思的是它们本来是同一个 return 0 的两个出口。
+            // 读未完整时：不删行、不计数，只提示「稍后再试」；词汇留在错题本，可重试。
+            //
+            // 顺序很重要：先 getWrongCount（它会触发一次缓存加载尝试），<b>再</b>问
+            // 「读到过没有」。反过来问的话，cache 为 null 但这次加载恰好成功的情形会被
+            // 误判成"没读到过" → 明明能删的词反而删不掉（把守卫从"少删"滑成"永不删"）。
             int newCount = store.getWrongCount(playerId, word);
+            boolean wrongBookComplete = store.isDifficultWordsReadComplete(playerId);
             org.bukkit.configuration.file.FileConfiguration messages = plugin.getConfigManager()
                     .getMessageConfig(plugin.getPlayerLanguage(player));
-            if (newCount <= 0) {
+            if (newCount <= 0 && !wrongBookComplete) {
+                plugin.getLogger().warning("Practice-correct for " + playerId + " / " + word
+                        + " did NOT remove the word: the wrong-book cache was never fully loaded"
+                        + " in this session, so \"wrong count 0\" is not evidence that the word"
+                        + " was mastered. The DB row is left untouched and the count keeps its"
+                        + " real value; the removal will be retried after a successful reload.");
+                // 复用语料库里既有的「数据读取失败，请稍后重试」文案（本批不允许改
+                // messages/*.yml 新增 key）。语义准确：这次确实是因为读失败才没移除。
+                String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                        MessageUtil.getGuiMsg(messages, "daily.load-failed"));
+                player.sendMessage(msg);
+            } else if (newCount <= 0) {
                 store.removeDifficultWord(playerId, word);
                 String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
                         MessageUtil.getGuiMsg(messages, "wrong-book.practice-removed"));
@@ -925,6 +1013,28 @@ public class WordLearningManager implements Listener {
         public volatile boolean isAnswering;
         public volatile boolean cancelled;
         public final AtomicBoolean submitting = new AtomicBoolean(false);
+        /**
+         * R10-s16dc-04：结算序号 —— 每完成一次"占住投递权"的结算就 +1（submitAnswer /
+         * handleTimeout 的 finally 各一处，与 submitting 释放同处，先自增再释放）。
+         *
+         * <p><b>为什么需要它</b>：ChatAnswerListener 的防重复结算票据原先只比对
+         * {@code session.getCurrentIndex()}。普通会话每题结算都会 {@code advance()}，
+         * 题号即天然单调递增；但<b>教程会话的"答错/超时原地重试"刻意不推进题号</b>
+         * （{@code recordTutorialRetry} 只加计数，对比 {@code recordIncorrect} 明确调
+         * {@code advance()}），于是教程会话内"题号票据"退化成恒真 —— 同一 tick 连发的
+         * 两条 chat 包都能穿过闸门，{@code incorrectCount} 被重复累加，再经
+         * {@code recordSession} 的累加 UPSERT 污染 {@code player_sessions.words_count}、
+         * 经 {@code endSession} 影响复习间隔。
+         *
+         * <p>本字段是"同一道题被结算了几次"的<b>单调递增</b>维度：教程会话重试时题号不动，
+         * 但序号一定前进，票据因此重新具备区分力。跨线程读写（异步 chat 事件读、
+         * 主线程结算写）→ {@link AtomicInteger}。
+         *
+         * <p><b>不引入会话代次（sessionEpoch）</b>：会话身份已由票据里的
+         * {@code live.session != ticket.session} 引用比较覆盖，本字段只补"同一会话内
+         * 同一题"这一维，改动面仅限 QuizState 一个字段 + 两处 finally + 一处比对。
+         */
+        public final AtomicInteger settleSeq = new AtomicInteger(0);
         public volatile int consecutiveCorrect;
         public volatile int maxComboReached;
         public boolean isReviewMode;

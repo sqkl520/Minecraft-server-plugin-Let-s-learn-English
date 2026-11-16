@@ -24,9 +24,89 @@ public class PlayerJoinListener implements Listener {
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
-        plugin.getPlayerDataStore().loadPlayerData(event.getPlayer().getUniqueId());
-        plugin.getAchievementManager().loadPlayerAchievements(event.getPlayer().getUniqueId());
-        plugin.getPlayerDataStore().loadProfileSettings(event.getPlayer().getUniqueId());
+        final UUID preloadId = event.getPlayer().getUniqueId();
+        // 17-EH-F1：getConnection() 的 RuntimeException 会被 fireEvent 吞掉，其后全部编排静默跳过。给异常边界。
+        try {
+            // R18-M1：进服预热分两段 —— 隐私开关同步、统计/成就异步。
+            //
+            // 为什么这三行不能整体搬走：loadProfileSettings 的结果在本方法<b>后文</b>就被
+            // 同步消费两次 —— sendJoinDailyReminderIfEnabled（LetsLearnEnglish:1183）与
+            // OnboardingManager.handleJoin（OnboardingManager:154）都读 isRemindersEnabled()
+            // 决定要不要发提示，而该位在缓存 miss 时是 <b>fail-open（true）</b>
+            //（ProfileSettings.unresolvedFallback 只收紧三个隐私位，见 PlayerDataStore:2223-2233）。
+            // 异步化等于把「玩家关掉了提醒」读成「开着」——关掉提醒的玩家照样收到进服提醒，
+            // 这是可感知的越权打扰，不是隐私方向的「安全降级」，故必须留在同步段。
+            //（隐私位 showInSquare / showResults 本人已是 fail-closed：miss = 隐藏，
+            //  所以异步对隐私是<b>安全</b>方向；真正卡住这条路的是提醒位。）
+            //
+            // 返回值顺带充当「本次会话已建立」的标记：进服读成功 ⇒ profileSettingsCache
+            // 里必有该玩家条目，而该条目只在 quit / reload 的 unloadProfileSettings 里被删。
+            // 异步段用它做 join→quit 竞态守卫（见下）。
+            final boolean profileLoaded = plugin.getPlayerDataStore().loadProfileSettings(preloadId);
+
+            // 统计（word_progress + player_data 两条 SELECT，外加 fillMissing）与
+            // 成就（achievements 一条 SELECT）搬出主线程。依据：本方法后文<b>没有一处</b>
+            // 读这两份缓存 —— 每日挑战分配走仓储自己的 COUNT/INSERT（DailyChallengeManager
+            // 全类不碰 PlayerDataStore），进服提醒 / 引导 / 赛季补发只读 profile。
+            // 其余消费点（GUI / 成就墙 / 榜单 / PAPI）全部是「miss 时懒加载」，
+            // 所以晚几毫秒到达无害；而多人同时进服时这 3 条 SELECT 原本串行压在主线程上
+            //（重启后的典型场景）。
+            //
+            // 已知无害交互（记录下来免得后人当缺陷重报）：下面的 cachePlayerName 会 markDirty，
+            // 若本任务恰好在其之后进入 loadPlayerData，开头那句「有脏标记就先全量落盘」
+            // 会对着一份<b>还没载入</b>的缓存跑一次 —— snapshotPlayerData 返回 null 而直接
+            // 早退（清掉玩家名那枚标记）。玩家名不会因此丢失：quit 的 unloadPlayerData 走
+            // <b>无条件</b>全量 savePlayerData，那时名字仍在 playerNameCache 里，照常落盘。
+            // 代价只是异步线程多抢一次 connectionLock，无数据后果。
+            try {
+                plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+                    // 停用 / reload 窗口闸：同本方法下方每日挑战块（R12c-F2）。
+                    // runtimeActive 是 disableAll 的<b>第一条语句</b>置 false 的，
+                    // 所以拆解一开始这道闸就关。
+                    if (!plugin.isFullyEnabled()) {
+                        return;
+                    }
+                    try {
+                        var dataStore = plugin.getPlayerDataStore();
+                        var achievements = plugin.getAchievementManager();
+                        // 纵深防御：闸与取值之间仍有几纳秒，字段可能刚被 D10 置空。
+                        if (dataStore == null || achievements == null) {
+                            return;
+                        }
+                        // join→quit 竞态守卫：本任务可能在 unloadPlayerData 之后才跑完。
+                        // 那时再灌缓存，就是给<b>已下线</b>玩家留一份「复活」的内存态 ——
+                        // 它不会再被 quit 清一次，只能等下一轮 evictOfflinePlayerCaches，
+                        // 期间展示路径可以读到（并让「已下线即缓存为空」这个前提失效）。
+                        // 判据用 profile 缓存键：它是本类编排里唯一具备「进服建、退出删」
+                        //（loadProfileSettings / unloadProfileSettings）生命周期的<b>公开</b>
+                        // 状态；profileLoaded=true 时它消失只可能是 unload 已经跑过。
+                        // 更精确的世代号在 PlayerDataStore.playerCacheEpoch，但那是 private，
+                        // 本类不能读（也未在公开面上暴露），故只能用这个等价判据。
+                        if (profileLoaded && dataStore.getCachedProfileSettings(preloadId) == null) {
+                            return;
+                        }
+                        dataStore.loadPlayerData(preloadId);
+                        achievements.loadPlayerAchievements(preloadId);
+                    } catch (RuntimeException e) {
+                        // 异步调度线程里未捕获的异常不会有人接：它会变成一条与真实原因
+                        // 无关的堆栈（Bukkit 的 catch 只打印，不归因）。预热失败 =
+                        // 本次进服少一次预热，读侧照旧 miss 懒加载 —— 绝不能让它以
+                        // 裸堆栈形式出现，也绝不能影响进服本身。
+                        plugin.getLogger().log(java.util.logging.Level.WARNING,
+                                "Async join preload failed for " + preloadId
+                                        + " (player joined during a reload/shutdown window?)", e);
+                    }
+                });
+            } catch (IllegalStateException ignored) {
+                // 插件停用窗口（调度器已关闭）：放弃本次预热，读侧懒加载兜底
+                //（与下方 R13-M1 的每日挑战分配同姿态）。
+            }
+        } catch (RuntimeException e) {
+            plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                    "Player data load failed for " + event.getPlayer().getUniqueId(), e);
+            event.getPlayer().sendMessage(plugin.getMessageUtil().getPlayerMessage(
+                    event.getPlayer(), "daily.load-failed"));
+        }
         // H10：主线程缓存玩家名，供 savePlayerData 落盘 player_data.player_name
         plugin.getPlayerDataStore().cachePlayerName(
                 event.getPlayer().getUniqueId(), event.getPlayer().getName());
@@ -97,8 +177,36 @@ public class PlayerJoinListener implements Listener {
         final UUID joiningId = event.getPlayer().getUniqueId();
         try {
             plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
-                if (!plugin.isEnabled()) return;
-                plugin.getDailyChallengeManager().checkAndAssign(joiningId);
+                // R12c-F2：守卫曾经只有 plugin.isEnabled() —— 那是**错的闸**。
+                // /lea reload 把 server.enabled 由 true 改 false 时，走的是
+                // HotReloadManager → disableAll()，而插件本身<b>一直是 enabled</b>
+                // （没有 onDisable）。于是在这个窗口里 isEnabled() 恒为 true，
+                // 而 disableAll 的 D10 已经把 dailyChallengeManager 置 null
+                // （LetsLearnEnglish:739）→ 本行 NPE 从 Bukkit 调度线程冒出，栈里
+                // 全是 NPE 与调度器，和真正的原因（有人 reload 了）毫无关联。
+                //
+                // 改用 isFullyEnabled()（= runtimeActive && 配置开 && playerDataStore 非 null）：
+                // 它的第一项 runtimeActive 是 disableAll 的<b>第一条语句</b>置 false 的，
+                // 所以拆解一开始本闸就关；A6 注释里那句「覆盖配置已 reload 成 false
+                // 但 pds 还没拆完的几百毫秒」说的正是这个窗口。
+                if (!plugin.isFullyEnabled()) {
+                    return;
+                }
+                // 纵深防御：闸与取值之间仍有几纳秒，字段可能刚被 D10 置空。
+                var challenges = plugin.getDailyChallengeManager();
+                if (challenges == null) {
+                    return;
+                }
+                try {
+                    challenges.checkAndAssign(joiningId);
+                } catch (RuntimeException e) {
+                    // 异步调度线程里未捕获的异常不会有人接：它会变成一条与真实原因
+                    // 无关的堆栈（Bukkit 的 catch 只打印，不归因）。这里收口成一条
+                    // 可读 WARNING —— 分配失败是"今天少三个挑战"，不是"插件坏了"。
+                    plugin.getLogger().log(java.util.logging.Level.WARNING,
+                            "Daily challenge assignment failed for " + joiningId
+                                    + " (player joined during a reload/shutdown window?)", e);
+                }
             });
         } catch (IllegalStateException ignored) {
             // 插件停用窗口（调度器已关闭）：放弃本次分配（R-32 补分配兜底）

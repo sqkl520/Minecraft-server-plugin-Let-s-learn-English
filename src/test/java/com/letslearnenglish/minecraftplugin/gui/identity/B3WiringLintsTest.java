@@ -80,7 +80,7 @@ import org.junit.jupiter.api.Test;
  *       会误红 —— 接受，但应按同样方式同步 lint，而不是放行。</li>
  *   <li>L2：判据认的是 {@code suggested.isEmpty()} 这个<b>变量名</b>。局部变量改名
  *       （{@code suggested} → {@code focus}）会误红 —— 接受，见失败消息里的同步提示。</li>
- *   <li>L3：断言分两层 —— ① 主路径（{@code hasActiveConversation} 守卫块之外）恰好 1 处；
+ *   <li>L3：断言分两层 —— ① 主路径（{@code isLatestSession} 守卫块之外）恰好 1 处；
  *       ② 若该守卫块存在，则块内也必须至少有 1 处。实测该方法体里本来就有两处调用
  *       （守卫分支 {@code notify=false}、主路径 {@code notify=true}），把总数写死成某个
  *       具体值会在合理的分支拆分后误红，因此按「位置 + 存在性」断言而不是「总数」。</li>
@@ -297,14 +297,19 @@ class B3WiringLintsTest {
 
         /**
          * L3：{@code handleSummaryResult} 方法体里必须存在
-         * {@code applyToLearningLoop(}，且<b>主路径</b>（{@code hasActiveConversation}
+         * {@code applyToLearningLoop(}，且<b>主路径</b>（{@code isLatestSession}
          * 守卫块之外）恰好 1 处。
          *
          * <p>为什么分「总数」与「主路径」两层：实测该方法体里本来就有两处调用 ——
-         * {@code hasActiveConversation} 为真时（玩家已开新会话、点评不显示）走
+         * {@code !isLatestSession(...)} 为真时（源会话不是最近会话、点评不显示）走
          * {@code notify=false}，主路径走 {@code notify=true}。把总数写死成 1 或 2 都会
          * 在合理的分支拆分后误红；而只断言「总数 ≥ 1」又漏掉「主路径被删、只剩防串台那一处」
          * 的情形 —— 那正是玩家最常走的路径。
+         *
+         * <p>锚点沿革：本 lint 曾以 {@code hasActiveConversation(} 定位守卫块。R4-05-logic-F-L2
+         * 把判据换成了单一权威 {@code !isLatestSession(playerId, summary.sessionId())}
+         * （旧判据在「A 结束 → 开 B → B 也结束 → A 点评到达」时整体为假，A 的旧点评会被
+         * 当作即时点评渲染），锚点随之改为 {@code isLatestSession(}。再改判据请同步此处。
          *
          * <p>红队变异：删掉 {@code applyToLearningLoop(player, feedback, true);} 这一行。
          * 后果：AI 点评照常显示，但 corrections 既不入错题本、也不排复习、也不进下一场的
@@ -328,9 +333,9 @@ class B3WiringLintsTest {
                             + "（例如把落地逻辑并进 persistAfter 之类的辅助方法），请同步本 lint —— "
                             + "但落地调用必须仍在点评处理链上。");
 
-            // 主路径 = hasActiveConversation 守卫块之外。该块是「防串台」分支：
-            // 玩家已开新会话时点评不显示，但纠错仍要静默落地（notify=false）。
-            List<int[]> guardBlocks = ifBlocksWithCondition(body, "hasActiveConversation(");
+            // 主路径 = isLatestSession 守卫块之外。该块是「防串台」分支：
+            // 源会话不是最近会话时点评不显示，但纠错仍要静默落地（notify=false）。
+            List<int[]> guardBlocks = ifBlocksWithCondition(body, "isLatestSession(");
             int mainPathCalls = 0;
             for (int offset : calls) {
                 if (!insideAny(guardBlocks, offset)) {
@@ -338,10 +343,10 @@ class B3WiringLintsTest {
                 }
             }
             assertEquals(1, mainPathCalls,
-                    "handleSummaryResult 的<b>主路径</b>（hasActiveConversation 守卫块之外）"
+                    "handleSummaryResult 的<b>主路径</b>（isLatestSession 守卫块之外）"
                             + "里 applyToLearningLoop(...) 出现了 " + mainPathCalls + " 次，期望恰好 1 次 喵"
                             + "（全部调用偏移=" + calls + "，守卫块区间=" + renderRanges(guardBlocks) + "）。\n"
-                            + "常见变异是只保留 hasActiveConversation 分支里那一处（notify=false）、"
+                            + "常见变异是只保留 isLatestSession 分支里那一处（notify=false）、"
                             + "把主路径的 notify=true 删掉 —— 玩家最常走的那条路径因此完全不落地纠错，"
                             + "而防串台分支还在，光看「方法体里有调用」抓不到。\n"
                             + "出现 2 次以上则说明有人重复插入调用：plan.countAsWrong() 会被执行两遍，"
@@ -350,7 +355,7 @@ class B3WiringLintsTest {
                             + "（例如主路径改成调用一个内部再转调 applyToLearningLoop 的辅助方法），"
                             + "请同步本 lint。");
 
-            // 防串台分支（hasActiveConversation 为真、点评不显示）也必须落地纠错：
+            // 防串台分支（!isLatestSession 为真、点评不显示）也必须落地纠错：
             // 玩家结束一局后立刻开了新对话是最常见的连招，若这条分支静默丢弃 feedback，
             // 「AI 买的纠错」在最活跃的那批玩家身上反而永远不生效。
             // 守卫块<b>不存在</b>时跳过本子断言（那是更大的分支结构改动，不在 B3 范围内）；
@@ -366,7 +371,7 @@ class B3WiringLintsTest {
                     }
                 }
                 assertTrue(guardBranchApplies,
-                        "hasActiveConversation 守卫块（防串台分支）里没有 applyToLearningLoop(...) 喵"
+                        "isLatestSession 守卫块（防串台分支）里没有 applyToLearningLoop(...) 喵"
                                 + "（全部调用偏移=" + calls + "，守卫块区间="
                                 + renderRanges(guardBlocks) + "）。\n"
                                 + "这条分支对应「玩家结束一局后立刻开了新对话」—— 点评为了防串台"

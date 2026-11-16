@@ -236,12 +236,27 @@ class SessionLoopLintsTest {
                         + "那是新需求（要建表 + 迁移 + 清理策略），请先与架构侧裁决，"
                         + "绝不允许用「顺手塞进 savePlayerDataInternal」实现。");
 
-        // 反向锚点：写库方法体必须仍然碰 word_progress 与 player_data ——
-        // 防止有人为了过上面这条断言把整个方法体掏空/改名。
-        assertTrue(body.contains("word_progress") || body.contains("upsertStmt"),
-                "savePlayerDataInternal 里找不到 word_progress / upsertStmt 喵 —— "
-                        + "方法体可能被掏空或整体搬走了，上面的红线断言会因此静默失效。\n"
-                        + "请把本 lint 的锚点同步到新的写库实现所在方法。");
+        // 反向锚点：写库方法体必须仍然「真的写词行」——防止有人为了过上面这条断言
+        // 把整个方法体掏空、或把写路径整体搬到别的方法里去。
+        //
+        // 原写法是 body.contains("word_progress") || body.contains("upsertStmt")，实测有两个问题：
+        //   ① 左半恒假：本类 stripComments 会把字符串字面量也抹成空格，而 word_progress
+        //      在源码里只出现在 SQL 字符串和注释里 —— 剥完之后计数为 0，这是个死支。
+        //   ② 右半太松：upsertStmt 是 :1145 的唯一局部变量，只要 PreparedStatement 声明还在、
+        //      哪怕 addBatch()/executeBatch() 全被删掉，contains 仍为 true（实测变异后 3/3 全绿）。
+        // 因此改为同时要求「批量入队 + 批量提交」两种形状，缺任一即失败。
+        // 用正则而不是字面量：容忍空格/换行的等价写法（upsertStmt .addBatch()），
+        // 但不容忍调用被删掉。
+        assertTrue(Pattern.compile("upsertStmt\\s*\\.\\s*addBatch\\s*\\(\\s*\\)").matcher(body).find(),
+                "savePlayerDataInternal 里找不到 upsertStmt.addBatch() 喵 —— "
+                        + "词行不再进批量队列，方法体可能被掏空或写路径被整体搬走了。\n"
+                        + "上面的红线断言会因此静默失效；请把本 lint 的锚点同步到新的写库实现所在方法。");
+        assertTrue(Pattern.compile("upsertStmt\\s*\\.\\s*executeBatch\\s*\\(\\s*\\)").matcher(body).find(),
+                "savePlayerDataInternal 里找不到 upsertStmt.executeBatch() 喵 —— "
+                        + "只 addBatch 不 executeBatch 等于拼好了 SQL 却从不发送，"
+                        + "重启后词进度全部丢失。\n"
+                        + "（注意：不要改成找 word_progress —— 本类的 stripComments 会抹掉"
+                        + "字符串字面量，该串在剥注释后的文本里根本不存在。）");
     }
 
     // ==================================================================

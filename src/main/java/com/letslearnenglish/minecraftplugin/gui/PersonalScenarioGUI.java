@@ -93,6 +93,22 @@ public class PersonalScenarioGUI {
      *                   由 Listener 行内二次确认流程传入。
      */
     public void open(Player player, String confirmKey) {
+        // R12-G1（round12 A4-LOW-3）：纵深防御 —— 门原来只在 4 个 listener 调用点，
+        // GUI 侧零判定。当前 4 个调用点全部在权限门之后（无越权），但新增第 5 个调用点
+        // 时会静默无门。这里补一道幂等判定：已判过的再判一次无害，漏判的由这里兜住。
+        // 用 FINE 而非 WARNING：陈旧界面/关界面后的迟到调用属可预期路径（与 ProfileGUI 同口径）。
+        //
+        // logger 取空要判：纯 JVM 单测里 plugin 是 mock，getLogger() 返回 null，
+        // 直接 {@code plugin.getLogger().fine(...)} 会在守卫里 NPE —— 而这道守卫的
+        // 全部价值就是「不通过就安静走开，永不抛」（ProfileGUI.logFine 同款理由）。
+        if (!player.hasPermission("letslearnenglish.scenario.import")) {
+            var logger = plugin.getLogger();
+            if (logger != null) {
+                logger.fine("PersonalScenarioGUI.open denied for " + player.getName()
+                        + ": missing letslearnenglish.scenario.import");
+            }
+            return;
+        }
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration msg = plugin.getConfigManager().getMessageConfig(lang);
 

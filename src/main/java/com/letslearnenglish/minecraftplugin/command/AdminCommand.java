@@ -11,7 +11,6 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -271,15 +270,30 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
         String formatted = ChatColor.translateAlternateColorCodes('&',
                 plugin.getMessageUtil().getMessage("admin.broadcast-prefix") + message);
         // R9-H3/R7-H1：命令层前置拒绝超长（上限与 ProxyMessenger 单源），
-        // 防 writeUTF/网络层 32767 异常逃逸与踢信使玩家
-        if (formatted.getBytes(StandardCharsets.UTF_8).length > ProxyMessenger.MAX_PAYLOAD_BYTES) {
+        // 防 writeUTF/网络层 32767 异常逃逸与踢信使玩家。
+        //
+        // slice-03-contract-r5-con-01（round1 遗留 MEDIUM，round10 补修）：**不再自己算字节**。
+        // 原实现用 getBytes(StandardCharsets.UTF_8).length，而发送层的 truncateUtf8 用
+        // modified-UTF-8（每个 surrogate 单独计 3 字节）。两套口径对 emoji 差 4 vs 6 字节，
+        // 于是一条超长广播可以**通过命令层、到发送层被静默截断** —— 管理员收到「已发送」，
+        // 玩家看到半截。现在改调 ProxyMessenger.exceedsPayloadLimit()，与截断侧共用一套计长。
+        if (ProxyMessenger.exceedsPayloadLimit(formatted)) {
             sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                     "admin.broadcast-too-long"));
             return;
         }
-        plugin.getProxyMessenger().sendGlobalMessage(formatted);
-        sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "admin.broadcast-sent"));
-        plugin.getLogger().info("Global broadcast sent by " + sender.getName() + ": " + message);
+        // R15（wave3 后继审计 #4，MEDIUM）：必须按**实际发送结果**回文案。
+        // 原实现无论 sendGlobalMessage 内部是否静默丢弃（空服无信使 / 通道未注册），
+        // 都对管理员说「已发送」—— 与类 javadoc 点名的「截断谎报」同类，只是没被一起修。
+        boolean sent = plugin.getProxyMessenger().sendGlobalMessage(formatted);
+        if (sent) {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "admin.broadcast-sent"));
+            plugin.getLogger().info("Global broadcast sent by " + sender.getName() + ": " + message);
+        } else {
+            sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender, "admin.broadcast-failed"));
+            plugin.getLogger().warning("Global broadcast by " + sender.getName()
+                    + " was NOT delivered (no online messenger or channel unavailable): " + message);
+        }
     }
 
     /**
@@ -430,14 +444,36 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                     completions.add(sub);
                 }
             }
-        } else if (args.length == 2) {
-            // W2 代码质量 tester 收口：args≥2 分支补权限复核——只有 report 权限的老师
-            // 不应通过补全看到重置/决斗管理等子命令的存在（args==1 已过滤，此处对齐）。
-            boolean isAdmin = sender.hasPermission("letslearnenglish.admin");
-            boolean isReport = sender.hasPermission("letslearnenglish.report");
-            if (!isAdmin && !(isReport && "report".equalsIgnoreCase(args[0]))) {
-                return completions;
-            }
+            return completions;
+        }
+
+        // R12-G1（round12 A4-LOW-1）：args≥2 的**统一**前置权限复核。
+        //
+        // 原实现只在 {@code args.length == 2} 分支里复核，而注释写的是「args≥2 分支补权限
+        // 复核」—— 注释与实现不符。args≥3 的三条分支（`duel cancel <玩家>` /
+        // `class add|remove <玩家>` / `report <玩家> <周期>`）此前<b>完全不复核</b>：
+        // 一个只有 `letslearnenglish.report` 的老师，或一个权限全无的普通玩家，敲
+        // `/lea duel cancel <tab>` 一样能拿到在线玩家名单。
+        //
+        // 修法是**改守卫**（而不是把注释降级成 args==2）：注释描述的是设计意图，而
+        // 「补全不得泄露子命令存在性」这个意图对所有参数深度都成立。守卫升成 args≥2
+        // 后 `report` 权限者的行为<b>不变</b> —— 判据里显式保留了
+        // `(isReport && "report".equalsIgnoreCase(args[0]))`，所以
+        // `/lea report <玩家> <tab>` 仍能补全（那正是 report 权限者的主要用法）。
+        // 只有「report 权限者去补全 duel/class」这一种组合从此返回空，而那本来就该空。
+        // 只有 args≥2 才需要复核（args==1 已在上方按子命令名过滤后 return）。
+        // args.length==0 理论上不会由 Bukkit 递进来（敲 `/lea ` 时是 `[""]`，长度 1），
+        // 但这里显式挡掉：下面要读 args[0]，长度 0 会 ArrayIndexOutOfBounds。
+        if (args.length < 2) {
+            return completions;
+        }
+        boolean isAdmin = sender.hasPermission("letslearnenglish.admin");
+        boolean isReport = sender.hasPermission("letslearnenglish.report");
+        if (!isAdmin && !(isReport && "report".equalsIgnoreCase(args[0]))) {
+            return completions;
+        }
+
+        if (args.length == 2) {
             if ("diagnose".equalsIgnoreCase(args[0])) {
                 // /lea diagnose [save] —— 第二参数只有一个取值，补全出来比让服主记拼写强
                 if ("save".startsWith(args[1].toLowerCase(Locale.ROOT))) {

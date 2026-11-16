@@ -2,6 +2,7 @@ package com.letslearnenglish.minecraftplugin.core.ai;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager.ScenarioConfig;
+import com.letslearnenglish.minecraftplugin.util.AtomicFileWriter;
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -127,11 +128,17 @@ public class PersonalScenarioStore {
         config.set("scenarios." + key + ".display_name_zh", name);
         config.set("scenarios." + key + ".material", "PAPER");
         config.set("scenarios." + key + ".prompt", prompt);
-        try {
-            config.save(file);
-        } catch (IOException e) {
+        // R-11（第三批）：原子写。原实现是 config.save(file) 直接覆写目标文件 ——
+        // 写到一半失败（进程被杀 / 磁盘满）会留下半截 YAML，而
+        // YamlConfiguration.loadConfiguration 吞掉解析异常返回空配置，
+        // 于是「这个玩家的全部个人场景」在下次启动后静默消失。改成
+        // 「写 <file>.tmp → 原子替换」后，失败时旧文件仍是可读的旧数据。
+        // 失败语义不变：仍返回 saveFailed=true，且跳过下面的 mine.put(key, sc)。
+        // 注意这里**不**需要补建父目录 —— 上方已显式 mkdirs 并 early-return。
+        if (!AtomicFileWriter.write(file.toPath(), config::saveToString, plugin.getLogger())) {
             plugin.getLogger().warning("Failed to save personal scenario for "
-                    + player.getName() + ": " + e.getMessage());
+                    + player.getName() + ": " + file.getAbsolutePath()
+                    + " (target left untouched; a partially written file would break the next load)");
             return new AIChatManager.ImportResult(null, false, true, false);
         }
 
@@ -294,11 +301,14 @@ public class PersonalScenarioStore {
         }
         YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
         config.set("scenarios." + key, null);
-        try {
-            config.save(file);
-        } catch (IOException e) {
+        // R-11（第三批）：删除同样是「重写整份文件」，因此同样需要原子写 ——
+        // 半截 YAML 会让该玩家**其余**场景一起丢（删除只该丢一条，不该丢一档）。
+        // 失败语义不变：仍返回 saveFailed=true，且跳过下面的 mine.remove(key)
+        //（内存不动 = 玩家还能看到并重试删除，磁盘上那条也还在）。
+        if (!AtomicFileWriter.write(file.toPath(), config::saveToString, plugin.getLogger())) {
             plugin.getLogger().warning("Failed to delete personal scenario " + key + " for "
-                    + ownerId + ": " + e.getMessage());
+                    + ownerId + ": " + file.getAbsolutePath()
+                    + " (target left untouched; the scenario is still on disk and can be retried)");
             return new DeleteResult(false, false, true);
         }
         mine.remove(key);

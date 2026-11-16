@@ -1,9 +1,11 @@
 package com.letslearnenglish.minecraftplugin.core;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.progress.RewardEngine;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
 import com.letslearnenglish.minecraftplugin.core.word.WordBank;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
+import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.data.repository.DailyChallengeRepository;
 import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.entity.Player;
@@ -24,7 +26,8 @@ import java.util.concurrent.ThreadLocalRandom;
  *
  * <p><strong>R7-D（P1-2）：多服共享 MySQL 的单词挑战口径</strong>——完成判定以 DB 为
  * 真源：本进程缓存（{@link #dailyWordStateCache}）只加速单服高频路径；每有一个挑战词
- * 真正在本进程完成落库，都用 {@code isDailyChallengeWordsCompleted} 复核一次 DB，
+ * 真正在本进程完成落库，都用完成度三态（{@code loadWordChallengeCompletion}，取
+ * {@code COMPLETED} 为确认）复核一次 DB，
  * 跨服分段完成（A 服做部分词、B 服做其余）照样触发发奖，不会出现"DB 已 5/5 但本服
  * 不发奖"。发奖台账（{@code daily_word_reward_claims}）本身跨服共享，同日不会双发。</p>
  */
@@ -153,6 +156,30 @@ public class DailyChallengeManager {
     private final Map<UUID, DailyWordChallengeState> dailyWordStateCache = new ConcurrentHashMap<>();
 
     /**
+     * R11：<b>台账写失败的重试登记</b>（player → 待补写的挑战日集合）。
+     *
+     * <p><b>为什么需要它</b>：{@code markDailyWordRewardClaimed} 现在是
+     * {@code boolean}，失败方向是「<b>钱已发出、台账没写进去</b>」。此时若什么都不做，
+     * 该玩家当天"已付"只存在于内存，重启后 DB 台账查不到、挑战词在 DB 里仍是"全完成"
+     * → 同一天<b>再发一次</b>（多给），是真实的经济损失。而"多发一次"比"玩家白干"
+     * 轻，故<b>绝不回滚已发出的钱</b>（见 {@link #persistWordRewardClaim}）。
+     *
+     * <p>能做的补偿只有两条：① 一条 SEVERE 日志（唯一跨重启的现场）；② 本登记表 ——
+     * 只要数据库在重启前恢复，玩家下一次答对（任意词）时补写即闭合窗口。补写是
+     * {@code INSERT OR IGNORE} 幂等语句，重复写只影响 0 行，零副作用。
+     *
+     * <p><b>为什么不写一个持久化的"对账标记"</b>：持久化的地方就是那张写不进去的表 ——
+     * 写失败时无处可写。除此之外唯一的跨界载体只有服务端日志。
+     *
+     * <p>有界性：每人每天最多 1 个日期（集合去重），午夜 rollover 由
+     * {@link #clearAllWordChallengeClaims()} 全清，{@code /lea reset} 由
+     * {@link #resetPlayer(UUID)} 清除（<b>必须清</b>：reset 已删台账行，再补写会把
+     * 刚删掉的"已付"重新插回去，让该玩家当天领不到奖）。与
+     * {@link #wordChallengeClaimedDates} 同一线程纪律。
+     */
+    private final Map<UUID, Set<String>> pendingClaimLedgerWrites = new ConcurrentHashMap<>();
+
+    /**
      * R7-B ③：单词挑战的 per-player 当日缓存体。
      *
      * <p>可变字段只有 {@code completedWords} / {@code rewardPaid} /
@@ -181,8 +208,25 @@ public class DailyChallengeManager {
         /** DB 里"今日无挑战词行"（未分配）—— 缓存期内避免每题重复回查。 */
         final boolean noWordsAssigned;
 
+        /**
+         * R-16（round16 F-D4 #1）：本次加载<b>读失败</b>，三份数据全部未知。
+         *
+         * <p><b>为什么必须自成一态</b>：读失败时 {@code challengeWords} 必然是空集，
+         * 于是 {@link #noWordsAssigned} 也恒为真 —— 「读不到」被伪装成业务事实
+         * 「今天没分配」，正是本轮 {@code loadWordChallengeSnapshot} 从两态改三态要
+         * 消灭的那个形状。置位后所有"看集合做判定"的路径都必须先短路，不许拿空集合
+         * 当作"没分配/没完成"。本态<b>永不落缓存</b>（下一次答对自然会重读）。</p>
+         */
+        final boolean unreadable;
+
         DailyWordChallengeState(String date, Collection<String> challengeWords,
                                 Collection<String> completedWords, boolean rewardPaid) {
+            this(date, challengeWords, completedWords, rewardPaid, false);
+        }
+
+        private DailyWordChallengeState(String date, Collection<String> challengeWords,
+                                        Collection<String> completedWords, boolean rewardPaid,
+                                        boolean unreadable) {
             this.date = date;
             this.challengeWords = ConcurrentHashMap.newKeySet();
             this.challengeWords.addAll(challengeWords);
@@ -190,10 +234,28 @@ public class DailyChallengeManager {
             this.completedWords.addAll(completedWords);
             this.rewardPaid = rewardPaid;
             this.noWordsAssigned = challengeWords.isEmpty();
+            this.unreadable = unreadable;
+        }
+
+        /**
+         * R-16：「读失败、结果未知」的一次性占位态（<b>不得</b>放入
+         * {@link #dailyWordStateCache}）。
+         *
+         * <p>日期仍按本次加载的 {@code date} 填 —— 万一将来有人把它塞进缓存，按日期
+         * 失效的机制至少还能把它清掉，不会比现状更糟。</p>
+         */
+        static DailyWordChallengeState unreadable(String date) {
+            return new DailyWordChallengeState(date, List.of(), List.of(), false, true);
         }
 
         /** 是否"有词且全部完成"（与 DB 侧 {@code total > 0 && total == done} 同义）。 */
         boolean allCompleted() {
+            // R-16：读失败时这张表根本没算过 —— 空集合天然算出 false，但那是"碰巧对了"。
+            // 显式写出来，避免将来有人把 challengeWords 的初值改成非空、或给 allCompleted()
+            // 加"空集即完成"的优化时，把「不知道」读成「完成了」→ 直接多发一次整额奖励。
+            if (unreadable) {
+                return false;
+            }
             return completedConfirmedByDb
                     || (!challengeWords.isEmpty()
                     && completedWords.size() >= challengeWords.size());
@@ -220,6 +282,18 @@ public class DailyChallengeManager {
      * WARNING 只报一次（进程内单次防刷屏；实际按可用数分配）。
      */
     private static volatile boolean reducedChallengeCountWarningLogged = false;
+
+    /**
+     * A5/D2：读取「该日挑战是否全完成」遇到 {@code READ_FAILED} 时的同轮重试次数
+     * （含首次尝试）。只在午夜 rollover 的 per-player 循环里使用。
+     */
+    static final int COMPLETION_READ_ATTEMPTS = 3;
+
+    /**
+     * A5/D2：同上重试的退避毫秒（在 {@code connectionLock} 之外 sleep，
+     * 不阻塞其它 DB 使用者）。
+     */
+    private static final long COMPLETION_READ_BACKOFF_MS = 50L;
 
     public DailyChallengeManager(LetsLearnEnglish plugin, WordManagerImpl wordManager) {
         this.plugin = plugin;
@@ -520,6 +594,16 @@ public class DailyChallengeManager {
      * claims for the same player run back-to-back, so the "last check → mark"
      * window in the listener can no longer interleave twice.
      *
+     * <p><b>R-18 警告：不要把这个方法接回生产路径。</b>它的返回类型 {@code double}
+     * 把「护栏不满足」与「SQL 写失败」折叠成同一个 {@code 0} —— 而
+     * {@link DailyChallengeRepository.ClaimMark#WRITE_FAILED} 的含义是
+     * <b>「钱可能已转账、台账未落」</b>，两者必须分流（一个该提示「已领过」，
+     * 一个该提示「稍后再试」并留下可对账的日志）。真正的领奖入口是
+     * {@code MiscGUIListener} 里直连 {@link DailyChallengeRepository#markClaimedOrFail}，
+     * 它按三态分流（见该类的类头说明）。本方法与 {@code markClaimed(...)} 目前
+     * <b>零生产调用方</b>，保留只为兼容既有测试；若将来需要统一入口，请改成返回三态，
+     * 不要从 boolean 版转发。
+     *
      * @param playerId the player
      * @param type the challenge type
      * @return the reward amount if marked claimed, or 0 if not eligible
@@ -556,6 +640,24 @@ public class DailyChallengeManager {
         return claimStripeLocks[(playerId.hashCode() & 0x7fffffff) % claimStripeLocks.length];
     }
 
+    /**
+     * R15（wave3 后继审计 · 并发专场）：<b>暴露本类持有的 stripe 锁数组</b>，供
+     * {@code MiscGUIListener} 共用。
+     *
+     * <p><b>为什么必须共用同一份</b>：挑战领奖有两个入口 —— GUI 点击
+     * （{@code MiscGUIListener.claimBehavioralChallenge}）与命令/其它路径（本类的
+     * claim 方法）。`synchronized` 的有效性完全依赖所有竞争方拿到<b>同一个</b> monitor。
+     * 原先两处各 new 了一份 {@code Object[32]}，等于两把不同的锁，`check → deposit → mark`
+     * 仍可跨类交错，双发保护失效。
+     *
+     * <p>返回数组本身（而非副本）：调用方只做「按下标取一个 monitor」这一个动作，
+     * 给副本反而会让锁重新失效。该数组长度固定 32、元素在构造期一次性创建后不再替换，
+     * 因此暴露引用是安全的。
+     */
+    public Object[] getClaimStripeLocks() {
+        return claimStripeLocks;
+    }
+
     // ============================================================
     //  Word-Bank-Based Daily Challenges (NEW)
     // ============================================================
@@ -571,7 +673,13 @@ public class DailyChallengeManager {
      * Get the reward for completing all daily word challenges.
      */
     private double getWordChallengeReward() {
-        return plugin.getConfigManager().getMainConfig().getDouble("daily-challenges.word-challenge-reward", 100.0);
+        // LOG-01：读口校验，与 getChallengeReward 同口径——≤0/NaN/非数值回落默认，否则
+        // depositCappedReward 恒返 0 → 只发 pending 不标记 → 每答对一题重入 pending 环。
+        Object raw = plugin.getConfigManager().getMainConfig()
+                .get("daily-challenges.word-challenge-reward");
+        if (!(raw instanceof Number number)) return 100.0;
+        double value = number.doubleValue();
+        return value > 0 && Double.isFinite(value) ? value : 100.0;
     }
 
     /**
@@ -588,8 +696,36 @@ public class DailyChallengeManager {
                 || !plugin.getConfigManager().isWordSystemEnabled()) {
             return;
         }
+        // R5-DC-01：判空 SELECT 与 INSERT 必须同在一把 stripe 锁内，否则 join 的
+        // checkAndAssign 与 GUI 的 getTodayWordProgress 可同时见空各插一批（UNIQUE
+        // 只去重同词，当日变 2N 行、需全 2N 才发奖）。锁可重入，持锁调用路径不受影响。
+        synchronized (getClaimStripeLock(playerId)) {
+            ensureWordChallengesAssignedLocked(playerId);
+        }
+    }
+
+    /** R5-DC-01：{@link #ensureWordChallengesAssigned} 的锁内体（必须持锁调用）。 */
+    private void ensureWordChallengesAssignedLocked(UUID playerId) {
         String today = LocalDate.now().toString();
-        List<String> existing = plugin.getDatabaseManager().getDailyChallengeWords(playerId, today);
+        // A5/D3：判空 SELECT 的<b>读失败</b>与「今天确实还没分配」必须分开。
+        // 旧实现走两态 getDailyChallengeWords（读失败 → 空 List），而本方法的判据正是
+        // existing.isEmpty() —— 库抖一次就与"未分配"同形，于是随机抽词再 INSERT 一批：
+        // 当日挑战集 N → N+M（INSERT OR IGNORE 只去重同词，**不覆盖**既有行），
+        // 而 isDailyChallengeWordsCompleted 要求 total == done →
+        // <b>当天奖励变成不可达</b>，玩家 GUI 里还会多出几条从未作答的词。
+        // 现在读失败什么都不做（不分配），下一次调用（join / GUI / 答对后回查）自然重试。
+        DatabaseManager.DailyChallengeWordsLoad existingLoad =
+                plugin.getDatabaseManager().loadDailyChallengeWords(playerId, today);
+        if (existingLoad == null || existingLoad.readFailed()) {
+            // 载荷为 null 只可能来自替换实现/测试替身，同样按「结果未知」处理。
+            plugin.getLogger().warning("Skipped daily word-challenge assignment for " + playerId
+                    + " on " + today + ": the read of already-assigned words FAILED, so"
+                    + " \"not assigned yet\" cannot be distinguished from \"assignment unknown\"."
+                    + " Assigning now would risk doubling today's challenge set (and make the"
+                    + " all-done reward unreachable). Will retry on the next check.");
+            return;
+        }
+        List<String> existing = existingLoad.words();
         if (!existing.isEmpty()) return;
 
         // Needs assignment — pick random words from WordBank
@@ -612,9 +748,24 @@ public class DailyChallengeManager {
             selectedIds.add(allWords.get(i).getEnglish().toLowerCase());
         }
 
-        plugin.getDatabaseManager().assignDailyChallengeWords(playerId, today, selectedIds);
-        plugin.getLogger().info("Assigned " + selectedIds.size()
-                + " daily challenge words to player " + playerId);
+        // R11：assignDailyChallengeWords 现在返回成败。原实现后面无条件打 "Assigned N …"，
+        // 于是「写库失败」与「已分配」同时出现在日志里 —— 而挑战词是当日单词挑战的前提，
+        // 没写进去玩家当天就没有挑战可做（每答对一题都会再空回查一次）。
+        // 失败时只记 SEVERE 说明后果，<b>不再说 Assigned</b>。
+        //
+        // 内存态：本方法不写任何"已分配"标记 —— 唯一的分配快照缓存
+        // （dailyWordStateCache / DailyWordChallengeState.noWordsAssigned）由
+        // getOrLoadWordState 在"空集"时<b>刻意不落缓存</b>（见该方法的 javadoc），
+        // 而本方法的入口判据每次都是一条新的 loadDailyChallengeWords SELECT。
+        // 因此失败无需额外清理，下一次调用自然会重试分配 —— 无需新增抑制位。
+        if (plugin.getDatabaseManager().assignDailyChallengeWords(playerId, today, selectedIds)) {
+            plugin.getLogger().info("Assigned " + selectedIds.size()
+                    + " daily challenge words to player " + playerId);
+        } else {
+            plugin.getLogger().severe("FAILED to assign " + selectedIds.size()
+                    + " daily challenge words to player " + playerId + " for " + today
+                    + " — this player has NO word challenge today until a later attempt succeeds.");
+        }
     }
 
     /**
@@ -636,8 +787,26 @@ public class DailyChallengeManager {
         String today = LocalDate.now().toString();
         String wordId = word.getEnglish().toLowerCase();
 
+        // R11：先把上一笔"钱已发、台账没写进去"的日期补上 —— 必须在
+        // hasPendingWordReward 之前，这样补写成功的日期立刻能被 DB 台账命中，
+        // 不会在同一次登录里又发一遍。稳态下这是一次 map miss，零开销。
+        retryPendingClaimLedgerWrites(playerId);
+
         // R7-B ③：一次加载、当日复用（挑战词集合 / 已完成集合 / 台账位）。
         DailyWordChallengeState state = getOrLoadWordState(playerId, today);
+
+        // R-16（round16 F-D4 #1）：读失败 → 三份数据全部未知。此处直接 return，<b>刻意</b>
+        // 连 hasPendingWordReward 都不进：
+        //   · 它内部的 isDailyWordRewardClaimed 会自己回查 DB 台账（那一路的口径不变），
+        //     但随后要读 state.rewardPaid / state.allCompleted() —— 两者在 unreadable 下都是
+        //     "猜出来的值"，拿它决定"是否补发奖励"就是拿未知当事实；
+        //   · 本词这次不落库也没关系：markDailyChallengeWordComplete 是幂等 UPDATE
+        //     （completed = FALSE 才影响 1 行），玩家再答对同一个词会重新走到这里，
+        //     届时若读成功就正常标记。方向是「推迟」而不是「少标 / 多发」。
+        // getOrLoadWordState 已留 WARNING，重试点就是下一次答对。
+        if (state.unreadable) {
+            return;
+        }
 
         // M12: pending-payout retry — all words done but money never arrived.
         // Must run before the challenge-words membership check: retry answers may
@@ -750,7 +919,7 @@ public class DailyChallengeManager {
      * <p>故障链（多服共享 MySQL）：A 服完成第 1/5 词写 DB → B 服此前已加载快照
      * （{@code completedWords={}}）并缓存 → 玩家在 B 服答完剩余词，B 的缓存
      * {@code size < 5} → {@code allCompleted()} false → <b>不发奖</b>，而 DB 侧已是
-     * 5/5（{@code isDailyChallengeWordsCompleted}）。HEAD 版每题都查 DB COUNT，不存在
+     * 5/5（三态 {@code loadWordChallengeCompletion} 的 {@code COMPLETED}）。HEAD 版每题都查 DB COUNT，不存在
      * 这个背离 —— 这是 R7-B 缓存引入的回归。</p>
      *
      * <p><strong>为什么不能只查"差一个词"的边界</strong>：跨服可补的缺口不一定是 1。
@@ -777,7 +946,21 @@ public class DailyChallengeManager {
         if (state.completedConfirmedByDb) {
             return true;
         }
-        boolean done = plugin.getDatabaseManager().isDailyChallengeWordsCompleted(playerId, today);
+        // R12-F8：原调用两态版 {@code isDailyChallengeWordsCompleted}（该方法已删除）。
+        // 这里显式写出折叠语义，绝不隐式依赖一个"看起来像布尔事实"的返回值：
+        //   · COMPLETED     → 确认全完成，置位缓存并放行发奖；
+        //   · NOT_COMPLETED → 业务事实「没做完」，本轮不发奖（正确）；
+        //   · READ_FAILED   → 结果<b>未知</b>。本方法的调用点都在「缓存说没完成」之后，
+        //     方向是「不发奖 = 推迟」而非「少发」：pending 未被标记、缓存未推进，
+        //     下一次任意答对会重新复核（见 onWordCorrect 的重试豆）。若哪天要在
+        //     "决定是否放弃发放"的路径上用本方法，必须先重新审视 READ_FAILED 分支 ——
+        //     那时正确的处置是保留 pending（照 hasPendingWordRewardForDate 的范式），
+        //     不是返回 false。
+        DatabaseManager.WordChallengeCompletion completion =
+                plugin.getDatabaseManager().loadWordChallengeCompletion(playerId, today);
+        // null 只可能来自替换实现/测试替身（生产实现的三态永不返回 null）——
+        // 与 readWordChallengeCompletionWithRetry 同口径，按「未知」处理，不猜成完成。
+        boolean done = completion == DatabaseManager.WordChallengeCompletion.COMPLETED;
         if (done) {
             state.completedConfirmedByDb = true;
         }
@@ -795,16 +978,49 @@ public class DailyChallengeManager {
      * 自身的重试路径）。若把空集缓存一整天，当日后续分配出的挑战词将永远无法被标记完成
      * —— 故空快照只返回临时对象、不落缓存，与改造前"每题回查一次"的行为一致。</p>
      *
+     * <p><strong>R-16（round16 F-D4 #1）：读失败必须自成一态，且同样不落缓存。</strong>
+     * 旧实现在这里只判 {@code fresh.noWordsAssigned} —— 而读失败的空集会让它恒真，于是
+     * 调用方看到的是"今日无挑战词"。现在数据层把 {@code readFailed} 明确带上来，本方法
+     * 用 {@link DailyWordChallengeState#unreadable} 占位：
+     * <ul>
+     *   <li>不落缓存 —— 读失败是瞬时故障，缓一整天等于整天看不见真实挑战词；</li>
+     *   <li>置 {@code unreadable} —— {@link #onWordCorrect} 等路径据此短路，不拿空集合
+     *       当"没分配/没完成"（折叠方向必须是「推迟」而不是「当成未完成」）；</li>
+     *   <li>留一条 WARNING —— 与 {@code ensureWordChallengesAssignedLocked} 的读失败
+     *       告警同口径，是本路径唯一可观测信号。</li>
+     * </ul>
+     *
+     * <p>为什么<b>不</b>把 {@code rewardPaid} 的读失败也折进 {@code readFailed}：
+     * 那一路"按未付处理"是 {@code isDailyWordRewardClaimed} 刻意保留的口径，且
+     * {@link #hasPendingWordReward} 在缓存未命中时会再补一次 DB 回查兜底 —— 折进来会让
+     * 一次台账抖动把整份挑战词集合判成不可信，反而更糟。</p>
+     *
      * @param playerId 玩家
      * @param today    {@code yyyy-MM-dd}
-     * @return 当日缓存（或一次性临时对象）
+     * @return 当日缓存（或一次性临时对象；读失败时 {@code unreadable=true}）
      */
     private DailyWordChallengeState getOrLoadWordState(UUID playerId, String today) {
         DailyWordChallengeState cached = dailyWordStateCache.get(playerId);
         if (cached != null && cached.date.equals(today)) {
             return cached;
         }
-        var snapshot = plugin.getDatabaseManager().loadWordChallengeSnapshot(playerId, today);
+        DatabaseManager.WordChallengeSnapshotLoad load =
+                plugin.getDatabaseManager().loadWordChallengeSnapshot(playerId, today);
+        // 载荷为 null 只可能来自替换实现/测试替身（生产实现的三态永不返回 null）——
+        // 与 ensureWordChallengesAssignedLocked / readWordChallengeCompletionWithRetry
+        // 同口径，按「结果未知」处理，绝不猜成"今天没词"。
+        if (load == null || load.readFailed()) {
+            plugin.getLogger().warning("Daily word-challenge snapshot for " + playerId + " on "
+                    + today + " is UNKNOWN (the read FAILED) — discarded instead of cached, and"
+                    + " the empty/partial word set is NOT treated as \"nothing assigned today\"."
+                    + " Two things this prevents: (a) a half-read set cached as the day's real"
+                    + " set, which would make allCompleted() compare against a too-small total"
+                    + " and pay the reward early; (b) \"could not read\" being answered as"
+                    + " \"not assigned / not completed\". Will retry on the next correct answer.");
+            dailyWordStateCache.remove(playerId);
+            return DailyWordChallengeState.unreadable(today);
+        }
+        DatabaseManager.WordChallengeSnapshot snapshot = load.snapshot();
         DailyWordChallengeState fresh = new DailyWordChallengeState(
                 today, snapshot.words(), snapshot.completedWords(), snapshot.rewardPaid());
         if (fresh.noWordsAssigned) {
@@ -861,6 +1077,11 @@ public class DailyChallengeManager {
     public void resetPlayer(UUID playerId) {
         dailyWordStateCache.remove(playerId);
         wordChallengeClaimedDates.remove(playerId);
+        // R11：<b>必须</b>连"失败待补写"一起清 —— reset 已经删掉
+        // daily_word_reward_claims 里该玩家的行（见方法 javadoc），若保留补写登记，
+        // 下一次答对会把刚删掉的"已付"重新插回去，玩家当天刷满词挑战也领不到奖 ——
+        // 正是本方法 javadoc 描述的那个缺陷换个位置复发。
+        pendingClaimLedgerWrites.remove(playerId);
     }
 
     /**
@@ -957,7 +1178,12 @@ public class DailyChallengeManager {
         UUID playerId = player.getUniqueId();
         double reward = getWordChallengeReward();
 
-        if (!depositWordChallengeReward(player, playerId, reward)) {
+        // R-16：面值 + 实发额一起带下来。过去这里只拿到 boolean，于是下面所有出口
+        // 都只能拿面值 reward 渲染 —— 日限截断时（默认 cap 500，玩家今天已得 480）
+        // 实发 0.20 却播报「+100 金币」，同一行台账还被标成「已领」，剩下的 80
+        // 永久不可追回（本缺陷的第二个案发点）。
+        RewardEngine.CappedPayout payout = depositWordChallengeReward(player, playerId, reward);
+        if (payout.paid() <= 0) {
             // R-44 对齐（与 LearnCommand /le challenge 同语义）：区分两种发币失败。
             // MC-2（S-H）：改走 RewardEngine.isMoneyEnabled()（单一真相收口）——
             // "关奖励伞"（rewards.enabled=false）与"关 money 键"任一 false 均判为
@@ -970,38 +1196,162 @@ public class DailyChallengeManager {
                 // 修复批 A（R10-H1）：终态同样写 DB 标记 —— 防重启后内存清空、
                 // 每答对一题重复刷 economy-disabled 提示。
                 // L18：内存位按 claimDate 记录（rollover 补发传昨日，不能连今日一起标）。
+                // R11：台账写失败时内存位照旧标记（否则每次答对都重刷一遍提示），
+                // 另外登记待补写 + SEVERE —— 见 persistWordRewardClaim。
                 markWordChallengeClaimedOn(playerId, claimDate);
-                plugin.getDatabaseManager().markDailyWordRewardClaimed(playerId, claimDate);
+                persistWordRewardClaim(playerId, claimDate);
                 syncCachedRewardPaid(playerId, claimDate); // R7-B ③：台账写后同步缓存
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "daily-challenge.economy-disabled"));
                 return;
             }
             // Vault 瞬时失败 / 超 cap：保留 pending 可重试语义，不标记已领。
+            // R-16：报的仍是**面值**——一分钱没发时不存在"实发额"；"未丢失"指这
+            // 笔面额仍挂在该日 pending 上可重试。顺手去掉 `(int)` 截断。
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                    "daily-challenge.reward-pending", "reward", String.valueOf((int) reward)));
+                    "daily-challenge.reward-pending", "reward", payout.nominalText()));
             return;
         }
 
         // Success: mark claimed only after money arrived.
-        // 修复批 A（R10-H1）：DB 台账同步标记（SQLException 静默降级记 WARNING，不阻断庆祝）。
+        // 修复批 A（R10-H1）：DB 台账同步标记。
         // L18：内存位按 claimDate 记录 —— rollover 补发传昨日，只标昨日。
+        // R11：台账写失败不再静默 —— persistWordRewardClaim 记 SEVERE 并登记补写。
+        // 刻意<b>不回滚</b>已发出的钱：失败方向是「多给」（重启后可能同日再发一次），
+        // 回滚会把它翻成「玩家答对了拿不到奖励」，那是更严重的体验倒退。
+        //
+        // R-16 裁决（单词挑战，整日一次）：<b>截断也照常收盘，但如实报实发额</b>。
+        // 为什么不在截断时保留 pending 等明天补（选项 b）—— 逐条否决：
+        //   ① 补发路径发的是<b>整个面值</b>而非"剩下的 80"：rollover 的
+        //      hasPendingWordRewardForDate → onAllWordChallengesComplete 再走一遍
+        //      getWordChallengeReward() 全额 100。玩家手里已留 0.20，于是总额变成
+        //      100.20 —— 把"少发"翻成"多发"，且与台账（该日仅一行）对不上账。
+        //   ② 当日刷屏：未收盘时 hasPendingWordReward 在<b>每次</b>答对都触发补发尝试，
+        //      而 cap 当天已饱和 → paid 恒 0 → 每答对一题一条 reward-pending。
+        //   ③ 隔天可能永久滞留：rollover 补发只遍历<b>在线</b>玩家（见本类
+        //      hasPendingWordRewardForDate 的 javadoc）。玩家若不在那次午夜在线，
+        //      昨日那行再没有任何其它回访点 → 永久 pending（正是 M12/R31 反复强调
+        //      的反面：pending 只在"重试真的能拿到钱"时才是善意）。
+        // 而"收盘 + 说实话"三条都不成立：台账干净、玩家立刻知道实发多少、且
+        // ChallengeCompleteGUI 早已改成显示<b>面值</b>并撤回"已到账"承诺（slice-13-F5），
+        // 与这里同一口径。故：收盘，用 daily.reward-capped 明示"实发 X（应发 Y）"。
         markWordChallengeClaimedOn(playerId, claimDate);
-        plugin.getDatabaseManager().markDailyWordRewardClaimed(playerId, claimDate);
+        persistWordRewardClaim(playerId, claimDate);
         syncCachedRewardPaid(playerId, claimDate); // R7-B ③：台账写后同步缓存
+
+        // R-16：先报截断实情（若有），再播庆祝。原子仍用 daily-challenge.all-complete，
+        // 但 {reward} 换成**实发额** —— 这是本缺陷的正面修复：报给玩家的数字与
+        // 真正落账的数字必须同源。
+        if (payout.capped()) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "daily.reward-capped",
+                    "paid", payout.paidText(),
+                    "nominal", payout.nominalText()));
+        }
 
         // Send celebration message
         String lang = plugin.getPlayerLanguage(player);
         var msgs = plugin.getConfigManager().getMessageConfig(lang);
         String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(msgs, "daily-challenge.all-complete")
-                        .replace("{reward}", String.valueOf((int) reward)));
+                        .replace("{reward}", payout.paidText()));
         player.sendMessage(msg);
 
         // FIX-CHAL-01 去强制化：不再自动弹庆祝 GUI（玩家可能在决斗/看别的界面），
         // 改为聊天提醒，玩家按需用 /le challenge 重开庆祝页。
         player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                 "daily-challenge.reopen-hint"));
+    }
+
+    /**
+     * R11：写"某日已付"DB 台账，<b>失败可见</b>，并登记待补写。
+     *
+     * <p><b>失败方向必须先说清</b>：本方法只在<b>钱已经发出去之后</b>被调用
+     * （{@link #onAllWordChallengesComplete} 的两条出口：Vault 到账成功 / 经济开关
+     * 永久关闭的终态）。所以台账写失败<b>不会</b>让玩家少拿 —— 它让"已付"这件事
+     * 在重启后消失，DB 台账查不到 + 挑战词仍是"全完成" → 同一天<b>再发一次</b>。
+     * 方向是「多给」，是真实的经济损失，但比「玩家白干」轻。
+     *
+     * <p><b>刻意不做的事：不回滚已发的钱。</b>回滚要么反向扣款（对玩家可见的资产变动、
+     * 且扣款本身也可能失败），要么"台账写失败就当没发"（下次答对再发 → 变成重复发）。
+     * 两条都比"多给一次"更糟。所以这里的处置只有三条：
+     * <ol>
+     *   <li>记一条 <b>SEVERE</b>（{@link DatabaseManager#markDailyWordRewardClaimed} 的
+     *       WARNING 附堆栈只是数据层现场；SEVERE 这一条带玩家与日期，并明写"重启后可能
+     *       同日重复发放"，是唯一跨重启的线索）；</li>
+     *   <li>把 {@code claimDate} 登记进 {@link #pendingClaimLedgerWrites} —— 数据库恢复后
+     *       玩家下一次答对（任意词）或下次发奖即补写，窗口在重启前大多能闭合；</li>
+     *   <li>内存位照旧标记（调用方做），所以本进程内不会重复发。</li>
+     * </ol>
+     *
+     * <p>补写用同一个 {@code INSERT OR IGNORE} / {@code INSERT IGNORE} 方法 —— 幂等，
+     * 重复写影响 0 行，绝不会把"未付"写成"已付"之外的任何副作用。
+     *
+     * @param playerId  玩家
+     * @param claimDate 本次发放归属的挑战日 {@code yyyy-MM-dd}
+     * @return true = 台账已确认落库（含"原本就存在"）；false = 写失败，已登记待补写
+     */
+    private boolean persistWordRewardClaim(UUID playerId, String claimDate) {
+        boolean written;
+        try {
+            written = plugin.getDatabaseManager().markDailyWordRewardClaimed(playerId, claimDate);
+        } catch (RuntimeException e) {
+            // 连接层故障（{@code getConnection()} 抛未检查异常）不是 SQLException，
+            // 数据层接不到它。这里必须自己接：否则异常会从发奖路径逃出去，
+            // 让玩家收到庆祝消息之前就断在半路（而钱已经到账）。
+            written = false;
+            plugin.getLogger().log(java.util.logging.Level.WARNING,
+                    "Reward ledger write threw for " + playerId + " / " + claimDate, e);
+        }
+        if (written) {
+            Set<String> pending = pendingClaimLedgerWrites.get(playerId);
+            if (pending != null) {
+                pending.remove(claimDate);
+                if (pending.isEmpty()) {
+                    pendingClaimLedgerWrites.remove(playerId, pending);
+                }
+            }
+            return true;
+        }
+
+        // 岗位 ②：登记补写（有界：每人每天最多 1 个日期，午夜 rollover 全清）。
+        pendingClaimLedgerWrites
+                .computeIfAbsent(playerId, k -> ConcurrentHashMap.newKeySet())
+                .add(claimDate);
+        // 岗位 ①：SEVERE。文案里必须同时有"钱已发"与"重启后可能重复发放"两个事实 ——
+        // 运维据此判断是否需要人工补 INSERT，而不是去查"玩家是不是没拿到钱"。
+        plugin.getLogger().severe("Daily word challenge reward ledger write FAILED for "
+                + playerId + " / " + claimDate + " — the payout itself already succeeded"
+                + " (or was terminally marked economy-disabled), so NO retry of the money is"
+                + " needed. But this date is now missing from daily_word_reward_claims: if the"
+                + " server restarts before the ledger write succeeds, the same challenge day"
+                + " can pay out a SECOND time. A retry is queued and will be attempted on the"
+                + " player's next correct answer; manual fix if the player never answers again:"
+                + " INSERT OR IGNORE INTO " + plugin.getDatabaseManager().getTablePrefix()
+                + "daily_word_reward_claims (player_uuid, challenge_date) VALUES ('"
+                + playerId + "', '" + claimDate + "');");
+        return false;
+    }
+
+    /**
+     * R11：补写登记表里该玩家的全部台账行（{@link #persistWordRewardClaim} 的落实点）。
+     *
+     * <p>调用点有两个：{@link #onWordCorrect} 的入口（任意答对都试一次 —— 包括非挑战词，
+     * 因为 {@link #onWordCorrect} 的注释已明确"重试答案可能不在挑战词集合内"）与
+     * {@link #hasPendingWordRewardForDate} 的补发前。两处都不改变既有判定语义 ——
+     * 补写成功后登记表变空，下次调用是零开销的 map miss。
+     *
+     * @param playerId 玩家
+     */
+    private void retryPendingClaimLedgerWrites(UUID playerId) {
+        Set<String> pending = pendingClaimLedgerWrites.get(playerId);
+        if (pending == null || pending.isEmpty()) {
+            return;
+        }
+        // 拷贝后再遍历：persistWordRewardClaim 成功时会在同一集合上 remove。
+        for (String date : new ArrayList<>(pending)) {
+            persistWordRewardClaim(playerId, date);
+        }
     }
 
     /**
@@ -1029,17 +1379,22 @@ public class DailyChallengeManager {
      * and so coin stats are recorded inside the reward layer — this manager no longer
      * calls {@code DatabaseManager.recordCoinsEarned} directly (layering fix).
      *
+     * <p><b>R-16：返回 {@link RewardEngine.CappedPayout}，不再折叠成 boolean。</b>
+     * {@code paid() > 0} 与旧 boolean 完全等价（旧 {@code return paid > 0}），故两个
+     * 调用出口的分支判断不变；新增的是"实发多少"这一路信息，供文案报真数。
+     *
      * @param player the player
      * @param playerId the player UUID (kept for call-site symmetry)
-     * @param reward the reward amount
-     * @return true only if money actually arrived (Vault present, under cap, success)
+     * @param reward the nominal reward amount
+     * @return 面值 + 实发额（{@code paid() > 0} 才表示钱真的到了）
      */
-    private boolean depositWordChallengeReward(Player player, UUID playerId, double reward) {
+    private RewardEngine.CappedPayout depositWordChallengeReward(Player player, UUID playerId,
+                                                                double reward) {
         var eco = plugin.getEconomy();
         if (eco == null) {
             plugin.getLogger().warning("Word challenge reward of " + reward
                     + " for " + player.getName() + " held: Vault economy unavailable");
-            return false;
+            return new RewardEngine.CappedPayout(reward, 0);
         }
         // R-44 fan-in：money.enabled=false 时不发币、返回 false（走既有 reward-pending /
         // economy-disabled 语义，不标记已领、不静默吞）。depositCappedReward 本身不查此开关，
@@ -1047,10 +1402,10 @@ public class DailyChallengeManager {
         // MC-2（S-H）：改走 RewardEngine.isMoneyEnabled()（单一真相收口）—— 奖励伞
         // （progress-system.rewards.enabled）关闭时同样不发币。
         if (!plugin.getProgressManager().getRewardEngine().isMoneyEnabled()) {
-            return false;
+            return new RewardEngine.CappedPayout(reward, 0);
         }
         double paid = plugin.getProgressManager().getRewardEngine().depositCappedReward(player, reward);
-        return paid > 0;
+        return new RewardEngine.CappedPayout(reward, paid);
     }
 
     /**
@@ -1072,9 +1427,26 @@ public class DailyChallengeManager {
         ensureWordChallengesAssigned(playerId);
 
         // 刻意不走 R7-B ③ 的答对路径缓存：本方法是 GUI / 指令展示路径
-        // （调用频率低、要求"所见即库中真实状态"，且 getDailyChallengeWords 的顺序
+        // （调用频率低、要求"所见即库中真实状态"，且 loadDailyChallengeWords 的 words 顺序
         // 即展示顺序）。缓存只服务于 onWordCorrect 的高频去重，不扩散到读展示侧。
-        List<String> wordIds = plugin.getDatabaseManager().getDailyChallengeWords(playerId, today);
+        //
+        // A5/D3：这里<b>仍按空列表降级</b>，但那纯粹是展示面（下方每条会变成"待完成"），
+        // 不参与任何"是否分配/是否发奖"的判定 —— 那条判定在
+        // ensureWordChallengesAssignedLocked 里，已改成读失败不分配。
+        // 之所以不在这里抛（同仓库 DailyChallengeRepository.findTodayChallenges 的范式），
+        // 是因为本方法的两个调用方（GUI 的 openAsync / LearnCommand 的 /le challenge）
+        // 只有前者有 catch → daily.load-failed，后者会把异常直接抛到 Bukkit 命令层。
+        // 故这里选择"降级 + 一条能看出根因的日志"，把可观测性留在数据层与本方法的
+        // WARNING 上，而不改变命令层的异常契约。
+        DatabaseManager.DailyChallengeWordsLoad load =
+                plugin.getDatabaseManager().loadDailyChallengeWords(playerId, today);
+        if (load == null || load.readFailed()) {
+            plugin.getLogger().warning("Daily word-challenge details for " + playerId + " on "
+                    + today + " rendered EMPTY because the read FAILED — this is a display-only"
+                    + " degradation: nothing is assigned, paid or deleted based on it, and the"
+                    + " 'no challenges today' shape is not used for any decision here.");
+        }
+        List<String> wordIds = (load == null) ? List.of() : load.words();
         List<WordChallengeProgress> result = new ArrayList<>();
 
         for (String wordId : wordIds) {
@@ -1087,6 +1459,45 @@ public class DailyChallengeManager {
     private boolean checkSingleWordCompleted(UUID playerId, String date, String wordId) {
         // 无行/读失败均为 false（原实现 catch 块静默 ignore）。
         return repository.isWordCompleted(playerId, date, wordId);
+    }
+
+    /**
+     * A5/D2：读「该日是否全完成」的三态，<b>在 READ_FAILED 时有界重试</b>。
+     *
+     * <p>为什么值得重试而不是一次就放弃：{@code DatabaseManager.getConnection()} 在连接
+     * 关闭/自愈失败后，下一次调用会重新 {@code initialize()}，所以"再读一次"有真实成功
+     * 机会；而本方法只在午夜 rollover 的 per-player 循环里跑（每人每日期至多一次），
+     * 重试成本可忽略。退避在 {@code connectionLock} 之外（本方法不持锁），不阻塞他人。</p>
+     *
+     * <p>重试耗尽仍失败 → 返回 {@link DatabaseManager.WordChallengeCompletion#READ_FAILED}，
+     * 由调用方 {@link #hasPendingWordRewardForDate} 记 SEVERE 并<b>保留 pending</b>。</p>
+     */
+    private DatabaseManager.WordChallengeCompletion readWordChallengeCompletionWithRetry(
+            UUID playerId, String date) {
+        DatabaseManager.WordChallengeCompletion result =
+                DatabaseManager.WordChallengeCompletion.READ_FAILED;
+        for (int attempt = 1; attempt <= COMPLETION_READ_ATTEMPTS; attempt++) {
+            result = plugin.getDatabaseManager().loadWordChallengeCompletion(playerId, date);
+            // null 只可能来自替换实现/测试替身（生产实现的三态永不返回 null）——
+            // 按「未知」处理。绝不能落进下面"不是 FAILED、不是 NOT_COMPLETED ⇒ 全完成"
+            // 的默认分支：那会把一次读不到当成"全完成"并**多发一次钱**（失败方向从
+            // 「少发」翻成「多发」，与 A5 的整条修复方向相反）。
+            if (result == null) {
+                result = DatabaseManager.WordChallengeCompletion.READ_FAILED;
+            }
+            if (result != DatabaseManager.WordChallengeCompletion.READ_FAILED) {
+                return result;
+            }
+            if (attempt < COMPLETION_READ_ATTEMPTS) {
+                try {
+                    Thread.sleep(COMPLETION_READ_BACKOFF_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return DatabaseManager.WordChallengeCompletion.READ_FAILED;
+                }
+            }
+        }
+        return result;
     }
 
     /**
@@ -1108,6 +1519,11 @@ public class DailyChallengeManager {
     public void clearAllWordChallengeClaims() {
         wordChallengeClaimedDates.clear();
         dailyWordStateCache.clear();
+        // R11：失败待补写登记同样"全清"。理由：跨天后这些日期已不是"今天"，
+        // 补写它们的价值只剩"给未来的自己留一条已付记录"；而保住它们的代价是
+        // 补写逻辑要理解"哪天该补" —— 语义复杂度不值得。真发生了跨日写失败，
+        // SEVERE 日志已经是可追溯的现场（见 persistWordRewardClaim）。
+        pendingClaimLedgerWrites.clear();
     }
 
     /**
@@ -1145,6 +1561,9 @@ public class DailyChallengeManager {
      * @return true 仅当该日仍"已完成但未补发成功"（真正作废，用于作废提示）
      */
     public boolean hasPendingWordRewardForDate(UUID playerId, String date) {
+        // R11：先补写上一笔"钱已发、台账没写进去"的日期（含本 date 的可能性 ——
+        // 它若补写成功，紧接着的 DB 台账判定就能命中，不会重复补发）。
+        retryPendingClaimLedgerWrites(playerId);
         // L18：只认"该结算日"的已付标记。绝不能只问"这个玩家是否有任何已付记录"——
         // rollover 延迟时玩家可能已在同一进程内领过今日奖励，那与昨日是否已付无关。
         if (isWordChallengeClaimedOn(playerId, date)) {
@@ -1153,7 +1572,27 @@ public class DailyChallengeManager {
         if (plugin.getDatabaseManager().isDailyWordRewardClaimed(playerId, date)) {
             return false; // 该日已付（DB 真源；重启后内存清空亦不重复补发）
         }
-        if (!plugin.getDatabaseManager().isDailyChallengeWordsCompleted(playerId, date)) {
+        // A5/D2：三态 —— 「未全完成」与「读失败」不可同形。
+        // 旧实现走 boolean 版，读失败 → false → 这里 return false ＝「该日没有 pending」，
+        // 而<b>该日之后再无回访点</b>（hasPendingWordReward 只判今日状态）→
+        // 「昨日确实全完成、奖励还没发」这笔钱被一次 SELECT 抖动永久抹掉。
+        // 现有界重试（连接自愈通常在下次 getConnection() 即恢复），仍失败则：
+        //   · 记 SEVERE（运维唯一能看出"没发是因为读不到库"的现场）；
+        //   · 返回 true（仍算 pending / 作废），绝不谎报「无 pending」。
+        DatabaseManager.WordChallengeCompletion completion =
+                readWordChallengeCompletionWithRetry(playerId, date);
+        if (completion == DatabaseManager.WordChallengeCompletion.READ_FAILED) {
+            plugin.getLogger().severe("Word-challenge reward for " + playerId + " on " + date
+                    + " could NOT be settled: the completion query FAILED after "
+                    + COMPLETION_READ_ATTEMPTS + " attempts, so we do not know whether that"
+                    + " day's word challenges were all completed. This is NOT \"no pending"
+                    + " reward\" — treat it as an unresolved day. The reward is not paid out and"
+                    + " this day will not be revisited by the rollover (it only inspects the"
+                    + " current day). If the database is healthy again, the reward can still be"
+                    + " paid manually; if this log repeats, the database connection is broken.");
+            return true; // 保留 pending：不得因「读不到」而把该日判成「无 pending」
+        }
+        if (completion == DatabaseManager.WordChallengeCompletion.NOT_COMPLETED) {
             return false; // 未全完成，无 pending
         }
         // R-31：已完成但未付 —— 就地补发（rollover 循环中玩家在线）。

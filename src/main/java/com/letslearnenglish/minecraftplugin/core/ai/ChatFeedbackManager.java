@@ -14,11 +14,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 
@@ -74,7 +78,7 @@ public class ChatFeedbackManager {
 
     // ── L1（P1·关服丢数据）：在途落库 future 的登记表 + 收口闸 ──────────────────
     //
-    // 为什么必须自持这份登记表：落库走 CompletableFuture.runAsync(...)，底层是
+    // 为什么必须自持这份登记表：落库走 CompletableFuture.runAsync(...)，改动前底层是
     // ForkJoinPool.commonPool —— <b>不受</b> Paper 的 waitForAsyncTasksShutdown() 管辖
     // （那个只等 BukkitScheduler 的异步任务）。关服时序是
     //   disablePlugins() → setEnabled(false) → onDisable() → waitForAsyncTasksShutdown()
@@ -84,8 +88,50 @@ public class ChatFeedbackManager {
     // 且这个丢失发生在「玩家已经看到点评」之后，事后无法察觉。
     //
     // 修法：登记 → onDisable 里 flushPending 排空 → 排空期间仍允许执行。
+    //
+    // R-17 追加：执行器已从 commonPool 换成本类自持的有界池（{@link #DEFAULT_WRITE_EXECUTOR}）
+    // —— 但<b>这份登记表的必要性不变</b>：自持池同样不在 BukkitScheduler 的管辖内，
+    // 「关服不等它」这个前提对任何非 Bukkit 调度器的执行器都成立。登记表是那份管辖缺口
+    // 的唯一替代品。
     /** 在途落库 future（提交时登记、完成时移除）；key 为 future 自身，值无意义。 */
     private final Set<CompletableFuture<Void>> pendingWrites = ConcurrentHashMap.newKeySet();
+
+    // ── 失败补偿登记（RT·数值丢失路径）：落库失败 → 入队 → quit / 关服重放 ──────────
+    //
+    // <b>为什么不是把 {@link #pendingWrites} 改造成重试队列</b>：那个集合的语义是
+    // 「关服排空用的<b>在途</b> future 集合」—— 它的成员会随完成而消失，flushPending 靠
+    // 「集合变空」判定排空成功。若往里塞「已失败待重放」的条目，它们永远不会完成，
+    // flushPending 会永久超时并报「有 N 条残余」，排空语义当场被毁。所以补偿必须是
+    // <b>另一个</b>独立的登记表。
+    // <b>为什么必须有它</b>：{@link #writeTask} 的失败分支原来只记一条 WARNING —— 而
+    // {@link #persistAsync} 的 {@code whenComplete} 不区分 error，成功失败都从
+    // pendingWrites 里删掉，future 又以「正常完成」结算（writeTask 内部吞了异常），于是
+    // 一笔 AI 点评行就这么无声无息地永久丢失：玩家已经看到了点评，事后无从察觉、
+    // 也无法重算。形状照 {@code AchievementManager.pendingUnlockWrites}（同项目既有范式）。
+    //
+    // <b>R11 起登记覆盖两类失败</b>：SQL 失败（{@code upsertChatFeedback} 返回
+    // {@code false}）与运行期失败（{@code RuntimeException}）。上一轮只有后者 —— 因为
+    // 方法签名当时是 {@code void}，SQLException 被 data 层吞掉，本类根本看不见。
+    //
+    // <b>键的选法</b>：player → sessionId → 待写快照。
+    //   · 外层 player：重放触发点是 per-player 的 quit 与全服关服，外层按玩家分组才能
+    //     「一次摘走这个玩家的全部待补写」；
+    //   · 内层 sessionId：{@code ai_chat_feedback} 的业务主键就是
+    //     {@code UNIQUE(player_uuid, session_id)}。同一场只留<b>一条</b>待补写是刻意的——
+    //     同一场先写 {@code local} 再 UPSERT 覆写 {@code ai}，两者写的是同一行；后到的
+    //     {@code ai} 快照（含 payload）严格覆盖前者的语义，重放它即可完整复原该行，
+    //     重放两条只会白跑一次 UPSERT。
+    //
+    // <b>值只留最小快照</b>：不存 {@code SessionSummary} 本身 —— 它肚子里还挂着整场
+    // transcript，留在登记表里等于把整段对话钉在内存里。这里只保留 UPSERT 需要的 8 列。
+    /** 一次待重放的写：{@code SessionSummary} 的最小投影（8 列 + sessionId 兼作键）。 */
+    private record PendingFeedbackWrite(String sessionId, String scenarioKey, String difficultyKey,
+                                        int validInputs, int aiReplyCount, int durationSeconds,
+                                        String source, String payloadJson) { }
+
+    /** 落库失败待重放登记（player → sessionId → 快照）；稳态为空。 */
+    private final Map<UUID, Map<String, PendingFeedbackWrite>> pendingFeedbackWrites =
+            new ConcurrentHashMap<>();
 
     /**
      * 是否还接受新的落库任务（L1）。{@code false} 之后 {@link #persistAsync} /
@@ -100,7 +146,7 @@ public class ChatFeedbackManager {
      * <p><b>为什么必须有这个字段，而不能只靠 {@code accepting}</b>：
      * 字面上「flush 时先置 accepting=false 再 join，writeTask 守卫改成
      * {@code if (!accepting) return;}」看起来成立，实际会得到一个<b>假绿</b>的修复 ——
-     * 提交到 commonPool 但<b>尚未开始执行</b>的任务，一启动就读到 {@code accepting==false}
+     * 提交到执行器但<b>尚未开始执行</b>的任务，一启动就读到 {@code accepting==false}
      * 并立刻 return，future 随即以「正常完成」结算，于是 flush 报告「已排空」而数据
      * 全丢。<b>排空窗口内必须允许执行已提交的任务</b>，所以判据拆成两半：
      * 「现在还接不接新活」（{@code accepting}，提交点判定）与「这条已登记的任务还能不能
@@ -130,34 +176,112 @@ public class ChatFeedbackManager {
     /**
      * 落库任务的执行器（L1 可测试性缝隙）。
      *
-     * <p><b>生产值恒为 commonPool</b>（{@code CompletableFuture.runAsync(r, executor)} 的
-     * 默认执行器就是它，显式传与不传完全等价）——这个字段不改变任何运行时行为，它存在的
-     * 唯一目的是让测试能注入一个「提交了但不立刻执行」的执行器，从而构造出
-     * {@link #draining} 唯一存在的那个场景：<b>任务已登记、但还没开始跑</b>。
+     * <p><b>R-17：默认值不再是 {@code ForkJoinPool.commonPool}</b>。原注释的论证是
+     * 「{@code runAsync(r)} 的默认执行器就是 commonPool，显式传与不传完全等价」——
+     * 那句话在<b>改动前</b>成立，但现在正是要修的东西：commonPool 是<b>整个 JVM 共享</b>
+     * 的、并行度只有 {@code 核数 - 1}、且<b>不受</b> Paper 的 {@code waitForAsyncTasksShutdown()}
+     * 管辖（关服时要么被强杀丢数据、要么在插件 disable 后继续跑刷异常栈，见本类
+     * {@link #flushPending(long)} 与 {@code TtsManager:79} 同一条论证）。
+     * 现在默认值是本类<b>自持</b>的小池：有界队列 + 可辨认线程名 + daemon。
      *
-     * <p>为什么非要这个缝隙：{@code draining} 的作用是「排空窗口内放行已登记但未启动的
-     * 任务」。若测试让任务先跑起来再 flush（现有测试就是这样），写线程早已越过守卫，
-     * {@code draining} 取什么值都不影响结果 —— 于是删掉 {@code draining = true} 这一行，
-     * 测试依然全绿。那是假绿，不是守卫。
+     * <p><b>为什么这个池这么小（2 线程 / 64 容量）</b>：本类的任务只有一件事 ——
+     * 一条 {@code upsertChatFeedback} UPSERT（单行、走 {@code synchronized(connectionLock)}）。
+     * DB 访问在 {@code DatabaseManager} 里本来就是<b>全局串行</b>的，加线程不会提高吞吐，
+     * 只会多占连接等待队列；2 线程的用处是"一条卡在拿连接上时另一条还能推进"。
+     * 队列 64 足够吸收"关服前一瞬多个玩家同时 quit"的突发（每人至多 2 条：local + ai）。
+     * 容量刻意<b>不</b>开成无界：真排到 64 条说明 DB 已经严重阻塞，此时拒绝 + 记一次
+     * 拒绝计数（由 {@link #persistAsync} 的调用方转成失败补偿登记）比无限堆积更安全。
      *
-     * <p>包级可见 + 仅包级 setter：不污染公共 API。
-     *
-     * <p><b>C-P2-3（红队 C）：{@code volatile}</b>。生产路径从不调
-     * {@link #setWriteExecutor}，本字段恒为 {@code commonPool}；volatile 只为杜绝
-     * 「异步线程读到 null」的极端情形（构造期与注入期的可见性），零运行时代价。
+     * <p><b>保留 {@link #setWriteExecutor} 供测试注入</b>：现有用例靠它把任务"扣住不跑"
+     * 来覆盖 {@link #draining}（见 {@code ChatFeedbackShutdownFlushTest} 的 HoldingExecutor）。
+     * 该缝隙的语义不变，只是默认值换了。
      */
-    private volatile java.util.concurrent.Executor writeExecutor = java.util.concurrent.ForkJoinPool.commonPool();
+    private volatile java.util.concurrent.Executor writeExecutor = DEFAULT_WRITE_EXECUTOR;
+
+    /** R-17 拒绝计数：{@code writeExecutor} 拒绝掉的提交数（正常应为 0；非 0 是容量/D B 阻塞信号）。 */
+    private final AtomicLong rejectedWrites = new AtomicLong();
+
+    /**
+     * R-17：默认落库执行器 —— <b>静态共享</b>、有界、daemon、命名可辨认（{@code LLEP-FB-#}）。
+     *
+     * <p><b>为什么是静态共享</b>：本类的实例生命周期等于一次 {@code /lea reload}
+     * （{@code enableAll()} 每次全新建）。实例自持池会得到一个真实的线程泄漏面 ——
+     * 每 reload 一次留 2 个常驻线程与一个永不释放的队列，反复 reload 就是线性增长。
+     * 静态共享池与改动前的 {@code commonPool} 在"跨实例共享"这一点上同构，只是把它从
+     * JVM 全局收窄成本插件独占。
+     *
+     * <p><b>为什么不关它</b>：关服的正确收口是<b>排空</b>（{@link #flushPending(long)} 等
+     * 在途 future 结算），不是关池 —— 关池只会让已登记的任务变成"拒绝 + 永远不完成"，
+     * 反而让排空语义失真（排在 {@code pendingWrites} 里的 future 会永远达不到"已完成"）。
+     * 线程是 daemon，所以即便从没关过也不拖 JVM 退出。
+     *
+     * <p>线程数 2 / 容量 64 的推导见 {@link #writeExecutor} 字段注释的账。
+     */
+    private static final java.util.concurrent.Executor DEFAULT_WRITE_EXECUTOR = createDefaultWriteExecutor();
+
+    private static java.util.concurrent.Executor createDefaultWriteExecutor() {
+        AtomicInteger seq = new AtomicInteger();
+        return new ThreadPoolExecutor(2, 2, 30L, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(64),
+                r -> {
+                    Thread t = new Thread(r, "LLEP-FB-" + seq.incrementAndGet());
+                    t.setDaemon(true);
+                    return t;
+                },
+                // 拒绝不抛给调用方（见 submitWrite 的 catch）。
+                new ThreadPoolExecutor.AbortPolicy());
+    }
 
     public ChatFeedbackManager(LetsLearnEnglish plugin, AIChatManager aiChatManager) {
         this.plugin = plugin;
         this.aiChatManager = aiChatManager;
     }
 
-    /** 仅供测试注入执行器；传 {@code null} 回落 commonPool。 */
+    /**
+     * 仅供测试注入执行器；传 {@code null} 回落<b>本类自建的小池</b>
+     * （R-17 起不再回落 commonPool —— 那正是要修的缺陷）。
+     */
     void setWriteExecutor(java.util.concurrent.Executor executor) {
         this.writeExecutor = (executor == null)
-                ? java.util.concurrent.ForkJoinPool.commonPool()
+                ? DEFAULT_WRITE_EXECUTOR
                 : executor;
+    }
+
+    /**
+     * R-17：提交一条落库任务，把"执行器拒绝"收敛成一个<b>不抛</b>的返回值。
+     *
+     * <p>为什么必须包一层：JDK 21 实测 {@code CompletableFuture.runAsync(r, executor)}
+     * 在池已关停或队满时会<b>同步抛出</b> {@code RejectedExecutionException}（不是异步失败）。
+     * 而本类的提交点在 {@code quit} 事件处理链与关服排空窗口里 —— 让异常从那里冒出去，
+     * 会中断调用方的后续业务（同一坑见 {@code TtsManager:87}、以及 TtsManager 为此专门
+     * 加的 {@code closed} 闩）。
+     *
+     * <p>返回 {@code null} = 被拒绝（<b>任务没有进池</b>）。调用方据此把这条写转成
+     * 失败补偿登记 —— 拒绝不等于"数据没了"，它等价于"这次没写成功"，而补偿登记
+     * （{@link #rememberFailedWrite}）本来就是为"这次没写成功"设计的路径。
+     */
+    private CompletableFuture<Void> submitWrite(Runnable task) {
+        try {
+            return CompletableFuture.runAsync(task, writeExecutor);
+        } catch (RejectedExecutionException e) {
+            rejectedWrites.incrementAndGet();
+            return null;
+        }
+    }
+
+    /** R-17：{@link #submitWrite} 的链式版本（AI 覆写排在本地写之后）。 */
+    private CompletableFuture<Void> submitWriteAfter(CompletableFuture<Void> prerequisite, Runnable task) {
+        try {
+            return prerequisite.thenRunAsync(task, writeExecutor);
+        } catch (RejectedExecutionException e) {
+            rejectedWrites.incrementAndGet();
+            return null;
+        }
+    }
+
+    /** R-17：被拒绝的落库提交数（诊断/测试用；正常为 0）。 */
+    long rejectedWriteCount() {
+        return rejectedWrites.get();
     }
 
     // ============================================================
@@ -272,11 +396,14 @@ public class ChatFeedbackManager {
     private void handleSummaryResult(Player player, AIChatManager.SessionSummary summary,
                                      ConversationFeedback feedback, String errorKey,
                                      CompletableFuture<Void> localWrite) {
-        // R2-M3：玩家已开新会话 —— 上一场点评不显示（防串台）。仍照常落库：
+        // R2-M3：非最近会话的点评 —— 不显示（防串台）。仍照常落库：
         // 成功分支经 persistAfter 写 source=ai 行（数据不丢）；失败分支无库写，直接丢。
-        // 判据：上一场会话在 endConversation 时已从 sessions 移除，此处若仍有活跃
-        // 会话必然是新的（sessionId 必不同），等价实现"比对不匹配静默丢弃"。
-        if (aiChatManager.hasActiveConversation(player)) {
+        // L2 / R4-05-logic-F-L2：判据收口为<b>单一权威</b> {@link AIChatManager#isLatestSession} ——
+        // 旧判据「仍有活跃会话 且 该会话不是源会话」在「A 结束 → 开 B → B 也结束 → A 的
+        // 点评才到达」这条链上整体为假（B 已不在 sessions），A 的旧点评会被当作即时点评
+        // 渲染给刚结束 B 的玩家。isLatestSession 只看"最近一次开启的会话 id"，
+        // 与会话是否仍活跃无关：只有源会话就是最近会话时才允许走即时显示分支。
+        if (!aiChatManager.isLatestSession(player.getUniqueId(), summary.sessionId())) {
             if (errorKey == null && feedback != null) {
                 // R9：点评虽不显示（防串台），AI 花钱买来的纠错仍要回接学习闭环；
                 // notify=false —— 玩家已在新对话里，不再弹"已加入错题本"提示。
@@ -711,9 +838,22 @@ public class ChatFeedbackManager {
             if (!accepting) {
                 return CompletableFuture.completedFuture(null);
             }
-            CompletableFuture<Void> future =
-                    CompletableFuture.runAsync(writeTask(playerId, summary, source, payloadJson),
-                            writeExecutor);
+            Runnable task = writeTask(playerId, summary, source, payloadJson);
+            // R-17：经 submitWrite，执行器拒绝（队满）同样<b>不抛</b> —— 见该方法注释。
+            CompletableFuture<Void> future = submitWrite(task);
+            if (future == null) {
+                // 被拒绝 = 这次没写成功：走既有的失败补偿登记（退出时重放），
+                // 而不是把一条记录悄悄丢掉。**不进 pendingWrites** —— 它压根不在池里，
+                // 登记进去只会让 flushPending 等一个永远不执行的 future。
+                rememberFailedWrite(playerId, summary, source, payloadJson);
+                java.util.logging.Logger logger = loggerOrNull();
+                if (logger != null) {
+                    logger.warning("Chat feedback write rejected by the (bounded) write executor"
+                            + " for " + playerId + " / session " + summary.sessionId()
+                            + " (queue full); queued for retry at quit/shutdown.");
+                }
+                return CompletableFuture.completedFuture(null);
+            }
             pendingWrites.add(future);
             // whenComplete 在任务线程上跑，注册本身不阻塞；以 future 自身为 key 精确移除。
             future.whenComplete((ignored, error) -> pendingWrites.remove(future));
@@ -738,8 +878,20 @@ public class ChatFeedbackManager {
             if (!accepting) {
                 return;
             }
-            CompletableFuture<Void> chained = prerequisite.thenRunAsync(
-                    writeTask(playerId, summary, source, payloadJson), writeExecutor);
+            Runnable task = writeTask(playerId, summary, source, payloadJson);
+            // R-17：链式提交同样包一层（thenRunAsync 在池已关停/队满时也是同步抛）。
+            CompletableFuture<Void> chained = submitWriteAfter(prerequisite, task);
+            if (chained == null) {
+                // 与 persistAsync 同一条纪律：拒绝 → 失败补偿登记，不进 pendingWrites。
+                rememberFailedWrite(playerId, summary, source, payloadJson);
+                java.util.logging.Logger logger = loggerOrNull();
+                if (logger != null) {
+                    logger.warning("Chat feedback AI overwrite rejected by the (bounded) write"
+                            + " executor for " + playerId + " / session " + summary.sessionId()
+                            + " (queue full); queued for retry at quit/shutdown.");
+                }
+                return;
+            }
             pendingWrites.add(chained);
             chained.whenComplete((ignored, error) -> pendingWrites.remove(chained));
         }
@@ -749,9 +901,11 @@ public class ChatFeedbackManager {
      * L1（P1·关服丢数据）：排空所有在途落库任务，供 {@code LetsLearnEnglish.onDisable}
      * 在关闭 DatabaseManager <b>之前</b>调用。
      *
-     * <p>为什么需要：{@link #persistAsync} 走 {@code ForkJoinPool.commonPool}，
+     * <p>为什么需要：{@link #persistAsync} 走的是本类自持的执行器
+     * （R-17 起是 {@link #DEFAULT_WRITE_EXECUTOR}，改动前是 {@code ForkJoinPool.commonPool}），
      * 而 Paper 的 {@code waitForAsyncTasksShutdown()} 只等 BukkitScheduler 派发的异步任务
-     * —— commonPool 上的写任务不在它的管辖内。关服时若不等，这些写要么被
+     * —— 这条通道上的写任务<b>从来不在</b>它的管辖内（换执行器不改变这个前提）。
+     * 关服时若不等，这些写要么被
      * {@code plugin.isEnabled()} 守卫丢掉（本类原来的行为），要么撞上已关闭的连接。
      *
      * <p>语义细节：
@@ -799,10 +953,13 @@ public class ChatFeedbackManager {
         }
         try {
             if (pendingWrites.isEmpty()) {
-                return true;
+                // 无在途任务 —— 但仍可能有「上一次写失败、已登记待重放」的行，关服正是
+                // 最后的补救窗口（此刻 DB 尚未关闭，见调用方约束）。故不能直接 return true。
+                return replayAtTerminalExit();
             }
             if (timeoutMillis <= 0) {
-                return pendingWrites.isEmpty();
+                // 0 预算：不等在途，但同样要给补偿一次机会（重放是同步单行 UPSERT，不涉及等待）。
+                return pendingWrites.isEmpty() && replayAtTerminalExit();
             }
             long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
             // 循环而不是「一次 allOf(...).get(timeout)」：pendingWrites 是<b>成员会变</b>的活容器 ——
@@ -840,19 +997,22 @@ public class ChatFeedbackManager {
                 }
             }
             int pending = pendingWrites.size();
+            java.util.logging.Logger logger = loggerOrNull();
             if (pending > 0) {
                 // 超时不是 bug，是「DB 太慢 / 任务太多」的运维信号：记 WARNING 并带上剩余条数，
                 // 便于服主判断要不要调大 timeout。绝不抛异常 —— onDisable 没有上层可补救。
                 // logger 双重判空：本方法可能在 DI 半初始化时被调用，日志失败不能反过来打断关服。
-                java.util.logging.Logger logger = plugin != null ? plugin.getLogger() : null;
                 if (logger != null) {
                     logger.warning("Chat feedback flush timed out after "
                             + timeoutMillis + " ms with " + pending
                             + " write(s) still pending; they may be lost at shutdown.");
                 }
+                // 在途的还没结算，重放留待下一轮（此刻重放正确的行也掩盖不了在途的丢失风险）。
                 return false;
             }
-            return true;
+            // 在途已排空 —— 补偿重放是关服前<b>最后</b>一个能把失败行补进库的窗口
+            // （调用方保证此刻 DB 未关闭，见方法头 C-P2-4 的调用方约束）。
+            return replayAtTerminalExit();
         } finally {
             // 排空窗口结束：之后到 DB 关闭之间的残余任务一律拒绝（DB 已不可用，
             // 放行只会换来一屏 "database is closed"）。这里<b>不</b>重置 accepting ——
@@ -866,9 +1026,165 @@ public class ChatFeedbackManager {
         return pendingWrites.size();
     }
 
+    /** 待重放登记的总条数（诊断/测试用；稳态为 0 —— 成功路径一条都不该留下）。 */
+    int pendingRetryCount() {
+        int total = 0;
+        for (Map<String, PendingFeedbackWrite> perPlayer : pendingFeedbackWrites.values()) {
+            total += perPlayer.size();
+        }
+        return total;
+    }
+
+    // ============================================================
+    //  失败补偿：重放（quit / 关服两个出口共用）
+    // ============================================================
+
+    /**
+     * 重放<b>单个玩家</b>的全部待补写行（quit 出口；由 {@link #unloadPlayer} 调用）。
+     *
+     * <p><b>为什么先摘走再重放</b>（照 {@code AchievementManager.flushPendingUnlockWrites}）：
+     * {@code remove(playerId)} 是原子摘取，之后并发新登记会落进 {@code computeIfAbsent}
+     * 重建的新 map，不会被本次重放带走。若改成「遍历 map 再逐条 remove」，重放期间的
+     * 新失败登记会被下一次 {@code remove} 或 {@code clear} 顺手抹掉。
+     *
+     * <p>失败的行<b>必须回填</b>：重放本身也会失败（这正是它存在的理由），丢在这里等于
+     * 把「一次失败」升级成「两次失败 + 永久丢失」。回填后等下个 quit / reload / 关服再试
+     * （UPSERT 幂等，重复写同一行无害）。
+     */
+    private void replayPendingWrites(UUID playerId) {
+        if (playerId == null) {
+            return;
+        }
+        Map<String, PendingFeedbackWrite> pending = pendingFeedbackWrites.remove(playerId);
+        if (pending == null || pending.isEmpty()) {
+            return;
+        }
+        Map<String, PendingFeedbackWrite> failed = replayWrites(playerId, pending);
+        if (!failed.isEmpty()) {
+            // 剩余部分重新入队：先 computeIfAbsent 重建（若期间有新的并发登记，就是同一个 map），
+            // 再 putAll。用 putAll 而不是覆盖 put —— 并发新登记的快照不该被这批旧快照挤掉。
+            pendingFeedbackWrites
+                    .computeIfAbsent(playerId, k -> new ConcurrentHashMap<>())
+                    .putAll(failed);
+            java.util.logging.Logger logger = loggerOrNull();
+            if (logger != null) {
+                logger.warning("Chat feedback retry deferred: " + playerId
+                        + " (" + failed.size() + "/" + pending.size() + " row(s) will be retried"
+                        + " at the next quit or shutdown)");
+            }
+        }
+    }
+
+    /**
+     * 重放所有玩家的待补写（关服出口；由 {@link #flushPending} 调用）。
+     *
+     * <p>关服是<b>最后一次</b>机会，所以把登记表整个摘空后逐个重放 —— 但重放失败的
+     * 行仍照常回填（虽然进程即将退出，回填让「调用方再次 flush」与测试观察都能看到
+     * 残余，而不是假装成功）。返回 false 时调用方会看到 flush 未完全成功。
+     *
+     * @return true = 登记表最终为空（全部补写成功）；false = 仍有残余
+     */
+    private boolean replayAllPendingWrites() {
+        if (pendingFeedbackWrites.isEmpty()) {
+            return true;
+        }
+        // 快照键集后逐个走单玩家重放（复用同一条「摘走 → 重放 → 失败回填」逻辑，
+        // 避免两套实现各自漂移）。
+        for (UUID playerId : new java.util.HashSet<>(pendingFeedbackWrites.keySet())) {
+            replayPendingWrites(playerId);
+        }
+        return pendingFeedbackWrites.isEmpty();
+    }
+
+    /**
+     * 关服终局出口专用：尽力重放，然后把「确实补不上」的残留清掉并记一条损失日志。
+     *
+     * <p><b>为什么要在终局清空</b>：{@link #flushPending} 是 {@code onDisable} 调用的
+     * 最后一个出口（{@code LetsLearnEnglish:651}，位于关库之前）。走到这里仍失败的行
+     * <b>没有下一次重放</b> —— 本实例随后被置 null、DB 也即将关闭。留着它们有两种坏处：
+     * <ol>
+     *   <li>看起来像「还有救」：一个非空的登记表会让后来读代码/看诊断的人误以为
+     *       重放队列还在工作，而实际上再没有任何调用点会碰它。</li>
+     *   <li>内存卫生：实例虽会被丢弃，但热重载/诊断持有旧引用时这份登记会一直挂着。</li>
+     * </ol>
+     * 因此照 {@code AchievementManager.clearCache()} 的收尾姿态：把「丢了 N 条」变成一条
+     * 明确 WARNING（可观测），再清空。
+     *
+     * <p><b>注意这里与 quit 出口的区别</b>：{@link #replayPendingWrites} 失败时<b>必须
+     * 回填</b>（那个玩家下次 quit / 关服还能再试）；本方法失败则<b>不回填</b>（终局了，
+     * 回填只会留下一个永远没人消费的假队列）。
+     *
+     * @return true = 全部补写成功（登记表已空）；false = 有行永久丢失（已记日志）
+     */
+    private boolean replayAtTerminalExit() {
+        if (replayAllPendingWrites()) {
+            return true;
+        }
+        int lost = pendingRetryCount();
+        java.util.logging.Logger logger = loggerOrNull();
+        if (logger != null) {
+            logger.warning("Discarding " + lost + " chat feedback row(s) that still failed to"
+                    + " persist at shutdown; they are permanently lost.");
+        }
+        pendingFeedbackWrites.clear();
+        return false;
+    }
+
+    /**
+     * 逐行重放，返回<b>失败的部分</b>（空 map = 全部成功）。
+     *
+     * <p>逐行独立 try/catch：一行失败不该连坐同批其它行（它们可能是别的会话、甚至别的
+     * 玩家的数据）。异常口径与 {@code AchievementManager} 一致 —— 连接层故障
+     * （{@code RuntimeException}）也按「这一行失败」处理，不让它逃出重放循环。
+     *
+     * <p><b>R11：成败判据同时看返回值。</b>{@code upsertChatFeedback} 现在是
+     * {@code boolean}，纯 SQL 失败表现为<b>返回 false 而不是抛异常</b>（它内部
+     * {@code catch (SQLException)} 只记 WARNING）。只看 catch 会把这行当成功、从登记里
+     * 抹掉 —— 重放一次 SQL 抖动就把条目永久丢掉。因此 {@code false} 与异常同样回填。
+     *
+     * <p>复用 {@code upsertChatFeedback} 而非写入新 SQL：UPSERT 幂等，重放一条已经写成功
+     * 的行只会用<b>同样的值</b>覆盖一遍，不产生副作用。
+     *
+     * @return 失败待回填的行（保持插入序的 LinkedHashMap，便于日志/断言稳定）
+     */
+    private Map<String, PendingFeedbackWrite> replayWrites(
+            UUID playerId, Map<String, PendingFeedbackWrite> pending) {
+        Map<String, PendingFeedbackWrite> failed = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, PendingFeedbackWrite> entry : pending.entrySet()) {
+            PendingFeedbackWrite write = entry.getValue();
+            boolean persisted;
+            try {
+                persisted = plugin.getDatabaseManager().upsertChatFeedback(playerId, write.sessionId(),
+                        write.scenarioKey(), write.difficultyKey(),
+                        write.validInputs(), write.aiReplyCount(),
+                        write.durationSeconds(), write.source(), write.payloadJson());
+            } catch (Exception e) {
+                failed.put(entry.getKey(), write);
+                java.util.logging.Logger logger = loggerOrNull();
+                if (logger != null) {
+                    logger.log(Level.WARNING,
+                            "Failed to retry chat feedback for " + playerId
+                                    + " / session " + entry.getKey(), e);
+                }
+                continue;
+            }
+            if (!persisted) {
+                // R11：SQL 失败（返回 false）同样是「这次没补上」—— 不回填就等于把条目
+                // 悄悄丢掉。data 层已记过异常堆栈，这里不再重复打印。
+                failed.put(entry.getKey(), write);
+                java.util.logging.Logger logger = loggerOrNull();
+                if (logger != null) {
+                    logger.warning("Failed to retry chat feedback for " + playerId
+                            + " / session " + entry.getKey() + " (SQL write returned false)");
+                }
+            }
+        }
+        return failed;
+    }
+
     /**
      * 落库任务工厂（D2-4：persistAsync/persistAfter 两路径逐字去重）：
-     * accepting 守卫 + upsertChatFeedback 7 参 + WARNING 吞异常。
+     * accepting 守卫 + upsertChatFeedback 7 参 + 失败补偿。
      *
      * <p>每次调用返回新 Runnable 实例（无状态，但保守起见不跨 future 复用同一实例）。
      */
@@ -885,19 +1201,115 @@ public class ChatFeedbackManager {
             //   · 排空窗口内（draining）→ 放行已登记的任务，让 flush 真的能排空；
             //   · 常态 → 照常执行（即使 isEnabled() 已是 false）。
             if (!accepting && !draining) {
-                return;
+                return; // 主动拒绝：不是"写失败"，不该进补偿登记（DB 已关，重放也没意义）
             }
+            // <b>覆盖边界（R11 更新，诚实标注）</b>：现在两条失败面都进补偿登记，且<b>互斥</b>：
+            //   · ① SQL 失败 —— {@code upsertChatFeedback} 返回 {@code false}（它已记过带堆栈的
+            //     WARNING，现场留在 data 层）。这是本轮补上的那条：原方法签名是 {@code void}，
+            //     内部 {@code catch (SQLException)} 吞掉失败，本类的 catch 永远看不到它；
+            //   · ② 运行期失败 —— {@code catch (Exception)} 一族（DI 未完成导致
+            //     {@code getDatabaseManager()} 为 null、连接层运行期异常、代理替身
+            //     {@code DatabaseManager.UNAVAILABLE} 在 prepareStatement 处抛出的包装等）。
+            // 一个 try 块里「返回 false」与「抛异常」不可能同时发生，所以每条写最多登记一条。
+            //
+            // <b>顺序是硬要求：先补偿、后日志。</b>反过来写会得到一个真实的空转：
+            // {@code plugin.getLogger()} 在 DI 半初始化 / 单测未铺桩时是 null，
+            // 于是「记 WARNING」这一行自己抛 NPE，<b>补偿那行永远到不了</b> ——
+            // 异常还会从 catch 块逃出去，让 future 以异常完成、污染 flushPending 的
+            // 排空判定。补偿是主功能，日志是可观测性，二者绝不能倒挂。
+            boolean persisted;
             try {
-                plugin.getDatabaseManager().upsertChatFeedback(playerId, summary.sessionId(),
+                persisted = plugin.getDatabaseManager().upsertChatFeedback(playerId, summary.sessionId(),
                         summary.scenarioKey(), summary.difficultyKey(),
                         summary.validInputs(), summary.aiReplyCount(),
                         (int) summary.durationSeconds(), source, payloadJson);
             } catch (Exception e) {
-                // L2：带异常对象，保留类型与堆栈（原来只有 getMessage()）。
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to persist chat feedback for " + playerId, e);
+                // 运行期失败面（见上）。刻意保持 {@code catch (Exception)} 而非收窄成
+                // {@code RuntimeException}：与原实现逐字一致，不引入行为变化。
+                rememberFailedWrite(playerId, summary, source, payloadJson);
+                java.util.logging.Logger logger = loggerOrNull();
+                if (logger != null) {
+                    // L2：带异常对象，保留类型与堆栈（原来只有 getMessage()）。
+                    logger.log(Level.WARNING,
+                            "Failed to persist chat feedback for " + playerId, e);
+                }
+                return;
+            }
+            if (!persisted) {
+                // SQL 失败：data 层已记过 WARNING（含堆栈），这里只补一条「已登记等重放」的
+                // 语义标记，不再重复打印异常（堆栈只该出现一次）。
+                rememberFailedWrite(playerId, summary, source, payloadJson);
+                java.util.logging.Logger logger = loggerOrNull();
+                if (logger != null) {
+                    logger.warning("Failed to persist chat feedback for " + playerId
+                            + " (SQL write returned false; queued for retry at quit/shutdown)");
+                }
             }
         };
+    }
+
+    /**
+     * 日志门面兜底：{@code plugin} 或其 {@code getLogger()} 不可用时返回 {@code null}，
+     * 调用方据此跳过日志。
+     *
+     * <p><b>为什么要有这个方法</b>：本类有一批路径跑在「DI 半初始化」「关服收尾」「单测」
+     * 三种 plugin 不完整的状态下。这些路径里 {@code plugin.getLogger()} 可能是 null，
+     * 若直接链式调用，一次「打不了日志」就会升级成「补偿/重放整段被跳过 + 异常外逃」。
+     * 可观测性永远不该拥有否决主逻辑的权利。
+     */
+    private java.util.logging.Logger loggerOrNull() {
+        if (plugin == null) {
+            return null;
+        }
+        try {
+            return plugin.getLogger();
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /**
+     * 失败补偿：把一次写失败登记为「待重放」。
+     *
+     * <p>线程：由 {@link #writeTask} 在落库线程上调用，注册表是 {@link ConcurrentHashMap}，
+     * 无需额外同步。同 (player, session) 的旧快照被新快照无条件覆盖 —— 见
+     * {@link #pendingFeedbackWrites} 字段说明里的「内层 sessionId」逐条论证。
+     *
+     * <p>各异常路径全部兜住：本方法位于 {@code writeTask} 的 {@code catch} 块内，
+     * 再抛出去会让 future 以异常完成，把「补偿」变成「污染排空语义」（flushPending 的
+     * allOf 会收到 ExecutionException）。宁可丢一条待补写，也不能破坏排空链。
+     */
+    private void rememberFailedWrite(UUID playerId, AIChatManager.SessionSummary summary,
+                                     String source, String payloadJson) {
+        if (playerId == null || summary == null) {
+            return;
+        }
+        String sessionId = summary.sessionId();
+        if (sessionId == null) {
+            // 无法作为登记键（ConcurrentHashMap 不接受 null 键），且 UPSERT 的业务主键
+            // 本身就是 session_id —— 没有它连"重放哪一行"都无从谈起。这在本类不可达
+            // （sessionId 由 AIChatManager 建会话时生成），故只记一条日志、不登记。
+            java.util.logging.Logger logger = loggerOrNull();
+            if (logger != null) {
+                logger.warning("Chat feedback write failed for " + playerId
+                        + " with a null session id; cannot register it for retry.");
+            }
+            return;
+        }
+        try {
+            pendingFeedbackWrites
+                    .computeIfAbsent(playerId, k -> new ConcurrentHashMap<>())
+                    .put(sessionId, new PendingFeedbackWrite(sessionId,
+                            summary.scenarioKey(), summary.difficultyKey(),
+                            summary.validInputs(), summary.aiReplyCount(),
+                            (int) summary.durationSeconds(), source, payloadJson));
+        } catch (RuntimeException e) {
+            java.util.logging.Logger logger = loggerOrNull();
+            if (logger != null) {
+                logger.log(Level.WARNING,
+                        "Failed to register chat feedback for retry: " + playerId, e);
+            }
+        }
     }
 
     /** 读单行反馈（GUI 详情页用；有界索引查询——UNIQUE(player_uuid, session_id) 天然覆盖）。 */
@@ -912,11 +1324,17 @@ public class ChatFeedbackManager {
      * quit 生命周期钩（清本类自持的 per-player 状态：R9 的"下一场建议目标词"）。
      * 由 {@code PlayerJoinListener.onPlayerQuit} 调用；卡在点评回调前下线时条目自然丢弃
      * （玩家已离线，下一场注入也无意义）。
+     *
+     * <p><b>失败补偿的 quit 出口</b>：清个人状态<b>之前</b>先重放该玩家的待补写行
+     * （照 {@code AchievementManager.unloadPlayer} 的「先重放、后清缓存，否则内存与待补写
+     * 一起被清 = 永久丢失」）。顺序是硬要求 —— 反过来会先把登记抹掉再谈重放，
+     * 重放的对象都不存在了。
      */
     public void unloadPlayer(UUID playerId) {
         if (playerId == null) {
             return;
         }
+        replayPendingWrites(playerId);
         suggestedFocusWords.remove(playerId);
     }
 

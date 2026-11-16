@@ -161,6 +161,13 @@ public class WordBankValidator {
                 }
             }
 
+            // 导入端对该键做无守卫 (String) 强转且无 try：difficulty: 5 过校验后 CCE。
+            Object perWordDiff = wordData.get("difficulty");
+            if (perWordDiff != null && !(perWordDiff instanceof String)) {
+                errors.add(prefix + ": 'difficulty' must be a String if present, but got: "
+                        + perWordDiff.getClass().getSimpleName());
+            }
+
             // Optional: difficulty_level (Number if present)
             Object diffObj = wordData.get("difficulty_level");
             if (diffObj != null && !(diffObj instanceof Number)) {

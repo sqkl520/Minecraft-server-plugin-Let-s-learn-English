@@ -5,6 +5,7 @@ import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import com.letslearnenglish.minecraftplugin.core.achievement.AchievementManager;
 import com.letslearnenglish.minecraftplugin.core.onboarding.OnboardingManager;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import net.milkbowl.vault.economy.Economy;
 import org.bukkit.Bukkit;
@@ -403,6 +404,11 @@ class ProfileOpenAsyncTest {
             DatabaseManager db = mock(DatabaseManager.class);
             when(plugin.getDatabaseManager()).thenReturn(db);
             when(db.getDuelStats(TARGET_ID)).thenThrow(new RuntimeException("boom-duel"));
+            // R4-15-EH：三条回填全失败时 ProfileGUI 会提示玩家"数据没取到"而不是显示假 0。
+            // 该提示走 MessageUtil，mock 默认返回 null 会在拼接处 NPE，故这里给个空串实现。
+            MessageUtil messageUtil = mock(MessageUtil.class);
+            when(messageUtil.getPlayerMessage(any(), anyString(), any(String[].class))).thenReturn("");
+            when(plugin.getMessageUtil()).thenReturn(messageUtil);
 
             Harness harness = new Harness(false);
 

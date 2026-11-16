@@ -6,6 +6,8 @@ import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard;
 import com.letslearnenglish.minecraftplugin.core.progress.ProgressManagerImpl;
 import com.letslearnenglish.minecraftplugin.core.word.WordManagerImpl;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
+import com.letslearnenglish.minecraftplugin.util.MessageUtil;
+import java.util.logging.Logger;
 import com.letslearnenglish.minecraftplugin.data.DifficultWord;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
@@ -267,6 +269,17 @@ class GuiOpenIdentityTest {
             when(configManager.isWordSystemEnabled()).thenReturn(true);
             when(plugin.getPlayerDataStore()).thenReturn(dataStore);
             when(viewer.getUniqueId()).thenReturn(VIEWER_ID);
+            // R4-15-EH-01/02：WrongBookGUI 现在区分「读失败」与「确实没有错题」——
+            // 列表为空时会再问数据层「这次读到底成没成」（loadDifficultWords().readFailed()）。
+            // 本组三条用例走「数据层正常、列表为空」这条路径，故必须显式回一个
+            // readFailed=false 的 DifficultWordsLoad（mock 的 record 默认返回 null，会 NPE）。
+            DatabaseManager healthyDb = mock(DatabaseManager.class);
+            lenient().when(healthyDb.isConnectionHealthy()).thenReturn(true);
+            lenient().when(healthyDb.loadDifficultWords(any()))
+                    .thenReturn(new DatabaseManager.DifficultWordsLoad(List.of(), false));
+            lenient().when(plugin.getDatabaseManager()).thenReturn(healthyDb);
+            lenient().when(plugin.getMessageUtil()).thenReturn(mock(MessageUtil.class));
+            lenient().when(plugin.getLogger()).thenReturn(Logger.getLogger("GuiOpenIdentityTest"));
         }
 
         @Test

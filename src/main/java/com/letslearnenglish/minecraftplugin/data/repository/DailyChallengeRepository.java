@@ -32,11 +32,15 @@ import java.util.logging.Logger;
  * 本类不调用 {@code setAutoCommit}。</p>
  *
  * <p><strong>失败降级</strong>：读失败按原实现降级——{@code findState} 返回 {@code null}、
- * {@code findTodayChallenges} 返回已读到的行（异常在首行前即为空列表）、
  * {@code countUnclaimed} 返回 {@code 0}、{@code isWordCompleted} 返回 {@code false}
  * 且不记日志（原 {@code // ignore}）；{@link #countAssigned} 额外用 {@code -1} 区分
- * "读失败"与"未分配"。写失败只记 WARNING 不抛出——与原 {@code DailyChallengeManager}
- * 的异常语义逐条一致。</p>
+ * "读失败"与"未分配"。<b>例外：{@code findTodayChallenges}（round5 EH-12-03）读失败
+ * 抛出 {@link IllegalStateException}</b>，理由见其 javadoc——折叠成空列表会让 GUI
+ * 渲染"今天没有任务"的假空面板。写失败只记 WARNING、<b>不捕获 {@code RuntimeException}</b>——与原
+ * {@code DailyChallengeManager} 的异常语义逐条一致。<b>"不抛出"只覆盖 {@link SQLException}</b>：
+ * {@link DatabaseManager#getConnection()} 在连接不可用/重连失败时抛未检查的
+ * {@code RuntimeException}，本类<b>刻意不接</b>——它必须冒泡到调用方的失败分支，
+ * 否则"库挂了"会被渲染成"今天没有挑战"。全文所有"不抛出"均按此限定理解。</p>
  *
  * <p><strong>构造前置条件（R6-E）</strong>：{@link DatabaseManager#initialize()} 必须已执行完毕
  * （{@code LetsLearnEnglish} 在构造 {@code DailyChallengeManager} 之前已完成初始化）。
@@ -130,7 +134,8 @@ public class DailyChallengeRepository {
      *       COUNT 预检，本就不会撞键，此保护仅兜住并发窗口。</li>
      * </ul>
      *
-     * <p>写失败只记 WARNING，不抛出、不回滚（与原实现一致）。</p>
+     * <p>写失败只记 WARNING，不回滚（与原实现一致）；"不抛出"仅限 {@link SQLException}，
+     * 连接层 {@code RuntimeException} 刻意冒泡（见类 javadoc 的失败降级段）。</p>
      *
      * @param playerId     玩家
      * @param date         {@code yyyy-MM-dd}
@@ -173,8 +178,11 @@ public class DailyChallengeRepository {
      *
      * @param playerId 玩家
      * @param date     {@code yyyy-MM-dd}
-     * @return 行列表；<strong>读失败记 WARNING 并返回已收集到的行</strong>（与原实现
-     *         直接返回调用方那个 list 完全一致——异常发生在首行之前时即为空列表）
+     * @return 行列表；<strong>读失败抛 {@link IllegalStateException}（附带 SQLException 为 cause）</strong>。
+     *         绝不返回"已读到的部分"：把 SQL 失败折叠成空列表，会让 {@code DailyChallengeGUI}
+     *         渲染出一个"今天没有任务"的空面板（空态分支不存在），对玩家是事实性谎报。
+     *         调用方的失败分支（GUI 的 {@code daily.load-failed}）只挂在 {@code RuntimeException} 上，
+     *         因此失败必须以未检查异常冒泡。与 {@code ReportRepository} 的 {@code *OrFail} 同向。
      */
     public List<ChallengeRow> findTodayChallenges(UUID playerId, String date) {
         String sql = "SELECT challenge_id, progress, completed, claimed FROM " + prefix()
@@ -195,6 +203,8 @@ public class DailyChallengeRepository {
                 }
             } catch (SQLException e) {
                 logger.log(Level.WARNING, "Failed to load daily challenges for " + playerId, e);
+                throw new IllegalStateException(
+                        "daily challenges read failed for " + playerId, e);
             }
         }
         return rows;
@@ -210,8 +220,9 @@ public class DailyChallengeRepository {
      * @param playerId    玩家
      * @param date        {@code yyyy-MM-dd}
      * @param challengeId 要降级的挑战 id（调用方传 AI_CHAT_5）
-     * @return 受影响行数；<strong>写失败返回 {@code 0}</strong>（记 WARNING，不抛出——
-     *         与原实现"异常只 WARNING、不打印 Degraded info"等价）
+     * @return 受影响行数；<strong>写失败返回 {@code 0}</strong>（记 WARNING）。"不抛出"仅限
+     *         {@link SQLException}——连接层 {@code RuntimeException} 刻意冒泡（见类 javadoc）；
+     *         调用方不得把 {@code 0} 当成"没有陈旧行"的唯一判据
      */
     public int degradeStale(UUID playerId, String date, String challengeId) {
         String sql = "UPDATE " + prefix()
@@ -295,20 +306,18 @@ public class DailyChallengeRepository {
         }
     }
 
-    /**
-     * 标记已领取（带护栏 {@code completed = 1 AND claimed = 0}，幂等）。
-     *
-     * <p>原 SQL 出处：{@code DailyChallengeManager:556}（{@code markClaimed}）。
-     * 调用方必须<strong>先完成 Vault 转账再调用</strong>（M12 deposit-then-mark），
-     * 本方法只负责写台账位。</p>
-     *
-     * @param playerId    玩家
-     * @param date        {@code yyyy-MM-dd}
-     * @param challengeId 挑战 id
-     * @return true 仅当本次真的标记了一行（{@code rows > 0}）；<strong>写失败返回
-     *         {@code false}</strong>（记 WARNING，与原实现 {@code return 0} 等价）
-     */
+    /** {@link #markClaimedOrFail} 三态：{@code MARKED} / {@code NOT_ELIGIBLE}（护栏不满足）/
+     *  {@code WRITE_FAILED}（SQL 失败，<b>钱可能已转账、台账未落</b>）。布尔承载不了三值。 */
+    public enum ClaimMark { MARKED, NOT_ELIGIBLE, WRITE_FAILED }
+
+    /** 标记已领取（护栏 {@code completed = 1 AND claimed = 0}，幂等；调用方须先完成 Vault 转账）。
+     *  写失败与"不可领"折叠为 {@code false}（既有契约），需要分流者改用 {@link #markClaimedOrFail}。 */
     public boolean markClaimed(UUID playerId, String date, String challengeId) {
+        return markClaimedOrFail(playerId, date, challengeId) == ClaimMark.MARKED;
+    }
+
+    /** 三态版 {@link #markClaimed}：失败返回 {@code WRITE_FAILED}，使"已付款却未记账"可被调用方分流。 */
+    public ClaimMark markClaimedOrFail(UUID playerId, String date, String challengeId) {
         String sql = "UPDATE " + prefix()
                 + "daily_challenges SET claimed = 1 WHERE uuid = ? AND challenge_date = ? AND challenge_id = ? AND completed = 1 AND claimed = 0";
         synchronized (db.getConnectionLock()) {
@@ -316,10 +325,10 @@ public class DailyChallengeRepository {
                 stmt.setString(1, playerId.toString());
                 stmt.setString(2, date);
                 stmt.setString(3, challengeId);
-                return stmt.executeUpdate() > 0;
+                return stmt.executeUpdate() > 0 ? ClaimMark.MARKED : ClaimMark.NOT_ELIGIBLE;
             } catch (SQLException e) {
                 logger.log(Level.WARNING, "Failed to claim daily challenge reward", e);
-                return false;
+                return ClaimMark.WRITE_FAILED;
             }
         }
     }
@@ -336,8 +345,10 @@ public class DailyChallengeRepository {
      * @param playerId 玩家
      * @param date     {@code yyyy-MM-dd}
      * @param wordId   单词 id
-     * @return 完成位；<strong>无行或读失败返回 {@code false} 且不记日志</strong>
-     *         （原实现 catch 块即 {@code // ignore}，此处逐字保留静默语义）
+     * @return 完成位；<strong>无行或 SQL 读失败返回 {@code false} 且不记日志</strong>
+     *         （原实现 catch 块即 {@code // ignore}）。<b>连接层 RuntimeException 不接</b>——
+     *         它必须冒泡到 {@code DailyChallengeGUI} 的 {@code daily.load-failed} 分支，
+     *         否则"库挂了"会被渲染成"今天一个词都没完成"。
      */
     public boolean isWordCompleted(UUID playerId, String date, String wordId) {
         String sql = "SELECT completed FROM " + prefix()
@@ -353,7 +364,7 @@ public class DailyChallengeRepository {
                     }
                 }
             } catch (SQLException e) {
-                // ignore
+                // ignore（刻意不接 RuntimeException：连接层故障必须冒泡到 GUI 的失败分支）
             }
         }
         return false;

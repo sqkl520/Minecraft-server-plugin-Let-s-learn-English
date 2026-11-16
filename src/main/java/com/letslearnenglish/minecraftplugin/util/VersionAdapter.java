@@ -43,9 +43,12 @@ public class VersionAdapter {
         this.serverVersion = plugin.getServer().getMinecraftVersion();
 
         int[] parsed = parseServerVersion(this.serverVersion);
-        if (parsed[0] < 0 && parsed[1] == 0) {
+        // parsed[1] 不能进条件：年份式解析失败会返回 (-1, true)，旧条件 `parsed[1] == 0`
+        // 会把这一态整个漏掉，导致「26.x 但次版本读不出」时零告警。
+        if (parsed[0] < 0) {
             plugin.getLogger().warning("Failed to parse server version: " + serverVersion
-                    + "; version compatibility will be reported as unknown.");
+                    + "; version compatibility will be reported as "
+                    + (parsed[1] == 1 ? "26.x (year-based)" : "unknown") + ".");
         }
         this.mcMinor = parsed[0];
         this.yearBased = parsed[1] == 1;
@@ -71,22 +74,33 @@ public class VersionAdapter {
         boolean yearBased = false;
         try {
             // 用 '.' 字符类而不是 "\." 转义 —— 两种写法等价，但字符类少一层转义、
-            // 不会被各种工具链的转义规则吃掉反斜杠（本轮就被坑过一次）。
+            // 不会被各种工具链的转义规则吃掉反斜杠（本轮就被坑过��次）。
             String[] parts = version.split("[.]");
             int first = parts.length > 0
                     ? Integer.parseInt(parts[0].replaceAll("[^0-9].*$", "")) : -1;
 
             if (first >= 26) {
-                yearBased = true;
-                parsedMinor = parts.length > 1
+                // E6（R9 补齐）：yearBased 必须在次版本解析<b>成功之后</b>才置位。
+                // 原实现先 yearBased = true 再 parseInt，若次版本解析抛 NFE（例如
+                // "26.x" / "26.2-pre" 经 replaceAll 后为空串），catch 只回滚 parsedMinor，
+                // yearBased 保持 true，于是返回 (-1, 1)。构造器的告警条件是
+                // parsed[0] < 0 && parsed[1] == 0，该状态不满足 —— 「26.x 但次版本解析失败」
+                // 因此既不告警、又被 describeCompatibility 的 yearBased 分支报成
+                // 「26.x detected」，把一次解析失败伪装成一次成功识别。
+                int minor = parts.length > 1
                         ? Integer.parseInt(parts[1].replaceAll("[^0-9].*$", "")) : 0;
+                parsedMinor = minor;
+                yearBased = true;
             } else if (first == 1 && parts.length > 2) {
-                int mcMajor = Integer.parseInt(parts[1].replaceAll("[^0-9].*$", "")); 
-                int mcPatch = Integer.parseInt(parts[2].replaceAll("[^0-9].*$", "")); 
+                int mcMajor = Integer.parseInt(parts[1].replaceAll("[^0-9].*$", ""));
+                int mcPatch = Integer.parseInt(parts[2].replaceAll("[^0-9].*$", ""));
                 parsedMinor = mcMajor == 21 ? mcPatch : -1;
             }
         } catch (NumberFormatException e) {
+            // 解析失败时 yearBased 必须一并回退，否则 (-1, true) 这个「像成功」的组合会
+            // 绕过构造器的告警条件（见上）。
             parsedMinor = -1;
+            yearBased = false;
         }
         return new int[] {parsedMinor, yearBased ? 1 : 0};
     }

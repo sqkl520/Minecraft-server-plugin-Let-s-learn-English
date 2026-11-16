@@ -30,12 +30,21 @@ public class MessageUtil {
     }
 
     private String resolvePrefix(FileConfiguration messageConfig, String lang) {
+        // R14-F3：语言标签可能是 "ZH"/"zh_CN"/"cn"（player_lang.yml 与 config.yml 都是自由
+        // 字符串），直接拼 "prefix." + lang 会得到 prefix.ZH / prefix.cn —— 取不到 → 静默掉回
+        // 语言文件自己的 prefix，玩家的自定义前缀"神秘消失"。归一化后只可能是 zh/en 两个键。
+        String canonicalLang = ConfigManager.canonicalLanguage(lang);
         FileConfiguration mainConfig = configManager.getMainConfig();
         if (mainConfig != null) {
-            String prefix = mainConfig.getString("prefix." + lang);
+            String prefix = mainConfig.getString("prefix." + canonicalLang);
             if (prefix != null && !prefix.isEmpty()) {
                 return prefix;
             }
+        }
+        // R14-F3：null 配置下不许解引用（formatMessage 旧实现在这里 NPE，见 formatMessage 的守卫）。
+        // 主配置拿不到前缀时退回内置前缀，而不是抛异常。
+        if (messageConfig == null) {
+            return DEFAULT_PREFIX;
         }
         return messageConfig.getString("prefix", DEFAULT_PREFIX);
     }
@@ -50,15 +59,24 @@ public class MessageUtil {
      */
     public String getMessage(String key, String... placeholders) {
         FileConfiguration messageConfig = configManager.getMessageConfig();
+        if (messageConfig == null) {
+            plugin.getLogger().warning("Message config unavailable while resolving key: " + key);
+            return ChatColor.translateAlternateColorCodes('&', String.format(MISSING_KEY_PLACEHOLDER, key));
+        }
         // R-55l：缺 key 回落统一为 zh（与 yml 默认 + ConfigManager 启动语言对齐）。
-        String defaultLang = configManager.getMainConfig() != null
-                ? configManager.getMainConfig().getString("general.language", "zh") : "zh";
-        String prefix = resolvePrefix(messageConfig, defaultLang);
+        // R14-F3：走 ConfigManager.getDefaultLanguage()——原实现直接读原始字符串，
+        // `general.language: cn` 会拼出 `prefix.cn` 取不到，前缀静默丢失。
+        String prefix = resolvePrefix(messageConfig, configManager.getDefaultLanguage());
 
         String message = messageConfig.getString(key);
         if (message == null) {
             plugin.getLogger().warning("Missing message key: " + key);
-            return ChatColor.RED + "Missing message: " + key;
+            // R14（红队 INFO-4 收口）：原为硬编码英文 `"Missing message: " + key`，
+            // 会原样漏进中文客户端。同一文件里 getMessageSafe / formatSafe / getGuiMsg
+            // 三条路径早已统一成「WARNING + 可见占位符 &c[?key]」，只有这里和 Map 重载
+            // 还留着旧写法 —— 缺键时玩家看到一句英文，反而比看到 [?key] 更难自查。
+            // 占位符刻意保留键名：缺的是哪个键必须一眼可见，不能退化成空白提示。
+            return ChatColor.translateAlternateColorCodes('&', String.format(MISSING_KEY_PLACEHOLDER, key));
         }
 
         message = message.replace("{prefix}", prefix);
@@ -81,15 +99,19 @@ public class MessageUtil {
      */
     public String getMessage(String key, Map<String, String> placeholders) {
         FileConfiguration messageConfig = configManager.getMessageConfig();
+        if (messageConfig == null) {
+            plugin.getLogger().warning("Message config unavailable while resolving key: " + key);
+            return ChatColor.translateAlternateColorCodes('&', String.format(MISSING_KEY_PLACEHOLDER, key));
+        }
         // R-55l：缺 key 回落统一为 zh（同上）。
-        String defaultLang = configManager.getMainConfig() != null
-                ? configManager.getMainConfig().getString("general.language", "zh") : "zh";
-        String prefix = resolvePrefix(messageConfig, defaultLang);
+        // R14-F3：同上——canonical 默认语言，避免 `prefix.cn` 这类取不到的键。
+        String prefix = resolvePrefix(messageConfig, configManager.getDefaultLanguage());
 
         String message = messageConfig.getString(key);
         if (message == null) {
             plugin.getLogger().warning("Missing message key: " + key);
-            return ChatColor.RED + "Missing message: " + key;
+            // R14（红队 INFO-4 收口）：与上一条同因，统一成可见占位符。
+            return ChatColor.translateAlternateColorCodes('&', String.format(MISSING_KEY_PLACEHOLDER, key));
         }
 
         message = message.replace("{prefix}", prefix);
@@ -117,14 +139,41 @@ public class MessageUtil {
         return formatMessage(messageConfig, lang, key, placeholders);
     }
 
+    /**
+     * R14-F3（FIX 3）：{@code getPlayerMessage} / {@code getSenderMessage} 的共用实现。
+     *
+     * <p><b>为什么必须补 null 守卫</b>：这两个入口传进来的 {@code messageConfig} 来自
+     * {@code configManager.getMessageConfig(lang)}，而该方法在 {@code configSnapshot == null}
+     * 时回落的是 legacy 字段 —— 那两个字段在 {@code loadAllConfigs()} 之前（以及加载抛异常
+     * 之后）**可以是 null**。旧实现第一行就调 {@link #resolvePrefix} → 直接
+     * {@code messageConfig.getString(...)} → NPE 穿透到监听器/命令，玩家看不到任何提示，
+     * 控制台只有一条无上下文的堆栈。</p>
+     *
+     * <p><b>为什么和 {@link #formatSafe} 同款而不是和 {@code getMessage} 同款</b>：
+     * {@code getMessage} 的 {@code "Missing message: key"} 是硬编码英文，会漏进中文界面；
+     * 而且它属于另一条调用链（默认语言 / 地图重载），改它会改变既有行为。这里刻意复用
+     * {@link #formatSafe} 的约定：WARNING + 可见占位符 {@code &c[?key]}，玩家一眼能看到
+     * 缺的是哪个键，而不是看到一个空白提示。</p>
+     *
+     * <p>键缺失分支也顺带补上 {@code (lang=...)}：本方法的语言是玩家自己选的，
+     * 排查"为什么这个玩家缺键"时必须能从日志里看出来是哪个语言文件。</p>
+     */
     private String formatMessage(FileConfiguration messageConfig, String lang,
                                   String key, String... placeholders) {
+        // R14-F3：null 配置走与 formatSafe 完全一致的 fail-visible 路径（WARNING + [?key]）。
+        if (messageConfig == null) {
+            plugin.getLogger().warning("Message config unavailable while resolving key: " + key
+                    + " (lang=" + lang + ")");
+            return ChatColor.translateAlternateColorCodes('&', String.format(MISSING_KEY_PLACEHOLDER, key));
+        }
+
         String prefix = resolvePrefix(messageConfig, lang);
 
         String message = messageConfig.getString(key);
         if (message == null) {
-            plugin.getLogger().warning("Missing message key: " + key);
-            return ChatColor.RED + "Missing message: " + key;
+            // R14-F3：占位符统一为 formatSafe 的 &c[?key]，不再返回硬编码英文句子。
+            plugin.getLogger().warning("Missing message key: " + key + " (lang=" + lang + ")");
+            return ChatColor.translateAlternateColorCodes('&', String.format(MISSING_KEY_PLACEHOLDER, key));
         }
 
         message = message.replace("{prefix}", prefix);
@@ -135,7 +184,11 @@ public class MessageUtil {
                         + " (length=" + placeholders.length + ")");
             }
             for (int i = 0; i < placeholders.length - 1; i += 2) {
-                message = message.replace("{" + placeholders[i] + "}", placeholders[i + 1]);
+                // R14-F3：null 元素不得进 String#replace（会 NPE 成 CharSequence）。与
+                // formatSafe 同款跳过，其余占位符照常替换。
+                if (placeholders[i] != null && placeholders[i + 1] != null) {
+                    message = message.replace("{" + placeholders[i] + "}", placeholders[i + 1]);
+                }
             }
         }
 
@@ -218,9 +271,9 @@ public class MessageUtil {
     }
 
     private String resolveDefaultLang() {
-        FileConfiguration mainConfig = configManager.getMainConfig();
-        // R-55l：缺 key 回落统一为 zh（同上）。
-        return (mainConfig != null) ? mainConfig.getString("general.language", "zh") : "zh";
+        // R14-F3：原实现直接读原始字符串，"cn"/"ZH" 会原样传下去（进而拼出 prefix.cn /
+        // 甚至在别的类里被判成英文）。语言归一化只在 ConfigManager 一处，这里只做转发。
+        return configManager.getDefaultLanguage();
     }
 
     /**

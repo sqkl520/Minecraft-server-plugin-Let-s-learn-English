@@ -86,7 +86,7 @@ public class WordManagerImpl {
             }
             wordBanks.put(name, bank);
             for (Word w : bank.getAllWords()) {
-                globalWordIndex.put(w.getEnglish().toLowerCase(), w);
+                globalWordIndex.put(w.getEnglish().toLowerCase(java.util.Locale.ROOT), w);
             }
             plugin.getLogger().info("Loaded word bank: " + name
                     + " (" + bank.getWordCount() + " words)");
@@ -218,14 +218,50 @@ public class WordManagerImpl {
      * Returns null if the word is not found in any bank.
      */
     public Word getWord(String english) {
-        return globalWordIndex.get(english.toLowerCase());
+        return globalWordIndex.get(english.toLowerCase(java.util.Locale.ROOT));
     }
 
     /**
      * Get the word bank for a specific difficulty.
+     *
+     * <p><b>返回的是活引用，不是副本</b>（纯 {@code wordBanks} map 读）。调用方若需要
+     * 「改了也不影响线上」的视图，用 {@link WordBank#snapshotWith} 而不是直接
+     * {@link WordBank#addWord} —— {@code /lea importwordbank} 正是这么做的：先落盘、
+     * 成功后才 {@code addWord}（见 {@code AdminCommandHandler.importWordBank}）。
      */
     public WordBank getWordBank(String difficulty) {
         return wordBanks.get(difficulty);
+    }
+
+    /**
+     * 注册一个<b>全新</b>难度档的词库（{@code /lea importwordbank} 导入此前不存在的档位时用）。
+     *
+     * <p><b>必须与 {@link #indexWord} 成对调用</b>：只注册不建索引 → {@code getWord} 查不到
+     * 新词（错题本 / AI 反馈 / 报表全看不见）；只建索引不注册 → 玩家选不到这个难度
+     * （{@code getAvailableDifficulties} 里没有它）。{@code AdminCommandHandler} 的
+     * {@code indexImportedWords} 是唯一的调用方，两者在同一个方法体里收口。
+     *
+     * <p>已有同名档位时<b>覆盖</b>（与 {@code loadAllWordBanks} 的 put 语义一致）。
+     * 生产路径上不会走到覆盖：调用方先查过 {@code getWordBank(...) == null} 才新建。
+     */
+    public void registerWordBank(String difficulty, WordBank bank) {
+        if (difficulty == null || bank == null) {
+            return;
+        }
+        wordBanks.put(difficulty, bank);
+    }
+
+    /**
+     * 把单个词登记进 {@link #globalWordIndex}（{@link #getWord} 的唯一来源）。
+     *
+     * <p>键是 {@code english.toLowerCase(Locale.ROOT)} —— 与 {@link #loadAllWordBanks}
+     * 及所有读者逐字同口径，改这里必须同步改那两处，否则导入的词「能抽到但查不到」。
+     */
+    public void indexWord(Word word) {
+        if (word == null || word.getEnglish() == null) {
+            return;
+        }
+        globalWordIndex.put(word.getEnglish().toLowerCase(java.util.Locale.ROOT), word);
     }
 
     /**
@@ -269,7 +305,7 @@ public class WordManagerImpl {
         List<Word> reviewWords = new ArrayList<>(Math.min(dueWords.size(),
                 configManager.getMainConfig().getInt("word-system.words-per-session", 10)));
         for (String english : dueWords) {
-            Word word = globalWordIndex.get(english.toLowerCase());
+            Word word = globalWordIndex.get(english.toLowerCase(java.util.Locale.ROOT));
             if (word != null) {
                 reviewWords.add(word);
             }

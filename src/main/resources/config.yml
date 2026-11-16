@@ -12,6 +12,9 @@
 #
 # ============================================================
 
+# 人类可读标记，不是迁移闸门：主 config 无读取方（唯一读 config-version 的读取点
+# 服务 messages/*.yml 的合并迁移）。改这个数字不会触发任何迁移——新键一律靠读取点
+# getX(key, default) 兜底（同口径说明见文末 season 节）。
 config-version: 2
 
 # ============================================================
@@ -566,8 +569,11 @@ gui-layout:
   # 注：旧 profile 段（15 个叶子键）已整体移除 —— ProfileGUI 把布局写死在代码里，
   # 这些配置从未被读取（死配置）。
   achievement-wall:
-    unlocked-material: "GREEN_STAINED_GLASS_PANE"
-    locked-material: "GRAY_STAINED_GLASS_PANE"
+    # 形状与其余 31 个 GUI 键一致：.<item>.material（读取方拼 ".material"，扁平叶取不到）
+    unlocked-material:
+      material: "GREEN_STAINED_GLASS_PANE"
+    locked-material:
+      material: "GRAY_STAINED_GLASS_PANE"
 
 # ============================================================
 #  成就系统设置 (Achievement System)
@@ -588,6 +594,22 @@ proxy:
   # 用于跨服广播回环去重（赛季结算/开始子通道）；留空 = 单服模式
   # （回环语义退化为"可能重复播报一次"，奖励发放仍受台账幂等保护）。
   server-name: ""
+
+  # 跨服入站消息的共享密钥。**强烈建议在多服网络中设置**。
+  #
+  # 为什么需要：Bukkit 把「代理转发来的插件消息」和「任何玩家客户端自己发的
+  # 自定义 payload」派发到**同一个回调**，且回调里拿不到来源信息。所以一个改了
+  # 客户端的玩家可以伪造以下任一帧，效果与真正的子服发送完全相同：
+  #   - GlobalMessage      → 向全服广播任意文本（伪装成服主公告）
+  #   - AchievementUnlock  → 给任意玩家名挂上任意成就并广播
+  #   - SeasonSettled      → 触发赛季奖励发放与"赛季结束"广播（金额受台账幂等保护，不会被重复发）
+  #
+  # 留空（默认）= 不校验签名，行为与本键加入前完全一致（单服/局域网开箱可用）。
+  # 设置为任意一串只有你知道的长随机字符串后，**所有入站帧都必须带正确签名**，
+  # 否则一律丢弃并记 WARNING。多服网络中的每一台子服必须填**同一个值**。
+  #
+  # 生成建议：随便一串 32 位以上的随机字符，例如 `openssl rand -hex 32` 的输出。
+  inbound-secret: ""
 
 # ============================================================
 #  每日学习提醒 (Daily Study Reminder)

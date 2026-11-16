@@ -86,6 +86,18 @@ public class LearningSession {
         advance();
     }
 
+    /** 教程重试：只记错误计数、不推进 currentIndex（F2 前不计数致准确率虚高）。 */
+    public void recordTutorialRetry() {
+        Word current = getCurrentWord();
+        if (current != null) {
+            WordResult result = results.get(current.getEnglish().toLowerCase());
+            if (result != null) {
+                result.incrementIncorrect();
+            }
+            totalIncorrect.incrementAndGet();
+        }
+    }
+
     /**
      * Move to the next word.
      */
@@ -201,7 +213,11 @@ public class LearningSession {
 
         public boolean isMastered() {
             int total = correctCount + incorrectCount;
-            return total > 0 && (double) correctCount / total >= 0.8;
+            // slice-10-logic-03：答对多于答错即应加分，不能被 80% 二值闸判入扣分分支
+            //（2 对 1 错 = 67% 却走 incorrect*0.1 扣分，掌握度净减）。
+            // 80% 仍作为「零失误/接近零失误」的快速通道保留在 or 左侧。
+            return total > 0 && ((double) correctCount / total >= 0.8
+                    || correctCount > incorrectCount);
         }
     }
 }

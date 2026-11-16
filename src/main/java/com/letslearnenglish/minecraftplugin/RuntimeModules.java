@@ -39,9 +39,9 @@ public final class RuntimeModules {
 
     /** reload 前 → 后的四种迁移。 */
     public enum Transition {
-        /** 配置关、运行时也没装：只刷配置，不做装配/拆解。 */
+        /** 配置开、运行时也已装配（{@code true | true}）：不迁移，落入 legacy 段做完整热重载。 */
         NONE_ENABLED,
-        /** 配置关、运行时也没装（语义同上，用于「启动即关闭」分支）。 */
+        /** 配置关、运行时也没装（{@code false | false}）：只刷配置，不做装配/拆解。 */
         NONE_DISABLED,
         /** 配置开、运行时未装配：需要 {@code enableAll()}。 */
         ENABLE,
@@ -71,20 +71,37 @@ public final class RuntimeModules {
         return configEnabled ? Transition.NONE_ENABLED : Transition.DISABLE;
     }
 
-    private final List<Listener> listeners = new ArrayList<>();
-    private final List<BukkitTask> tasks = new ArrayList<>();
-    private boolean active;
+    private final List<BukkitTask> tasks = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private final List<Listener> listeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /**
+     * R15（wave3 后继审计 · 并发专场）：闸门位必须是 CAS 且字段 {@code volatile}。
+     *
+     * <p><b>原实现的缺陷形状</b>：{@code if (active) { return false; } active = true;}
+     * 是经典的 check-then-act，且 {@code active} 是普通 {@code boolean}。两个线程同时
+     * 调 {@code beginEnable()} 时<b>都</b>会读到 false、<b>都</b>置 true、<b>都</b>返回 true
+     * —— 调用方据此<b>重复装配一次</b>运行时：监听器注册两遍、任务排两遍、通道注册两遍。
+     * 拆解侧同理，重复拆会让第二次拆已经在第一次里被置 null 的字段。
+     *
+     * <p><b>当前是否可达</b>：{@code enableAll}/{@code disableAll} 的调用点只有
+     * {@code onEnable} / {@code onDisable}（主线程）与 {@code HotReloadManager}
+     * （命令与点击，也在主线程）。所以这是<b>潜伏隐患而非现行 bug</b>。
+     * 但代价只有一行 CAS，而这类「今天单线程、明天某人从异步任务里调一次」的
+     * 假设失效代价极高（重复注册的监听器无法反注册），所以在此收口。
+     *
+     * <p>用 {@link java.util.concurrent.atomic.AtomicBoolean} 而不是 {@code synchronized(this)}：
+     * 闸门本身要的就是单比特的原子翻转，CAS 比加锁更轻且不会与工厂方法里的其它同步块
+     * 形成锁序问题。
+     */
+    private final java.util.concurrent.atomic.AtomicBoolean active =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
 
     /**
      * 开启闸门：首次调用返回 {@code true} 并置位；已开启时返回 {@code false}（调用方应
      * 直接 return，不得重复装配）。
      */
     public boolean beginEnable() {
-        if (active) {
-            return false;
-        }
-        active = true;
-        return true;
+        return active.compareAndSet(false, true);
     }
 
     /**
@@ -93,11 +110,7 @@ public final class RuntimeModules {
      * 回环里的 {@code isFullyEnabled()} 必须立刻为 false。
      */
     public boolean beginDisable() {
-        if (!active) {
-            return false;
-        }
-        active = false;
-        return true;
+        return active.compareAndSet(true, false);
     }
 
     /** 记一笔监听器（仅用于日志/自检，不用于反注册）。 */
@@ -121,7 +134,7 @@ public final class RuntimeModules {
     }
 
     public boolean isActive() {
-        return active;
+        return active.get();
     }
 
     public int trackedListenerCount() {

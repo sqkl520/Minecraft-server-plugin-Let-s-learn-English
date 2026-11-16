@@ -44,6 +44,8 @@ public class AchievementManager {
      * 类型与语义（hasAchievement 等三个消费点零改动）。
      */
     private final Map<UUID, Map<String, Long>> unlockedAtCache;
+    /** DC-02（round4）：待补写——仓储 upsertUnlock 返回 void 无成败可判；quit/reload 幂等重放。 */
+    private final Map<UUID, Map<String, Long>> pendingUnlockWrites = new ConcurrentHashMap<>();
     // F1-03：懒加载的成就配置在异步线程可达（AI 对话 bye 分支直调链），改 volatile ——
     // 竞态最坏后果（多读一次文件）即消除。
     private volatile FileConfiguration achievementConfig;
@@ -72,13 +74,28 @@ public class AchievementManager {
      * Load a player's unlocked achievements into the cache.
      */
     public void loadPlayerAchievements(UUID playerId) {
-        Set<String> unlocked = new HashSet<>();
+        // round4 F1：内层必须并发（外层 map 只护到"拿到 Set 引用"，并发 add 会丢更新）。
+        Set<String> unlocked = ConcurrentHashMap.newKeySet();
         // PF-ACH-09：追加 unlocked_at 列——写入并行缓存 unlockedAtCache（不改
         // unlockedCache 的类型与语义，三个消费点零改动）。
         Map<String, Long> unlockedAt = new ConcurrentHashMap<>();
-        // 持久化细节（SQL / 表前缀 / 连接锁 / 失败降级）已搬入 AchievementRepository；
-        // 读失败时返回空 Map（非 null），与搬迁前"空 Set + 空 Map"等价。
-        for (Map.Entry<String, Long> e : achievementRepository.findUnlocked(playerId).entrySet()) {
+        // slice-12-logic-L-01（round10 裁决实施 A6-1）：读失败（null）时**不落缓存**。
+        //
+        // 原实现读失败返回空 Map，这里无条件 put —— 于是「不知道」被写成「没有解锁任何
+        // 成就」。随后 `tryUnlock` 的 contains 恒为 false，已解锁的成就会被重新解锁、
+        // 重新弹通知，动态计数也随之虚增。
+        //
+        // 现在：null → 直接 return，缓存保持「未加载」状态。调用方（hasAchievement /
+        // tryUnlock 等）看到 null 会重试加载；真值仍在库里，下次会话结算重新触发
+        // tryUnlock 即可补上，**不丢解锁**，只是延后。
+        Map<String, Long> loaded = achievementRepository.findUnlocked(playerId);
+        if (loaded == null) {
+            plugin.getLogger().fine("Achievement load skipped for " + playerId
+                    + ": read failed, cache left unloaded so the next attempt retries"
+                    + " instead of treating 'unknown' as 'none unlocked'.");
+            return;
+        }
+        for (Map.Entry<String, Long> e : loaded.entrySet()) {
             unlocked.add(e.getKey());
             unlockedAt.put(e.getKey(), e.getValue());
         }
@@ -145,6 +162,86 @@ public class AchievementManager {
     }
 
     /**
+     * R18：批量版本的 {@link #getUnlockedAt(UUID, Achievement)} —— 成就墙专用。
+     *
+     * <p><b>为什么需要它</b>：墙渲染对每个<b>已解锁</b>成就各调一次 {@code getUnlockedAt}，
+     * 每次都要「读缓存 → miss 就 {@code loadPlayerAchievements}」。缓存未命中时那是一次
+     * 全量 SELECT 重复 N 遍；即便命中，逐条调用也让渲染代码把取数与画物品缝在一起，
+     * 无法整体异步。
+     *
+     * <p>改为<b>一次</b>确保缓存就绪、然后只做 map 查询，产出<b>值快照</b>
+     * （新 {@link EnumMap}，不泄漏缓存内部引用）。语义逐项等价：
+     * 未解锁 / 记录早于缓存 的成就<b>不出现在 map 里</b>（渲染侧 {@code get} 得 null，
+     * 与原来 {@code getUnlockedAt} 返回 null 完全一致）。
+     *
+     * <p>线程：只读缓存 + 最多一次懒加载，与 {@link #getProgressSnapshot} 同一契约
+     * （调用方可在异步线程调用）。
+     *
+     * @param playerId 被查看玩家（可离线）
+     * @param achievements 关心的成就集（通常 = 墙内可见成就）；null 视作空集
+     * @return 成就 → 解锁时刻（毫秒）；只含确实有解锁记录的项
+     */
+    public Map<Achievement, Long> getUnlockedAtSnapshot(UUID playerId,
+                                                        Collection<Achievement> achievements) {
+        Map<Achievement, Long> snapshot = new EnumMap<>(Achievement.class);
+        if (achievements == null || achievements.isEmpty()) {
+            return snapshot;
+        }
+        // 一次确保缓存就绪（miss 时只会 SELECT 一次），循环内不再触发懒加载。
+        Map<String, Long> map = unlockedAtCache.get(playerId);
+        if (map == null) {
+            loadPlayerAchievements(playerId);
+            map = unlockedAtCache.get(playerId);
+        }
+        if (map == null) {
+            return snapshot;
+        }
+        for (Achievement a : achievements) {
+            Long at = map.get(a.getId());
+            if (at != null) {
+                snapshot.put(a, at);
+            }
+        }
+        return snapshot;
+    }
+
+    /**
+     * R18：批量版本的 {@link #meetsPrerequisites(UUID, Achievement)} 的<b>取反</b> ——
+     * 返回「前置未满足」的成就集（成就墙 lore 只关心未满足那部分）。
+     *
+     * <p><b>为什么需要它</b>：墙渲染对每个未解锁成就各调一次 {@code meetsPrerequisites}，
+     * 其中 {@code WORDS_500} / {@code COINS_500} 两支会走 {@code getPlayerStats}
+     * （缓存 miss 时触发 {@code loadPlayerData}）。逐条调用把「一次取数」变成「按成就数
+     * 重复取数」，而且和渲染缝在一起没法整体异步。
+     *
+     * <p>判定语义<b>逐支复用</b> {@link #meetsPrerequisites}（不复制那份 switch）：
+     * 任何前置规则变更（含未来新增分支）都只需改一处，本方法自动跟上 —— 复制一份
+     * 判定逻辑才是真正的漂移风险。
+     *
+     * <p><b>只判定传入的成就</b>：调用方传墙内可见成就集，于是管理员禁用的成就不参与
+     * 判定（也不白查 {@code getPlayerStats}）。
+     *
+     * <p>线程：与 {@link #getProgressSnapshot} 同一契约（只读缓存 + 懒加载，可在异步线程调用）。
+     *
+     * @param playerId     被查看玩家（可离线）
+     * @param achievements 关心的成就集；null 视作空集
+     * @return 前置<b>未</b>满足的成就集（未列出的成就前置恒满足）
+     */
+    public Set<Achievement> getPrereqUnmetSnapshot(UUID playerId,
+                                                   Collection<Achievement> achievements) {
+        Set<Achievement> unmet = EnumSet.noneOf(Achievement.class);
+        if (achievements == null) {
+            return unmet;
+        }
+        for (Achievement a : achievements) {
+            if (!meetsPrerequisites(playerId, a)) {
+                unmet.add(a);
+            }
+        }
+        return unmet;
+    }
+
+    /**
      * Try to unlock an achievement. If already unlocked, this is a no-op.
      * The notification (chat/Title/sound/broadcast) is dispatched on the main thread.
      *
@@ -171,11 +268,24 @@ public class AchievementManager {
         // contains 短路失效 → 重复解锁并覆盖 unlocked_at。
         Set<String> unlocked = unlockedCache.get(playerId);
         if (unlocked == null) {
-            loadPlayerAchievements(playerId);   // 尾部无条件回填（含 SQL 异常路径）
+            loadPlayerAchievements(playerId);
             unlocked = unlockedCache.get(playerId);
-            if (unlocked == null) {             // 防御：并发 unload 窗口，维持非 null 不变量
-                unlocked = new HashSet<>();
-                unlockedCache.put(playerId, unlocked);
+            if (unlocked == null) {
+                // slice-12-logic-L-01（round10 裁决实施 A6-1）：**不再建空集**。
+                //
+                // 原实现这里 `unlocked = ConcurrentHashMap.newKeySet(); put(...)` 维持
+                // 「非 null 不变量」—— 但 A6-1 之后 `unlockedCache` 里没有该键的语义是
+                // 「读失败、还不知道」，不是「没有解锁任何成就」。建空集等于把「不知道」
+                // 固化成「没有」，随后 `contains` 恒 false → 已解锁成就被重新解锁、
+                // 重复弹通知，正是本条缺陷的症状。
+                //
+                // 改为 fail-closed：缓存仍为 null（下次调用会重试加载），本次解锁请求
+                // 直接放弃。真值仍在库里，下次会话结算会重新触发 tryUnlock 补上，
+                // **不丢解锁**，只是延后到能读到库的那一刻。
+                plugin.getLogger().fine("tryUnlock(" + achievement.getId() + ") skipped for "
+                        + playerId + ": achievement cache still unloaded after a failed read;"
+                        + " refusing to treat 'unknown' as 'not unlocked'.");
+                return false;
             }
         }
         FileConfiguration achConfig = getAchievementConfig();
@@ -191,13 +301,19 @@ public class AchievementManager {
             return false;
         }
 
-        unlocked.add(achievement.getId());
+        // F1（round4）：add 返回值才是并发权威闸门——contains 与 add 跨线程可交错。
+        if (!unlocked.add(achievement.getId())) {
+            return false;
+        }
         long unlockedAt = System.currentTimeMillis();
         unlockedAtCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>())
                 .put(achievement.getId(), unlockedAt);
 
         // 写库（方言分叉 / 表前缀 / 连接锁 / 失败只记 WARNING）已搬入 AchievementRepository：
         // 写失败不抛出，内存态保留，解锁链与通知照常继续（与搬迁前一致）。
+        // DC-02：仓储无返回值 → 先登记待补写，quit/reload 幂等重放兜住 DB 抖动。
+        pendingUnlockWrites.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>())
+                .put(achievement.getId(), unlockedAt);
         achievementRepository.upsertUnlock(playerId, achievement.getId(), unlockedAt);
 
         // Wave 2 域 4（广场社交，plan-social §3.6）：新解锁 → 产生/合并一条
@@ -524,10 +640,19 @@ public class AchievementManager {
      * 组装 {@code int[2]{current, target}}（一次组装、墙渲染直接消费，S-D 流按此
      * 签名调用）。全部数值为只读派生视图，现算不落盘；每项独立 try/catch 兜底回 0。
      *
-     * <p>成本（R2 在案）：≤4 条有界查询（coins 1 + 会话日列表 1 + 复习日列表 1 +
-     * study-days COUNT 1，同类来源本快照内只算一次），仅墙打开时执行，与
-     * PF-SOC-01 同族模式接受。ACCURACY_PCT 的 current = 百分比整数（0~100），
-     * 样本量不单独返回（简化：int[2] = {current, target}）。
+     * <p><b>返回值是值快照，不是活对象</b>：{@link EnumMap} 与其中每个 {@code int[2]}
+     * 都是本次新分配，不持有 {@link PlayerDataStore} 的任何缓存引用 —— 因此本方法产出的
+     * 结果可以安全跨线程传给主线程渲染。
+     *
+     * <p><b>成本与线程（R18 修订）</b>：≤5 条查询（stats 触发的 {@code loadPlayerData}
+     * 2 条 + coins 1 + 会话日列表 1 + 复习日列表 1 + study-days COUNT 1，同类来源本快照内
+     * 只算一次）<b>外加</b> {@code getConversationCount} / {@code getWrongBookCleared}
+     * 各自的懒加载。原注释写「≤4 条、主线程可接受」是错的：看<b>离线玩家</b>时全部走
+     * cache-miss 路径，实际条数更高。因此 R18 起本方法的调用方
+     *（{@code AchievementWallGUI}）把它整体放进异步段执行，本方法本身的线程契约是
+     * 「只读缓存 + 最多一次懒加载」，与 {@link #getUnlockedAtSnapshot} /
+     * {@link #getPrereqUnmetSnapshot} 相同 —— 与 {@code ProfileGUI} 早已在异步段调
+     * {@code getPlayerStats} 的做法一致。
      *
      * @param targetId 被查看玩家（可离线）
      */
@@ -605,8 +730,40 @@ public class AchievementManager {
      * {@link #tryUnlock} 的 contains 会命中旧内存态，"删掉的成就"在残留会话里复活）。
      */
     public void unloadPlayer(UUID playerId) {
+        // DC-02（round4）：清缓存前先重放待补写，否则内存与待补写一起被清 = 成就永久丢失。
+        flushPendingUnlockWrites(playerId);
         unlockedCache.remove(playerId);
         unlockedAtCache.remove(playerId);
+    }
+
+    /** DC-02（round4）：幂等重放待补写（UPSERT 同值覆盖，不改 unlocked_at 语义）。
+     *
+     *  <p><b>R4-DC-02（round6）：按返回值判定，不再 catch 异常。</b>仓储的
+     *  {@code upsertUnlock} 把 {@code SQLException} 在内部吞掉了，原实现的
+     *  {@code catch (RuntimeException)} 对「SQL 写失败」这条原始缺陷的实际触发路径
+     *  <b>完全不生效</b> —— 待补写被 {@code remove} 走却不回填，一次 DB 抖动即静默丢弃
+     *  该玩家的全部待补写成就。现在改为看返回值：任一失败就整批回填，等下个 quit/reload
+     *  重放（UPSERT 幂等，重复写无害）。 */
+    private void flushPendingUnlockWrites(UUID playerId) {
+        // 先原子摘走：并发新增落进新 map（computeIfAbsent 重建），不会被这次 clear 带走。
+        Map<String, Long> pending = pendingUnlockWrites.remove(playerId);
+        if (pending == null) return;
+        Map<String, Long> failed = new java.util.LinkedHashMap<>();
+        try {
+            pending.forEach((id, at) -> {
+                if (!achievementRepository.upsertUnlock(playerId, id, at)) {
+                    failed.put(id, at);
+                }
+            });
+        } catch (RuntimeException e) {
+            // 连接层故障（getConnection 抛 RuntimeException）：整批视作失败。
+            failed.putAll(pending);
+        }
+        if (!failed.isEmpty()) {
+            pendingUnlockWrites.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>()).putAll(failed);
+            plugin.getLogger().warning("Achievement write retry deferred: " + playerId
+                    + " (" + failed.size() + "/" + pending.size() + " rows)");
+        }
     }
 
     /**
@@ -624,6 +781,8 @@ public class AchievementManager {
      * 重新从磁盘读取 — 否则 reload 后成就开关/时间窗口改动永不生效。
      */
     public void clearCache() {
+        // DC-02：reload 清缓存前先重放所有人的待补写，否则同样永久丢失。
+        new HashSet<>(pendingUnlockWrites.keySet()).forEach(this::flushPendingUnlockWrites);
         unlockedCache.clear();
         unlockedAtCache.clear();
         achievementConfig = null;

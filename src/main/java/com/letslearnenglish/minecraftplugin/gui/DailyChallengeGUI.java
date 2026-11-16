@@ -93,9 +93,11 @@ public class DailyChallengeGUI {
                 if (!plugin.isEnabled()) return;
                 List<ChallengeProgress> challenges;
                 int[] wordProgress;
+                boolean wordPaid; // R5-DC-13：权威「已付款」台账（完成 ≠ 已到账），须在异步段取。
                 try {
                     challenges = plugin.getDailyChallengeManager().getTodayChallenges(playerId);
                     wordProgress = plugin.getDailyChallengeManager().getTodayWordProgress(player);
+                    wordPaid = plugin.getDailyChallengeManager().isWordRewardPaidToday(playerId);
                 } catch (Exception e) {
                     plugin.getLogger().log(Level.WARNING,
                             "Failed to preload daily challenge GUI for " + playerId, e);
@@ -119,7 +121,7 @@ public class DailyChallengeGUI {
                         // R12-M1（E1）：render 前比对 token——已有更新的打开请求则弃本次
                         //（C1 的 catch 提示不受本门约束：失败要告知，语义正确）。
                         if (openSeq.getOrDefault(playerId, -1L) != token) return;
-                        openWithData(player, challenges, wordProgress);
+                        openWithData(player, challenges, wordProgress, wordPaid);
                     });
                 } catch (IllegalStateException ignored) {
                     // 关服竞态：调度器已关闭，放弃本次渲染
@@ -133,7 +135,7 @@ public class DailyChallengeGUI {
     /**
      * C-3：主线程渲染 —— 数据由 {@link #openAsync(Player)} 预取，本方法零 DB 调用。
      */
-    private void openWithData(Player player, List<ChallengeProgress> challenges, int[] wordProgress) {
+    private void openWithData(Player player, List<ChallengeProgress> challenges, int[] wordProgress, boolean wordPaid) {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
@@ -175,10 +177,19 @@ public class DailyChallengeGUI {
             lore.add(ChatColor.translateAlternateColorCodes('&', status));
             if (!cp.claimed) {
                 // MC-5：奖励展示走配置化读取口（与领取到账同一数值来源，缺键/非法回落默认）。
+                // R-16 残留③：原为 String.valueOf((int) ...getChallengeReward(type))。
+                // getChallengeReward 返回 double（DailyChallengeManager:409，读
+                // daily-challenges.rewards.<id> 后经 Number.doubleValue()），(int) 强转
+                // 把小数部分整个抹掉：管理员配 reward: 99.9 时卡片写「99 金币」，
+                // 而实际到账 99.9 —— 展示与到账当场对不上账，玩家对账必投诉。
+                // 这是全仓 (int)-金额渲染缺陷类的最后一处残留：LearnCommand:840（签到实发）、
+                // :566（reward-pending）已改 formatCoins，MiscGUIListener 与
+                // DailyChallengeManager 已改走 RewardEngine.CappedPayout.paidText()。
+                // 现改走本类新增的 formatCoins（见类末尾），与到账播报同一套算术。
+                double reward = plugin.getDailyChallengeManager().getChallengeReward(type);
                 lore.add(ChatColor.translateAlternateColorCodes('&',
                         MessageUtil.getGuiMsg(messages, "daily.reward-hint")
-                                .replace("{reward}", String.valueOf((int) plugin.getDailyChallengeManager()
-                                        .getChallengeReward(type)))));
+                                .replace("{reward}", formatCoins(reward))));
             }
 
             inv.setItem(CHALLENGE_SLOTS[i], createItem(mat,
@@ -200,8 +211,8 @@ public class DailyChallengeGUI {
         // C-3：wordProgress 由 openAsync 异步预取（可能含单词挑战分配写），此处只读渲染。
         int wordDone = wordProgress[0];
         int wordTotal = wordProgress[1];
-        Material wordMat = (wordTotal > 0 && wordDone >= wordTotal)
-                ? Material.LIME_DYE : Material.BOOK;
+        boolean wordAllDone = wordTotal > 0 && wordDone >= wordTotal;
+        Material wordMat = (wordAllDone && wordPaid) ? Material.LIME_DYE : Material.BOOK;
         List<String> wordLore = new ArrayList<>();
         wordLore.add(ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "daily.word-progress")
@@ -209,7 +220,7 @@ public class DailyChallengeGUI {
                         .replace("{total}", String.valueOf(wordTotal))));
         wordLore.add(ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "daily.word-hint")));
-        if (wordTotal > 0 && wordDone >= wordTotal) {
+        if (wordAllDone && wordPaid) {
             wordLore.add(ChatColor.translateAlternateColorCodes('&',
                     MessageUtil.getGuiMsg(messages, "daily.word-done")));
         }
@@ -241,5 +252,37 @@ public class DailyChallengeGUI {
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    /**
+     * R-16：金币金额的玩家可见格式化 —— 整数值不带小数点（{@code 100}），
+     * 非整数值保留两位小数（{@code 99.90}）。仅用于 i18n 占位符 {@code {reward}}。
+     *
+     * <p><b>这是本仓库第 5 份逐字重复的副本，请勿再复制第 6 份。</b>
+     * 现存完整清单（全部是同一个 4 行算术）：
+     * <ol>
+     *   <li>{@code RewardEngine.formatCoins}（core/progress/RewardEngine.java:440）
+     *       —— private static，唯一"源头"，但 GUI/命令侧拿不到；</li>
+     *   <li>{@code LearnCommand.formatCoins}（command/LearnCommand.java:722）—— private static；</li>
+     *   <li>{@code ChallengeCompleteGUI.formatReward}（gui/ChallengeCompleteGUI.java:168）
+     *       —— 方法名还漂了（formatReward ≠ formatCoins）；</li>
+     *   <li>{@code SeasonManager.formatCoins}（core/season/SeasonManager.java:2166）—— private 实例方法；</li>
+     *   <li>本方法（gui/DailyChallengeGUI.java）。</li>
+     * </ol>
+     *
+     * <p><b>推荐收口（留给有 RewardEngine 写权限的批次做）：</b>把
+     * {@code RewardEngine.formatCoins} 提升为 {@code public static}（或抽到
+     * {@code util/CoinFormat}），然后删除上面全部 4 份副本改调它 —— 金额格式化是
+     * 玩家对账口径，多处各写一份的代价是"界面与余额显示不一致"这类无人认领的漏洞，
+     * 本文件这处 {@code (int)} 强转正是从这个缝里漏进去的。
+     *
+     * <p>行为与其它 4 份逐字一致：{@code 100.0 → "100"}、{@code 99.9 → "99.90"}、
+     * {@code 0.2 → "0.20"}、{@code 0.0 → "0"}。用 {@link java.util.Locale#ROOT}
+     * 锁死小数点（否则服务端默认区域会把 99.90 渲染成 99,90）。
+     */
+    private static String formatCoins(double v) {
+        return v == Math.floor(v)
+                ? String.valueOf((long) v)
+                : String.format(java.util.Locale.ROOT, "%.2f", v);
     }
 }

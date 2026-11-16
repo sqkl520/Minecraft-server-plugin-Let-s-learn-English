@@ -61,6 +61,19 @@ public class PlayerDataStore {
     private final Map<UUID, Map<String, Integer>> wrongCountCache;
 
     /**
+     * r10-s16dc-02：{@code difficultWordsCache} 里的条目是否来自<b>一次完整成功的读</b>。
+     *
+     * <p>为什么删除方向需要这个证据：{@link #flushDifficultWords} 的删除方向推理是
+     * 「DB 有、内存没有 ⇒ 玩家删掉了这个词」。这条推理的唯一合法前提是"内存那份表
+     * 完整覆盖了 DB 的内容"，而这只在"上次读成功且此后没有整表作废"时成立。
+     * 两种不成立的情形都会造成误删：① 读失败（表可能是空表）；
+     * ② 表只由 {@link #addDifficultWord} 的 {@code computeIfAbsent} 建出（只含刚写入的那一个词）。
+     * 两者若被当成权威，flush 就会把其余 DB 行逐条 DELETE。故把"读完整过"单独记下来，
+     * 而不是从"表非 null"去猜 —— 非 null 与完整是两件事。
+     */
+    private final Set<UUID> difficultWordsReadComplete;
+
+    /**
      * B2b（R3-b）：近期已答词窗口 —— 词（小写）→ 最后一次答题的 epoch ms。
      *
      * <p><b>刻意纯内存、不落库</b>：它只是"开局别马上重出刚答过的题"这一交互优化，
@@ -79,7 +92,12 @@ public class PlayerDataStore {
 
     // ===== 今日计数器（内存懒清零，服务器时区自然日）=====
     // 每个条目记录 (日期, 计数)；读写时若日期 != 今天则视为 0 并顺手重置。
-    // 重启/关服丢失是可接受的：这是防刷上限而非账本，账本以 DB 的 lifetime 字段为准。
+    //
+    // Round 17：两者都已有 DB 真源（answer → daily_answer_counters，
+    // ai round → ai_round_counters），seed / 异步落库见 incrementTodayAnswerCount /
+    // incrementTodayAiRound。因此「重启/关服丢失」不再是可接受代价：内存只是缓存，
+    // 真值在库，任何 miss 都会先回读再判定（原始注释「重启/关服丢失是可接受的」
+    // 描述的正是被修掉的那个缺陷 —— 防刷上限被退服重进/重启重置）。
     private final Map<UUID, TodayCounter> todayAnswerCountCache;
     private final Map<UUID, TodayCounter> todayAiRoundCache;
 
@@ -173,6 +191,33 @@ public class PlayerDataStore {
      */
     private final Map<UUID, AtomicLong> playerWriteSeq = new ConcurrentHashMap<>();
 
+    /**
+     * F4 修复：每玩家"缓存世代号" —— {@link #unloadPlayerData} 使该玩家内存态整体作废时 +1，
+     * 派发侧捕获当时的代际（见 {@link #runIfSameEpoch}）。
+     * 与 {@link #playerWriteSeq} 语义正交：后者问"有没有新写入"，本表问"派发时那一代缓存还在不在"。
+     */
+    private final Map<UUID, AtomicLong> playerCacheEpoch = new ConcurrentHashMap<>();
+
+    /** EH-02：该玩家统计列本轮<b>没读出来</b>；落盘侧据此不写 player_data 行（fail-closed）。 */
+    private final Set<UUID> statsUnloaded = ConcurrentHashMap.newKeySet();
+
+    /** CT-01：saveProfileSettings 写失败过的玩家（让 hasPendingWrites 能看见 profile 失败面）。 */
+    private final Set<UUID> profileSaveFailed = ConcurrentHashMap.newKeySet();
+    /**
+     * F4 修复：派发异步 DB 写，任务体先校验缓存世代；世代已变则自我作废。
+     *
+     * <p>缺陷：三个 wrong-count 派发点的任务体只捕获 {@code playerId} / {@code wordLower}，
+     * 不校验玩家是否已下线。quit 时 {@link #unloadPlayerData} 先全量落盘再清缓存，
+     * <b>不等待也不取消</b>在途任务 —— 迟到的任务仍会向 {@code difficult_words} 写入/删除行，
+     * 污染"已 quit 落盘"的状态，重进服时被 {@code loadDifficultWordsFromDB} 读回。
+     */
+    private void runIfSameEpoch(UUID playerId, Runnable task) {
+        AtomicLong epoch = playerCacheEpoch.computeIfAbsent(playerId, k -> new AtomicLong());
+        long at = epoch.get();
+        plugin.getServer().getScheduler().runTaskAsynchronously(plugin,
+                () -> { if (epoch.get() == at) { task.run(); } });
+    }
+
     public PlayerDataStore(LetsLearnEnglish plugin, DatabaseManager databaseManager) {
         this.plugin = plugin;
         this.databaseManager = databaseManager;
@@ -187,6 +232,7 @@ public class PlayerDataStore {
         this.profileSettingsCache = new ConcurrentHashMap<>();
         this.difficultWordsCache = new ConcurrentHashMap<>();
         this.wrongCountCache = new ConcurrentHashMap<>();
+        this.difficultWordsReadComplete = ConcurrentHashMap.newKeySet();
         this.playerNameCache = new ConcurrentHashMap<>();
         this.todayAnswerCountCache = new ConcurrentHashMap<>();
         this.todayAiRoundCache = new ConcurrentHashMap<>();
@@ -306,17 +352,21 @@ public class PlayerDataStore {
 
         /**
          * Block C2（R2-M2）：从持久化真源回填计数（AI 轮次表重启/quit-rejoin 后回读）。
-         * synchronized 双检（同 {@link #increment} 惯式）：若 seed 前已有并发线程把日期
-         * 推到 d 并开始递增，则跳过覆盖，保住新的递增结果（seeded 值最坏差 1，
-         * 防刷上限语义容忍）。
+         *
+         * <p><b>F2 修复</b>：原来的"synchronized 双检"在"读 DB → seed"之间已有并发
+         * {@link #increment} 把 {@code date} 推到 d 时<b>整支跳过</b>，DB 真源 v 被丢弃，
+         * 内存从 0 起算 —— 当日额度可被多算 v-1 轮（远超原注释承诺的"最坏差 1"）。
+         * 现改为<b>取 max</b>（{@code updateAndGet}，绝不把计数压到真源之下）：内存可能带着
+         * 本会话尚未落库的新递增，DB 带着尚未回读的历史，两者较大者才是当日已用轮次的下界。
+         * 退还（{@link #decrement}）与 seed 竞争时最多少退一轮，方向保守（不会多送额度）。
          */
         void seed(LocalDate d, int v) {
-            if (!d.equals(date)) {
-                synchronized (this) {
-                    if (!d.equals(date)) {
-                        date = d;
-                        count.set(v);
-                    }
+            synchronized (this) {
+                if (!d.equals(date)) {
+                    date = d;
+                    count.set(v);
+                } else {
+                    count.updateAndGet(c -> Math.max(c, v));
                 }
             }
         }
@@ -325,17 +375,81 @@ public class PlayerDataStore {
     /**
      * 今日答题计数 +1（每次提交答案时调用，无论对错），返回递增后的值。
      * 按服务器时区自然日懒清零。
+     *
+     * <p><b>Round 17：持久化版</b> —— 原实现是纯内存 {@code TodayCounter}，
+     * 而它是赏金门 {@code word-system.daily-limit}（默认 50）的唯一判据源。于是
+     * ① 退服重进（{@link #unloadPlayerData} 会 remove 本条目）、② 重启、
+     * ③ 多子服，三条路径都能把当日答题额度刷满 —— 而 ①② 在<b>单服</b>就成立，
+     * 不依赖 MySQL。三层结构照抄同文件里已经做对的 {@link #incrementTodayAiRound}：
+     * <ol>
+     *   <li><b>seed</b>：日期非今日（或从未 seed）→ 先同步回读 {@code daily_answer_counters}
+     *       真源（读失败按 0 降级，见 {@link DatabaseManager#getDailyAnswerCount}）；</li>
+     *   <li><b>内存立即生效</b>：返回值语义不变（3 个调用点消费它）；</li>
+     *   <li><b>异步落库</b>：经调度器 {@code runTaskAsynchronously}，绝不直调 JDBC ——
+     *       调用点 {@code WordLearningManager.submitAnswer}（:257/:297）与
+     *       {@code handleTimeout}（:369）全部在<b>主线程</b>（聊天路径经
+     *       {@code Bukkit.getScheduler().runTask} 回主线程、GUI 点选在
+     *       {@code InventoryClickEvent} 主线程、超时在 {@code runTaskTimer} 主线程）。
+     *       关服窗口调度器已关 → 静默弃（与 R2-H1 纪律一致）。</li>
+     * </ol>
+     *
+     * <p>与 AI 轮次计数的唯一结构差异：答题计数<b>没有</b> decrement 对应物
+     * （没有"预扣后退还"的业务场景），故只有 increment/seed 两条路径。
+     *
+     * <p><b>代价（有意接受）</b>：seed 的那一条 SELECT 跑在<b>主线程</b>（本方法调用点全在主线程），
+     * 频次是"每玩家每天至多一次"（跨日首答 / 退服重进首答）。同一发币路径上
+     * {@code RewardEngine.getTodayCoinsEarnedCents} 早就在主线程同步读 {@code daily_coin_counters}，
+     * 量级相同（一条单行主键查询）。不做异步 seed 是因为返回值语义要求"先有真值再 +1"——
+     * 异步 seed 会让当天第一题从 0 起算，等于把额度多送一次。
+     *
+     * <p>另：异步落库刻意<b>不</b>走 {@code runIfSameEpoch} 的世代校验。那条守卫的语义是
+     * "quit 后作废在途写"，而本方法恰恰要在 quit 后把这次增量落下去 —— 用它会正好丢掉
+     * 本次修复要保住的那一笔。代价是 F5-03 同类的极端竞态：{@code /lea reset} 的删行与
+     * 在途增量写重叠时可能留下一条残行（毫秒窗口，重进时按当日真值覆盖）。
      */
     public int incrementTodayAnswerCount(UUID playerId) {
-        return todayAnswerCountCache.computeIfAbsent(playerId, k -> new TodayCounter()).increment();
+        LocalDate today = LocalDate.now();
+        String todayStr = today.toString();
+        TodayCounter counter = todayAnswerCountCache.computeIfAbsent(playerId, k -> new TodayCounter());
+        if (!today.equals(counter.date())) {
+            // ① 内存态无今日真值（重启/quit-rejoin/跨日）→ 先回读 DB 真源
+            int db = databaseManager.getDailyAnswerCount(playerId, todayStr);
+            counter.seed(today, db);
+        }
+        int v = counter.increment(); // ② 内存立即生效
+        try {
+            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () ->
+                    databaseManager.incrementDailyAnswerCount(playerId, todayStr)); // ③ 异步落库
+        } catch (IllegalStateException ignored) {
+            // 关服窗口调度器已关：静默弃（与 R2-H1 纪律一致）
+        }
+        return v;
     }
 
     /**
      * 读取玩家今日答题计数。跨天后自动视为 0。
+     *
+     * <p>Round 17：cache miss 或当日计数器未载入时，同步回读
+     * {@code daily_answer_counters} 真源并 seed（与 {@link #getTodayAiRound} 同构；
+     * 先例 {@link #getConversationCount} 的"miss 时同步加载再读"）。退服重进后首次
+     * 调用即走此路径读回真值 —— 正是本修复要闭合的绕过路径。
+     *
+     * <p>读取点在线程上不设限：{@code RewardEngine.checkDailyCaps} 在发币路径（主线程）
+     * 调用它，同步 DB 读持 {@code connectionLock} 可接受（一条 SELECT，且关库时
+     * {@code getConnection()} 返回 UNAVAILABLE 代理 → 走 0 + WARNING 降级）。
      */
     public int getTodayAnswerCount(UUID playerId) {
+        LocalDate today = LocalDate.now();
         TodayCounter counter = todayAnswerCountCache.get(playerId);
-        return counter != null ? counter.get() : 0;
+        if (counter == null || !today.equals(counter.date())) {
+            counter = todayAnswerCountCache.computeIfAbsent(playerId, k -> new TodayCounter());
+            if (!today.equals(counter.date())) {
+                // 内存态无今日真值 → 同步回读 DB 真源（读失败按 0 降级）
+                int db = databaseManager.getDailyAnswerCount(playerId, today.toString());
+                counter.seed(today, db);
+            }
+        }
+        return counter.get();
     }
 
     /**
@@ -446,7 +560,25 @@ public class PlayerDataStore {
         if (!conversationCountCache.containsKey(playerId)) {
             loadPlayerData(playerId);
         }
+        // R10-s16dc-01（round10 slice-16 审计，HIGH）：读失败时不得在零值种子上累加。
+        //
+        // 链路：loadPlayerData 的 catch 只 `statsUnloaded.add`，但仍把局部初值 0 灌进
+        // conversationCountCache（见 `:707-710`）。本方法的 containsKey 因此命中、不再重载，
+        // 于是 merge(+1) 得到 1，再被 setConversationCount 的**绝对值 UPSERT** 写库 ——
+        // DB 里真实的 200 被永久覆写成 1，成就进度同步归零，且无回滚。
+        //
+        // 修法：命中「读失败」标记时不落库，只让本次 +1 计入内存并记 WARNING。
+        // 选择「内存照常 +1、落库跳过」而不是「整体跳过 +1」：调用方依赖返回值推进成就
+        // 判定，返回旧值会让玩家这一次会话的成就进度丢失；而不落库只是等下次成功载入后
+        // 以 DB 真值为基数，代价是一次计数延迟，比永久清零小得多。
         int newVal = conversationCountCache.merge(playerId, 1, Integer::sum);
+        if (statsUnloaded.contains(playerId)) {
+            plugin.getLogger().warning("incrementConversationCount skipped DB write for "
+                    + playerId + ": stats row failed to load, so the in-memory base (" + newVal
+                    + ") is not authoritative. The counter will be rebased from DB on the next"
+                    + " successful load instead of overwriting the real value with a zero seed.");
+            return newVal;
+        }
         databaseManager.setConversationCount(playerId, newVal);
         return newVal;
     }
@@ -463,7 +595,16 @@ public class PlayerDataStore {
         if (!wrongBookClearedCache.containsKey(playerId)) {
             loadPlayerData(playerId);
         }
+        // R10-s16dc-01（round10 slice-16 审计，HIGH）：同 incrementConversationCount 的零值种子
+        // 陷阱 —— 读失败后零值入缓存、containsKey 阻止重载、绝对值 UPSERT 把真值覆写成 1。
         int newVal = wrongBookClearedCache.merge(playerId, 1, Integer::sum);
+        if (statsUnloaded.contains(playerId)) {
+            plugin.getLogger().warning("incrementWrongBookCleared skipped DB write for "
+                    + playerId + ": stats row failed to load, so the in-memory base (" + newVal
+                    + ") is not authoritative. The counter will be rebased from DB on the next"
+                    + " successful load instead of overwriting the real value with a zero seed.");
+            return newVal;
+        }
         databaseManager.setWrongBookCleared(playerId, newVal);
         return newVal;
     }
@@ -578,6 +719,7 @@ public class PlayerDataStore {
         String tablePrefix = databaseManager.getTablePrefix();
         String sql = "SELECT word, mastery, correct_count, incorrect_count, last_review_time, review_count FROM "
                 + tablePrefix + "word_progress WHERE uuid = ?";
+        boolean wordsLoadedOk = false, statsLoadedOk = false; // EH-02：两段读都必须成功
 
         // K：取连接纳入 try 内。连接在重连失败时抛 RuntimeException（见 DatabaseManager），
         // 旧 catch(SQLException) 接不住 → 一次 DB 抖动会从 getPlayerStats → AI/成就/GUI 的
@@ -605,16 +747,20 @@ public class PlayerDataStore {
                     incorrectMap.put(word, rs.getInt("incorrect_count"));
                 }
 
-                wordMasteryCache.put(playerId, masteryMap);
-                lastReviewTimeCache.put(playerId, reviewTimeMap);
-                reviewCountCache.put(playerId, reviewCountMap);
-                correctCountCache.put(playerId, correctMap);
-                incorrectCountCache.put(playerId, incorrectMap);
+                // F1 修复：<b>不再整替换</b>这 5 张 map，改为"保实例 + 只补缺失词"，
+                // 详见 fillMissing 的说明（替换窗口内落到旧 map 的写入会被永久丢弃）。
+                fillMissing(wordMasteryCache, playerId, masteryMap);
+                fillMissing(lastReviewTimeCache, playerId, reviewTimeMap);
+                fillMissing(reviewCountCache, playerId, reviewCountMap);
+                fillMissing(correctCountCache, playerId, correctMap);
+                fillMissing(incorrectCountCache, playerId, incorrectMap);
+                wordsLoadedOk = true;
             }
 
         }
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load player data: " + playerId, e);
+            statsUnloaded.add(playerId); // EH-02：这份缓存是读失败产物，落盘侧不得写 player_data
             wordMasteryCache.putIfAbsent(playerId, new ConcurrentHashMap<>());
             lastReviewTimeCache.putIfAbsent(playerId, new ConcurrentHashMap<>());
             reviewCountCache.putIfAbsent(playerId, new ConcurrentHashMap<>());
@@ -655,11 +801,16 @@ public class PlayerDataStore {
                     conversationCount = rs.getInt("conversation_count"); // R-28
                     wrongBookCleared = rs.getInt("wrong_book_cleared"); // Phase 3 S-A（H11）
                 }
+                statsLoadedOk = true;
             }
         }
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load player stats: " + playerId, e);
+            statsUnloaded.add(playerId); // EH-02：统计列读失败同样不得被绝对 UPSERT 覆写成 0
         }
+        }
+        if (wordsLoadedOk && statsLoadedOk) {
+            statsUnloaded.remove(playerId); // EH-02：两段读都成功 → 解除「不可落盘」标记
         }
         // R7-A：先挂脏标记钩子再入缓存 —— 入缓存后任何线程都可能立刻拿到引用去改，
         // 钩子必须已就位（挂接本身不标脏，"从 DB 读入"不需要落盘）。
@@ -675,18 +826,56 @@ public class PlayerDataStore {
     }
 
     /**
+     * F1 修复：把 DB 读到的 map <b>并入</b>缓存条目，而不是整替换条目。
+     *
+     * <p>缺陷：原实现 {@code put(playerId, 新 map)} 整替换 5 张 word 缓存。写入侧
+     * （{@code updateWordProgress} / {@code recordReview} / {@code seedReview}）从不取
+     * {@code connectionLock}，于是"SELECT 完成 → put 发布"之间落到<b>旧 map 实例</b>上的
+     * 写入随旧 map 一起丢弃、脏标记又被 {@code clearDirty} 清掉 —— 本次写入<b>永久丢失</b>。
+     * 只给 put 加锁修不了：那次写入已在锁外发生，且已写进即将被弃用的实例。
+     *
+     * <p>修法：条目实例稳定（{@code computeIfAbsent} 只建不换），DB 值 {@code putIfAbsent}
+     * 补缺 —— 内存已有的键一律保留（入口前置 {@code savePlayerData} 已保证 DB 不旧于内存）。
+     * 于是"替换窗口"被消除而非缩小。代价：不再移除"DB 无而内存有"的词；所有真实路径
+     * （join 前已摘键 / reload 已整体清空）条目本就为空，与整替换逐字等价。
+     */
+    private static <V> void fillMissing(Map<UUID, Map<String, V>> cache, UUID playerId,
+            Map<String, V> loaded) {
+        Map<String, V> live = cache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
+        loaded.forEach(live::putIfAbsent);
+    }
+
+    /**
      * Load difficult words from database into cache.
+     *
+     * <p><b>r10-s16dc-02：读失败不是「这本错题已经是空的」。</b>旧实现走
+     * {@code getDifficultWords}（丢弃 {@code readFailed} 的薄委托），于是一次 SELECT 抖动
+     * 被当成「DB 里确实没有错题」，把两张缓存整替换成非 null 的空表。后果有两层：
+     * ① 内存里的真值被空表顶掉；② 这个空表在 {@link #flushDifficultWords} 里被当成
+     * 「内存权威」，DB 现存行全被判成「内存里没有」而逐条 DELETE —— 整本错题被清空，
+     * 且全程无报错。所以这里改读三态：{@code readFailed}（含三态载荷缺失 = 结果未知）
+     * 时一律<b>不发布</b>，保留原缓存，让下一次读成功时再对齐。宁可这本册子晚一轮刷新，
+     * 也不能用「假空表」冒充真值。
      */
     private void loadDifficultWordsFromDB(UUID playerId) {
-        List<DifficultWord> words = databaseManager.getDifficultWords(playerId);
+        DatabaseManager.DifficultWordsLoad loaded = databaseManager.loadDifficultWords(playerId);
+        if (loaded == null || loaded.readFailed()) {
+            // 三态载荷为 null 只可能来自替换实现/测试替身，同样按「结果未知」处理 ——
+            // 「未知」与「空」在落盘侧必须保持不可混淆，这是本次修复的全部要点。
+            return;
+        }
         Map<String, DifficultWord> wordMap = new ConcurrentHashMap<>();
         Map<String, Integer> countMap = new ConcurrentHashMap<>();
-        for (DifficultWord dw : words) {
+        for (DifficultWord dw : loaded.words()) {
             wordMap.put(dw.getWord().toLowerCase(), dw);
             countMap.put(dw.getWord().toLowerCase(), dw.getWrongCount());
         }
+        // R7-A 的 fillMissing 不适用（这里必须能移除已删词），但同一个"替换窗口"顾虑成立：
+        // 先建好两张新表再一次性发布，读到旧条目的线程不会看到半张表。
         difficultWordsCache.put(playerId, wordMap);
         wrongCountCache.put(playerId, countMap);
+        // 只有真正读到 DB 才有资格让内存表成为删除方向的权威（见字段注释）。
+        difficultWordsReadComplete.add(playerId);
     }
 
     /**
@@ -754,6 +943,64 @@ public class PlayerDataStore {
     }
 
     /**
+     * 只查缓存、<b>不触发载入</b>的错次读取（R13：错题本 GUI 的数字陈旧）。
+     *
+     * <p><b>缺陷本体</b>：{@code WrongBookGUI} 从 {@link #getWrongBookEntries} 拿到
+     * {@link DifficultWord} 列表，而 {@code DifficultWord} 是<b>不可变对象</b> ——
+     * 它携带的 {@code wrongCount} 是<b>加进错题本那一刻</b>的快照。此后玩家在本次在线期间
+     * 继续答错，{@link #incrementWrongCount} 只改 {@code wrongCountCache}，不会重建那个
+     * 不可变对象。于是 GUI 一直显示旧数字，直到玩家重进服（重新从 DB 加载）才刷新。
+     *
+     * <p><b>为什么不直接用 {@link #getWrongCount}</b>：它在 cache miss 时会触发
+     * {@link #loadDifficultWordsFromDB}（一次 SELECT）。GUI 渲染在主线程，而调用方
+     * （{@code getWrongBookEntries}）刚刚已经载入过 —— 但依赖「此刻缓存必然命中」
+     * 这个隐式前提不值得：本方法把前提显式化，未命中就用入参给的快照值兜底。
+     *
+     * @param playerId 玩家
+     * @param word     词（大小写不敏感）
+     * @param fallback 缓存未命中时用哪个值（通常是 {@code DifficultWord.getWrongCount()}）
+     * @return 缓存里的最新值；缓存没有该玩家或该词时返回 {@code fallback}
+     */
+    public int getWrongCountIfCached(UUID playerId, String word, int fallback) {
+        Map<String, Integer> counts = wrongCountCache.get(playerId);
+        if (counts != null) {
+            Integer count = counts.get(word.toLowerCase());
+            if (count != null) {
+                return count;
+            }
+        }
+        return fallback;
+    }
+
+    /**
+     * <b>A5/D5（LOW-MEDIUM）：这份错题计数/错题本是否来自一次完整成功的读？</b>
+     *
+     * <p>为什么必须把 {@code difficultWordsReadComplete} 暴露出去：{@link #getWrongCount}
+     * 的缓存 miss 返回 {@code 0}，这在<b>展示</b>路径只是少显示一个数字，但在
+     * {@code WordLearningManager.submitPracticeAnswer} 里是被当作<b>删除判据</b>消费的：
+     * <pre>
+     *   store.decrementWrongCount(playerId, word);
+     *   int newCount = store.getWrongCount(playerId, word);   // 读失败 ⇒ 0
+     *   if (newCount &lt;= 0) { store.removeDifficultWord(...); ... }   // ⇒ DB DELETE
+     * </pre>
+     * 于是「库读不到」被翻译成「这个词已经攻克了」，整行从 {@code difficult_words} 消失，
+     * 并且 {@code incrementWrongBookCleared} 会给成就计数器 +1（同一动作被重复计入）。
+     * 这条路径与已修的 {@code flushDifficultWords} 不同 —— 那里有
+     * {@link #difficultWordsReadComplete} 守卫，这里没有，是同一根 {@code return 0} 的
+     * <b>另一个出口</b>。
+     *
+     * <p>判据与 {@code flushDifficultWords} 同构：只有真的完整读到过 DB，
+     * 「内存里计数 ≤ 0」才可以被当成「DB 侧该删」。读失败时调用方<b>不得</b>删行。
+     *
+     * @param playerId 玩家
+     * @return {@code true} = 本会话内 {@code difficult_words} 被完整读到过，缓存可用于
+     *         删除方向的判据；{@code false} = 从未成功读到（或已被 reload/quit 作废）
+     */
+    public boolean isDifficultWordsReadComplete(UUID playerId) {
+        return difficultWordsReadComplete.contains(playerId);
+    }
+
+    /**
      * Increment wrong count for a word. If it reaches the threshold, adds to difficult words.
      * Runs DB increment asynchronously. Returns the new count.
      */
@@ -765,10 +1012,8 @@ public class PlayerDataStore {
                 k -> new ConcurrentHashMap<>());
         int newCount = counts.merge(wordLower, 1, Integer::sum);
 
-        // Async DB increment
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
-            databaseManager.incrementWrongCount(playerId, wordLower);
-        });
+        // Async DB increment（F4：跨世代的迟到任务自我作废，见 runIfSameEpoch）
+        runIfSameEpoch(playerId, () -> databaseManager.incrementWrongCount(playerId, wordLower));
 
         return newCount;
     }
@@ -797,9 +1042,8 @@ public class PlayerDataStore {
         if (counts != null) {
             counts.remove(wordLower);
         }
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
-            databaseManager.removeDifficultWord(playerId, wordLower);
-        });
+        // F4：同 incrementWrongCount
+        runIfSameEpoch(playerId, () -> databaseManager.removeDifficultWord(playerId, wordLower));
     }
 
     /**
@@ -807,11 +1051,23 @@ public class PlayerDataStore {
      *
      * <p>Block C2（A3/R3-M2）：缓存 merge 后 ≤0 即 remove，缓存地板为 0；DB 侧走
      * {@code DatabaseManager.decrementWrongCount} 的原子条件 SQL（{@code wrong_count > 1}
-     * 才减、否则返回 false → 本处删行），与缓存两值逐值对齐（cache 3→2 ↔ db 3→2；
+     * 才减、否则无行可减 → 本处删行），与缓存两值逐值对齐（cache 3→2 ↔ db 3→2；
      * cache 1→0 删 ↔ db 1→删）。残余乱序窗口：同一玩家的 increment 异步任务整体晚于
      * 本 decrement 任务执行时词会留书——概率极低（跨秒提交两任务乱序），最坏结果 =
      * 词留书（可重试清除，无数据损坏）；executor 保序队列会同时改动 increment 热路径，
      * 收益/风险不成比，接受此窗口。
+     *
+     * <p><b>F2（MEDIUM-HIGH）：只有 {@link DatabaseManager.DecrementResult#NO_ROW_TO_DECREMENT}
+     * 才删行。</b>旧实现写的是 {@code if (!databaseManager.decrementWrongCount(...))}，
+     * 而这个 {@code false} 同时承载「0 行被改」与「{@code SQLException}」两种含义 ——
+     * 一次瞬时写库失败（连接自愈窗口 / {@code SQLITE_BUSY} / 只读挂载）就被翻译成 DELETE：
+     * 若此时连接已恢复，DELETE 成功，这个词整行从错题本消失；而缓存侧刚把计数从 N 减到 N-1
+     * （N&gt;1 时词还在缓存里），于是<b>缓存说「错 3 次」、DB 里行没了</b>，
+     * 下次登录该词直接从错题本消失。
+     *
+     * <p>现在 {@link DatabaseManager.DecrementResult#FAILED} 走<b>不删</b>分支：这次减计数没写成，
+     * 词在 DB 里保持原值（缓存少 1 是已知的轻度漂移，quit 刷盘的绝对值写会把它对齐回来），
+     * 下一次练习答对时重试即可。多留一轮 vs 永久丢一行，代价不对等。
      */
     public void decrementWrongCount(UUID playerId, String word) {
         String wordLower = word.toLowerCase();
@@ -826,8 +1082,18 @@ public class PlayerDataStore {
                 }
             }
         }
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
-            if (!databaseManager.decrementWrongCount(playerId, wordLower)) {
+        // F4：同 incrementWrongCount
+        runIfSameEpoch(playerId, () -> {
+            DatabaseManager.DecrementResult result =
+                    databaseManager.decrementWrongCount(playerId, wordLower);
+            // 穷尽映射（switch <b>表达式</b>：枚举新增常量会被编译器强制处理，不会静默落进
+            // 某个 else）。只有「SQL 执行成功且 0 行被改」才删行；写库失败（FAILED）与
+            // 已减 1（DECREMENTED）都不删 —— FAILED 是"未知"，不是"没减"。
+            boolean rowGone = switch (result) {
+                case NO_ROW_TO_DECREMENT -> true;
+                case DECREMENTED, FAILED -> false;
+            };
+            if (rowGone) {
                 // 计数已达 1（或行不存在）→ 移出（幂等）；原子 SQL 已消除读回分裂窗口
                 databaseManager.removeDifficultWord(playerId, wordLower);
             }
@@ -861,6 +1127,26 @@ public class PlayerDataStore {
      */
     public void savePlayerData(UUID playerId) {
         savePlayerDataInternal(playerId, null);
+        // DC-01：刷盘挂在"确保落盘"的统一出口 —— quit（unloadPlayerData）、reload
+        // 与关服（disableAll 的 D6 只调 savePlayerData）三条路径都经过这里。
+        flushDifficultWords(playerId);
+    }
+
+    /**
+     * EH-02（round3）：该玩家是否仍有未兑现的写入。
+     *
+     * <p>{@link #savePlayerData} 提交成功后会清脏标记、失败则保留，因此"调用落盘后
+     * 本方法仍返回 true"即意味着那次落盘没写成。供调用方（hot-reload / 关闭流程）
+     * 判断能否安全清缓存 —— 有未兑现写入时清缓存会把待重试的标记一起冲掉。
+     */
+    public boolean hasPendingWrites(UUID playerId) {
+        if (playerId == null) {
+            return false;
+        }
+        Set<String> words = dirtyWords.get(playerId);
+        // CT-01：profile 写失败也算"未兑现写入" —— 否则 hot-reload 的 flush 会误报全部成功。
+        return (words != null && !words.isEmpty()) || dirtyPlayers.contains(playerId)
+                || profileSaveFailed.contains(playerId);
     }
 
     /**
@@ -1087,6 +1373,10 @@ public class PlayerDataStore {
 
     /** R7-A：取 player_data 行的写库快照；{@code playerStatsCache} 无该玩家时返回 null（不写行）。 */
     private PlayerDataSnapshot snapshotPlayerData(UUID playerId) {
+        // EH-02：本次会话统计从未成功读出 → 快照全是零值假象，返回 null = 不写这一行。
+        if (statsUnloaded.contains(playerId)) {
+            return null;
+        }
         PlayerStats stats = playerStatsCache.get(playerId);
         if (stats == null) {
             return null;
@@ -1510,6 +1800,82 @@ public class PlayerDataStore {
     }
 
     /**
+     * DC-01：按内存真值双向同步 difficult_words。只写不删留反方向漏洞：删除走
+     * runIfSameEpoch，quit 世代推进使其作废 → DB 残行重进时被读回（词复活）。
+     * 错题本未整册加载时 counts 可能是 incrementWrongCount 建的空表，此时只写不删。
+     *
+     * <p><b>r10-s16dc-02：删除方向必须有「这本册子被完整读到过」的证据。</b>
+     * 删除方向的推理是「DB 有、内存没有 ⇒ 玩家删掉了这个词」，它的前提是内存那份表
+     * 完整覆盖了 DB 里该玩家的行。这个前提**不**等价于「表非 null」——两种情形下
+     * 表都非 null 却只含零到几个词，把它们当权威就会把 DB 里其余行逐条 DELETE：
+     * <ul>
+     *   <li>加载时 SELECT 抖动：一度被写进一份空表（旧实现，见 loadDifficultWordsFromDB）；</li>
+     *   <li>加载失败之后由 {@link #addDifficultWord} / {@link #incrementWrongCount} 的
+     *       {@code computeIfAbsent} 现场建出的表 —— 只含刚写入的那一个词。</li>
+     * </ul>
+     * 两种情形在同一处收口：只有 {@link #loadDifficultWordsFromDB} 真的读到 DB 才会
+     * 登记 {@link #difficultWordsReadComplete}，本方法据此决定删除方向是否开放。
+     *
+     * <p>为什么宁可少删也不多删：DB 里的行是权威，多留一行最多让那个词多显示一轮
+     * （下一次成功加载时自然对齐），错删一行即刻永久丢失且无报错 —— 两个方向的代价不对等。
+     *
+     * <p><b>r10-s16dc-02 同族第 2 条（HIGH）：写入方向同样需要这份证据。</b>
+     * {@link DatabaseManager#setDifficultWordCount} 是<b>绝对值</b> UPSERT，它成立的隐含前提是
+     * 「内存里的 count 是<b>从 DB 读来的基数</b>加上本地增量」。读失败时这个前提不成立：
+     * {@code wrongCountCache} 保持 null，玩家答错一个词时 {@link #incrementWrongCount} 的
+     * {@code computeIfAbsent} 现场建出空表、{@code merge(+1)} 从 <b>1</b> 起算；而
+     * {@code databaseManager.incrementWrongCount} 走的是<b>相对</b>累加
+     * （{@code wrong_count = wrong_count + 1}），DB 里真实的 7 先被正确地加成 8，
+     * 随后本方法的绝对值刷盘用内存的 1 把它覆写回去 —— 7 次错题计数永久丢失，
+     * 与 s16dc-01 的 {@code conversation_count} 归零完全同形，只是入口不同。
+     *
+     * <p><b>为什么「整册跳过写入」在这里是完全正确的、而不是妥协</b>：读失败期间的每一次答错
+     * 都已经由相对累加即时写进 DB 了（增量本身就是「给 DB 加 1」，不需要知道基数），
+     * 所以跳过的只是「用一份没有基数可言的绝对值和 DB 里已经正确的相对结果对账」这一步 ——
+     * 这一步没有一次能改进数据，只有概率破坏它。反过来，一旦跳过相对累加那一步就是真丢数据。
+     *
+     * <p><b>为什么粒度取「按玩家」而不是「只跳过读失败后新建的那些词」</b>：
+     * 读失败时整张 {@code wrongCountCache} 都从未与 DB 对齐过（要么是 null 被
+     * {@code computeIfAbsent} 新建，要么根本不存在），因此「按玩家」与「按词」在故障态下
+     * 逐词等价，前者不需要额外的逐词来源记录。而「读到过 + 之后又读失败」时缓存保留的是
+     * <b>上一次成功读到的完整快照</b>（读失败不发布，见 {@link #loadDifficultWordsFromDB}），
+     * 基数仍然可信，此时标志仍为 true、双向照常工作 —— 不存在「该跳的没跳」。
+     *
+     * <p>跳过时记 WARNING 而不是静默 return：这条日志是线上区分「相对累加已兜住」与
+     * 「相对累加也没成功」的唯一线索，也是本守卫<b>真的被执行过</b>的可观测证据。
+     */
+    private void flushDifficultWords(UUID playerId) {
+        Map<String, Integer> counts = wrongCountCache.get(playerId);
+        if (counts == null) {
+            return;
+        }
+        // 写入方向与删除方向共用同一个前提「这本册子完整读到过」：写入方向需要的是
+        // 「内存 count 以 DB 为基数」（否则绝对值 UPSERT 会把真实值改成 1），
+        // 删除方向需要的是「内存表覆盖了 DB 的行」（否则会逐条误删）。
+        if (!difficultWordsReadComplete.contains(playerId)) {
+            plugin.getLogger().warning("flushDifficultWords skipped absolute write for "
+                    + playerId + ": difficult_words was never fully loaded in this session, so the "
+                    + counts.size() + " in-memory count(s) have no DB baseline. Each wrong answer was"
+                    + " already persisted by the relative increment, so writing the absolute values"
+                    + " now could only overwrite them with a zero-baseline number.");
+            return;
+        }
+        counts.forEach((word, count) -> databaseManager.setDifficultWordCount(playerId, word, count));
+        // 读完整过 ⇒ difficultWordsCache 与 wrongCountCache 是同一方法同一时刻发布的
+        // （见 loadDifficultWordsFromDB），故此处必非 null；保留判空只为不让删除方向
+        // 建在「另一个 map 一定在」的隐式约定上。
+        if (difficultWordsCache.get(playerId) == null) {
+            return;
+        }
+        for (DifficultWord dw : databaseManager.getDifficultWords(playerId)) {
+            String word = dw.getWord().toLowerCase();
+            if (!counts.containsKey(word)) {
+                databaseManager.removeDifficultWord(playerId, word);
+            }
+        }
+    }
+
+    /**
      * Unload a player's data from cache (called on player quit).
      *
      * <p>R-03：补清两套今日计数器 —— 原实现只清持久化缓存，防刷上限（今日答题/AI 轮次）
@@ -1524,7 +1890,17 @@ public class PlayerDataStore {
      * reload 不重置防刷是既定语义（F5-04/T0-02 裁决）。
      */
     public void unloadPlayerData(UUID playerId) {
+        // DC-01：错题本刷盘已收进 savePlayerData（quit / reload / 关服共同出口），
+        // 本行先执行 —— 仍在下面推进世代号之前。
         savePlayerData(playerId);
+        // F4 修复：全量落盘<b>之后</b>才让世代前进（反过来会把自己这次落盘判成跨世代），
+        // 此后任何仍持旧世代号的在途异步任务都会自我作废。
+        AtomicLong epoch = playerCacheEpoch.get(playerId);
+        if (epoch != null) {
+            epoch.incrementAndGet();
+        }
+        statsUnloaded.remove(playerId); // EH-02：玩家已下线，读失败标记随缓存一起作废
+        profileSaveFailed.remove(playerId); // CT-01：同上
         wordMasteryCache.remove(playerId);
         lastReviewTimeCache.remove(playerId);
         reviewCountCache.remove(playerId);
@@ -1535,7 +1911,16 @@ public class PlayerDataStore {
         masteredWordsCache.remove(playerId);
         difficultWordsCache.remove(playerId);
         wrongCountCache.remove(playerId);
+        difficultWordsReadComplete.remove(playerId); // r10-s16dc-02：随缓存一起作废
         playerNameCache.remove(playerId);
+        // Round 17：这两行的 remove 是<b>安全</b>的 —— 两套计数器现在都有 DB 真源
+        // （{@code daily_answer_counters} / {@code ai_round_counters}），下次
+        // getTodayAnswerCount / getTodayAiRound 遇到「日期非今日」会先从库 seed 回
+        // 真值（见 {@link #getTodayAnswerCount} 与 {@link #getTodayAiRound} 的 javadoc）。
+        // 在引入 seed 之前，本行的 remove 就是「退服重进 = 当日答额/轮次额度归零」这条
+        // 绕过路径的<b>实现处</b>；现在 remove 只丢缓存、不再丢额度。
+        // 另：remove 仍然必要 —— 不清会让离线玩家的 UUID 条目无界增长
+        // （{@link #evictOfflinePlayerCaches} 的同款考量）。
         todayAnswerCountCache.remove(playerId);
         todayAiRoundCache.remove(playerId);
         conversationCountCache.remove(playerId); // R-28
@@ -1550,6 +1935,70 @@ public class PlayerDataStore {
         dirtySaveCount.remove(playerId);
         idleSaveCount.remove(playerId); // R7-C（P1-2）：空转计数随下线清理，避免为已下线玩家积累
         playerWriteSeq.remove(playerId);
+    }
+
+    /**
+     * 回收「不在线玩家」的缓存条目（R13：离线展示读的无界增长）。
+     *
+     * <p><b>缺陷本体</b>：成就墙 / 导出 / 报表这些<b>展示路径</b>可以对<b>离线玩家</b>调
+     * {@link #getPlayerStats}（{@code AchievementManager.getProgressSnapshot(targetId)}
+     * 的 javadoc 自己写着「targetId 可离线」）。cache miss → {@link #loadPlayerData} 把这玩家的
+     * 十几张表全灌进内存。而清理只发生在 {@link #unloadPlayerData}（quit）——
+     * <b>离线玩家不会 quit</b>，于是每看一个离线玩家的主页就永久多一份缓存，
+     * 整服玩家池越大增长越快，直到 `/lea reload` 或重启。
+     *
+     * <p><b>为什么可以直接丢弃而不写库</b>：展示读是<b>只读</b>路径 —— 它把 DB 的值读进内存后
+     * 没有任何写回。可能带脏数据的路径（答题 / 复习 / 签到 / AI 结算）都要求玩家在线
+     * （它们由 listener 或会话驱动），所以「不在线的玩家」其缓存按定义不含未落盘的改动。
+     * 保险起见本方法仍然<b>跳过有脏标记的玩家</b>：宁可少回收一个，也不丢一次写入。
+     *
+     * <p><b>为什么不改 getPlayerStats 走只读快照</b>：{@code WordManagerImpl:177} 的
+     * {@code getPlayerStats(id).addScore(...)} 依赖返回的是<b>活对象</b>（改了要标脏落盘）。
+     * 改成只读快照会静默丢掉所有得分累加。
+     *
+     * @param onlineIds 当前在线玩家（这些不回收）
+     * @return 本次回收的玩家数
+     */
+    public int evictOfflinePlayerCaches(Collection<UUID> onlineIds) {
+        Set<UUID> keep = onlineIds == null ? Set.of() : new HashSet<>(onlineIds);
+        Set<UUID> candidates = new HashSet<>();
+        candidates.addAll(playerStatsCache.keySet());
+        candidates.addAll(wordMasteryCache.keySet());
+        candidates.addAll(conversationCountCache.keySet());
+        candidates.addAll(todayAnswerCountCache.keySet());
+        candidates.addAll(todayAiRoundCache.keySet());
+
+        int evicted = 0;
+        for (UUID id : candidates) {
+            if (keep.contains(id)) {
+                continue;
+            }
+            // 有脏标记 = 有未落盘的改动，跳过（见方法 javadoc 的"保险起见"）。
+            if (dirtyPlayers.contains(id) || dirtyWords.containsKey(id)) {
+                continue;
+            }
+            statsUnloaded.remove(id);
+            profileSaveFailed.remove(id);
+            wordMasteryCache.remove(id);
+            lastReviewTimeCache.remove(id);
+            reviewCountCache.remove(id);
+            correctCountCache.remove(id);
+            incorrectCountCache.remove(id);
+            playerStatsCache.remove(id);
+            masteredWordsCache.remove(id);
+            difficultWordsCache.remove(id);
+            wrongCountCache.remove(id);
+            difficultWordsReadComplete.remove(id);
+            playerNameCache.remove(id);
+            todayAnswerCountCache.remove(id);
+            todayAiRoundCache.remove(id);
+            conversationCountCache.remove(id);
+            wrongBookClearedCache.remove(id);
+            recentAnswerCache.remove(id);
+            playerWriteSeq.remove(id);
+            evicted++;
+        }
+        return evicted;
     }
 
     /**
@@ -1572,6 +2021,7 @@ public class PlayerDataStore {
         masteredWordsCache.clear();
         difficultWordsCache.clear();
         wrongCountCache.clear();
+        difficultWordsReadComplete.clear(); // r10-s16dc-02：reload 后须重新读到 DB 才准开删除方向
         playerNameCache.clear();
         conversationCountCache.clear(); // R-28
         wrongBookClearedCache.clear(); // Phase 3 S-A（H11）
@@ -1581,6 +2031,13 @@ public class PlayerDataStore {
         dirtySaveCount.clear(); // R7-A
         idleSaveCount.clear(); // R7-C（P1-2）
         playerWriteSeq.clear(); // R7-A
+        statsUnloaded.clear(); // EH-02
+        profileSaveFailed.clear(); // CT-01
+        // F4 修复：reload 同样让所有已知玩家的世代前进（不是清空这张表 —— 清空会让
+        // 在途任务捕获的旧世代号与"归零后"的值意外相符，守卫失效）。只在已存在的键上自增。
+        for (AtomicLong e : playerCacheEpoch.values()) {
+            e.incrementAndGet();
+        }
     }
 
     /**
@@ -1593,6 +2050,32 @@ public class PlayerDataStore {
             stats = statsFor(playerId);
         }
         return stats;
+    }
+
+    /**
+     * DC-01：该玩家的统计值是否处于「本轮未读出」状态。
+     *
+     * <p><b>为什么需要它</b>：{@link #statsUnloaded} 的语义此前完全封闭在本类内部
+     * （唯一用途是 {@link #snapshotPlayerData} 的 fail-closed 不写行），于是所有
+     * <b>对外发布统计值</b>的出口都无法知道手里那份 {@link PlayerStats} 其实是读失败后
+     * 补的空壳 —— 它们把四字段全 0 当成真值发了出去。{@code /lea export} 的 CSV 就是
+     * 其中之一：一行 {@code Total Words=0,Total Sessions=0,…} 混在真数据里且没有任何
+     * 标记，比报错更糟（它看起来是可信的）。
+     *
+     * <p><b>语义严格对齐落盘侧</b>：与 {@link #snapshotPlayerData} 内的判断读同一个
+     * 集合、同一时刻，因此"不落库"与"不可信"在两条路径上不会分叉。调用方应在拿到
+     * stats 之后<b>立即</b>调用，让判定与读值尽量同源。
+     *
+     * <p><b>只读、无副作用</b>：不读库、不重试、不写缓存，也不改变
+     * {@link #getPlayerStats} 的既有缓存/重试语义。集合本身仍是 {@code private}
+     * 且外部无法写入 —— 这里只暴露"某个 UUID 在不在其中"的布尔查询，不交出集合引用，
+     * 也不提供 add/remove。
+     *
+     * @param playerId 玩家 UUID；{@code null} 返回 {@code false}（不抛）
+     * @return {@code true} = 本次会话该玩家的统计列读取失败，任何统计值都不可信
+     */
+    public boolean isStatsUnloaded(UUID playerId) {
+        return playerId != null && statsUnloaded.contains(playerId);
     }
 
     /**
@@ -1677,17 +2160,31 @@ public class PlayerDataStore {
         /** R-39：年龄合法上限（岁）。超过此值视为脏数据，读侧回 0、写侧钳制。 */
         public static final int MAX_VALID_AGE = 150;
 
-        private int age;
+        // R15（wave3 后继审计 · 并发专场）：字段全部 volatile。
+        //
+        // 为什么必须：本类的实例被放进 profileSettingsCache（一个 ConcurrentHashMap），
+        // 而该缓存同时被**主线程**（GUI 渲染、命令）与**异步线程**（赛季结算、报表、
+        // 成就判定读 showResults/showInSquare）访问。ConcurrentHashMap 只保证
+        // 「map 自身操作的原子性与可见性」，**不保证 value 对象内部字段的可见性** ——
+        // 主线程 setShowInSquare(false) 之后，异步线程完全可能继续读到旧的 true
+        // （无 happens-before 边，字段可长期停留在 CPU 缓存里）。
+        //
+        // 具体后果：隐私开关被关掉后，异步的广场/报表路径仍可能把该玩家展示出去 ——
+        // 这正是 D2「隐私优先」要防的事，而它只在并发下偶发，单测永远抓不到。
+        //
+        // 用 volatile 而不是加锁：这里的字段都是原始类型、彼此独立，没有需要整体原子性的
+        // 不变量组合；volatile 的可见性保证已足够，且零锁开销（这些 getter 在渲染热路径上）。
+        private volatile int age;
         // D2 隐私优先：新玩家默认不公开答案
-        private boolean showAnswers = false;
-        private boolean showResults = true;
-        private boolean showInSquare = true;
+        private volatile boolean showAnswers = false;
+        private volatile boolean showResults = true;
+        private volatile boolean showInSquare = true;
         // Phase 3 S-A：per-player 音效开关，默认开（fail-open，见 SoundManager 门）
-        private boolean soundsEnabled = true;
+        private volatile boolean soundsEnabled = true;
         // R1/R4 教育骚扰治理：玩家侧提醒总开关，默认开（不打扰既有玩家 —— 保持上线行为不变）。
         // 关闭后不再收到每日学习提醒 / 进服提醒 / 复习提醒；服务器级 config
         // （daily-reminder.* / word-system.review.*）仍是总闸，本开关只能再收紧不能越权放开。
-        private boolean remindersEnabled = true;
+        private volatile boolean remindersEnabled = true;
 
         /**
          * R-39 读侧校验：年龄 0 = 未设置（正常态，GUI 显示"未设置"）；
@@ -1838,9 +2335,12 @@ public class PlayerDataStore {
             stmt.setBoolean(6, settings.isSoundsEnabled());
             stmt.setBoolean(7, settings.isRemindersEnabled()); // R1/R4：提醒总开关
             stmt.executeUpdate();
+            profileSaveFailed.remove(playerId); // CT-01：本次写成功，清掉历史失败标记
         }
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to save profile settings: " + playerId, e);
+            // CT-01：把失败暴露给 hasPendingWrites。
+            profileSaveFailed.add(playerId);
         }
         }
     }
@@ -1991,10 +2491,47 @@ public class PlayerDataStore {
     }
 
     /**
-     * R-39 写侧钳制：年龄合法范围 0~MAX_VALID_AGE。非法写入记 WARNING 并钳制
-     * （负数→0，&gt;150→150），脏数据永不进缓存/落盘。
+     * R-39 写侧钳制 + **只写 age 列**的持久化。
+     *
+     * <p><b>为什么不能再用 {@link #getProfileSettings(UUID)}（R5-DC-01 二次修复）</b>：
+     * 那个方法是 {@code computeIfAbsent}。第三方插件调 {@code LetsLearnEnglishAPI
+     * .setPlayerAge} 传一个<b>离线</b> UUID 时，缓存里会凭空多出一条「新玩家默认值」条目
+     * （{@code showAnswers=false / showResults=true / showInSquare=true}，
+     * 见 {@link ProfileSettings} 字段初值）。该 UUID 随即进入
+     * {@link #getActivePlayerIds()}（候选集 = 缓存键 ∪ 在线），而 quit / reload / 关服
+     * 的补差集落盘会对它调 {@link #saveProfileSettings} —— 那是 <b>7 列整对象 UPSERT</b>。
+     * 净效果：一个已经把 {@code show_in_square} 关成 0 的玩家，被一次 {@code setAge}
+     * <b>永久翻回公开</b>（连带 {@code show_results}）。丢年龄是原缺陷，泄隐私是新缺陷，
+     * 后者更严重。
+     *
+     * <p><b>修法</b>（三条同时成立才叫修好）：
+     * <ol>
+     *   <li>缓存<b>命中</b>时就地改 {@code age}，并走窄列 {@link #saveAge} 落盘 ——
+     *       这条路径的其余 6 列本来就在缓存里，与真值一致，不需要（也不该）重写；</li>
+     *   <li>缓存<b>未命中</b>时<b>不建缓存条目</b>（这正是不产生隐私翻转的结构性原因：
+     *       UUID 不进 {@link #getActivePlayerIds()} 候选集，两段补差集落盘对它空转），
+     *       直接窄列落盘年龄；</li>
+     *   <li>窄列落盘用「<b>列级</b> UPSERT」而非 {@code INSERT OR REPLACE} ——
+     *       后者是先 DELETE 再 INSERT，会把未提供的列重置成表默认值，等于同一个隐私翻转
+     *       换了个入口。</li>
+     * </ol>
+     *
+     * <p><b>不改 {@link #saveProfileSettings} 的 7 列整对象语义</b>：{@code MiscGUIListener}
+     * 设置页那条路径依赖「读一份完整设置 → 改一列 → 整对象写回」，收窄它会漏写其余列。
+     * 本方法只是新增一条窄路径，不动旧路径。
+     *
+     * @param playerId 目标玩家（含离线 UUID；非 null 由调用方保证）
+     * @param age      原始年龄，超出 {@code 0~MAX_VALID_AGE} 会被钳制并记 WARNING
      */
     public void setAge(UUID playerId, int age) {
+        // 第三方 API（LetsLearnEnglishAPI.setPlayerAge）完全可能传 null。必须在任何
+        // ConcurrentHashMap 访问之前挡住：`profileSettingsCache.get(null)` 抛 NPE，
+        // 而它在旧实现里表现为一次「读设置就炸」的莫名其妙失败。
+        if (playerId == null) {
+            plugin.getLogger().warning("R-39: setAge called with null playerId; age "
+                    + age + " discarded.");
+            return;
+        }
         int clamped = age;
         if (clamped < 0) {
             clamped = 0;
@@ -2005,8 +2542,71 @@ public class PlayerDataStore {
             plugin.getLogger().warning("R-39: clamped invalid age " + age
                     + " to " + clamped + " for " + playerId);
         }
-        ProfileSettings settings = getProfileSettings(playerId);
-        settings.setAge(clamped);
+        // 只窥视，绝不 computeIfAbsent：未命中时"不存在"本身就是要保住的信息
+        // （否则该 UUID 会被 getActivePlayerIds() 当成广场候选）。
+        ProfileSettings cached = profileSettingsCache.get(playerId);
+        if (cached != null) {
+            cached.setAge(clamped);
+        }
+        saveAge(playerId, clamped);
+    }
+
+    /**
+     * 窄列写：<b>只</b>写 {@code player_profiles.age}，其余 6 列一概不碰。
+     *
+     * <p>SQL 契约（两条都必须是"列级 UPSERT"，不能退化成整行覆盖）：
+     * <ul>
+     *   <li>SQLite：{@code ON CONFLICT(uuid) DO UPDATE SET age = excluded.age}。
+     *       要求 SQLite ≥ 3.24（UPSERT 语法）。本项目运行期由 Paper 自带 sqlite-jdbc
+     *       （3.45.x 级），测试侧 {@code org.xerial:sqlite-jdbc:3.45.1.0}，均满足；
+     *       同仓 {@link #persistLongestStreak} 已在用同一语法，说明该基线是可依赖的。</li>
+     *   <li>MySQL：{@code ON DUPLICATE KEY UPDATE age = VALUES(age)}。</li>
+     * </ul>
+     * 行不存在时按 schema 默认值插入其余列（{@code show_answers=0 / show_results=1 /
+     * show_in_square=1}）—— 这正是"新玩家"的正确语义，与
+     * {@link #loadProfileSettings} 的 {@code else} 分支同口径。
+     *
+     * <p><b>失败口径与 {@link #saveProfileSettings} 一致</b>（C-P1-1）：取连接与执行
+     * 全在 try 内、catch 到 {@code Exception}，失败只记 WARNING 并登记
+     * {@code profileSaveFailed}（让 {@link #hasPendingWrites} 能看见），<b>绝不抛</b> ——
+     * 一次第三方 API 调用不该让调用方的生命周期流程中断。
+     *
+     * <p><b>为什么失败也要登记 profileSaveFailed</b>：否则 reload 的 flush 会误报
+     * "全部落盘成功"，而年龄其实没写进库。
+     */
+    public void saveAge(UUID playerId, int age) {
+        // 第三方 API 完全可能传 null。这里显式挡住而不是让它在 try 里炸：
+        // catch 块会往 profileSaveFailed（ConcurrentHashMap.newKeySet）里 add(playerId)，
+        // 而那个集合不接受 null 键 —— 于是原始 NPE 被"吞掉又重抛"，失败点从一眼可见的
+        // 「参数非法」变成捉摸不透的「集合不接受 null」。警告比栈更深一层更好用。
+        if (playerId == null) {
+            plugin.getLogger().warning("R-39: setAge called with null playerId; age " + age
+                    + " discarded.");
+            return;
+        }
+        String tablePrefix = databaseManager.getTablePrefix();
+        String sql = databaseManager.isSQLite()
+                ? "INSERT INTO " + tablePrefix + "player_profiles (uuid, age) VALUES (?, ?)"
+                        + " ON CONFLICT(uuid) DO UPDATE SET age = excluded.age"
+                : "INSERT INTO " + tablePrefix + "player_profiles (uuid, age) VALUES (?, ?)"
+                        + " ON DUPLICATE KEY UPDATE age = VALUES(age)";
+
+        synchronized (databaseManager.getConnectionLock()) {
+        // 取连接也在 try 内：DatabaseManager.getConnection() 重连失败抛的是
+        // RuntimeException（不是 SQLException），留在 try 外会冒泡到调用方。
+        try {
+        Connection conn = databaseManager.getConnection();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, playerId.toString());
+            stmt.setInt(2, age);
+            stmt.executeUpdate();
+            profileSaveFailed.remove(playerId); // 本次写成功，清掉历史失败标记
+        }
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to save age: " + playerId, e);
+            profileSaveFailed.add(playerId); // 让 hasPendingWrites 看见这次失败
+        }
+        }
     }
 
     /**
@@ -2204,6 +2804,76 @@ public class PlayerDataStore {
 
     /**
      * Get the top N players ranked by total_score from the player_data table.
+    /**
+     * slice-09-F-09-03/04/05（round1 遗留 MEDIUM，round10 裁决实施）：
+     * **权威**的玩家名次查询，直接从 DB 算，与广场榜同一套 WHERE。
+     *
+     * <p><b>为什么需要它</b>：原来有两个「名次」真相源，口径不同——
+     * <ul>
+     *   <li>{@code Leaderboard.getPlayerRank} 读内存 {@code scores}（启动快照 1000 行 +
+     *       本服增量，5 分钟刷一次），WHERE 里<b>只有隐身门</b>；</li>
+     *   <li>广场 {@link #getActiveSquareEntries} 走**实时 SQL**，WHERE 里除了隐身门
+     *       还有 {@code EXISTS(... word_progress ... correct+incorrect > 0)} 的**答题门**。</li>
+     * </ul>
+     * 于是「刚进服、还没答过题」的玩家在内存榜上有一个名次（`%lle_rank%` 读它），
+     * 在广场榜上却**不在**——同一个玩家两个结果。
+     *
+     * <p><b>本方法怎么算</b>：不取全表、不排序，只算「比我高的人数 + 1」。WHERE 与
+     * 广场侧**逐字相同**（含答题门），tie-break 也与广场/O RDER BY 一致
+     * （{@code total_score DESC, uuid ASC}）：
+     * <pre>
+     *   1 + COUNT(*) WHERE (门条件) AND (score &gt; mine OR (score = mine AND uuid &lt; mine))
+     * </pre>
+     * 该式与「按 score DESC, uuid ASC 排序后取下标 + 1」**数学等价**，但只扫一遍、不排序。
+     *
+     * <p><b>成本</b>：本方法只在 {@code LLEPapiExpansion} 的 {@code %lle_rank%} 分支被调用
+     * （全仓唯一调用点），而该分支上一行已经在同步查库取 stats；PAPI 侧另有 30s 值缓存
+     * 吸收并发。因此**不引入新的 IO 压力**。
+     *
+     * @return 1-based 名次；玩家不在榜上（未答题 / 隐身 / 无行）返回 {@code -1}
+     */
+    public int getAuthoritativeRank(UUID playerId) {
+        if (playerId == null) {
+            return -1;
+        }
+        String tablePrefix = databaseManager.getTablePrefix();
+        // 先把「我的分数」取出来（同一套门条件），拿不到就说明不在榜上。
+        String myScoreSql = "SELECT d.total_score FROM " + tablePrefix + "player_data d "
+                + "LEFT JOIN " + tablePrefix + "player_profiles p ON p.uuid = d.uuid "
+                + "WHERE d.uuid = ? AND COALESCE(p.show_in_square, 1) <> 0 "
+                + "AND EXISTS (SELECT 1 FROM " + tablePrefix + "word_progress wp "
+                + "WHERE wp.uuid = d.uuid AND wp.correct_count + wp.incorrect_count > 0)";
+        String rankSql = "SELECT COUNT(*) FROM " + tablePrefix + "player_data d "
+                + "LEFT JOIN " + tablePrefix + "player_profiles p ON p.uuid = d.uuid "
+                + "WHERE COALESCE(p.show_in_square, 1) <> 0 "
+                + "AND EXISTS (SELECT 1 FROM " + tablePrefix + "word_progress wp "
+                + "WHERE wp.uuid = d.uuid AND wp.correct_count + wp.incorrect_count > 0) "
+                + "AND (d.total_score > ? OR (d.total_score = ? AND d.uuid < ?))";
+        String id = playerId.toString();
+        Integer rank = databaseManager.withConnection(conn -> {
+            long myScore;
+            try (PreparedStatement stmt = conn.prepareStatement(myScoreSql)) {
+                stmt.setString(1, id);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (!rs.next()) {
+                        return (Integer) null; // 不在榜上（未答题 / 隐身 / 无行）
+                    }
+                    myScore = rs.getLong(1);
+                }
+            }
+            try (PreparedStatement stmt = conn.prepareStatement(rankSql)) {
+                stmt.setLong(1, myScore);
+                stmt.setLong(2, myScore);
+                stmt.setString(3, id);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    return rs.next() ? (int) (rs.getLong(1) + 1) : (Integer) null;
+                }
+            }
+        }, null);
+        return rank == null ? -1 : rank;
+    }
+
+    /**
      * Used for all-time leaderboard display.
      */
     public List<LeaderboardEntry> getRankedPlayers(int count) {
@@ -2213,7 +2883,9 @@ public class PlayerDataStore {
                 + "FROM " + tablePrefix + "player_data d "
                 + "LEFT JOIN " + tablePrefix + "player_profiles p ON p.uuid = d.uuid "
                 + "WHERE COALESCE(p.show_in_square, 1) <> 0 "
-                + "ORDER BY d.total_score DESC LIMIT ?";
+                // R4-09-logic-F-R4L-01：tie-break 必须在 SQL 里 —— rank 直接换算奖励档位，
+                // 只在 Java 侧排（LIMIT 之后）无法决定 top-N 的<b>成员</b>，同分时获奖名单会整体换人。
+                + "ORDER BY d.total_score DESC, d.uuid ASC LIMIT ?";
 
         // Step 1: collect raw rows while ResultSet is open — no nested queries
         List<Object[]> rawRows = new ArrayList<>();
@@ -2467,10 +3139,68 @@ public class PlayerDataStore {
     }
 
     /**
+     * F1（R12-B）：读面三态（照 {@link DatabaseManager.CheckInLoad} /
+     * {@code DifficultWordsLoad} 范式）——「读失败」不得与「该周期确实无人学习」同形。
+     *
+     * <p><b>为什么必须三态</b>：赛季结算用本查询的 TOP10 写奖励台账。原实现读失败
+     * 返回空列表，与「整季无人答题」完全同形，结算方据此写出空台账并把它当成成功
+     * （{@code settled_at} 已写、游标前进、该季永不回访）→ <b>整季奖励永久丢失且
+     * 无任何失败信号</b>。{@code getSessionParticipants} 的同款缺陷叠加后，连参与奖
+     * 也一起消失。
+     *
+     * @param entries    聚合结果（{@code readFailed=false} 时可信；失败时为空列表）
+     * @param readFailed {@code true} = 查询/连接失败，<b>结果不可作为「没有数据」使用</b>
+     */
+    public record RankedPlayersLoad(List<LeaderboardEntry> entries, boolean readFailed) {}
+
+    /**
      * Get the top N players ranked by score within a date range from player_sessions.
      * Used for weekly/monthly leaderboard display.
+     *
+     * <p>展示路径（周/月榜）用这个两态版本：读失败回落空榜只是短暂的显示降级，
+     * 可回退、无资产后果。<b>结算等不可回退路径必须用
+     * {@link #loadRankedPlayersForPeriod(int, LocalDate, LocalDate)}。</b>
      */
     public List<LeaderboardEntry> getRankedPlayersForPeriod(int count, LocalDate since, LocalDate until) {
+        return loadRankedPlayersForPeriod(count, since, until).entries();
+    }
+
+    /**
+     * F1（R12-B）：{@link #getRankedPlayersForPeriod(int, LocalDate, LocalDate)} 的三态版
+     * （聚合逻辑完全相同，只多一个「读失败」标志）。
+     *
+     * <p><b>隐私过滤在这里，这是刻意的</b>：本方法的默认行为排除
+     * {@code show_in_square = 0} 的玩家，因为它是<b>榜单展示</b>用的。
+     * 但赛季结算不能用这个口径 —— 见 {@link #loadRankedPlayersForPeriod(int, LocalDate, LocalDate, boolean)}。
+     */
+    public RankedPlayersLoad loadRankedPlayersForPeriod(int count, LocalDate since, LocalDate until) {
+        return loadRankedPlayersForPeriod(count, since, until, false);
+    }
+
+    /**
+     * R15（wave3 后继审计 F5）：三态榜单查询，<b>可选包含隐身玩家</b>。
+     *
+     * <h2>为什么赛季结算必须传 {@code includeHidden = true}</h2>
+     * <p>原实现只提供了带隐私过滤的版本，而赛季结算复用了它。后果有两条，
+     * 都是静默的（没有日志、没有台账痕迹）：
+     * <ol>
+     *   <li>把自己在广场隐身的玩家<b>整笔名次奖励丢掉</b>（默认 top1 是 5000 金币）；</li>
+     *   <li>因为名次是<b>过滤后列表</b>的稠密序号，隐身者下面所有人都被<b>提升一名</b>、
+     *       拿更高档的奖励 —— 于是「改一个隐私开关」会改变全服的总发放金额。</li>
+     * </ol>
+     * 对比：参与奖走的是 {@code loadSessionParticipants}，那里<b>没有</b>隐私过滤
+     * （{@code SeasonManager} 的注释也明说"含隐身者"）。同一个赛季的两档奖励用了两套
+     * 人口口径，这才是问题所在 —— 不是"哪一套对"，而是"两套不一致且无提示"。
+     *
+     * <p>结算口径取「含隐身者」：隐私开关的语义是"别把我<b>展示</b>在广场/榜单上"，
+     * 不是"放弃我的比赛奖励"。而且这样做与参与奖的人口口径一致。
+     * 展示路径（{@code Leaderboard.getTopPlayers}）继续用带过滤的默认版本，行为不变。
+     *
+     * @param includeHidden {@code true} = 不过滤 {@code show_in_square}（结算口径）；
+     *                      {@code false} = 排除隐身者（展示口径，默认）
+     */
+    public RankedPlayersLoad loadRankedPlayersForPeriod(int count, LocalDate since, LocalDate until,
+                                                       boolean includeHidden) {
         List<LeaderboardEntry> entries = new ArrayList<>();
         String tablePrefix = databaseManager.getTablePrefix();
         // LEFT JOIN player_data 直接取 player_name，避免回落到 Bukkit API（本方法可能在异步线程被调用）。
@@ -2482,13 +3212,15 @@ public class PlayerDataStore {
                 + "LEFT JOIN " + tablePrefix + "player_data p ON p.uuid = s.uuid "
                 + "LEFT JOIN " + tablePrefix + "player_profiles pf ON pf.uuid = s.uuid "
                 + "WHERE s.session_date >= ? AND s.session_date <= ? "
-                + "AND COALESCE(pf.show_in_square, 1) <> 0 "
-                + "GROUP BY s.uuid ORDER BY period_score DESC LIMIT ?";
+                // R15（F5）：展示口径排除隐身者，结算口径包含（见方法 javadoc）。
+                + (includeHidden ? "" : "AND COALESCE(pf.show_in_square, 1) <> 0 ")
+                + "GROUP BY s.uuid ORDER BY period_score DESC, s.uuid ASC LIMIT ?";
 
         // Step 1: collect raw rows while ResultSet is open — no nested queries
         List<Object[]> rawRows = new ArrayList<>();
         // K：取连接纳入 try（重连失败抛 RuntimeException）。周/月榜失败返回空列表，
-        // 不编造名次；与"该周期确实无人学习"同形，见报告。
+        // 不编造名次。F1（R12-B）：三态版把「读失败」显式交出去 —— 展示路径仍按空榜
+        // 降级，但结算路径必须据此中止（空榜 = 整季奖励永久丢失，见 record javadoc）。
         synchronized (databaseManager.getConnectionLock()) {
         try {
         Connection conn = databaseManager.getConnection();
@@ -2510,7 +3242,7 @@ public class PlayerDataStore {
         }
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to load ranked players for period", e);
-            return entries;
+            return new RankedPlayersLoad(entries, true);
         }
         }
 
@@ -2531,7 +3263,8 @@ public class PlayerDataStore {
             entries.add(new LeaderboardEntry(uuid, name, periodScore,
                     periodCorrect, periodIncorrect, sessions, rank++));
         }
-        return entries;
+        // F1（R12-B）：三态出口 —— 成功路径 readFailed=false（此处 entries 可信）。
+        return new RankedPlayersLoad(entries, false);
     }
 
     /**
@@ -2567,7 +3300,7 @@ public class PlayerDataStore {
                 + "WHERE s.session_date >= ? AND s.session_date <= ? "
                 + "AND COALESCE(pf.show_in_square, 1) <> 0 "
                 + "AND s.uuid IN (" + inClause + ") "
-                + "GROUP BY s.uuid ORDER BY period_score DESC LIMIT ?";
+                + "GROUP BY s.uuid ORDER BY period_score DESC, s.uuid ASC LIMIT ?";
 
         // Step 1: collect raw rows while ResultSet is open — no nested queries
         List<Object[]> rawRows = new ArrayList<>();

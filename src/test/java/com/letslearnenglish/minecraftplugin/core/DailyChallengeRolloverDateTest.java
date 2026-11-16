@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -98,6 +99,13 @@ class DailyChallengeRolloverDateTest {
         when(rewardEngine.depositCappedReward(any(Player.class), anyDouble())).thenReturn(WORD_REWARD);
         // 精确参数 stub（零 varargs）：避免依赖 Mockito 对可变参数的宽松匹配规则。
         when(messageUtil.getPlayerMessage(player, "daily-challenge.reopen-hint")).thenReturn("reopen");
+        // R11：markDailyWordRewardClaimed 已改为返回 boolean，Mockito 对 boolean 的默认值是
+        // false = 「台账写失败」。本类只关心日期隔离（L18），不关心写失败补偿，故统一铺
+        // 「台账写成功」—— 否则每个用例都会进 persistWordRewardClaim 的失败分支，登记表
+        // 非空后下一次判定会多打一条补写，times(...) 断言失真。写失败补偿由
+        // DailyChallengeLedgerFailureTest 专门覆盖（那是本轮新增的判别性用例）。
+        lenient().when(databaseManager.markDailyWordRewardClaimed(any(UUID.class), anyString()))
+                .thenReturn(true);
 
         when(player.getUniqueId()).thenReturn(PLAYER_ID);
         when(player.isOnline()).thenReturn(true);
@@ -113,7 +121,8 @@ class DailyChallengeRolloverDateTest {
     @DisplayName("L18 核心：今天已领过奖，查昨天的 pending 仍必须走到 DB 判定（不能因今天的标记短路）")
     void todayClaimDoesNotMaskYesterdayPending() {
         when(databaseManager.isDailyWordRewardClaimed(eq(PLAYER_ID), anyString())).thenReturn(false);
-        when(databaseManager.isDailyChallengeWordsCompleted(eq(PLAYER_ID), anyString())).thenReturn(true);
+        when(databaseManager.loadWordChallengeCompletion(eq(PLAYER_ID), anyString()))
+                .thenReturn(DatabaseManager.WordChallengeCompletion.COMPLETED);
 
         try (MockedStatic<Bukkit> bukkit = mockStatic(Bukkit.class)) {
             bukkit.when(() -> Bukkit.getPlayer(PLAYER_ID)).thenReturn(player);
@@ -129,7 +138,7 @@ class DailyChallengeRolloverDateTest {
                     "昨天同样全完成且未付，应就地补发并返回 false");
 
             verify(databaseManager, times(1)).isDailyWordRewardClaimed(PLAYER_ID, YESTERDAY);
-            verify(databaseManager, times(1)).isDailyChallengeWordsCompleted(PLAYER_ID, YESTERDAY);
+            verify(databaseManager, times(1)).loadWordChallengeCompletion(PLAYER_ID, YESTERDAY);
             verify(databaseManager).markDailyWordRewardClaimed(PLAYER_ID, YESTERDAY);
             verify(rewardEngine, times(2)).depositCappedReward(eq(player), eq(WORD_REWARD));
         }
@@ -148,7 +157,7 @@ class DailyChallengeRolloverDateTest {
         assertFalse(manager.hasPendingWordRewardForDate(PLAYER_ID, YESTERDAY));
 
         verify(rewardEngine, never()).depositCappedReward(any(Player.class), anyDouble());
-        verify(databaseManager, never()).isDailyChallengeWordsCompleted(any(UUID.class), anyString());
+        verify(databaseManager, never()).loadWordChallengeCompletion(any(UUID.class), anyString());
     }
 
     // ------------------------------------------------------------------
@@ -159,7 +168,8 @@ class DailyChallengeRolloverDateTest {
     @DisplayName("昨天已完成未领取 + 玩家在线 → 就地补发、按昨日写台账，并返回 false")
     void onlinePlayerGetsBackPaid() {
         when(databaseManager.isDailyWordRewardClaimed(PLAYER_ID, YESTERDAY)).thenReturn(false);
-        when(databaseManager.isDailyChallengeWordsCompleted(PLAYER_ID, YESTERDAY)).thenReturn(true);
+        when(databaseManager.loadWordChallengeCompletion(PLAYER_ID, YESTERDAY))
+                .thenReturn(DatabaseManager.WordChallengeCompletion.COMPLETED);
 
         try (MockedStatic<Bukkit> bukkit = mockStatic(Bukkit.class)) {
             bukkit.when(() -> Bukkit.getPlayer(PLAYER_ID)).thenReturn(player);
@@ -182,7 +192,8 @@ class DailyChallengeRolloverDateTest {
     @DisplayName("昨天已完成未领取 + 玩家离线 → 返回 true（无法发币，仍算作废）")
     void offlinePlayerStillPending() {
         when(databaseManager.isDailyWordRewardClaimed(PLAYER_ID, YESTERDAY)).thenReturn(false);
-        when(databaseManager.isDailyChallengeWordsCompleted(PLAYER_ID, YESTERDAY)).thenReturn(true);
+        when(databaseManager.loadWordChallengeCompletion(PLAYER_ID, YESTERDAY))
+                .thenReturn(DatabaseManager.WordChallengeCompletion.COMPLETED);
 
         try (MockedStatic<Bukkit> bukkit = mockStatic(Bukkit.class)) {
             bukkit.when(() -> Bukkit.getPlayer(PLAYER_ID)).thenReturn(null);
@@ -202,7 +213,8 @@ class DailyChallengeRolloverDateTest {
     void clearAllClaimsFallsBackToDatabaseTruth() {
         // DB 台账已清（模拟 /lea reset 后的状态）：内存清空后必须重新补发，而不是永久误判已付。
         when(databaseManager.isDailyWordRewardClaimed(eq(PLAYER_ID), anyString())).thenReturn(false);
-        when(databaseManager.isDailyChallengeWordsCompleted(eq(PLAYER_ID), anyString())).thenReturn(true);
+        when(databaseManager.loadWordChallengeCompletion(eq(PLAYER_ID), anyString()))
+                .thenReturn(DatabaseManager.WordChallengeCompletion.COMPLETED);
 
         try (MockedStatic<Bukkit> bukkit = mockStatic(Bukkit.class)) {
             bukkit.when(() -> Bukkit.getPlayer(PLAYER_ID)).thenReturn(player);

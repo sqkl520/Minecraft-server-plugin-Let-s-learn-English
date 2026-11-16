@@ -269,7 +269,7 @@ public class ChatHistoryGUI {
                         : MessageUtil.getGuiMsg(msg, "chat-history.unknown-date");
                 String userPreview = firstUserContent != null
                         ? (firstUserContent.length() > 40
-                                ? firstUserContent.substring(0, 40) + "..."
+                                ? truncateByCodePoints(firstUserContent, 40) + "..."
                                 : firstUserContent)
                         : "";
 
@@ -478,7 +478,7 @@ public class ChatHistoryGUI {
             // Truncate content for display
             String displayContent = entry.getContent() != null
                     ? (entry.getContent().length() > 50
-                            ? entry.getContent().substring(0, 50) + "..."
+                            ? truncateByCodePoints(entry.getContent(), 50) + "..."
                             : entry.getContent())
                     : "";
 
@@ -486,18 +486,33 @@ public class ChatHistoryGUI {
             // Show full content in lore (split into lines)
             if (entry.getContent() != null) {
                 String full = entry.getContent();
-                // Word-wrap at ~40 chars for readability
+                // FIX 5（round14 F4）：Word-wrap at 40 code POINTS for readability
                 int wrapLen = 40;
                 int pos = 0;
+                // R14 红队：总码点数只算一次。原写法把 full.codePointCount(pos, len) 放在
+                // 循环条件里，而每次调用都是 O(剩余长度) → 整段 O(n²/窗口)。实测 emoji 文本
+                // 16k 码点 4.89ms、32k 码点 20.8ms（翻倍≈四倍）。本方法在**主线程**跑
+                // （openSessionWithData 由 runTask 回投），且每页最多 7 条，所以现网
+                // max-input-length=200 下感知不到；但服主调大上限后它就会变成主线程卡顿。
+                // 预先求一次总码点、逐轮递减，恢复线性。
+                int remainingCodePoints = full.codePointCount(0, full.length());
                 while (pos < full.length()) {
-                    int end = Math.min(pos + wrapLen, full.length());
-                    // D2-8：防在代理对（emoji/生僻字）中间截断——若截点恰落在 low
-                    // surrogate 上则回退一位（wrapLen=40 为字符数而非视觉宽度的语义
-                    // 不变，视觉宽度改进超出本批范围）。
-                    if (end < full.length() && Character.isLowSurrogate(full.charAt(end))) {
-                        end--;
-                    }
+                    // D2-8（round14 F4 改判）：切窗单位从 UTF-16 码元改为码点（code point）。
+                    //
+                    // 原实现 end = pos + 40 按 char 计，一个 emoji/生僻字占 2 个 char，
+                    // 于是 emoji 密集的消息每窗只走 ~20 个真实字符，行数翻倍 —— 而
+                    // Minecraft 的 lore 有行数上限，超出的部分直接不渲染，消息尾部被
+                    // 静默吞掉。同时标题行走的是 truncateByCodePoints(content, 50)
+                    // （码点语义），同一段 emoji 文本在标题行和 lore 行表现不一致。
+                    //
+                    // 按码点推进天然保证窗口边界落在完整的码点上：不会再出现原实现那个
+                    // 「截点落在 low surrogate 上就回退一位」的手工补丁（该补丁的意图
+                    // 「绝不切断代理对」由 offsetByCodePoints 结构性保证）。clamp 到
+                    // 剩余码点数是为了不让 offsetByCodePoints 越界抛异常。
+                    int advance = Math.min(wrapLen, remainingCodePoints);
+                    int end = full.offsetByCodePoints(pos, advance);
                     lore.add(ChatColor.WHITE + full.substring(pos, end));
+                    remainingCodePoints -= advance;
                     pos = end;
                 }
             }
@@ -680,5 +695,21 @@ public class ChatHistoryGUI {
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    /**
+     * slice-13-F2（round1 遗留 MEDIUM，本轮补修）：按<b>码点</b>截断，不切断代理对。
+     *
+     * <p>原实现用 {@code s.substring(0, 40)}，按 char（UTF-16 码元）切。emoji 与 CJK
+     * 扩展 B 区汉字都是<b>代理对</b>（占 2 个 char），正好切在中间时会留下一个孤立的
+     * 高位代理 —— Minecraft 的字体渲染器遇到它显示成方框，而 {@code String} 后续的
+     * {@code length()} / 比较也会给出反直觉结果。
+     *
+     * <p>{@code offsetByCodePoints} 找到安全边界再截，保证输出永远是良构字符串。
+     */
+    private static String truncateByCodePoints(String s, int maxCodePoints) {
+        if (s == null) return "";
+        if (s.codePointCount(0, s.length()) <= maxCodePoints) return s;
+        return s.substring(0, s.offsetByCodePoints(0, maxCodePoints));
     }
 }

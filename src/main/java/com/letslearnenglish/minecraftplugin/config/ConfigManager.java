@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.config;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.util.AtomicFileWriter;
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -11,7 +12,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Configuration Manager - handles loading, saving, and hot-reloading of all config files.
@@ -36,6 +37,10 @@ import java.util.logging.Level;
 public class ConfigManager {
 
     private static final int MESSAGE_CONFIG_VERSION = 26;
+
+    /** 受支持语言的两个 canonical 取值（也是 {@code messages/*.yml} 的文件名主干）。 */
+    private static final String LANG_ZH = "zh";
+    private static final String LANG_EN = "en";
 
     /**
      * P0-2：合并递归深度上限。语言文件实际只有 2~3 层，这里留足余量；上限只防
@@ -138,10 +143,30 @@ public class ConfigManager {
      */
     private final Set<String> warnedGuiMaterials = ConcurrentHashMap.newKeySet();
 
-    private FileConfiguration mainConfig;
-    private FileConfiguration messageConfig;
-    private FileConfiguration messageConfigZh;
-    private FileConfiguration messageConfigEn;
+    // C1：热重载在主线程写、PAPI 可能异线程读，无同步原语 ⇒ volatile。
+    private volatile FileConfiguration mainConfig;
+    private volatile FileConfiguration messageConfig;
+    private volatile FileConfiguration messageConfigZh;
+    private volatile FileConfiguration messageConfigEn;
+
+    /**
+     * C2（round4 重修）：四份配置的<b>原子发布单元</b>。
+     *
+     * <p>原状：4 条相邻 {@code volatile} 写<b>不是</b>原子发布 —— {@code messageConfig} 写在
+     * {@code mainConfig} 之前，任何在两者之间读取的线程会看到「新 messageConfig + 旧 mainConfig」
+     * 的跨代配对（实测 3-5 次 / 30 代，最长连续 6.8-9.4ms）。该配对真实落在
+     * {@code MessageUtil.getMessage}（:52 读 messageConfig、:58 读 mainConfig）上，
+     * 并被 PAPI 的 30s TTL 把错误文案固化半分钟。
+     *
+     * <p>修法：一次 {@code volatile} 引用写完成"四字段同时换代"—— 读者要么整组看到旧代、
+     * 要么整组看到新代，不存在中间态。{@link #getMainConfig()} / {@link #getMessageConfig()}
+     * 改读本快照（测试反射注入 legacy 字段时快照为 null，仍回落 legacy 字段，行为不变）。
+     */
+    private volatile ConfigSnapshot configSnapshot;
+
+    /** 同代四份配置的只读组合。字段名与 legacy 字段一一对应，便于逐点核对。 */
+    public record ConfigSnapshot(FileConfiguration mainConfig, FileConfiguration messageConfig,
+                                 FileConfiguration messageConfigZh, FileConfiguration messageConfigEn) { }
 
     public ConfigManager(LetsLearnEnglish plugin) {
         this.plugin = plugin;
@@ -149,11 +174,24 @@ public class ConfigManager {
     }
 
     public void loadAllConfigs() {
+        try {
+            loadAllConfigsInternal();
+        } catch (RuntimeException e) {
+            // 锐评波降为 LOW：不做回滚/重构，只补失败可见性，异常照原样抛出（行为不变）。
+            plugin.getLogger().log(Level.SEVERE,
+                    "Configuration loading failed; config state is partially initialized", e);
+            throw e;
+        }
+    }
+
+    private void loadAllConfigsInternal() {
         configCache.clear();
         // L13：reload 后允许每个 GUI material 键重新告警一次（见 warnedGuiMaterials javadoc）。
         warnedGuiMaterials.clear();
         plugin.saveDefaultConfig();
-        mainConfig = plugin.getConfig();
+        // C2：先全部算进局部变量，末尾集中发布。原分步赋值被 loadMessageConfig 的磁盘 IO
+        // 隔开，异线程读者可见「新 mainConfig + 旧 messageConfig」的跨代混合视图。
+        FileConfiguration newMain = plugin.getConfig();
 
         // 诚实性审查收口（新发现 A/B）：原此处 loadConfig("achievements.yml")——该文件
         // 已废弃（自带 deprecated 头注、AchievementManager 实际读 achievements-config.yml），
@@ -169,12 +207,61 @@ public class ConfigManager {
         // 必须在 saveResourceIfNotExists 之后：先补齐缺失文件，再判断要不要升级。
         upgradeWordBanksIfNeeded();
 
-        messageConfigZh = loadMessageConfig("messages/zh.yml");
-        messageConfigEn = loadMessageConfig("messages/en.yml");
+        FileConfiguration newZh = loadMessageConfig("messages/zh.yml");
+        FileConfiguration newEn = loadMessageConfig("messages/en.yml");
 
         // R-55l：缺 key 回落统一为 zh（与 yml 默认 "zh" + getPlayerLanguage 的 zh 回落对齐）。
-        String language = mainConfig.getString("general.language", "zh");
-        messageConfig = "zh".equals(language) ? messageConfigZh : messageConfigEn;
+        //
+        // R14-F3（FIX 2）：原实现 `"zh".equals(language)` 把**任何**非字面 "zh" 都判成英文，
+        // 于是 `general.language: cn`（中文用户最常见的写法）会让全服默认语言静默变成英文：
+        // active 消息文件、resolveDefaultLang、无个人覆盖的玩家、PAPI 缓存键全部跟着走 en，
+        // 而日志里一个字都没有。现在先归一化，再对**原始值**做合法性判定并点名告警。
+        //
+        // 判定分两档，因为"能用"和"该写"是两件事：
+        //   · 无法识别（"fr"/"english"/"中文"）→ WARNING，回落 zh；
+        //   · 可识别但不是规范写法（"cn"/"ZH"/"zh_CN"/"zh-CN"）→ 仍按 zh 生效，但 WARNING 一次，
+        //     提示 config.yml 里文档化的取值只有 zh/en。第二档是刻意的：`cn` 是**能跑**的
+        //     （这正是 FIX 2 的修复点），但服主写下的值与文档不符时应当能看见，
+        //     否则下次改配置会以为自己写错了却没有任何反馈。
+        String rawLanguage = newMain.getString("general.language", LANG_ZH);
+        String canonicalRaw = canonicalLanguage(rawLanguage);
+        if (!isRecognizedLanguage(rawLanguage)) {
+            // 未知值回落 zh：与全仓"取不到就 zh"的口径一致，也让 zh 环境的服主看到中文
+            // 而不是突然全英文（旧实现在这里会整服切英文）。
+            plugin.getLogger().warning("[Config Audit] Invalid value for general.language: '"
+                    + rawLanguage + "' — accepted values are 'zh' and 'en'. Falling back to '" + canonicalRaw + "'.");
+        } else if (!canonicalRaw.equals(rawLanguage)) {
+            // 能跑但不是规范写法：不改变行为，只让服主知道文档里的取值长什么样。
+            plugin.getLogger().warning("[Config Audit] Non-canonical value for general.language: '"
+                    + rawLanguage + "' (resolved to '" + canonicalRaw + "'). The documented values are"
+                    + " 'zh' and 'en'; this spelling works but is not what config.yml advertises.");
+        }
+        String language = canonicalRaw;
+        FileConfiguration newActive = LANG_EN.equals(language) ? newEn : newZh;
+
+        // C2（round4 重修）：<b>一条</b> volatile 引用写完成四份配置的原子换代。
+        // 原实现是 4 条相邻独立写，读者在两条之间会看到 msgGen > mainGen 的跨代配对
+        // （实测 6.8-9.4ms 窗口，落在 MessageUtil:52/58 的读取对上并被 PAPI 30s TTL 固化）。
+        //
+        // slice-02-concurrency-F-02-C2（round10 批判专家复核，ALREADY_FIXED）：
+        // 「4 条相邻 volatile 写之间的 6.8-9.4ms 窗口」**已结构性消除** —— 现在只有这一条
+        // 引用写，两写之间不存在间隔。
+        //
+        // 精确边界（原注释的「被消除而非缩小」是过度声明）：**单次 getter 调用内部**是原子的
+        // （一次 volatile read 拿到整组）；但**两次独立 getter 调用之间**（例如 MessageUtil
+        // 先 getMessageConfig 再 getMainConfig）仍可能跨越一次 reload —— 那个窗口是调用方
+        // 造成的，不是发布逻辑造成的，量级在亚毫秒（两条 getter 之间），与原来的 6.8-9.4ms
+        // 差三个数量级。legacy 字段直读点（测试反射注入路径）同理。
+        //
+        // 若要连那两个 getter 之间的窗口也收口，需要调用方一次取快照再下传（见 round10
+        // expert2 的 B 方案）；红队评估收益 < 成本，故本轮不做。
+        configSnapshot = new ConfigSnapshot(newMain, newActive, newZh, newEn);
+        // legacy 字段保持同步：测试经反射注入 mainConfig 时 getMainConfig 要能看到；
+        // 字段仍在（不改公共形状），但生产读路径已优先走快照。
+        messageConfigZh = newZh;
+        messageConfigEn = newEn;
+        messageConfig = newActive;
+        mainConfig = newMain;
 
         plugin.getLogger().info("All configuration files loaded.");
     }
@@ -260,6 +347,17 @@ public class ConfigManager {
         }
 
         FileConfiguration config = YamlConfiguration.loadConfiguration(file);
+        // E7（R9 补齐）：损坏检测。YamlConfiguration.loadConfiguration 会吞掉解析异常并
+        // 返回<b>空配置</b>，所以一个半截/语法错误的 words/advanced.yml 会被当成「这个词库
+        // 没有词」静默传下去 —— 与 messages/*.yml 的处理不对称（那边有 looksLikeBrokenYaml
+        // 检测 + SEVERE 日志 + JAR 默认值兜底，见本类 :299-303 的注释）。
+        // 这里只做可观测性：不替换内容、不改调用方语义，避免把「空文件」与「损坏文件」混为一谈。
+        if (file.isFile() && config.getKeys(false).isEmpty() && file.length() > 0) {
+            plugin.getLogger().severe("Config file appears to be corrupted or empty after parsing: "
+                    + path + " (" + file.length() + " bytes on disk but 0 keys parsed). "
+                    + "YamlConfiguration swallows parse errors and returns an empty config — "
+                    + "check the file for syntax errors. It will be treated as empty.");
+        }
         configCache.put(path, config);
         return config;
     }
@@ -554,52 +652,95 @@ public class ConfigManager {
      * P0-2：先写同目录临时文件再原子替换，避免进程中断/磁盘满时留下半截语言文件
      * （半截 YAML 会让下次启动解析失败，那才是真正的数据灾难）。
      *
+     * <p><b>R-11：参数类型从 {@link YamlConfiguration} 放宽到 {@link FileConfiguration}，
+     * 让 {@link #saveConfig} 复用本方法而不是复制第二份实现。</b>本方法只用到
+     * {@code saveToString()}，它是 {@link FileConfiguration} 上的抽象方法；而 Bukkit 的
+     * {@code FileConfiguration.save(File)} 实现正是「建父目录 + {@code saveToString()} +
+     * UTF-8 写出」—— 因此本方法写出的字节与 {@code config.save(file)} 逐字节相同，
+     * 放宽类型不改变任何既有调用点（{@code migrateMessageConfig}）的落盘内容。
+     *
+     * <p>注意本方法<b>不建父目录</b>（{@code Files.writeString} 不会，
+     * {@code FileConfiguration.save} 会）。调用方若依赖旧行为，必须自己保证目录存在 ——
+     * {@link #saveConfig} 就是这么做的。
+     *
+     * <p><b>R-11（第三批）：实现已提到 {@link AtomicFileWriter}</b>。同一份「写 .tmp →
+     * {@code ATOMIC_MOVE} → 退化普通 move → 失败清理」的逻辑原本只活在本类，而仓里还有三处
+     * 落点（{@code PersonalScenarioStore} 的保存/删除、{@code savePlayerLanguages}）
+     * 仍在裸 {@code config.save(file)} 覆写 —— 复制第二份必然分叉。现在它们是同一个静态方法，
+     * 本方法只是保留「{@link FileConfiguration} 入参 + 插件 logger」的本地适配壳。
+     *
+     * <p>清理失败的诊断仍落在 {@code Logger.getLogger(ConfigManager.class.getName())} 上
+     * （不是 {@code plugin.getLogger()}）：这是既有测试与运维过滤习惯依赖的契约，
+     * 由 {@link AtomicFileWriter#write(Path, java.util.function.Supplier, Logger,
+     * java.util.function.Consumer)} 的第四参注入，不在工具类里写死。
+     *
      * @return 是否写成功；失败时目标文件保持原样
      */
-    private boolean writeAtomically(YamlConfiguration config, File target) {
-        Path tmp = Path.of(target.getAbsolutePath() + ".tmp");
-        try {
-            Files.writeString(tmp, config.saveToString(), StandardCharsets.UTF_8);
-        } catch (IOException | RuntimeException e) {
-            plugin.getLogger().log(Level.SEVERE, "Failed to write temporary merged config " + tmp, e);
-            deleteQuietly(tmp);
-            return false;
-        }
-        try {
-            Files.move(tmp, target.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            return true;
-        } catch (AtomicMoveNotSupportedException e) {
-            // 某些文件系统（网络盘 / 容器挂载）不支持原子 rename：退化为普通替换。
-            // 此时临时文件仍在，下面这一步才是真正的"移动"。
+    private boolean writeAtomically(FileConfiguration config, File target) {
+        return AtomicFileWriter.write(target.toPath(), config::saveToString, plugin.getLogger(),
+                tmp -> AtomicFileWriter.deleteQuietly(tmp, CONFIG_LOGGER));
+    }
+
+    /** 原子写清理失败的诊断落点（既有契约：按本类名过滤日志，与插件 logger 分开）。 */
+    private static final Logger CONFIG_LOGGER = Logger.getLogger(ConfigManager.class.getName());
+
+    /**
+     * 把一份配置写回数据目录下的 {@code path}。
+     *
+     * <p><b>返回值不是装饰</b>：原实现 {@code void} + 吞 IOException，让调用方无法区分
+     * 「写成功」与「磁盘满 / 权限不足 / 文件被占用」。唯一的产线使用方
+     * {@code AdminCommandHandler.importWordBank} 因此会在落盘失败后照发
+     * 「导入完成」—— 内存里加了词、磁盘上零字节变更，重启即全丢。
+     *
+     * <p>SEVERE 日志保留（失败必须留痕），但失败不再只有日志、没有返回值可查：
+     * 调用方拿到 {@code false} 后有自己的上报义务。范式与
+     * {@code AdminCommandHandler.exportWordBank} 的 catch-reason-return 一致。
+     *
+     * <h2>R-11：改为原子写（同 {@link #writeAtomically}），不再直写目标文件</h2>
+     * <p>原实现是 {@code config.save(file)} —— <b>直接覆写目标文件</b>
+     * （字节码确认：{@code createParentDirs} → {@code saveToString()} →
+     * {@code new FileOutputStream(file)} 写入）。写到一半失败（磁盘满 / 进程被杀 /
+     * I/O 错误）时目标文件变成<b>半截 YAML</b>：{@code YamlConfiguration.loadConfiguration}
+     * 吞掉解析异常返回空配置，于是 {@code words/*.yml} 整档词库加载不出来，玩家侧表现为
+     * 「难度突然不存在」。这正是本类 {@link #writeAtomically} 当初为语言文件解决过的
+     * 同一个风险，{@code saveConfig} 当时漏在外面。
+     *
+     * <p>现在：写 {@code <path>.tmp} → {@code Files.move(..., ATOMIC_MOVE)} 替换。
+     * 任何一步失败都返回 {@code false} 且<b>目标文件保持原样</b>（旧的可用词库仍在，
+     * 下次启动照常加载 —— 数据是「旧的」而不是「坏的」）。
+     *
+     * <p><b>父目录</b>：{@code FileConfiguration.save} 会自己 {@code createParentDirs}，
+     * {@code Files.writeString} 不会。调用方都不建目录（{@code saveWordBankToYaml} 只做
+     * 路径越界校验，不 {@code mkdirs}），实跑路径上 {@code words/} 由
+     * {@link #loadAllConfigs()} 里的 {@code createDirectoryIfNotExists("words")} 保证；
+     * 但那是<b>启动期</b>的保证，且 {@code AdminCommandHandler} 的失败用例正是把
+     * {@code words/} 造成普通文件。这里显式补建父目录，把「父目录存在」重新变成
+     * {@code saveConfig} 自己的契约，并在建不出来时返回 {@code false}。
+     *
+     * @return {@code true} 已落盘；{@code false} 写失败（目标文件保持原样，
+     *         不会留下半截 YAML）
+     */
+    public boolean saveConfig(FileConfiguration config, String path) {
+        File target = new File(plugin.getDataFolder(), path);
+        File parent = target.getParentFile();
+        if (parent != null) {
             try {
-                Files.move(tmp, target.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                return true;
-            } catch (IOException fallbackFailure) {
-                plugin.getLogger().log(Level.SEVERE, "Failed to replace " + target, fallbackFailure);
-                deleteQuietly(tmp);
+                // 对应 FileConfiguration.save 里的 createParentDirs；失败直接判失败，
+                // 不让后续 writeString 抛一个语义更模糊的 NoSuchFileException。
+                Files.createDirectories(parent.toPath());
+            } catch (IOException | RuntimeException e) {
+                plugin.getLogger().log(Level.SEVERE,
+                        "Failed to save config file: " + path + " (cannot create parent directory "
+                                + parent.getAbsolutePath() + ")", e);
                 return false;
             }
-        } catch (IOException e) {
-            plugin.getLogger().log(Level.SEVERE, "Failed to replace " + target, e);
-            deleteQuietly(tmp);
+        }
+        if (!writeAtomically(config, target)) {
+            plugin.getLogger().severe("Failed to save config file: " + path
+                    + " (target left untouched; a partially written file would break the next load)");
             return false;
         }
-    }
-
-    private static void deleteQuietly(Path path) {
-        try {
-            Files.deleteIfExists(path);
-        } catch (IOException | RuntimeException ignored) {
-            // 临时文件残留不影响数据安全，下次升级会覆盖同名 .tmp
-        }
-    }
-
-    public void saveConfig(FileConfiguration config, String path) {
-        try {
-            config.save(new File(plugin.getDataFolder(), path));
-        } catch (IOException e) {
-            plugin.getLogger().log(Level.SEVERE, "Failed to save config file: " + path, e);
-        }
+        return true;
     }
 
     public FileConfiguration loadWordBank(String difficulty) {
@@ -608,8 +749,10 @@ public class ConfigManager {
 
     private void createDirectoryIfNotExists(String dirName) {
         File dir = new File(plugin.getDataFolder(), dirName);
-        if (!dir.exists()) {
-            dir.mkdirs();
+        // 必须检查返回值：原实现丢弃 mkdirs() 结果，建目录失败（权限/磁盘）会彻底静默。
+        if (!dir.exists() && !dir.mkdirs() && !dir.isDirectory()) {
+            plugin.getLogger().severe("Failed to create directory " + dir.getAbsolutePath()
+                    + "; files under it cannot be written until it exists.");
         }
     }
 
@@ -671,7 +814,7 @@ public class ConfigManager {
         // 旧版本 < 新版本：备份后替换。备份目录带旧版本与时间戳，避免多次升级互相覆盖。
         File backupDir = new File(dataFolder, "words-backup-v" + installed + "-"
                 + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(new java.util.Date()));
-        boolean anyReplaced = false;
+        int needed = 0, upgraded = 0;   // 分母 = 所有需要升级的档位，不是「任一成功」
         boolean backupFailed = false;
 
         for (String tier : new String[] {"beginner", "intermediate", "advanced"}) {
@@ -679,6 +822,9 @@ public class ConfigManager {
             if (!disk.isFile()) {
                 continue;   // 缺失的由 saveResourceIfNotExists 负责释放，这里不重复
             }
+            needed++;   // 备份/写入失败的档位同样计入分母，否则会被部分成功骗过
+            // LG-02：守卫必须同时罩住备份与替换。原实现替换在 if 之外，使「备份失败就
+            // 不替换」只对抛异常的那一档成立，其后档位无 .bak 即被硬覆盖。
             if (!backupFailed) {
                 try {
                     if (!backupDir.isDirectory() && !backupDir.mkdirs()) {
@@ -695,17 +841,23 @@ public class ConfigManager {
                             + "delete words-version.txt and restart.", e);
                     continue;
                 }
-            }
-            try {
-                plugin.saveResource("words/" + tier + ".yml", true);   // true = 覆盖
-                anyReplaced = true;
-            } catch (Throwable t) {
-                plugin.getLogger().log(Level.WARNING,
-                        "Failed to write upgraded word bank " + tier + ".yml", t);
+                // LG-02：替换与备份同受此守卫保护。
+                try {
+                    plugin.saveResource("words/" + tier + ".yml", true);   // true = 覆盖
+                    upgraded++;
+                } catch (Throwable t) {
+                    plugin.getLogger().log(Level.WARNING,
+                            "Failed to write upgraded word bank " + tier + ".yml", t);
+                }
             }
         }
 
-        if (anyReplaced) {
+        if (upgraded < needed) {
+            // 部分成功不盖章：否则下次启动 installed >= VERSION 直接早退，旧档位永久滞留。
+            plugin.getLogger().warning("Word bank upgrade incomplete: " + upgraded + "/" + needed
+                    + " tier(s); words-version.txt left at v" + installed + " so it retries next start.");
+        }
+        if (needed > 0 && upgraded == needed) {
             try {
                 Files.writeString(versionFile.toPath(), String.valueOf(WORD_BANK_VERSION),
                         StandardCharsets.UTF_8);
@@ -722,15 +874,139 @@ public class ConfigManager {
     }
 
     public FileConfiguration getMainConfig() {
-        return mainConfig;
+        ConfigSnapshot snap = configSnapshot;
+        return snap != null ? snap.mainConfig() : mainConfig;
     }
 
     public FileConfiguration getMessageConfig() {
-        return messageConfig;
+        ConfigSnapshot snap = configSnapshot;
+        return snap != null ? snap.messageConfig() : messageConfig;
     }
 
+    /**
+     * R14-F3（FIX 1/2）：语言标签归一化的<b>唯一</b>入口。
+     *
+     * <p><b>为什么必须有它</b>：{@code player_lang.yml} 是数据目录里可手改的文件，
+     * {@code config.yml} 的 {@code general.language} 也只是自由字符串。旧实现里
+     * {@link #getMessageConfig(String)} 用精确的 {@code "zh".equals(lang)}，而
+     * {@code Achievement} / {@code AIChatManager} / {@code ProxyMessenger} /
+     * {@code ChatAnswerListener} / {@code ChatFeedbackManager} / {@code PersonalScenarioGUI} /
+     * {@code ScenarioSelectGUI} / {@code ScenarioSelectListener} 这 9 处兄弟调用点用的是
+     * {@code equalsIgnoreCase}。于是一旦存了 {@code "ZH"}，同一个玩家会同时看到<b>英文</b>的
+     * 聊天/GUI 文案和<b>中文</b>的成就名/场景名/代理广播 —— 半英半中的服。</p>
+     *
+     * <p><b>规则</b>：去空白 → 小写（{@link Locale#ROOT}，避免土耳其语环境把 {@code "I"}
+     * 折成无点 ı）→ 连字符折成下划线（{@code zh-CN} 与 {@code zh_cn} 等价）→
+     * {@code zh}/{@code cn}/{@code zh_*} 归 {@code zh}，{@code en}/{@code en_*} 归 {@code en}。
+     * 前缀规则而不是枚举表：{@code zh_tw}/{@code en_gb} 这类"方言"落到本插件仅有的两份文案
+     * 上，比丢弃更接近服主本意。</p>
+     *
+     * <p><b>未知值（含 null）回落 {@code zh}</b>：与全仓既有的 R-55l 口径一致
+     * （缺 key / 取不到一律回落 zh），且保证本方法<b>永不返回 null</b>——
+     * {@code "prefix." + lang} 这类拼接因此不会拼出 {@code prefix.null}。
+     * 需要区分"合法输入"时用 {@link #isRecognizedLanguage(String)}。</p>
+     *
+     * @param lang 任意来源的语言标签，可为 null
+     * @return {@code "zh"} 或 {@code "en"}，绝不为 null
+     */
+    public static String canonicalLanguage(String lang) {
+        String mapped = mapLanguageToken(normalizeLanguageToken(lang));
+        return (mapped != null) ? mapped : LANG_ZH;
+    }
+
+    /**
+     * R14-F3（FIX 1）：{@link #canonicalLanguage(String)} 的布尔视图。
+     * 与 {@link #canonicalLanguage(String)} 同源，因此 {@code null}/{@code 未知值} 一律视为 zh
+     * （不是"既不 zh 也不 en"——非 zh 即 en 的写法会让未知值静默变成英文服）。
+     *
+     * @param lang 任意来源的语言标签，可为 null
+     * @return true 表示应使用 {@code messages/zh.yml}
+     */
+    public static boolean isZh(String lang) {
+        return LANG_ZH.equals(canonicalLanguage(lang));
+    }
+
+    /**
+     * R14-F3（FIX 2）：该值是否是<b>可识别</b>的语言标签（而不是"能不能归一化"）。
+     *
+     * <p>调用点只有 {@code loadAllConfigsInternal}：{@code general.language} 写错时要点名
+     * 告警，而 {@link #canonicalLanguage(String)} 会把 {@code "fr"} 与 {@code "cn"} 一起
+     * 折叠成 zh —— 归一化成功不代表输入合法，所以判定必须独立于回落。</p>
+     *
+     * @param lang 原始配置值，可为 null
+     * @return true 表示 zh/en 系（大小写与 {@code _}/{@code -} 国家后缀均接受）
+     */
+    public static boolean isRecognizedLanguage(String lang) {
+        return mapLanguageToken(normalizeLanguageToken(lang)) != null;
+    }
+
+    /** 去空白 + 小写 + 连字符折下划线。仅本类的归一化链使用。 */
+    private static String normalizeLanguageToken(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        return raw.trim().toLowerCase(Locale.ROOT).replace('-', '_');
+    }
+
+    /**
+     * 归一化 token 到 canonical 值；无法识别返回 {@code null}（由调用方决定回落策略）。
+     * 刻意<b>不</b>读 {@code Locale} 运行时环境：语言标签由配置/玩家选择决定，与 JVM 默认
+     * locale 无关。
+     */
+    private static String mapLanguageToken(String token) {
+        if (token.equals("zh") || token.equals("cn") || token.startsWith("zh_")) {
+            return LANG_ZH;
+        }
+        if (token.equals("en") || token.startsWith("en_")) {
+            return LANG_EN;
+        }
+        return null;
+    }
+
+    /**
+     * 按语言取一份 {@code messages/*.yml}。
+     *
+     * <p>R14-F3（FIX 1）：语言比较收敛到 {@link #canonicalLanguage(String)}（与 9 处兄弟
+     * 调用点的 {@code equalsIgnoreCase} 语义对齐，并额外接受 {@code zh_CN}/{@code cn} 等写法）。
+     * 归一化只发生在本方法这一处入口，兄弟类各自的比较因此不再能改变本方法选中的文件 ——
+     * 它们最多只影响自己那句 {@code getDisplayName(boolean)}，不会再出现"同一语言两份结果"。</p>
+     *
+     * @param lang 玩家语言 / 配置语言，可为 null
+     * @return 对应语言的消息配置；快照未发布时回落 legacy 字段（可能为 null，调用方需自守）
+     */
     public FileConfiguration getMessageConfig(String lang) {
-        return "zh".equals(lang) ? messageConfigZh : messageConfigEn;
+        boolean zh = isZh(lang);
+        ConfigSnapshot snap = configSnapshot;
+        if (snap != null) {
+            return zh ? snap.messageConfigZh() : snap.messageConfigEn();
+        }
+        return zh ? messageConfigZh : messageConfigEn;
+    }
+
+    /**
+     * R14-F3：服务端默认语言（{@code general.language}）的 <b>canonical</b> 取值，
+     * 必定是 {@code "zh"} 或 {@code "en"}。
+     *
+     * <p><b>为什么要有这个 getter</b>：{@code general.language} 在 6 个地方被直接读
+     * （{@code MessageUtil} 三处、{@code LetsLearnEnglish} 三处、{@code DuelManager}、
+     * {@code LLEPapiExpansion}、{@code DiagnoseCommand}）。每一处各自拿原始字符串去拼
+     * {@code "prefix." + lang} 或做 {@code equals}，任何一个写错都会让服主看到
+     * {@code prefix.cn} 这种取不到的前缀（然后静默回落语言文件里的 {@code prefix}），
+     * 而玩家表里的默认语言又和 active 消息文件对不上。这里把"读 + 归一化"收成一处，
+     * 调用方拿到的永远是那两个 canonical 值。</p>
+     *
+     * <p>与 {@link #getMessageConfig(String)} 的一致性：{@code getMessageConfig(getDefaultLanguage())}
+     * 与 {@code getMessageConfig()}（active 文件）必然指向同一份文件 —— 这正是 FIX 2 之前
+     * 在 {@code general.language: cn} 下被破坏的那条不变量。</p>
+     *
+     * @return {@code "zh"} 或 {@code "en"}，永不为 null（mainConfig 未加载时回落 zh）
+     */
+    public String getDefaultLanguage() {
+        FileConfiguration main = getMainConfig();
+        if (main == null) {
+            return LANG_ZH;
+        }
+        return canonicalLanguage(main.getString("general.language", LANG_ZH));
     }
 
     /**

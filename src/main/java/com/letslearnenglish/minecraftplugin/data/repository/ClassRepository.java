@@ -46,7 +46,7 @@ import java.util.logging.Logger;
 public class ClassRepository {
 
     /**
-     * {@link #addMemberAtomic} 的四种结果——与调用方既有消息分支一一对应
+     * {@link #addMemberAtomic} 的几种结果——与调用方既有消息分支一一对应
      * （{@code ALREADY_MEMBER}/{@code ADDED} → {@code class.member-added}，
      * {@code FULL} → {@code class.member-full}，{@code REASSIGNED} → {@code class.reassigned}）。
      *
@@ -58,12 +58,17 @@ public class ClassRepository {
     public enum AddResult {
         /** 玩家已在新班内：幂等，未做任何写操作。 */
         ALREADY_MEMBER,
-        /** 新班已满（{@code >= maxMembers}）：未做任何写操作，旧班保留。 */
+        /** 新班已满：未留下本次插入（预检 {@code >= maxMembers} 命中，或插入后自证超员已撤销本次插入）。
+         *  换班路径下旧班已加回，但"{@code class_members} 行数"瞬时磁盘状态不保证与行数上限一致
+         *  （无 DB 级"每班行数"约束，见 {@link #addMemberAtomic} 的 dc-01 之二）；调用方按"未加入新班"报。 */
         FULL,
         /** 旧班已退、新班已进（跨班换班成功）。 */
         REASSIGNED,
         /** 玩家原本无班，直接进新班。 */
-        ADDED
+        ADDED,
+        /** 未生效。状态是否已回到调用前由<b>补偿后回读</b>确认：回读不可确认、或玩家落在非旧班时
+         *  记 SEVERE 需人工核对，故此值不等于"库内状态已复原"。调用方不得报成功。 */
+        WRITE_FAILED
     }
 
     private final DatabaseManager db;
@@ -95,10 +100,16 @@ public class ClassRepository {
      * <p>满员时<b>不退旧班</b>（原实现注释："满则拒绝，防丢班"）——玩家留在原班，
      * 返回 {@link AddResult#FULL}。
      *
-     * <p>异常语义照搬：内层 DB 方法自己吞 SQLException 并记 WARNING、返回
-     * {@code null}/0/false。因此读失败时 {@code getPlayerClassId} 返回 null 会被当作
-     * "无班"，{@code getClassMemberCount} 返回 0 会被当作"未满"——这与 R6-F 之前
-     * 的行为完全相同（同一条代码路径），本类<b>不</b>新增新的失败语义。
+     * <p><b>跨进程满员（dc-01 之二 / round4-09 #1）</b>：{@code count >= maxMembers} 预检与
+     * INSERT 之间没有"每班行数上限"的 DB 约束兜底（{@code class_members} 只有
+     * {@code PK(class_id, uuid)}），多服共享库时两实例可各读到 29 并各插一行。故本方法在
+     * 插入后<b>自证不超员</b>：超员即撤销本次插入（换班者同时把旧班加回）并报 {@code FULL}，
+     * 使超员是瞬时状态而非长期状态。<b>已知残留</b>：彻底消除需要 DB 级约束（
+     * {@code schema.sql} 的 {@code class_members} 加 {@code UNIQUE} + {@code DatabaseManager}
+     * 的建表同形），两者均不在本次授权的写入范围内，见 residual_risks。
+     *
+     * <p>失败信号（dc-01/dc-02）：内层 DB 方法把 SQL 失败压成 {@code null}/0/false，与"无班/空班"不可区分，
+     * 故改以可读性探针 + 锁内回读驱动决策；进新班失败时把玩家<b>加回旧班</b>，绝不返回 {@code REASSIGNED}。
      *
      * <p>锁内不投递任何消息（R9-L5），调用方按返回值在锁外分支。
      *
@@ -107,40 +118,62 @@ public class ClassRepository {
      * @param playerId   玩家 UUID
      * @param joinedAt   进班时间戳（毫秒）；调用方传 {@code System.currentTimeMillis()}
      * @param maxMembers 班级人数上限（来自 {@code class-system.max-members}）
-     * @return 四种结果之一，永不返回 null
+     * @return 五种结果之一，永不返回 null
      */
     public AddResult addMemberAtomic(int classId, UUID playerId, long joinedAt, int maxMembers) {
-        // 预先初始化：两条 early-return 分支在锁内直接返回，赋值只发生在"真的要写"
-        // 的那条路径上；显式初值让"锁外读这两个变量"不依赖 DA 分析的边角规则。
-        boolean insertRejected = false;
-        AddResult result = AddResult.ADDED;
+        boolean lostClass = false;
+        AddResult result;
         synchronized (db.getConnectionLock()) {
-            // R6 硬约束：锁内首行取连接——先确认共享连接可用（必要时触发自愈重连），
-            // 让下面四条语句全部落在同一个已校验的连接上，不跨重连窗口。
             db.getConnection();
+            if (db.countRows("class_members") < 0) return AddResult.WRITE_FAILED; // dc-02
             Integer currentClassId = db.getPlayerClassId(playerId);
-            if (currentClassId != null && currentClassId == classId) {
-                // 已在本班：幂等（无写操作）
-                return AddResult.ALREADY_MEMBER;
-            }
-            if (db.getClassMemberCount(classId) >= maxMembers) {
-                // 满员：拒绝且不退旧班（防丢班）
-                return AddResult.FULL;
-            }
+            if (currentClassId != null && currentClassId == classId) return AddResult.ALREADY_MEMBER;
+            if (db.getClassMemberCount(classId) >= maxMembers) return AddResult.FULL;
             boolean reassigned = currentClassId != null;
-            if (reassigned) {
-                db.removeClassMember(currentClassId, playerId);
+            if (reassigned && !db.removeClassMember(currentClassId, playerId)) {
+                return AddResult.WRITE_FAILED; // 退旧班失败：状态未变，不写新班
             }
-            insertRejected = !db.addClassMember(classId, playerId, joinedAt);
-            result = reassigned ? AddResult.REASSIGNED : AddResult.ADDED;
+            db.addClassMember(classId, playerId, joinedAt);
+            Integer after = db.getPlayerClassId(playerId); // dc-01：回读为准，不信歧义布尔
+            if (after == null) after = db.getPlayerClassId(playerId); // 回读失败再确认一次，避免把读失败当写失败
+            // 插入后自证不超员（跨进程满员，见 javadoc 的 dc-01 之二）。超额即撤销
+            // **本次**插入；换班者同时把旧班加回。并发超额时各实例各撤自己那行。
+            boolean joinedTarget = after != null && after == classId;
+            int newCount = joinedTarget ? db.getClassMemberCount(classId) : 0;
+            // 刚成功插入并回读到本班，计数却 <= 0 → 该 COUNT 查询失败（getClassMemberCount
+            // 把读失败压成 0）。此时无法自证不超员：写本身是真成功的，不退回 WRITE_FAILED
+            // （那会谎报"没加进去"），只记 WARNING 披露校验缺口。
+            if (joinedTarget && newCount <= 0) {
+                logger.log(Level.WARNING, "Cannot verify class capacity for " + playerId
+                        + " (class " + classId + "): member count query failed after insert");
+            }
+            boolean overCapacity = joinedTarget && newCount > maxMembers;
+            if (overCapacity) {
+                db.removeClassMember(classId, playerId);
+                if (reassigned) {
+                    db.addClassMember(currentClassId, playerId, joinedAt); // 补偿：旧班加回
+                    Integer back = db.getPlayerClassId(playerId);
+                    lostClass = back == null || back.intValue() != currentClassId.intValue();
+                }
+                result = AddResult.FULL;
+            } else if (joinedTarget) {
+                result = reassigned ? AddResult.REASSIGNED : AddResult.ADDED;
+            } else if (reassigned) {
+                db.addClassMember(currentClassId, playerId, joinedAt); // 补偿：旧班加回
+                Integer back = db.getPlayerClassId(playerId); // 复原因以回读确认落在旧班为准
+                // 补偿写入的返回值折叠了"已在班"与"写失败"，故只认回读；back 为别的班 = 他实例已写别班
+                lostClass = back == null || back.intValue() != currentClassId.intValue();
+                result = AddResult.WRITE_FAILED;
+            } else {
+                if (after != null) {
+                    db.removeClassMember(classId, playerId); // 一人两班 → 撤销本次插入
+                }
+                result = AddResult.WRITE_FAILED;
+            }
         }
-        if (insertRejected) {
-            // addClassMember 自己已对 SQL 失败记 WARNING；这里只补一条 FINE，覆盖
-            // "check 看到无行、INSERT 撞 PK"的并发窗口（多服同时加同人），不升级
-            // 日志级别、不改变返回值语义（与 R6-F 之前的静默继续一致）。
-            // 放在锁外：日志可能是阻塞 IO，不该占着连接锁。
-            logger.log(Level.FINE, "addClassMember returned false for " + playerId
-                    + " in class " + classId + " (concurrent add or SQL failure)");
+        if (lostClass) {
+            logger.log(Level.SEVERE, "Lost class membership for " + playerId
+                    + " (rollback failed) — manual repair required");
         }
         return result;
     }

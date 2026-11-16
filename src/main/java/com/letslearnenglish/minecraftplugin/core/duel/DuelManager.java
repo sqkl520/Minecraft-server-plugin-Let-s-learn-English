@@ -21,7 +21,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -41,11 +41,8 @@ public class DuelManager {
 
     private final LetsLearnEnglish plugin;
 
-    // player UUID → DuelRoom they are currently in
+    // player UUID → DuelRoom they are in. F2: 同时是 busy 的唯一真源。
     private final Map<UUID, DuelRoom> activeDuels;
-    // Players currently inside an ACTIVE duel (R-73: pending invitations do
-    // NOT mark busy — see isBusy; marked in acceptDuel, released in cleanup)
-    private final Set<UUID> busyPlayers;
     // Pending duel requests: target UUID → PendingDuel (sender + unique token)
     private final Map<UUID, PendingDuel> pendingRequests;
     // Disconnect grace timers: disconnected player UUID → duelRoom
@@ -59,10 +56,16 @@ public class DuelManager {
     private final Map<UUID, BossBar> duelBars;
     // Request-expiry tasks: target UUID → task (one entry per pending request)
     private final Map<UUID, BukkitTask> requestExpiryTasks;
+    // F1: in-flight duel_stats writes, so shutdown() can await them before the
+    // DB is closed by onDisable(). Producer removes its own entry in finally.
+    private final Set<CompletableFuture<Void>> inflightDuelStats = ConcurrentHashMap.newKeySet();
     // R-69: offline duel notices awaiting delivery on next join (one entry per player)
     private final Map<UUID, OfflineDuelNotice> offlineNotices;
     // R-68: monotonic token source for pending duel requests
     private final AtomicLong requestTokenSeq;
+    /** R4-07-sec-F02：邀请冷却，否则可无限轰炸目标的消息 + 音效。 */
+    private final Map<UUID, Long> lastInviteAt = new ConcurrentHashMap<>();
+    private static final long INVITE_COOLDOWN_MS = 5000L;
 
     /**
      * A pending duel request. The unique {@code token} lets the 60-second
@@ -74,12 +77,13 @@ public class DuelManager {
     private record PendingDuel(UUID senderId, long token) { }
 
     /**
-     * R-69: a notice owed to a player who was offline when their duel was
-     * torn down (GM dismissal). Consumed on next join via
-     * {@link #consumeOfflineDuelNotice(UUID)}.
+     * R-69 / R14: a notice owed to a player who was offline when their duel was
+     * torn down (GM dismissal, or forfeit-by-disconnect-timeout). Consumed on
+     * next join via {@link #consumeOfflineDuelNotice(UUID)}.
      *
      * @param messageKey      i18n key for the consumer to resolve and send
-     *                        (e.g. {@code "duel.cancelled-by-gm"})
+     *                        (e.g. {@code "duel.cancelled-by-gm"} /
+     *                        {@code "duel.lost-by-disconnect"})
      * @param otherPlayerName the OTHER duelist's name, usable as the
      *                        {player} placeholder
      */
@@ -95,7 +99,6 @@ public class DuelManager {
     public DuelManager(LetsLearnEnglish plugin) {
         this.plugin = plugin;
         this.activeDuels = new ConcurrentHashMap<>();
-        this.busyPlayers = ConcurrentHashMap.newKeySet();
         this.pendingRequests = new ConcurrentHashMap<>();
         this.disconnectTimers = new ConcurrentHashMap<>();
         this.graceTasks = new ConcurrentHashMap<>();
@@ -125,6 +128,11 @@ public class DuelManager {
             return;
         }
 
+        // R4-07-sec-F02：邀请冷却 —— 任何消息/音效之前，命中静默返回。
+        long nowMs = System.currentTimeMillis();
+        Long lastAt = lastInviteAt.get(sender.getUniqueId());
+        if (lastAt != null && nowMs - lastAt < INVITE_COOLDOWN_MS) return;
+        lastInviteAt.put(sender.getUniqueId(), nowMs);
         if (isBusy(sender.getUniqueId())) {
             sender.sendMessage(getMsg(sender, "duel.already-in-duel"));
             return;
@@ -317,11 +325,7 @@ public class DuelManager {
             expiryTask.cancel();
         }
 
-        // Mark both as busy
-        busyPlayers.add(senderId);
-        busyPlayers.add(targetId);
-
-        // Create the duel room
+        // F2: 登记房间即置忙，单次原子发布，不再有「已忙但无房」的可见窗口。
         DuelRoom room = new DuelRoom(senderId, sender.getName(), targetId, player.getName());
         activeDuels.put(senderId, room);
         activeDuels.put(targetId, room);
@@ -423,10 +427,14 @@ public class DuelManager {
     }
 
     private void advanceOrEnd(DuelRoom room) {
+        // R4-07-logic-F03：回合上限到点 = 和局（超时永不计分，否则双方挂机永不终止）。
         if (room.isFinished()) {
             endDuel(room);
+        } else if (room.isRoundCapReached()) {
+            cancelDuelInternal(room, "max-rounds");
         } else {
-            Word nextWord = getRandomWord();
+            // R14：把当前词传进去，避免连续两题发同一个词。
+            Word nextWord = getRandomWord(room);
             if (nextWord == null) {
                 cancelDuelInternal(room, "no-words");
                 return;
@@ -640,7 +648,10 @@ public class DuelManager {
         }
 
         // Timeout never scores, so the duel cannot finish here — advance.
-        Word nextWord = getRandomWord();
+        // R4-07-logic-F03：挂机推进同样受回合上限约束，否则双方挂机会无限换题。
+        if (room.isRoundCapReached()) { cancelDuelInternal(room, "max-rounds"); return; }
+        // R14：同上，排除刚超时的这一题，防连续两题同词。
+        Word nextWord = getRandomWord(room);
         if (nextWord == null) {
             cancelDuelInternal(room, "no-words");
             return;
@@ -735,6 +746,7 @@ public class DuelManager {
         if (!room.isActive()) return;
         room.setActive(false);
 
+        try {
         UUID winnerId = room.getWinner();
         UUID loserId = room.getLoser();
         // 空值守卫：endDuel 是 public，理论上只在 isFinished() 后调用（winner/loser
@@ -753,7 +765,11 @@ public class DuelManager {
         // H9：对决首胜成就 —— 放在 winner 在线判断之外，赢家此刻掉线的极端
         // 窗口也允许落库（tryUnlock 对离线玩家静默跳过通知段）。只有正常打满
         // WIN_SCORE 触发 endDuel 才挂钩；quit/掉线宽限判负不走本方法（语义裁剪）。
-        plugin.getAchievementManager().tryUnlock(winnerId, Achievement.DUEL_FIRST_WIN);
+        try {
+            plugin.getAchievementManager().tryUnlock(winnerId, Achievement.DUEL_FIRST_WIN);
+        } catch (RuntimeException e) { // R4-07-eh-01：懒加载读库抛 RuntimeException
+            plugin.getLogger().log(java.util.logging.Level.WARNING, "Duel achievement unlock failed", e);
+        }
 
         Player winner = Bukkit.getPlayer(winnerId);
         Player loser = Bukkit.getPlayer(loserId);
@@ -784,7 +800,9 @@ public class DuelManager {
             SoundManager.playSound(loser, "incorrect");
         }
 
-        cleanup(room);
+        } finally { // R4-07-eh-01：任一步抛也必须摘 activeDuels 双键，否则双方永久 busy
+            cleanup(room);
+        }
     }
 
     /**
@@ -816,6 +834,9 @@ public class DuelManager {
         if (db == null) {
             return; // 极端初始化顺序（DB 未就位）：放弃落库，不挡结算
         }
+        // F1: 登记完成点，shutdown() 才能等到这次 UPSERT。
+        CompletableFuture<Void> handoff = new CompletableFuture<>();
+        inflightDuelStats.add(handoff);
         SchedulerGuard.runAsync(plugin, () -> {
             try {
                 db.recordDuelResult(winnerId, loserId, winnerScore, loserScore);
@@ -824,6 +845,9 @@ public class DuelManager {
                 // （如重连失败的 RuntimeException），绝不让结算链受损。
                 plugin.getLogger().log(java.util.logging.Level.WARNING,
                         "Unexpected error while persisting duel result", e);
+            } finally {
+                inflightDuelStats.remove(handoff);
+                handoff.complete(null);
             }
         });
     }
@@ -861,6 +885,33 @@ public class DuelManager {
     // ==================== Disconnect Handling ====================
 
     /**
+     * R14（红队 INFO-5）：本房间是否还有玩家处在掉线宽限期内 —— <b>按房间身份</b>判定。
+     *
+     * <p>为什么不直接 {@code disconnectTimers.containsKey(p1/p2)}：那个写法把「玩家 UUID
+     * 是否有宽限条目」当成「本房间是否有人掉线」。一旦存在属于**上一场对局**的残留条目
+     * （拆解顺序将来被改动、或某条路径提前 return 漏掉 cleanup），本房间就会被永久误判为
+     * 停盘。当前代码构造不出该状态，但那是论证，不是结构保证。
+     * 按 {@link DisconnectInfo#room} 身份比对之后，别的房间的条目在结构上不可能波及其他房间。
+     *
+     * <p>顺带消除一个 NPE 面：旧写法依赖 {@code room.getPlayer1()} 非 null，
+     * 而 {@code Map.containsKey(null)} 在 {@code ConcurrentHashMap} 上会抛 NPE。
+     *
+     * @param room 待判定的房间（可为 null —— 为 null 时视为无人在宽限期）
+     * @return true 表示该房间还有至少一方未归位，必须保持停盘
+     */
+    private boolean isAnyDisconnectPendingFor(DuelRoom room) {
+        if (room == null) {
+            return false;
+        }
+        for (DisconnectInfo info : disconnectTimers.values()) {
+            if (info != null && info.room == room) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Called when a player disconnects during a duel.
      */
     public void handleDisconnect(Player player) {
@@ -873,6 +924,9 @@ public class DuelManager {
         if (prevGrace != null) { prevGrace.cancel(); }
 
         disconnectTimers.put(playerId, new DisconnectInfo(room));
+        // R4-07-logic-F01：宽限期内停盘，否则在场方连答打满 WIN_SCORE 即把掉线局写成正常战绩。
+        room.setPaused(true);
+        cancelWordTimeout(room);
 
         UUID opponentId = room.getOpponent(playerId);
         Player opponent = Bukkit.getPlayer(opponentId);
@@ -884,6 +938,8 @@ public class DuelManager {
 
         // Start grace period countdown
         int[] remainingSeconds = {GRACE_PERIOD_SECONDS};
+        // F3: 只快照名字 —— 本任务活过掉线，强引用 Player 会把实体图钉住 30 秒。
+        final String disconnectedName = player.getName();
         // R5-M1(b)：自引用 holder —— lambda 里的 this 是 DuelManager（非 task），
         // 需要 hold 住自身引用供自清理使用；首 tick 在 20L 之后，届时 holder[0] 必然已赋值。
         final BukkitTask[] selfRef = new BukkitTask[1];
@@ -900,8 +956,32 @@ public class DuelManager {
             if (currentRoom == null || !currentRoom.isActive()) {
                 // R-26: 对局已无 —— 停掉本宽限任务，不再每秒空转。
                 // R5-M1(b)：改自引用自取消（对称统一，防未来回归）。
+                // R14（双掉线的"蒸发"半场）：本条原始缺陷是「X 掉线、Y 掉线，先到点的
+                // 那条计时判负拆房，另一条计时随后命中这里静默自取消，双方全程零反馈」。
+                // 主线已在判负分支里替同处宽限期的对手补排了通告（见 `remainingSeconds
+                // <= 0` 分支），故正常时序下本分支不会再是沉默路径 —— 这里保留为兜底：
+                // 任何将来新增的「绕过 cleanup 的拆解」或改序都可能让计时活过房间拆除，
+                // 届时仍须给掉线方一个交代，而不是静默 return。
+                //
+                // 文案取中性 duel-already-over 而**不是** lost-by-disconnect：本分支只能
+                // 确认「房间没了」，无从判断谁被判负 —— 凡会走到这里的拆解路径里，本玩家
+                // 要么是受益方（对侧宽限先到点判负），要么是第三方解散（quit/GM/内部取消）
+                // 的无过错方；两种都不该收到「你被判负、X 获胜」的错误结论。
+                // 已有通告不覆盖：mainline 排下的 lost-by-disconnect 更准确，不能说没就没。
                 selfCancelGrace(playerId, selfRef[0]);
                 disconnectTimers.remove(playerId);
+                if (!offlineNotices.containsKey(playerId)) {
+                    // 极端窗口：玩家已进服但 handleReconnect 的 20 tick 延迟还没到
+                    // （PlayerJoinListener 在 tick 0 就把离线队列消费完了，本分支之后再
+                    // 排的条目要等到"下一次"进服才送达）—— 此刻玩家在线，直接发。
+                    Player rejoined = Bukkit.getPlayer(playerId);
+                    if (rejoined != null && rejoined.isOnline()) {
+                        rejoined.sendMessage(getMsg(rejoined, "duel.duel-already-over"));
+                    } else {
+                        enqueueOfflineDuelNotice(playerId, otherDuelistName(room, playerId),
+                                "duel.duel-already-over");
+                    }
+                }
                 return;
             }
 
@@ -919,11 +999,43 @@ public class DuelManager {
                     // R-86n: 文案改带 {seconds} 占位（秒数不再写死 30），
                     // 与 GRACE_PERIOD_SECONDS 保持单一真相源。
                     opp.sendMessage(getMsg(opp, "duel.opponent-timeout",
-                            "player", player.getName(),
+                            "player", disconnectedName,
                             "seconds", String.valueOf(GRACE_PERIOD_SECONDS)));
                     removeScoreboard(opp);
                     opp.closeInventory();
                     SoundManager.playSound(opp, "complete");
+                }
+
+                // R14：判负方此前永远收不到任何反馈 —— 下面的 cleanup 会摘掉他的
+                // disconnectTimers 条目，重连时 handleReconnect 的
+                // `if (info == null) return;` 直接静默返回，连 duel-already-over 都没有。
+                // 故此处给他一条 duel.lost-by-disconnect（{player} = 对手名）：在线就
+                // 当场发（「已重连但 handleReconnect 尚未跑到」的极窄窗口），离线则
+                // 排队等进服补发。
+                String opponentName = otherDuelistName(room, playerId);
+                Player forfeiter = Bukkit.getPlayer(playerId);
+                if (forfeiter != null && forfeiter.isOnline()) {
+                    forfeiter.sendMessage(getMsg(forfeiter, "duel.lost-by-disconnect",
+                            "player", opponentName));
+                    removeScoreboard(forfeiter);
+                    forfeiter.closeInventory();
+                } else {
+                    enqueueOfflineDuelNotice(playerId, opponentName,
+                            "duel.lost-by-disconnect");
+                }
+
+                // R14（双掉线）：对手此刻也离线时（X 掉线 → Y 掉线 → X 的计时先到点），
+                // 下面的 cleanup 会连 Y 的宽限任务一并 cancel —— Y 的计时永远跑不到
+                // 自己的分支，Y 进服后同样毫无说明。注意 Y 的语义与判负方相反：判负的是
+                // X，Y 是这个宽限超时的受益方，故不能复用 lost-by-disconnect（那会说
+                // 「你被判负，X 获胜」，与事实颠倒），改用中性的 duel-already-over
+                // （「你断线期间对决已经结束了」）—— 该键无占位符，多传的名字无害。
+                // 用"已有通告不覆盖"：GM 解散等更具体的交代必须留住（overwrite 语义
+                // 是给同一原因重复排队用的，不该吃掉另一条链路的原因）。
+                if ((opp == null || !opp.isOnline())
+                        && !offlineNotices.containsKey(opponentId)) {
+                    enqueueOfflineDuelNotice(opponentId,
+                            otherDuelistName(room, opponentId), "duel.duel-already-over");
                 }
 
                 room.setActive(false);
@@ -933,7 +1045,7 @@ public class DuelManager {
                 if (opp != null && opp.isOnline()) {
                     opp.sendMessage(getMsg(opp, "duel.grace-countdown",
                             "seconds", String.valueOf(remainingSeconds[0]),
-                            "player", player.getName()));
+                            "player", disconnectedName));
                 }
             }
 
@@ -982,6 +1094,27 @@ public class DuelManager {
         Player opponent = Bukkit.getPlayer(opponentId);
 
         player.sendMessage(getMsg(player, "duel.reconnected"));
+        // R4-07-logic-F01 + R14（双掉线反例）：重连即复赛 —— 但"复赛"必须按实际还在
+        // 掉线的人数判定，不能无条件 setPaused(false)。paused 是「每房间」一个布尔，
+        // 而宽限计时是「每玩家」一份：X、Y 同时掉线时两人各有一条计时、paused 为 true；
+        // 先回来的 X 跑本方法，若直接解暂停，房间就在 Y 仍处宽限期内复赛 ——
+        // scheduleWordTimeout 还给 Y 重排一轮题钟，X 连答 5 题无人对抗 → endDuel →
+        // 一场 5-0 的「正常战绩」写进 duel_stats，正是 F01 注释里不许发生的事。
+        //
+        // 判据是「本房间」而不是「这两个 UUID」：R14 红队指出，原先按
+        // `disconnectTimers.containsKey(p1/p2)` 判定时，只要存在一条**属于上一场对局**的
+        // 残留条目，本房间就会被误判为「还有人掉线」而一直停盘。当前构造不出这种状态
+        // （所有拆解路径都经 cleanup 同时摘 activeDuels 与 disconnectTimers，且 acceptDuel
+        // 拒绝仍在 activeDuels 里的人），但那是"论证出来的不可能"，不是"结构上的不可能"。
+        // 改成按 DisconnectInfo.room 身份比对后，别的房间的条目在结构上不可能影响本房间。
+        // 顺带消除 containsKey(null) 的 NPE 面（旧写法依赖 getPlayer1() 非 null）。
+        boolean anyStillDisconnected = isAnyDisconnectPendingFor(room);
+        room.setPaused(anyStillDisconnected);
+        // 另一方仍在宽限期内时不得重排本题超时 —— 那等于给缺席方重启一轮计时
+        // （题钟恢复的同时房间还停着盘，纯粹空烧；待对侧 handleReconnect 再启动）。
+        if (!anyStillDisconnected) {
+            scheduleWordTimeout(room);
+        }
 
         if (opponent != null && opponent.isOnline()) {
             opponent.sendMessage(getMsg(opponent, "duel.opponent-reconnected",
@@ -1112,8 +1245,44 @@ public class DuelManager {
      * {@link #consumeOfflineDuelNotice(UUID)} on delivery.
      */
     private void enqueueOfflineDuelNotice(UUID playerId, String otherPlayerName) {
-        offlineNotices.put(playerId,
-                new OfflineDuelNotice("duel.cancelled-by-gm", otherPlayerName));
+        enqueueOfflineDuelNotice(playerId, otherPlayerName, "duel.cancelled-by-gm");
+    }
+
+    /**
+     * R14: 同 {@link #enqueueOfflineDuelNotice(UUID, String)}，但由调用方指定
+     * {@code messageKey}。
+     *
+     * <p>拆出重载而非改原签名：GM 解散（{@code cancelDuelByAdmin} 的两处调用）
+     * 语义是「不判胜负的作废」，文案必须是既有的 {@code duel.cancelled-by-gm}；
+     * 掉线宽限超时判负需要另一条说明「你被判负、对手获胜」的文案
+     * （{@code duel.lost-by-disconnect}）。两者共用同一份队列与投递链路，
+     * 变的只是 {@link OfflineDuelNotice#messageKey()}。
+     *
+     * @param playerId        recipient (offline at teardown)
+     * @param otherPlayerName the OTHER duelist's name, usable as the {player}
+     *                        placeholder — must be non-null (占位符替换不接受 null)
+     * @param messageKey      i18n key the consumer resolves on next join
+     */
+    private void enqueueOfflineDuelNotice(UUID playerId, String otherPlayerName,
+                                          String messageKey) {
+        if (playerId == null) return; // 防御：无 UUID 就无处投递
+        offlineNotices.put(playerId, new OfflineDuelNotice(
+                messageKey, safeName(otherPlayerName)));
+    }
+
+    /**
+     * R14: 取房间里「另一个人」的名字（离线通告的 {player} 占位）。
+     *
+     * <p>只读 {@link DuelRoom} 的存量名字字段（掉线玩家实体已不可查，{@code Bukkit.getPlayer}
+     * 恒 null），因此不依赖对方是否在线。{@code playerId} 既不等于任何一方时
+     * （理论上不会发生）回退到对手名而非 null —— 占位符替换对 null 直接 NPE。
+     */
+    private static String otherDuelistName(DuelRoom room, UUID playerId) {
+        if (room == null) return "?";
+        if (playerId != null && playerId.equals(room.getPlayer1())) {
+            return safeName(room.getPlayer2Name());
+        }
+        return safeName(room.getPlayer1Name());
     }
 
     /**
@@ -1241,8 +1410,6 @@ public class DuelManager {
 
         activeDuels.remove(p1);
         activeDuels.remove(p2);
-        busyPlayers.remove(p1);
-        busyPlayers.remove(p2);
         disconnectTimers.remove(p1);
         disconnectTimers.remove(p2);
 
@@ -1280,6 +1447,14 @@ public class DuelManager {
      * attached and is cleared here as part of the full reset.
      */
     public void shutdown() {
+        // F1: 有界等待在途战绩落库；返回后 onDisable 立刻关库，超时只记 WARNING。
+        try {
+            CompletableFuture.allOf(inflightDuelStats.toArray(new CompletableFuture[0]))
+                    .get(2L, TimeUnit.SECONDS);
+        } catch (Throwable t) {
+            plugin.getLogger().warning("Duel result write did not complete: " + t);
+        }
+        inflightDuelStats.clear();
         // Cancel every tracked task container. BukkitTask.cancel() is
         // idempotent; guard against null from concurrent removal.
         cancelAllTasks(graceTasks);
@@ -1318,10 +1493,10 @@ public class DuelManager {
 
         // Clear every state map/set.
         activeDuels.clear();
-        busyPlayers.clear();
         pendingRequests.clear();
         disconnectTimers.clear();
         offlineNotices.clear();
+        lastInviteAt.clear(); // R4-07-sec-F02：冷却表随关服清，避免只增不删
     }
 
     private void cancelAllTasks(Map<UUID, BukkitTask> tasks) {
@@ -1465,7 +1640,35 @@ public class DuelManager {
 
     // ==================== Word Selection ====================
 
+    /**
+     * R14: 取一个随机词，并排除 {@code room} 的当前词 —— 否则连续两题可能发同一词
+     * （{@code getRandomWord()} 原实现恒传 {@code null} 作 exclude，
+     * {@link com.letslearnenglish.minecraftplugin.core.word.WordBank#getRandomWords(int, Word)}
+     * 的 {@code !w.equals(exclude)} 过滤因此从未生效）。
+     *
+     * <p>首题场景（{@code acceptDuel}）房间尚无当前词，{@link DuelRoom#getCurrentWord()}
+     * 为 null，等价于不排除 —— 直接走无参版本即可。
+     */
+    private Word getRandomWord(DuelRoom room) {
+        Word current = room == null ? null : room.getCurrentWord();
+        return current == null ? getRandomWord() : getRandomWordExcluding(current.getEnglish());
+    }
+
     private Word getRandomWord() {
+        return getRandomWordExcluding(null);
+    }
+
+    /**
+     * 抽词核心（R14 新增 {@code excludeEnglish} 形参；内部名与 {@link #getRandomWord()} /
+     * {@link #getRandomWord(DuelRoom)} 区分开，避免 {@code getRandomWord(null)} 在
+     * {@code DuelRoom} / {@code String} 两个重载间产生歧义调用）。
+     *
+     * @param excludeEnglish 需排除的英文词形（{@code null} = 不排除）。按英文而非
+     *                       {@link Word} 实例传递：{@code Word.equals} 已收窄为
+     *                       english + part_of_speech，同英文词的全部分支都会被过滤，
+     *                       而这里只需「不要刚答过的那个词形」。
+     */
+    private Word getRandomWordExcluding(String excludeEnglish) {
         // Pick a random word bank and a random word from it
         Set<String> difficulties = plugin.getWordManager().getAvailableDifficulties();
         if (difficulties.isEmpty()) return null;
@@ -1478,22 +1681,52 @@ public class DuelManager {
         var bank = plugin.getWordManager().getWordBank(difficulty);
         if (bank == null || bank.getWordCount() == 0) return null;
 
-        // Get 1 random word
-        List<Word> words = bank.getRandomWords(1, null);
+        // Get a random word. WordBank 的 exclude 是 Word 实例语义（{@link Word#equals}：
+        // english + part_of_speech），故先按英文名在库里定位出该词对象；同英文不同词性
+        // 的另一条词条不在 equals 过滤范围内，故再取 2 个候选、优先挑英文词形不等于
+        // 上一题的那个（两个都同形才会命中，说明该库实际只有这一个词形）。
+        // 注：本方法每次随机挑一个难度库，上一题可能来自别的库 —— 此时 bank.getWord
+        // 返回 null（不在本库），排除自动失效，也从侧面说明本库抽不到那个词条。
+        Word exclude = null;
+        if (excludeEnglish != null && !excludeEnglish.isEmpty()) {
+            exclude = bank.getWord(excludeEnglish);
+        }
+        List<Word> words = bank.getRandomWords(2, exclude);
+        if (words.isEmpty() && exclude != null) {
+            // R14 单题库兜底：库里只剩/仅有一个词时，排除会把候选池清空 ——
+            // 那不该被当成「抽不到词」而 cancelDuelInternal(no-words) 取消对局
+            // （单题库本身仍应能打完），故放弃排除再抽一次。
+            words = bank.getRandomWords(1, null);
+        }
         if (words.isEmpty()) return null;
-
+        for (Word candidate : words) {
+            if (excludeEnglish == null || !excludeEnglish.equalsIgnoreCase(candidate.getEnglish())) {
+                return candidate;
+            }
+        }
         return words.get(0);
     }
 
     // ==================== Query Methods ====================
 
     public boolean isInDuel(UUID playerId) {
-        return activeDuels.containsKey(playerId);
+        return isActiveDuel(playerId);
+    }
+
+    /** R5-07-F4：成员表 ≠ 进行中。{@code endDuel} 先置 active=false，摘键留到 finally
+     * 的 {@code cleanup}；只查 containsKey 的窗口内异步聊天会把正常聊天吞成答案。 */
+    private boolean isActiveDuel(UUID playerId) {
+        DuelRoom room = activeDuels.get(playerId);
+        return room != null && room.isActive();
     }
 
     /**
-     * R-73 semantics: true ONLY while the player is inside an ACTIVE duel
-     * (marked in {@link #acceptDuel} and released in {@link #cleanup(DuelRoom)}).
+     * R-73 semantics: true while the player is in an ACTIVE duel <b>or</b> its
+     * teardown window ({@code endDuel} clears {@code active} before {@code cleanup}
+     * blind-removes both keys). Deliberately a <b>superset</b> of "active"
+     * (R5-07-F4): returning false there would let a challenge be accepted, and the
+     * pending {@code cleanup} would then remove the <i>new</i> room's keys, stranding
+     * it. {@link #isInDuel} is the narrower "may chat input be consumed" question.
      *
      * <p>A player merely holding a pending invitation — as sender or as
      * target — is NOT busy: they can still be challenged by a third party,
@@ -1505,7 +1738,7 @@ public class DuelManager {
      * player who has since become busy.
      */
     public boolean isBusy(UUID playerId) {
-        return busyPlayers.contains(playerId);
+        return activeDuels.containsKey(playerId);
     }
 
     /**

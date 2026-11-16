@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS {prefix}player_data (
     conversation_count INT DEFAULT 0,
     onboarding_step INT DEFAULT 0,
     wrong_book_cleared INT DEFAULT 0,
+    -- 历史遗留列（unv-config-F4，round1 遗留 LOW）：零写入、恒 0，读侧已改走
+    -- checkin_data.streak_count。保留不删（删列有 schema 变更风险），但不要用它做连击统计。
     current_streak INT DEFAULT 0,
     longest_streak INT DEFAULT 0,
     last_login BIGINT,             -- 历史遗留列，零读写；保留不删，需注册漏斗统计再接线（P3-16）
@@ -138,6 +140,19 @@ CREATE TABLE IF NOT EXISTS {prefix}ai_round_counters (
     UNIQUE(player_uuid, round_date)
 );
 
+-- Round 17：今日答题计数器持久化（word-system.daily-limit 的重启/退服重进真源）。
+-- 与 ai_round_counters 完全同构 —— 后者早就是"重启后真源"，而本表所对应的计数
+-- （PlayerDataStore.todayAnswerCountCache）此前是纯内存：quit(remove) / 重启 /
+-- 换子服任一发生即可让当日答题额度无限重置，退服重进在单服即可复现。
+-- answer_date 存纯日期字符串（LocalDate.now().toString()，yyyy-MM-dd），
+-- UNIQUE 兜底每人每日至多一行；旧行由 cleanupOldChatHistory 同窗口清理。
+CREATE TABLE IF NOT EXISTS {prefix}daily_answer_counters (
+    player_uuid VARCHAR(36) NOT NULL,
+    answer_date DATE NOT NULL,
+    answers INT NOT NULL DEFAULT 0,
+    UNIQUE(player_uuid, answer_date)
+);
+
 -- R10 战略锐评（决斗零持久化）：决斗战绩台账 —— 一场一行的追加式事实表。
 -- 原实现只有内存 DuelRoom：赢家只拿一个成就（DUEL_FIRST_WIN），无战绩/胜率/
 -- 连胜可查，也无"复仇"的对手关系可回溯。本表只追加，无 UPDATE/DELETE 业务路径。
@@ -253,7 +268,20 @@ CREATE TABLE IF NOT EXISTS {prefix}seasons (
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,               -- 闭区间（与周/月榜 getRankedPlayersForPeriod 口径一致）
     settled_at BIGINT,                    -- NULL = 未结算；结算抢占 = 条件 UPDATE 本列
-    top_snapshot TEXT                     -- 结算时 top10 JSON（回顾用，免重聚合）
+    top_snapshot TEXT,                    -- 结算时 top10 JSON（回顾用，免重聚合）
+    ledger_pending INT DEFAULT 0,         -- 0 = 本季不欠台账；1 = 抢占时欠一份且尚未确认落库
+                                          -- （跨重启的重试判据，见 SeasonManager.rebuildPendingReleases）
+    claim_owner VARCHAR(36)               -- R-16 抢占者**节点**标识（NULL = 未结算，或升级前的旧行）
+                                          -- 与 settled_at 同一条 UPDATE 写入；释放的条件 UPDATE
+                                          -- 必须连它一起匹配，否则会释放掉**他服**正在结算的
+                                          -- live claim（settled_at 是从共享库读的，不是本服的 token）
+                                          -- 存 DatabaseManager.getNodeId()（sha256 前 16 位十六进制，
+                                          -- 前像为「每段 UTF-8 字节长度 + ':' + 原文」的长度前缀
+                                          -- 编码，两段直接相接、无分隔符：proxy.server-name 与
+                                          -- dataFolder 绝对路径。单射，见
+                                          -- DatabaseManager.appendLengthPrefixed）
+                                          -- 而**不是** per-process UUID：重启后它不变，
+                                          -- 快速重启才能立刻认出「这是我上一次留下的脏 claim」
 );
 
 -- Season reward payout ledger (one row per player per season; doubles as the

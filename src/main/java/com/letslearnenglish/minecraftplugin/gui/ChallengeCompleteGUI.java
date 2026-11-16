@@ -90,7 +90,26 @@ public class ChallengeCompleteGUI {
         inv.setItem(13, firework);
 
         // Reward display (slot 15)
-        String rewardStr = String.valueOf((int) reward);
+        //
+        // slice-13-F5（round1 遗留 LOW，round10 裁决）：显示的是**名义奖励**（配置里的
+        // `daily-challenges.word-challenge-reward` 原值），不是实发值 ——
+        // `RewardEngine.depositCappedReward` 会按日限截断，截断结果被 `paid > 0` 折叠成
+        // 布尔丢弃，GUI 拿不到。
+        //
+        // 三条路都试过，最终选「撤回承诺」而不是「显示实发值」：
+        //   ① 改成实发值 —— 需在 GUI 打开路径新增一次 SELECT，而 `withConnection` 是
+        //      单连接串行锁；午夜窗口正撞上 `cleanupOldChatHistory` 的全表 DELETE，
+        //      主线程会等锁数秒（红队实测该场景，代码里 `LetsLearnEnglish:1266` 已有同型教训）。
+        //   ② 加 `paid_amount` 列 —— 才是根治，但属 schema 变更，规模远超一条 LOW。
+        //   ③ 撤回「已到账」这句承诺 —— 零查询、零 schema、零阻塞，且诚实。
+        //
+        // 采用 ③：文案改为「面值」，不再断言到账。玩家若真被日限截断，会收到
+        // `progress.daily-cap-reached` 的独立提示，那条才是权威。
+        //
+        // 同时修掉 `(int)` 截断：`RewardEngine` 内部统一按「分」计（`Math.round(amount*100)`）
+        // 并已有 `formatCoins`（整数去 `.0`、非整数保留两位）。`(int) 99.9 = 99` 会让
+        // 玩家对账差 0.9。
+        String rewardStr = formatReward(reward);
         ItemStack rewardItem = createItem(Material.GOLD_INGOT,
                 ChatColor.translateAlternateColorCodes('&',
                         MessageUtil.getGuiMsg(messages, "daily-challenge.reward-title")
@@ -137,5 +156,18 @@ public class ChallengeCompleteGUI {
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    /**
+     * 与 {@code RewardEngine.formatCoins} 同款格式化：整数去小数、非整数保留两位。
+     *
+     * <p>`RewardEngine` 的那份是 private 实例方法，GUI 侧没有实例可用；两处保持同一
+     * 规则（整数 `String.valueOf((long) v)`、非整数 `%.2f` + `Locale.ROOT`）比各写各的
+     * 更安全 —— 玩家对账时界面与余额显示要一致。
+     */
+    private static String formatReward(double v) {
+        return v == Math.floor(v)
+                ? String.valueOf((long) v)
+                : String.format(java.util.Locale.ROOT, "%.2f", v);
     }
 }

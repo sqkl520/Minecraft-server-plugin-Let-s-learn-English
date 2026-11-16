@@ -83,6 +83,23 @@
 | `/lea ignore-update` | 忽略本次更新提醒 |
 | `/lea help` | 查看管理帮助 |
 
+### 权限节点
+
+插件共注册 4 个权限节点，全部默认仅 OP 拥有。
+
+**玩家侧功能绝大多数不需要权限** —— `/le menu`、`/le word`、`/le review`、`/le square`、`/le profile`、`/le wrong`、`/le checkin`、`/le duel`、`/le history`、`/le season` 等由 `config.yml` 的模块开关控制，不看权限。
+**唯一例外是场景导入**：`/le load_scenario` 与个人场景管理页需要 `letslearnenglish.scenario.import`（见下表），因为它们会把外部内容落进服主的场景列表，需要与普通玩法区分授权。
+
+| 节点 | 默认 | 用途 |
+|------|:---:|------|
+| `letslearnenglish.admin` | op | `/lea` 的全部子命令（`reload` / `reset` / `info` / `export` / `exportwordbank` / `importwordbank` / `broadcast` / `duel cancel` / `class` / `diagnose` / `ignore-update` / `help`），以及场景管理页的删除入口 |
+| `letslearnenglish.report` | op | **仅** `/lea report`。用于把「生成家长报告」单独授予老师/家长代表，而不必给全部管理权限 |
+| `letslearnenglish.ai.reload` | op | **仅**重载 AI 配置（`ai_config.yml` + `ai_scenarios.yml`），等价于 GUI 里「刷新 API 密钥」按钮。与 `/lea reload` 的全模块重载能力不同，可单独授予内容维护者 |
+| `letslearnenglish.scenario.import` | op | **玩家侧唯一需要显式授权的功能**：`/le load_scenario` 导入分享码、个人场景管理页的查看/删除。语义是「可以把外部内容写进自己的场景列表」 |
+
+> 注意 1：`letslearnenglish.ai.reload` 与 `/lea reload` **不等价**，前者只刷 AI 段。若你要授予「能改 API key」的人，给这个就够，不必给 `admin`。
+> 注意 2：场景管理页的**删除**入口要求 `admin`，而其**查看/导入**要求 `scenario.import` —— 两者刻意分开（见 `ScenarioSelectListener` 的权限门注释）。
+
 ## 安装
 
 1. 下载最新版本的 JAR 文件
@@ -91,6 +108,8 @@
 4. 编辑 `plugins/LetsLearnEnglish/config.yml` 进行配置
 5. （可选）如需 AI 对话与总结点评功能，在 `plugins/LetsLearnEnglish/ai_config.yml` 中填入 DeepSeek API 密钥（`api-key` 字段）
 6. 大部分配置改完用 `/lea reload` 热重载即可，无需重启（少数启动快照键仍需重启，见下方「配置」一节）
+
+> ⚠️ **多子服（BungeeCord / Velocity）必读**：所有连接同一数据库的子服，**JVM 时区必须完全一致**。插件按 `yyyy-MM-dd` 纯日期记账，两服日界不同会让**签到在"同一天"被领两次**（双份真钱），答题日限、金币日限、AI 轮次门、每日挑战也会各算各的。插件没有 `timezone` 配置项，无法在插件内统一——请用启动参数 `-Duser.timezone=Asia/Shanghai` 钉死（必须写在 `-jar` 之前）。详见 `DEPLOYMENT_WIKI.md` 的 [5.9 多子服时区一致性](DEPLOYMENT_WIKI.md#59-多子服时区一致性硬性前提) 一节。
 
 ## 配置
 
@@ -130,6 +149,27 @@ daily-reminder:
 - `progress-system.leaderboard.update-interval`
 
 其余键（含全部模块开关 `enabled`、`ai-chat.*`、语言文件、词库、`gui-layout`、成就开关、统计仪表盘）均支持 `/lea reload` 即时生效。
+
+### 跨服网络的安全配置（`proxy` 段）
+
+如果你用 **BungeeCord / Velocity** 把多台子服串成一张网，`proxy` 段有两个键需要配置：
+
+| 键 | 说明 |
+|----|------|
+| `proxy.server-name` | 本子服在代理配置里的名字。用于赛季结算/开始的回环去重。留空 = 单服模式（最多重复播报一次，奖励发放仍受台账幂等保护） |
+| `proxy.inbound-secret` | **入站消息的共享密钥。多服网络强烈建议设置** |
+
+**为什么 `inbound-secret` 不是可选项建议而是真正的安全需求**：Bukkit 把「代理转发来的插件消息」和「任何玩家客户端自己发的自定义 payload」派发到**同一个回调**，而该回调拿不到可靠的来源信息 —— 一个改了客户端的玩家就能伪造以下任一帧，效果与真正的子服发送完全相同：
+
+- `GlobalMessage` → 向全服广播任意文本（可以伪装成服主公告）
+- `AchievementUnlock` → 给任意玩家名挂上任意成就并广播
+- `SeasonSettled` → 触发赛季奖励发放与「赛季结束」广播（金额受台账幂等保护不会重复发，但发钱**时机**由攻击者控制）
+
+设置任意一串**只有你知道的长随机字符串**（推荐 `openssl rand -hex 32` 的输出）后，所有入站帧都必须带正确的 HMAC-SHA256 签名，否则一律丢弃并记 WARNING。**多服网络中的每一台子服必须填同一个值**，否则它们之间也互相丢弃。
+
+留空（默认）= 不校验签名，行为与本功能加入前**逐字节一致** —— 单服或纯局域网可以保持留空。
+
+> 注意：这不是 HTTPS 那种传输加密。代理网络内的消息仍是明文经过代理，本机制防的是「普通玩家伪造跨服指令」，不防「能抓包并读到你密钥的人」。
 
 > 例外：`word-system.review.intervals` 与 `mastered-review-interval-days`（复习间隔在 `ReviewScheduler` 构造时快照）、`database.*`（仅 onEnable 初始化）也需要重启。详见 `DEPLOYMENT_WIKI.md` 5.7.1。
 

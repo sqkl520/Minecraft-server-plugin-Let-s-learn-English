@@ -187,6 +187,8 @@ admin:
   usage-broadcast: "{prefix}&c用法: /lea broadcast <消息>"
   broadcast-hint: "{prefix}&7通过代理向所有子服发送消息。"
   broadcast-sent: "{prefix}&a全局广播已发送到所有子服。"
+  # R15：无在线玩家可当信使、或代理通道未注册时，消息根本没发出去（也不排队）。
+  broadcast-failed: "{prefix}&c广播未发送喵~ 当前没有在线玩家可作代理信使，或代理通道未就绪。消息没有排队，请稍后重试。"
   broadcast-prefix: "&8[&bLE&8] &e服务器公告: &f"
   broadcast-too-long: "{prefix}&c广播内容过长（上限 30000 字节），请缩短后重试喵~"
   unknown-command: "未知子命令。输入 /lea help 查看帮助。"
@@ -202,10 +204,15 @@ wordbank:
   export-failed: "{prefix}&c导出失败: {reason}"
   import-summary: "{prefix}&a导入完成！&7新增: &e{imported} &7跳过(重复): &e{skipped} &7错误: &e{errors}"
   import-failed: "{prefix}&c导入失败: {reason}"
+  import-persist-failed: "{prefix}&c导入未落盘！&7难度档: &e{failed} &7已进内存: &e{imported} &7词，但写入 words/*.yml 失败 —— &c重启后会全部丢失&7。跳过(重复): &e{skipped} &7错误: &e{errors}。请检查磁盘空间/文件权限后，重启并重新导入（同会话重试会把这些词报成重复）。"
   validation-failed: "{prefix}&c验证失败！请检查以下错误:"
   reason-unknown-difficulty: "找不到难度: {difficulty}"
   reason-io-error: "文件读写错误: {error}"
   reason-file-not-found: "找不到文件: {file}"
+  # slice-08-security::F-08-S1（round10 补修）：路径越界与「文件不存在」必须分开报。
+  # 原实现两次 resolveInside 都可能返回 null，随后 null.exists() 直接 NPE ——
+  # 管理员看到内部错误栈，而真正的信息是「这个名字被判为不安全」。
+  reason-unsafe-path: "文件名不安全（不能包含 ../ 或绝对路径）: {file}"
   reason-no-words-list: "未找到 words 列表"
   validation-more-errors: "&7... 还有 &e{count} &7条错误"
   validation-error-line: "&c  - {error}"
@@ -335,6 +342,10 @@ duel:
   reconnected: "{prefix}&a你已重新连接！对决继续喵~"
   opponent-reconnected: "{prefix}&a{player} &a已重新连接！对决继续喵~"
   duel-already-over: "{prefix}&c你断线期间对决已经结束了喵~"
+  # R14：掉线宽限期超时判负。此前到点分支只通知在场方，判负方重连后零反馈
+  #（duel.opponent-timeout 是给胜者的措辞，duel-already-over 已被 handleReconnect 占用，
+  # 复用会混淆「比赛已结束」与「你被判负」两态），故独立成键。
+  lost-by-disconnect: "{prefix}&c你因断线超时被判负，本场对决由 &e{player} &c获胜喵~"
   gui-title: "&6&l单词对决"
   scoreboard-title: "&6&l单词对决"
   scoreboard-title-grace: "&c&l对决 &7({seconds}s)"
@@ -381,6 +392,10 @@ plugin-info:
 
 gui:
   main-menu-title: "&6&l一起学英语！"
+  main-menu-slot-conflict-header: "{prefix}&c主菜单配置有冲突，无法打开："
+  main-menu-slot-conflict-line: "  &c槽位 {slot}: &e{first} &c与 &e{second}"
+  main-menu-slot-conflict-footer: "&7请修正 config.yml 的 &fgui-layout.main-menu.*.slot &7后重试"
+  english-square-slot-conflict: "{prefix}&c英语广场配置有冲突（多个按钮落在同一格），无法打开喵~ 请服主修正 config.yml 的 &fgui-layout.english-square.*.slot"
   back-button: "&e返回主菜单"
   back-lore: "&7回到主菜单界面"
 
@@ -413,6 +428,10 @@ daily:
   progress: "&7进度: &f{progress}/{target}"
   reward-hint: "&7奖励: &e{reward} 金币"
   reward-claimed: "&a[每日挑战] &6奖励已领取！&e+{reward} 金币"
+  # R-16：日限截断时的补充说明。**必须**写清「差额不补发」，因为三处领奖（行为挑战/单词挑战/
+  # 签到）的裁决都是「截断也照常收盘」，玩家没有第二次领取窗口——不说明会让人以为剩下的还在。
+  reward-capped: "{prefix}&e今日金币已达上限，本次实际发放 &e{paid} &e金币（应发 &e{nominal}&e），差额不补发，明天额度会重置~"
+
   claim-failed: "&a[每日挑战] &c奖励发放失败，请稍后再点领取喵~（{reward} 金币未丢失）"
   p1: "答对 {target} 个单词"
   p2: "完成 {target} 次学习会话"
@@ -440,7 +459,11 @@ daily-challenge:
   firework: "&6&l★ 恭喜！★"
   firework-lore: "&7你完成了今天所有挑战单词！"
   reward-title: "&e奖励: {reward} 金币"
-  reward-lore: "&7你辛苦赢得的 &e{reward} &7金币已到账！"
+  # slice-13-F5（round10）：原为「你辛苦赢得的 {reward} 金币已到账！」——
+  # 那个数字是**面值**（配置原值），而实发会被 daily-cap 截断，且截断结果不回流到
+  # 界面。断言「已到账」就是在承诺一个系统从未保证过的精确金额。
+  # 现改为面值语义；真被截断时玩家会另外收到 progress.daily-cap-reached 提示，那条才是权威。
+  reward-lore: "&7挑战奖励面值 &e{reward} &7金币&8（实际到账以余额为准）"
   claimed-button: "&a&l✔ 奖励已到账！"
   claimed-button-lore: "&7点击返回主菜单"
   reward-pending: "{prefix}&c挑战奖励发放失败，{reward} 金币暂存中喵~ 答对任意单词会自动补发"
@@ -522,6 +545,7 @@ square:
     cheer-already: "{prefix}&7你已经鼓励过这条动态了喵~"
     cheer-own: "{prefix}&7不能鼓励自己的动态喵~"
     cheer-gone: "{prefix}&7这条动态已经翻篇了喵~"
+    cheer-failed: "{prefix}&c鼓励没写进去，请稍后再试喵~"
     cheer-hidden: "{prefix}&7该玩家已隐身，暂不可互动喵~"
     cheerers: "{prefix}&d{names} &f鼓励了你的动态！&7（共 {count} 个）"
     cheerers-none: "{prefix}&7这条动态还没有收到鼓励喵~"
@@ -766,6 +790,9 @@ report:
   batch-student-header: "【{player} 的学习小结】"
   batch-weak-line: "易错单词：{items}"
   batch-truncated-file: "（学生人数超过上限 {max}，仅显示前 {max} 位）"
+  # R14：数据不完整提示。原为 ReportGenerator 里的硬编码中文常量，report.language=en
+  # 时会把一句中文塞进英文报告；现改为 i18n 键，随报告语言解析。
+  incomplete-notice: "【数据不完整】本次统计的数据库查询未成功完成，以下数字可能偏低，请稍后重试或检查数据库状态。"
   # --- 聊天反馈 ---
   chat-header: "{prefix}&6===== {player} 的学习报告已生成 ====="
   chat-overview: "{prefix}&7{from} ~ {to} | 学习 &e{days} &7天 | 答对 &e{correct} &7个 | 正确率 &e{accuracy}"
@@ -807,11 +834,18 @@ class:
   disabled: "{prefix}&7班级系统未启用"
   created: "{prefix}&a班级 &e{class} &a已创建"
   deleted: "{prefix}&a班级 &e{class} &a已删除"
+  # R-18：deleteClass / createClass 由 boolean 改三态后，「SQL 故障」不再折叠成
+  # 「找不到班级」/「已存在同名班级」——这两条是那两条新文案。措辞必须给出
+  # 「去查控制台日志」这种可执行指引，且必须说清「已回滚/没有删掉任何数据」，
+  # 否则管理员会以为至少成员被移出了（其实整批回滚，库内状态与执行前完全一致）。
+  delete-failed: "{prefix}&c删除班级 &e{class} &c失败：数据库写入未生效，已回滚（成员与班级均未改动）。请检查服务器控制台日志"
+  create-failed: "{prefix}&c创建班级 &e{class} &c失败：数据库写入未生效，班级未创建。请检查服务器控制台日志"
   member-added: "{prefix}&a已将 &e{player} &a加入班级 &e{class}"
   reassigned: "{prefix}&a已将 &e{player} &a从旧班级移入 &e{class}"
   member-removed: "{prefix}&a已将 &e{player} &a移出班级"
   member-not-in: "{prefix}&e{player} 不在该班级中"
   member-full: "{prefix}&c班级人数已满（上限 {max} 人）"
+  member-write-failed: "{prefix}&c未能将 &e{player} &c加入班级 &e{class}&c：写入未生效，请重试或查看服务器日志"
   name-exists: "{prefix}&c已存在同名班级"
   not-found: "{prefix}&c找不到班级 &e{name}"
   name-invalid: "{prefix}&c班名无效（1-{max} 字符，不能含空格或颜色符号）"

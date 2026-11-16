@@ -84,6 +84,10 @@ public class SocialManager {
      */
     private volatile BukkitTask maintenanceTask;
 
+    /** R4-06-F2：停用闩。execute 时复查——否则 disableAll→databaseManager.shutdown() 之后
+     *  才跑的任务会让 getConnection() 见 isClosed() 而重新 initialize() 整个库。 */
+    private volatile boolean shutdownBarrier;
+
     /**
      * 一条动态流缓存条目（volatile 快照的元素；不可变）。
      * {@code type} ∈ SESSION_DONE / ACHIEVEMENT / CHECKIN；文本渲染由
@@ -176,7 +180,21 @@ public class SocialManager {
         if (!isEnabled()) {
             return;
         }
+        // slice-06-F4（round1 遗留 MEDIUM，本轮补修）：让「隐私门导致丢弃」可观测。
+        //
+        // getProfileSettingsReadOnly 的 miss 语义是「隐私最严」（fail-closed），这对
+        // 「不知道对方是否隐身」是正确的；但产生侧用它当门时有个副作用：**缓存里没有
+        // 该玩家条目**（档案尚未加载 / 刚重启 / quit 时被 unload）时，事件会被静默丢弃，
+        // 管理员只看到「广场没有动态」，无从判断是「玩家关掉了广场」还是「档案没加载」。
+        //
+        // 这里不改隐私语义（仍然 fail-closed），只补一条 INFO 级诊断。用 INFO 而不是
+        // WARNING：新玩家刚进服时档案确实可能未预热，属正常路径，不该刷 WARNING。
         if (!plugin.getPlayerDataStore().getProfileSettingsReadOnly(playerId).isShowInSquare()) {
+            if (plugin.getPlayerDataStore().getCachedProfileSettings(playerId) == null) {
+                plugin.getLogger().info("Social event '" + eventType + "' dropped for "
+                        + playerId + ": profile cache miss (privacy gate is fail-closed, so the"
+                        + " event is suppressed until the profile is loaded).");
+            }
             return;
         }
         runAsync(() -> {
@@ -250,6 +268,7 @@ public class SocialManager {
             maintenanceTask = null;
             task.cancel();
         }
+        shutdownBarrier = true; // R4-06-F2：之后投递的一次性任务在 runAsync 入口被拦
     }
 
     /**
@@ -381,6 +400,14 @@ public class SocialManager {
         runAsync(() -> {
             DatabaseManager.CheerResult result =
                     plugin.getDatabaseManager().cheerFeed(feedId, cheererId);
+            // R6-06-EH-F1：写失败由数据层自报（CheerResult.FAILED），不再用读侧健康度
+            // 反推写侧结果 —— WAL 下「写失败 + 读成功」是主路径，旧判别式
+            // （GONE && loadCheerers().readFailed()）方向相反，且每遇 GONE 都多打一条
+            // loadCheerers（退化）。失败形态全部收敛到 FAILED 这一个值上，判别不再依赖
+            // 任何读侧状态；失败时回收防抖戳，别把重试窗口一起关掉。
+            if (result == DatabaseManager.CheerResult.FAILED) {
+                cheerDebounceAt.remove(cheererId);
+            }
             runMain(() -> handleCheerResult(cheerer, cheererId, cheererName, item, result, onSuccess));
         });
     }
@@ -412,6 +439,13 @@ public class SocialManager {
                     "square.feed.cheer-already"));
             case GONE -> cheerer.sendMessage(plugin.getMessageUtil().getPlayerMessage(cheerer,
                     "square.feed.cheer-gone"));
+            // 写库故障：不得复用 cheer-gone（那是业务事实），也不得复用 daily.load-failed
+            // （那是「界面数据加载失败」，语义指向读）。给一句明确的「鼓励没写进去」。
+            case FAILED -> {
+                SoundManager.playSound(cheerer, "incorrect");
+                cheerer.sendMessage(plugin.getMessageUtil().getPlayerMessage(cheerer,
+                        "square.feed.cheer-failed"));
+            }
         }
     }
 
@@ -516,7 +550,9 @@ public class SocialManager {
     // ============================================================
 
     private void runAsync(Runnable task) {
-        SchedulerGuard.runAsync(plugin, task);
+        // R4-06-F2：投递前 + 执行时双重复查，关库后绝不再触库（getConnection 会重开整库）。
+        if (shutdownBarrier) return;
+        SchedulerGuard.runAsync(plugin, () -> { if (!shutdownBarrier) task.run(); });
     }
 
     private void runMain(Runnable task) {

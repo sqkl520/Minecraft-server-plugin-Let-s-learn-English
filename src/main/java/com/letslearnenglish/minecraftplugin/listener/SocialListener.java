@@ -88,6 +88,11 @@ public class SocialListener implements Listener {
      * 唯一真相 = GUI 的写死值，这里用常量表达同一份事实。
      */
     private static final int PROFILE_BACK_SLOT = 8;
+    /**
+     * R4-17-EH-F3：鼓励名单上限，必须与 {@code SocialManager.CHEERERS_LIST_LIMIT} 一致 ——
+     * 本值只用于「读失败探测」的复核查询，取值与展示路径同源才能保证判定的是同一次读。
+     */
+    private static final int CHEERERS_LIMIT = 50;
     private static final int ACHIEVEMENT_WALL_BACK_SLOT = 8;
 
     /** 广场里「查看者自己的头像」槽位（EnglishSquareGUI 写死 slot 0，无配置项）。 */
@@ -293,10 +298,25 @@ public class SocialListener implements Listener {
      * <p>payload 缺失时返回 {@code null}（调用方显式处理）；原标题「最长玩家名子串」
      * 反查这一级已删除。这也是安全收益：解析不出归属时绝不回落成「查看者本人」，
      * 否则查看别人主页时的设置/日历点击会作用在自己身上。
+     *
+     * <p><b>slice-15-F2（round1 遗留 MEDIUM，本轮补修）：两侧契约的分歧要能被看见。</b>
+     * 生产者侧（{@link com.letslearnenglish.minecraftplugin.gui.ProfileGUI#open}）把
+     * {@code targetId == null} 定义为「调用方违约、立即 NPE」的硬契约；而这里把
+     * 「payload 不是 Target」定义为返回 {@code null} 的正常返回值，三个调用点各自用
+     * {@code if (targetId == null) return;} 静默吞掉。<b>同一份「归属缺失」语义，
+     * 两侧给了相反的处理</b>，且静默分支既不记日志也不给玩家反馈 —— 出问题时无从排查。
+     *
+     * <p>这里不改变返回语义（仍返回 null，调用方照旧处理），只在返回 null 时补一条
+     * FINE 级诊断，与 {@code ProfileGUI.logFine} 的既有口径对齐。选 FINE 而非 WARNING：
+     * 陈旧界面上的点击属于可预期的正常路径，不该刷 WARNING。
      */
     private UUID resolveTargetId(InventoryView view) {
         GuiPayload payload = GuiIdentity.payloadOf(view);
         if (payload instanceof Target target) return target.targetId();
+        plugin.getLogger().fine("Profile-gui click ignored: view has no Target payload"
+                + " (payload=" + (payload == null ? "null" : payload.getClass().getSimpleName())
+                + "). The producer contract treats a null targetId as caller error, so this"
+                + " silent no-op is logged here for diagnosability.");
         return null;
     }
 
@@ -609,6 +629,14 @@ public class SocialListener implements Listener {
                 PlayerDataStore store = plugin.getPlayerDataStore();
                 if (targetId.equals(player.getUniqueId())
                         || store.getProfileSettingsReadOnly(targetId).isShowInSquare()) {
+                    // F-17-S1 / 13-S1（同一漏洞）：成就墙 lore 的 {current}/{target} 正是 showResults 保护的数字，门须与上方 calendar 分支同口径。
+                    if (!targetId.equals(player.getUniqueId())
+                            && !store.getProfileSettingsReadOnly(targetId).isShowResults()) {
+                        SoundManager.playSound(player, "menu-click");
+                        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                                "calendar.not-public"));
+                        return;
+                    }
                     UUID backToTarget = targetId;
                     // 返回帧只在放行路径压入（成就墙返回键消费它回本人主页）。
                     // 隐身路径不压 —— 否则笑话页返回（F3-02 popBack）会立刻重开刚被
@@ -850,8 +878,12 @@ public class SocialListener implements Listener {
                     return; // 异步回调窗口内玩家已退服
                 }
                 if (names == null || names.isEmpty()) {
+                    // 17-EH-F3：DB 读取失败在数据层被吞成空列表，与「确实无人鼓励」同形 —— 故障时不谎报业务事实。
+                    // R4-17-EH-F3 重修：同样不能用 isConnectionHealthy —— 查询级 SQLException 不改变它。
+                    boolean readFailed = plugin.getDatabaseManager()
+                            .loadCheerers(item.id(), CHEERERS_LIMIT).readFailed();
                     player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
-                            "square.feed.cheerers-none"));
+                            readFailed ? "daily.load-failed" : "square.feed.cheerers-none"));
                     return;
                 }
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,

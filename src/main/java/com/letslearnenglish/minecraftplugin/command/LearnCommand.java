@@ -561,9 +561,13 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "daily-challenge.economy-disabled"));
             } else {
+                // R-16 残留①（同款顺手修）：这里的 {reward} 是「暂存待补发」的金额，
+                // 来源是 daily-challenges.word-challenge-reward 这个 double 配置项。
+                // 原 (int) 强转下，管理员把它配成 99.9 就会告诉玩家「99 金币暂存中」，
+                // 而补发时实际到账 99.9 —— 又是「报的数与落账的数不同源」。
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "daily-challenge.reward-pending",
-                        "reward", String.valueOf((int) getWordChallengeReward())));
+                        "reward", formatCoins(getWordChallengeReward())));
             }
         }
 
@@ -683,6 +687,44 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         return plugin.getProgressManager().getRewardEngine().isMoneyEnabled();
     }
 
+    /**
+     * R-16 残留①：金币金额的玩家可见格式化（整数去小数点、非整数保留两位）。
+     *
+     * <p><b>为什么不直接复用 {@code RewardEngine.formatCoins} 而是再写一份</b>：
+     * 本轮修复的约束是「只许改 LearnCommand.java」，而 {@code RewardEngine.formatCoins}
+     * 在 {@code RewardEngine.java:440} 是 {@code private static} —— 编译期根本调不到。
+     * 三条路各有权衡，选第三条：
+     * <ol>
+     *   <li>把它改成 {@code public static}：<b>技术最优</b>（全仓唯一实现，本项目的既有偏好
+     *       —— 见 {@code ChallengeCompleteGUI:161-167} 与 {@code SeasonManager:2165} 两处
+     *       都已经在注释里抱怨过「private 拿不到只好各写一份」）。但它要动 LearnCommand
+     *       之外的文件，本轮明确禁止。</li>
+     *   <li>改走 {@code new RewardEngine.CappedPayout(v, v).paidText()}：
+     *       <b>能用、且零重复</b>（{@code paidText()} 正是转调 {@code formatCoins}），
+     *       但这是拿一个「应发 vs 实发截断语义」的值对象当格式化工具用 —— 后来人看一眼
+     *       会以为这里在判截断，语义噪音比重复代码更贵。故不选。</li>
+     *   <li>本地方案：拷贝同一套算术（整数 {@code (long)}、非整数 {@code %.2f} +
+     *       {@link Locale#ROOT}）。<b>刻意与 {@code ChallengeCompleteGUI.formatReward}
+     *       逐字一致</b>，两处注释互相点名，谁改了另一边会看到。</li>
+     * </ol>
+     *
+     * <p>这里是<b>第三份</b>拷贝，因此留成待办：若后续允许改 RewardEngine，应把
+     * {@code formatCoins} 提升为 {@code public static}，然后本方法、{@code formatReward}、
+     * {@code SeasonManager.formatCoins} 三处一并删除，只留一份真相源。
+     *
+     * <p>⚠️ 与 {@code (int)} 强转的区别（本方法存在的理由）：{@code (int) 0.20 == 0}、
+     * {@code (int) 99.9 == 99}，两条都是对玩家的谎报；本方法对 0.20 给 {@code 0.20}、
+     * 对 99.9 给 {@code 99.90}、对 100.0 给 {@code 100}。
+     *
+     * @param v 金币金额（元）
+     * @return 玩家可见文本，非 null
+     */
+    private static String formatCoins(double v) {
+        return v == Math.floor(v)
+                ? String.valueOf((long) v)
+                : String.format(Locale.ROOT, "%.2f", v);
+    }
+
     private void handleHistoryCommand(Player player) {
         new ChatHistoryGUI(plugin).open(player);
     }
@@ -790,11 +832,32 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "checkin.streak-broken"));
             }
-            String coinsStr = String.valueOf((int) result.coinsEarned());
+            // R-16 残留①：原为 String.valueOf((int) result.coinsEarned())。
+            // (int) 强转把「角分」整个抹掉：日限截断实发 0.20 时渲染成 "0"，
+            // 玩家刚真的收到币却读到「获得 0 金币」—— 这正是 R-16 要消灭的谎报，
+            // 只是上一轮修到 giveCoins/CheckInResult 就收工了，渲染这一层漏了。
+            // 改走 formatCoins（见本类新增的私有助手），与 RewardEngine 同一套算术。
+            String coinsStr = formatCoins(result.coinsEarned());
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "checkin.success",
                     "streak", String.valueOf(result.streak()),
                     "coins", coinsStr));
+            // R-16 残留②：CheckInResult.rewardCapped() 已就绪却没人消费 ——
+            // 上半段只说「获得 X」，而 X 被 cap 砍过时玩家不知道「应发 Y、差额不补发」，
+            // 而签到的裁决是「截断也照常收盘」（claim 在发钱前就落库，今天再签只会被
+            // 幂等拒绝），差额没有任何重试窗口 —— 不说明就等于让玩家以为剩下的还在。
+            // 键名用 daily.reward-capped：全仓只有这一个 reward-capped 键（zh/en 各一条，
+            // 占位符 {paid}/{nominal}），DailyChallengeManager 与 MiscGUIListener 已在消费它。
+            // （CheckInManager:135 的注释写作 checkin.reward-capped，是上一轮留下的笔误，
+            //   该键在 zh.yml/en.yml 里并不存在 —— 按注释照写会触发缺键占位符 [?...]。）
+            // 位置：紧跟 success 之后。与 economy-disabled 不会撞：后者要求 paid==0
+            // （economyDisabled && !paid），而 rewardCapped() 要求 paid>0，二者互斥。
+            if (result.rewardCapped()) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "daily.reward-capped",
+                        "paid", formatCoins(result.coinsEarned()),
+                        "nominal", formatCoins(result.nominalCoins())));
+            }
             // S4：签到成功加"正向反馈"音效（复用 correct 键，与判对/成就同语义）。
             // 已签过分支不加音效 —— 那是失败路径，给"正确"音反而误导。
             SoundManager.playSound(player, "correct");

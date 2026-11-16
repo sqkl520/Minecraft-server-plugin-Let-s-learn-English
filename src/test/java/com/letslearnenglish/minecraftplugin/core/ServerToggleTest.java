@@ -170,6 +170,58 @@ class ServerToggleTest {
                             + "这是「运行中把开关改关」的路径：监听器/定时任务仍在跑（本轮不做动态装卸），"
                             + "但命令入口必须立刻拒绝，否则玩家还能继续用一套正在关闭的功能。");
         }
+
+        /**
+         * 造一个指定象限的实例。四个判据（runtimeActive / configManager!=null /
+         * isServerEnabled / playerDataStore!=null）全部<b>显式</b>赋值，绝不依赖
+         * {@code mock} 的默认返回值 —— 否则「实现把某两项写反」时仍会碰巧通过。
+         */
+        private LetsLearnEnglish pluginInQuadrant(boolean runtimeActive, boolean configPresent,
+                                                  boolean serverEnabled, boolean pdsPresent)
+                throws Exception {
+            LetsLearnEnglish plugin = mock(LetsLearnEnglish.class);
+            when(plugin.isRuntimeActive()).thenReturn(runtimeActive);
+            if (configPresent) {
+                ConfigManager cm = mock(ConfigManager.class);
+                when(cm.isServerEnabled()).thenReturn(serverEnabled);
+                injectField(plugin, LetsLearnEnglish.class, "configManager", cm);
+            }
+            if (pdsPresent) {
+                injectField(plugin, LetsLearnEnglish.class, "playerDataStore",
+                        mock(com.letslearnenglish.minecraftplugin.data.PlayerDataStore.class));
+            }
+            doCallRealMethod().when(plugin).isFullyEnabled();
+            return plugin;
+        }
+
+        @Test
+        @DisplayName("四个判据逐一可证伪：任一判据从 && 链里被删掉时，至少一格会变红")
+        void everyCriterionInTheAndChainIsLoadBearing() throws Exception {
+            // 缺陷（unv-tests-logic::F-01）：既有三个用例覆盖不到
+            // (runtimeActive=false, config=true, pds!=null) 这一格 ——
+            // 用例 1 的 pds 为 null、用例 3 的 config 为 false，于是整条 isRuntimeActive() 判据
+            // 即使被删掉，三条断言仍全绿。同理 configManager != null 也从未被单独隔离。
+            // 下面每一行只让一个判据为 false（最后一行全真作正向对照），
+            // 因此每个判据都有自己的「唯一证伪格」。
+            boolean[][] quadrants = {
+                    {false, true, true, true},   // 只隔离 isRuntimeActive()
+                    {true, false, true, true},   // 只隔离 configManager != null
+                    {true, true, false, true},   // 只隔离 configManager.isServerEnabled()
+                    {true, true, true, false},   // 只隔离 playerDataStore != null
+                    {true, true, true, true},    // 正向对照：四项齐真 → true
+            };
+            for (boolean[] q : quadrants) {
+                LetsLearnEnglish plugin = pluginInQuadrant(q[0], q[1], q[2], q[3]);
+                boolean expected = q[0] && q[1] && q[2] && q[3];
+                assertEquals(expected, plugin.isFullyEnabled(),
+                        "isFullyEnabled() 在 (isRuntimeActive=" + q[0] + ", configManager!=null="
+                                + q[1] + ", isServerEnabled=" + q[2] + ", playerDataStore!=null="
+                                + q[3] + ") 象限返回了非 " + expected + " 喵。\n"
+                                + "本矩阵每行只让一个判据为 false，所以任何一项被判据忽略"
+                                + "（例如删掉 isRuntimeActive() &&）都会让对应行变红 —— "
+                                + "「配置+已装配」的双条件必须每一项都真的参与判定。");
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -285,6 +337,31 @@ class ServerToggleTest {
 
             verify(messageUtil).getSenderMessage(player, "general.no-permission");
             verify(messageUtil, never()).getSenderMessage(player, "server.disabled");
+        }
+
+        @Test
+        @DisplayName("闸门不打桩：配置 true 但 pds 为 null 时 /le 仍必须拒绝（isFullyEnabled 走真实实现）")
+        void learnCommandRejectsWhenConfigSaysOnButNotWired() {
+            // 缺陷（unv-tests-logic::F-08）：本组的 setUp 把 isFullyEnabled() 打桩成
+            // thenReturn(false)，闸门自身的 && 链在这 5 个用例里零执行 ——
+            // 把 isFullyEnabled() 改成 return true 后，「关闭态拒绝」照样全绿（桩替它说了 false）。
+            // 本条撤销这个桩：让命令真的调用真实的 isFullyEnabled()，
+            // 并喂入「配置已说开、但运行时装配还没完成」这一格 —— 命令必须仍然拒绝。
+            when(plugin.isFullyEnabled()).thenCallRealMethod();
+            ConfigManager cm = mock(ConfigManager.class);
+            when(cm.isServerEnabled()).thenReturn(true);
+            when(plugin.getConfigManager()).thenReturn(cm);
+            when(plugin.isRuntimeActive()).thenReturn(false);   // 运行时未装配
+            // playerDataStore 刻意保持未注入（null）——与 /lea reload 刚改开配置的窗口一致。
+
+            boolean handled = new LearnCommand(plugin).onCommand(
+                    player, command, "le", new String[]{"word"});
+
+            assertTrue(handled, "命令必须被处理（返回 true）");
+            verify(messageUtil).getPlayerMessage(player, "server.disabled");
+            // 拒绝必须发生在任何 Manager 访问之前：装配未完成时它们全是 null。
+            verify(plugin, never()).getWordManager();
+            verify(plugin, never()).getWordLearningManager();
         }
     }
 

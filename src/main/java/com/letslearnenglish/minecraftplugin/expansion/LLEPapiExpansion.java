@@ -1,13 +1,16 @@
 package com.letslearnenglish.minecraftplugin.expansion;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.season.SeasonManager;
 import com.letslearnenglish.minecraftplugin.data.CheckInData;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.data.repository.PlayerDirectoryRepository;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
+import me.clip.placeholderapi.expansion.Relational;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
@@ -52,8 +55,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * language/relationship bucket) with a 30s TTL so scoreboard refreshes no
  * longer hit the DB every tick. Thread-safe via ConcurrentHashMap; PAPI
  * callbacks run on the main thread but other plugins may call off-thread.
+ *
+ * R-16: %lle_coins_earned% is the one placeholder whose value is never read
+ * from the DB on the calling thread — it keeps its own 60s value cache and
+ * fills it from an async task, returning "" (unknown) on a miss instead of
+ * blocking on a SELECT under the shared connection lock.
  */
-public class LLEPapiExpansion extends PlaceholderExpansion {
+public class LLEPapiExpansion extends PlaceholderExpansion implements Relational {
 
     /** R-43：占位符缓存 TTL（毫秒）。 */
     private static final long CACHE_TTL_MILLIS = 30_000L;
@@ -62,9 +70,36 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
     /** R-43：超限时一次淘汰的条目数。 */
     private static final int CACHE_EVICT_BATCH = 500;
 
-    /** Learn placeholders (score family) gated by target showResults. */
+    /**
+     * R-16（性能）：{@code total_coins_earned} 专用缓存 TTL（毫秒）。
+     *
+     * <p>刻意比 {@link #CACHE_TTL_MILLIS}（30s）长一倍：该列只随发币单调递增，
+     * 60s 的陈旧代价是一条「金币数慢了半分钟」的显示差，而它换来的是「每玩家每分钟
+     * 最多一次异步读」的硬上限。不发币的玩家几乎零成本。
+     */
+    private static final long COINS_CACHE_TTL_MILLIS = 60_000L;
+
+    /** R-16：金币读失败后的退避 TTL —— 期间返回空串，不再重复排任务（防 DB 故障期刷屏）。 */
+    private static final long COINS_RETRY_TTL_MILLIS = 15_000L;
+
+    /** R-16：金币「在途/未知」窗口的短 TTL —— 它本身就是补读去重闸门（见 {@link CoinsEntry}）。 */
+    private static final long COINS_SENTINEL_TTL_MILLIS = 1_000L;
+
+    /**
+     * R-16（隐私）：学习成绩「固定键」族 —— 受目标 showResults 开关约束（非本人查看时）。
+     *
+     * <p>本集合只管<b>精确键</b>；{@code achievement_<id>} 是一族动态键，无法用
+     * {@code contains} 表达，改由 {@link #isResultsGated(String)} 统一收口 ——
+     * 两处（本集合 + 该谓词）是「哪些占位符算学习成绩」的唯一真相源，新增占位符
+     * 只需往其中一处落子，门禁代码零改动。
+     */
     private static final java.util.Set<String> RESULTS_GATED = java.util.Set.of(
-            "score", "words", "accuracy", "sessions", "correct", "incorrect");
+            "score", "words", "accuracy", "sessions", "correct", "incorrect",
+            // R-16：成就计数 %lle_achievements%（"3/22"）。此前漏在此集合外，
+            // 导致「关掉 showResults 的玩家」在游戏内被成就墙挡住（SocialListener
+            // 成就墙点击分支对目标 showResults=false 直接拒绝），PAPI 却照发解锁
+            // 进度 —— 同一份隐私开关在产品内出现两套口径，是最糟的那种不一致。
+            "achievements");
 
     private final LetsLearnEnglish plugin;
 
@@ -73,6 +108,65 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
 
     /** R-43: key = targetUuid + "|" + params + "|" + selfFlag + "|" + lang. */
     private final Map<String, CachedValue> cache = new ConcurrentHashMap<>();
+
+    /**
+     * R-16（性能）：{@code %lle_coins_earned%} 的独立值缓存 —— 全类唯一一条
+     * **不靠 DB 读取**拿数据的占位符路径。
+     *
+     * <p><b>为什么必须独立于 {@link #cache}</b>：后者只缓存「已经算出来的字符串」，
+     * 而且它<b>不覆盖 DB 读取本身</b> —— 缓存 miss 时仍要同步查库。原实现在
+     * {@code case "coins_earned"} 直接调 {@code DatabaseManager.getCoinsEarned}，
+     * 即：任何一次 30s TTL 过期后的首个 scoreboard 刷新，都会在<b>调用线程</b>
+     * 上同步做一次 {@code SELECT} 并抢 {@code connectionLock}。占位符按计分板刷新
+     * 频率解析（每秒数次/每玩家），这条路径与会话结算、周期落盘、榜单刷新抢同一把
+     * 全局连接锁 —— 正是能把服务器拖住的那个形状。本缓存把「拿到值」与「用值」
+     * 解耦：命中直接返回，未命中返回 {@link #COINS_UNKNOWN} 并<b>在后台</b>补一次。
+     *
+     * <p>键只有 UUID：该值是玩家级标量，与查看语言/视角无关（币值走门禁 3
+     * 「只给本人」，与 {@link #cache} 的 language/relationship 分桶无关）。
+     */
+    private final Map<UUID, CoinsEntry> coinsCache = new ConcurrentHashMap<>();
+
+    /**
+     * R-16：{@link #coinsCache} 的条目上限。与 {@link #CACHE_MAX_ENTRIES} 同理超限淘汰，
+     * 但键是玩家 UUID（数量级远小于「玩家 × 占位符 × 视角 × 语言」），故上限取小得多。
+     * 不设上限的话，一个长期运行的服会为每个曾解析过该占位符的玩家留一条永久条目。
+     */
+    private static final int COINS_CACHE_MAX_ENTRIES = 2000;
+
+    /**
+     * R-16：{@code %lle_coins_earned%} 在缓存未命中时的返回值 —— 空串，不是 {@code "0"}。
+     *
+     * <p>选空串而不是 0：0 是一个<b>看起来很可信的假数</b>（玩家会以为自己的累计
+     * 金币被清零了），而空串在计分板上只是一个暂时空位，下一次刷新就填上。宁可少显示
+     * 一秒，也不要发一个错误数字。
+     */
+    private static final String COINS_UNKNOWN = "";
+
+    /**
+     * R-16：金币值缓存条目。
+     *
+     * <p>用 {@code Boolean value == null} 表达「还不知道」这个三态，而不是用 {@code 0}
+     * 冒充：{@code total_coins_earned} 的真实值 0 与「读失败/尚未读到」在展示上是
+     * 两件事（前者该显示 0，后者该显示空串）。把两者合成一个 {@code 0} 就是本类
+     * 反复踩过的那类「不可信被当成真值」的坑。
+     *
+     * <p><b>「在途加载」不需要额外的布尔位</b>：{@code value == null && expiresAt 未到}
+     * 就是这个状态 —— 未命中的调用方把条目的过期时刻写成很短的
+     * {@link #COINS_SENTINEL_TTL_MILLIS}，于是这个窗口本身就是去重闸门；异步读完成后
+     * 用真值 + 正常 TTL 覆写。慢库导致窗口先过期最多多排一次读，是有界退化，
+     * 不值得为它引入第二套状态位。
+     */
+    private static final class CoinsEntry {
+        /** {@code null} = 读失败或尚未读到（未知）；非 null = 已确认的库内值。 */
+        final Long value;
+        final long expiresAt;
+
+        CoinsEntry(Long value, long expiresAt) {
+            this.value = value;
+            this.expiresAt = expiresAt;
+        }
+    }
 
     private static final class CachedValue {
         final String value;
@@ -124,6 +218,30 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
         if (offlinePlayer == null) {
             return "";
         }
+        // R-43 缓存键必须区分查看语言与查看关系。
+        Player langPlayer = offlinePlayer.isOnline() ? offlinePlayer.getPlayer() : null;
+        // sec-01：本入口拿不到真正的调用者身份（PAPI 只回传 target），一律按「非本人」处理
+        // （fail-closed）。原实现用「目标在线」冒充本人，使三门对任何在线玩家全部短路。
+        // 需要本人视角请用 %rel_lle_<params>%（见 onPlaceholderRequest）。
+        return resolveCached(offlinePlayer, langPlayer, false, params);
+    }
+
+    /**
+     * sec-01：关系型入口 %rel_lle_&lt;params&gt;%。PAPI 传入真正的两个 Player
+     * （viewer, target），这里才拿得到真实调用者身份，而非「目标在线」的冒充值。
+     */
+    @Override
+    public String onPlaceholderRequest(Player viewer, Player target, String params) {
+        if (viewer == null || target == null || params == null) {
+            return null;
+        }
+        return resolveCached(target, viewer,
+                viewer.getUniqueId().equals(target.getUniqueId()), params);
+    }
+
+    /** 参数预检 + 语言判定 + 30s 缓存 + 解析。{@code isSelfView} 由调用方以真实身份给出。 */
+    private String resolveCached(OfflinePlayer offlinePlayer, Player langPlayer,
+                                 boolean isSelfView, @NotNull String params) {
         UUID playerId = offlinePlayer.getUniqueId();
 
         // plan-achievements §3.5：动态成就位 %lle_achievement_<id>%。
@@ -142,15 +260,13 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
             return null;
         }
 
-        // R-43 缓存键必须区分查看语言与查看关系：同一 (uuid, params) 在
-        // zh/en 玩家、本人/他人视角下返回值不同，不能串味。
-        Player viewer = offlinePlayer.isOnline() ? offlinePlayer.getPlayer() : null;
-        String lang = viewer != null
-                ? plugin.getPlayerLanguage(viewer)
-                : plugin.getConfigManager().getMainConfig().getString("general.language", "zh");
-        // 本人/他人关系：off-viewer（控制台/其他插件无 viewer 上下文）按"非本人"处理，
-        // 隐私默认收紧。
-        boolean isSelfView = isSelfView(offlinePlayer, viewer);
+        // 同 MessageUtil.resolvePrefix 风格：先判 null 再取值，不做无守卫的链式解引用
+        // （loadAllConfigs 失败时 getMainConfig() 可能为 null）；取不到回落 zh。
+        ConfigManager configManager = plugin.getConfigManager();
+        FileConfiguration mainConfig = configManager == null ? null : configManager.getMainConfig();
+        String lang = langPlayer != null
+                ? plugin.getPlayerLanguage(langPlayer)
+                : (mainConfig != null ? mainConfig.getString("general.language", "zh") : "zh");
         String cacheKey = playerId + "|" + params + "|" + (isSelfView ? "self" : "other") + "|" + lang;
 
         long now = System.currentTimeMillis();
@@ -162,24 +278,26 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
             cache.remove(cacheKey, cached);
         }
 
-        String resolved = resolveRequest(offlinePlayer, viewer, playerId, params, isSelfView);
+        String resolved;
+        try {
+            resolved = resolveRequest(offlinePlayer, langPlayer, playerId, params, isSelfView);
+        } catch (RuntimeException e) {
+            // slice-02-eh-08：下游异常不穿透 PAPI 调用者、不编造数值、不写缓存，返回 null（下轮重试）。
+            plugin.getLogger().log(java.util.logging.Level.WARNING,
+                    "Failed to resolve placeholder " + params + " for " + playerId, e);
+            return null;
+        }
         if (resolved != null) {
             maybeEvict();
-            cache.put(cacheKey, new CachedValue(resolved, now + CACHE_TTL_MILLIS));
+            // R-16：coins_earned 不进本缓存 —— 它自己已有 coinsCache（专门管「值 + TTL
+            // + 后台补读」），再套一层 30s 会把「首轮暂态空串」冻上整整 30 秒：异步读
+            // 毫秒级就回来了，玩家却要盯着空位半分钟。它的解析成本只有一次
+            // ConcurrentHashMap 查询，不需要外层兜底。
+            if (!params.equals("coins_earned")) {
+                cache.put(cacheKey, new CachedValue(resolved, now + CACHE_TTL_MILLIS));
+            }
         }
         return resolved;
-    }
-
-    /**
-     * R-43: 本人视角判定。
-     * PAPI 的 onRequest 只有一个 OfflinePlayer 参数（既是目标也是名义上的查看者），
-     * 跨玩家场景（A 的计分板解析 B 的占位符）由 PlaceholderAPI 以 B 的上下文回调，
-     * 此时无法得知真正的屏幕前 viewer，只能按"非本人"收紧。
-     * 只有目标在线（viewer 非空）且 UUID 相等时才算本人 —— 而 PAPI 回调的
-     * viewer 恒等于 target，所以在线目标在此恒为本人；离线/控制台解析恒为他人。
-     */
-    private boolean isSelfView(OfflinePlayer target, Player viewer) {
-        return viewer != null && viewer.getUniqueId().equals(target.getUniqueId());
     }
 
     private String resolveRequest(OfflinePlayer offlinePlayer, Player viewer,
@@ -187,11 +305,9 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
         PlayerDataStore store = plugin.getPlayerDataStore();
 
         // L-05：展示路径走只读版，不建缓存条目。
-        // P1-3（红队验收）：只读版的 miss 语义是「隐私最严」，但本类的 isSelfView 只在
-        // 目标<b>在线</b>时为 true —— 目标离线 → 永远「非本人」→ miss 的 fail-closed 让
-        // %lle_score% / %lle_words% / %lle_rank% / %lle_streak% 全部返回「已隐藏」。
-        // 榜单全息字、计分板、别的插件 /papi parse 只要玩家不在线就整块变「已隐藏」；
-        // 而这些玩家本就是从 COALESCE(show_in_square,1)<>0 的 SQL 里筛出来的。
+        // sec-01：isSelfView 现由真实调用者身份决定（关系型入口 viewer==target 才算本人；
+        // 无 viewer 上下文的 plain 入口一律非本人），miss 的 fail-closed 仍与「已隐藏」同口径。
+        // 榜单全息字、别的插件 /papi parse 对离线玩家走 showInSquare/showResults 的公开判定。
         // 改用 loadProfileSettingsForDisplay：缓存命中零 IO；miss 时同步查一行
         // player_profiles（与本方法已有的 getPlayerStats / getCoinsEarned 同级成本），
         // 只有查询失败才落 unresolvedFallback()。同样绝不写本质缓存。
@@ -234,7 +350,9 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
         }
 
         // R-43 门禁 2：学习成绩族叠加目标 showResults 检查（非本人查看时）。
-        if (!isSelfView && !ps.isShowResults() && RESULTS_GATED.contains(params)) {
+        // R-16：判定收口到 isResultsGated —— 固定键（RESULTS_GATED 集合）与动态族
+        // （achievement_<id>）走同一处裁决，不再各自判一遍。
+        if (!isSelfView && !ps.isShowResults() && isResultsGated(params)) {
             return getPrivateText(viewer);
         }
 
@@ -244,10 +362,11 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
         }
 
         // plan-achievements §3.5：动态成就位 %lle_achievement_<id>% 的取值。
-        // 解析放在三门之后 = 与现状 %lle_achievements% 计数占位符同口径：门禁 1
-        // （隐身者非本人查看 → 隐私占位串）生效；showResults/coins 门禁不外扩到
-        // 成就状态（成就位不在 RESULTS_GATED，也非 coins_earned）。输出字符 ✓/✗
-        // 语言中立、不进新 i18n（计分板空间极小），与规划一致。
+        // 解析放在三门之后 = 与 %lle_achievements% 计数占位符同口径：门禁 1（隐身者
+        // 非本人查看 → 隐私占位串）与门禁 2（R-16：showResults=false 的非本人查看 →
+        // 隐私占位串，见 isResultsGated）都已在上方返回，走到这里的动态成就位一定
+        // 是「本人 或 目标公开了结果」。输出字符 ✓/✗ 语言中立、不进新 i18n
+        // （计分板空间极小），与规划一致。
         if (params.startsWith("achievement_")) {
             Achievement achievement = Achievement.fromId(params.substring("achievement_".length()));
             if (achievement == null) {
@@ -265,7 +384,11 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
 
         return switch (params) {
             case "score" -> String.valueOf(stats.getTotalScore());
-            case "coins_earned" -> String.valueOf(plugin.getDatabaseManager().getCoinsEarned(playerId));
+            // R-16（性能）：原实现直连 DatabaseManager.getCoinsEarned —— 那是一次
+            // 同步 SELECT 且抢 connectionLock，而本类的既有不变量（见类 javadoc）是
+            // 「值已缓存，计分板刷新不碰 DB」。占位符每题秒级刷新，冲突面是整个
+            // 单连接库。改走 getCoinsCached：命中零 IO，未命中返回空串并在后台补读。
+            case "coins_earned" -> getCoinsCached(playerId);
             case "rank" -> {
                 int rank = plugin.getProgressManager().getLeaderboard().getPlayerRank(playerId);
                 yield rank > 0 ? "#" + rank : getUnrankedText(offlinePlayer);
@@ -291,6 +414,133 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
             case "incorrect" -> String.valueOf(stats.getTotalIncorrect());
             default -> null; // Unknown placeholder
         };
+    }
+
+    /**
+     * R-16（性能）：{@code %lle_coins_earned%} 的缓存读取入口 —— <b>调用线程永不碰 DB</b>。
+     *
+     * <p><b>为什么不能直接用 PlayerDataStore 的现成读法</b>：本类其余占位符走
+     * {@code store.getPlayerStats(playerId)}，而它 miss 时会<b>同步</b>调
+     * {@code loadPlayerData}（两条 SELECT + 一次 {@code difficult_words} 读）。
+     * 那只是把同一个缺陷换个位置：PAPI 的解析线程不受控（主线程、别的插件的异步
+     * 任务、甚至 HTTP 面板线程都会调），在任意线程上同步查库仍是抢
+     * {@code connectionLock}。{@code PlayerDataStore} 目前也<b>没有</b>
+     * 「只读缓存、miss 不触发加载」的 lifetime 金币访问器 —— 可复用的
+     * {@code getWrongCountIfCached} 形态只存在于错题计数，coins 没有对应物。
+     *
+     * <p>故本类自己持一份「值 + 过期时刻」的小缓存，把读库推到后台：
+     * <ol>
+     *   <li>命中且未过期 → 直接返回字符串（零 IO）；</li>
+     *   <li>未命中/已过期 → 返回 {@link #COINS_UNKNOWN}（空串），并<b>仅当
+     *       没有在途加载时</b>投递一次异步读（{@link CoinsEntry#loading} 去重）；</li>
+     *   <li>本轮读到后写入缓存，下一次计分板刷新自然拿到真值。</li>
+     * </ol>
+     *
+     * <p><b>代价是一次刷新周期的空值</b>：首次解析（或 60s 过期后的首次解析）
+     * 会短暂显示空串。这是刻意选择的交换——空串是一个「还没有」的诚实表达，
+     * 而同步查库换来的是把服务器拖住的风险。金币不是必须实时到秒的数字。
+     *
+     * <p><b>正确性</b>：{@code total_coins_earned} 只随发币单调递增（
+     * {@code DatabaseManager.adjustCoins} 只有 {@code col = col + amount} 一条写路径），
+     * 因此 60s 陈旧值最多是「偏少」，绝不会显示一个玩家从未拥有过的数字；
+     * {@code /lea reset} 把行删掉后最坏显示 60s 旧值，属可接受窗口。
+     *
+     * @param playerId 目标玩家（非 null，由调用链保证）
+     * @return 已确认的库内值字符串；暂不可知时返回空串（永不返回 {@code null}，
+     *         使上游缓存不会因「未知」而反复失效）
+     */
+    private String getCoinsCached(UUID playerId) {
+        long now = System.currentTimeMillis();
+        CoinsEntry entry = coinsCache.get(playerId);
+        if (entry != null && now < entry.expiresAt) {
+            // 命中窗口内：null = 上一轮读失败（退避未到），仍是「未知」。
+            return entry.value == null ? COINS_UNKNOWN : String.valueOf(entry.value);
+        }
+        // 从未读过 / 已过期：抢占「在途」窗口（短 TTL 的未知条目），抢到的那个线程
+        // 负责排一次异步读；并发调用方看到这个未过期的未知条目就只返回空串。
+        CoinsEntry claiming = new CoinsEntry(null, now + COINS_SENTINEL_TTL_MILLIS);
+        CoinsEntry prev = coinsCache.putIfAbsent(playerId, claiming);
+        if (prev != null) {
+            // 别人先一步占了窗口（或填了真值）：不重复排队。
+            if (now < prev.expiresAt) {
+                return prev.value == null ? COINS_UNKNOWN : String.valueOf(prev.value);
+            }
+            // 已过期 → 本次抢到补读权。用 replace(旧值, 新值) 而非裸 put：并发下另一个
+            // 线程可能刚好把**真值**写进来，裸 put 会把它盖成「未知」，凭空多一次空串
+            // 展示。replace 只有「旧条目还是我看到的那个过期条目」时才生效。
+            if (!coinsCache.replace(playerId, prev, claiming)) {
+                return COINS_UNKNOWN; // 被别人抢先换了条目 —— 下一轮刷新再读
+            }
+        }
+        scheduleCoinsLoad(playerId);
+        return COINS_UNKNOWN;
+    }
+
+    /**
+     * R-16：异步补读 {@code total_coins_earned} —— 唯一一处真正碰该列的代码。
+     *
+     * <p>用 {@code runTaskAsynchronously} 而非主线程任务：读取本身是阻塞 JDBC，
+     * 放主线程等于把「计分板刷新」变成 tick 卡顿源。写入 {@link #coinsCache}
+     * 是无锁的 {@code ConcurrentHashMap.put}，跨线程安全。
+     *
+     * <p>失败/异常口径：一律落 {@code value = null} + {@link #COINS_RETRY_TTL_MILLIS}
+     * 退避，<b>不记 WARNING</b>（PAPI 每秒可能被调多次；{@code getCoinsEarned} 内部
+     * 已按行记过日志），也<b>绝不</b>把失败折成 0 写进缓存 —— 那会把「不知道」
+     * 固化成「确实是 0」。
+     */
+    private void scheduleCoinsLoad(UUID playerId) {
+        try {
+            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+                Long value = null;
+                try {
+                    value = plugin.getDatabaseManager().getCoinsEarned(playerId);
+                } catch (RuntimeException e) {
+                    // 连接层运行期异常（重连失败等）：保持未知，等退避后重试。
+                } finally {
+                    long ttl = value != null ? COINS_CACHE_TTL_MILLIS : COINS_RETRY_TTL_MILLIS;
+                    maybeEvictCoins();
+                    coinsCache.put(playerId, new CoinsEntry(value,
+                            System.currentTimeMillis() + ttl));
+                }
+            });
+        } catch (RuntimeException e) {
+            // 调度器已关闭（插件卸载中）/ 非主线程调度被拒：落退避条目让下次能重试，
+            // 保持未知而不是伪造 0。占位符解析绝不能因为「排不上任务」而抛给调用方。
+            coinsCache.put(playerId, new CoinsEntry(null,
+                    System.currentTimeMillis() + COINS_RETRY_TTL_MILLIS));
+        }
+    }
+
+    /**
+     * R-16（隐私）：这个 params 是否属于「学习成绩」族 —— 即非本人查看时是否要
+     * 叠加目标 {@code showResults} 门禁。
+     *
+     * <p><b>为什么不能只用 {@code RESULTS_GATED.contains}</b>：{@code achievement_<id>}
+     * 是一族动态键（22 个成就 id 各一个，见 {@link Achievement}），集合字面量表达不了。
+     * 若为此把 22 个 id 全铺进集合，将来新增成就会静默漏门（集合不会报错，占位符
+     * 照样泄漏）—— 这正是一条「忘同步」缺陷的温床。故改为<b>前缀判定</b>：
+     * 族成员由 {@code achievement_} 前缀一次性覆盖，集合只保留固定键。
+     *
+     * <p><b>为什么前缀判定在这里是安全的</b>：{@code achievement_} 前缀在
+     * {@link #resolveCached} 已被预检过 —— 未知 id 早已返回 {@code null} 短路，
+     * 走到本方法的 {@code achievement_<id>} 一定是合法成就。因此这里不需要
+     * 再做一次 {@code Achievement.fromId} 校验（门禁要判的是「类别」不是「合法性」）。
+     *
+     * <p><b>与产品内其它入口的口径对齐</b>：游戏内成就墙点击分支
+     * （{@code SocialListener}）对「非本人 + 目标 showResults=false」直接拒绝并提示
+     * 不公开；本谓词让 PAPI 侧同受该开关约束。若只补 {@code achievements} 计数
+     * 而漏掉 {@code achievement_<id>}，玩家仍能通过计分板逐位探测「解锁了哪几个」——
+     * 信息量比一个总数更大，隐私收益归零。故两者必须同门。
+     *
+     * <p>响应值沿用 {@link #getPrivateText}（i18n 键 {@code placeholder.private}，
+     * zh「已隐藏」/ en「Hidden」）：与门禁 1（隐身）逐字同款，查看方分辨不出
+     * 「被隐身挡」还是「被结果开关挡」，避免以错误文案反推对方隐私设置。
+     *
+     * @param params 已归一化（PAPI 传入即小写）的占位符参数名，非 null
+     * @return {@code true} = 属于学习成绩族，非本人查看时须叠加 showResults 门禁
+     */
+    private static boolean isResultsGated(@NotNull String params) {
+        return RESULTS_GATED.contains(params) || params.startsWith("achievement_");
     }
 
     private boolean isKnownParams(String params) {
@@ -334,6 +584,25 @@ public class LLEPapiExpansion extends PlaceholderExpansion {
                 break;
             }
             if (cache.remove(key) != null) {
+                removed++;
+            }
+        }
+    }
+
+    /**
+     * R-16：{@link #coinsCache} 超限时淘汰一批 —— 与 {@link #maybeEvict()} 同范式
+     * （弱一致迭代器，多线程下安全；不精确计数，够用即可）。
+     */
+    private void maybeEvictCoins() {
+        if (coinsCache.size() < COINS_CACHE_MAX_ENTRIES) {
+            return;
+        }
+        int removed = 0;
+        for (UUID key : coinsCache.keySet()) {
+            if (removed >= CACHE_EVICT_BATCH) {
+                break;
+            }
+            if (coinsCache.remove(key) != null) {
                 removed++;
             }
         }

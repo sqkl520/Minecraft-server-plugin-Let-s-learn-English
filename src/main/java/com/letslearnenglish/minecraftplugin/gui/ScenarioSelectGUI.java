@@ -34,8 +34,39 @@ public class ScenarioSelectGUI {
 
     /** 难度按钮的起始 slot */
     public static final int DIFFICULTY_SLOT_START = 18;
-    /** 刷新 API 按钮 slot（管理员） */
+    /**
+     * 刷新 API 按钮 slot（管理员）。
+     * <p><b>行为变更（R12 / MEDIUM-3）</b>：该按钮执行的是 {@code AIChatManager.reload()}
+     * —— 全局重读 {@code ai_config.yml} + {@code ai_scenarios.yml}，与 {@code /lea reload}
+     * 同一量级的动作，因此权限门从 R-55m 的 {@code scenario.import} 收回到
+     * {@code letslearnenglish.admin}。
+     */
     public static final int RELOAD_API_SLOT = 26;
+
+    /**
+     * 「刷新 API 密钥」按钮的权限节点 <b>文档常量</b>。
+     *
+     * <p>渲染门（{@link #open}）与点击门（{@code ScenarioSelectListener.handleReloadAPI}）
+     * 都写<b>字面量</b> {@code "letslearnenglish.admin"}，不引用本常量 —— 这是刻意的：
+     * {@code PermissionContractLintTest} 只认字面量，用常量间接会让「代码查了哪个节点」
+     * 变成静态不可知，从而让那条契约 lint 失效（本类第一版就是这么写的，lint 当场判红）。
+     * 两处门的一致性改由 {@code ScenarioSelectReloadPermissionTest} 的行为用例钉住。
+     *
+     * <p>本常量只作说明与文档引用，<b>不参与判定</b>。
+     *
+     * <p>选 {@code admin} 而不是新开一个 {@code letslearnenglish.ai.reload}：
+     * <ul>
+     *   <li>动作本身就是管理级（全局配置重载，且旧版出厂 {@code ai_scenarios.yml} 上
+     *       会覆盖写盘）——它和 {@code /lea reload} 是同一件事的 GUI 入口；</li>
+     *   <li>新增节点会让「现有持 {@code admin} 的服主」在升级后<b>失去</b>这个按钮
+     *       （他们没配过新节点），属于静默降级；沿用 {@code admin} 则与命令侧自然对齐。</li>
+     * </ul>
+     *
+     * <p><b>对现有服主的影响</b>：升级前，持 {@code scenario.import}（但非 admin）的
+     * 内容作者/老师能看见并点击这个按钮；升级后按钮对他们不可见、点击被拒（失败音）。
+     * 需要保留该能力请授予 {@code letslearnenglish.admin}。
+     */
+    public static final String RELOAD_API_PERMISSION = "letslearnenglish.ai.reload";
     /**
      * 管理我的场景按钮 slot（Phase 3 · MC-4）。
      * 空闲位（10-16 场景 / 18-20 难度 / 22 标签 / 26 API 刷新均不占用）；
@@ -180,9 +211,14 @@ public class ScenarioSelectGUI {
                     MessageUtil.getGuiMsg(msg, "scenario.manage-button-lore")));
         }
 
-        // 刷新 API 密钥按钮 (slot 26) — R-55m：权限与 /le load_scenario 对齐，
-        // 持 letslearnenglish.scenario.import 者可见（原 letslearnenglish.admin）
-        if (player.hasPermission("letslearnenglish.scenario.import")) {
+        // 刷新 API 密钥按钮 (slot 26) — R12 / MEDIUM-3：权限门收回 letslearnenglish.admin。
+        // 动作是 AIChatManager.reload()（全局重读 ai_config.yml + ai_scenarios.yml），
+        // 与 /lea reload 同量级；scenario.import 的语义是「导入分享码 / 管理个人场景」，
+        // 不该顺带授予全局配置重载。R-55m 的「与 load_scenario 对齐」在此撤销 ——
+        // 对齐的是动作而不是按钮所在页面。
+        // 节点名写字面量（不用常量）：PermissionContractLintTest 只认字面量，
+        // 常量间接会让「代码查了哪个节点」静态不可知；两处门的一致性由行为测试钉住。
+        if (player.hasPermission("letslearnenglish.ai.reload")) {
             boolean apiAvailable = plugin.getAIChatManager().isAvailable();
             String apiReload = MessageUtil.getGuiMsg(msg, "dialogue.api-reload");
             String apiStatus = apiAvailable

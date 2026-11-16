@@ -8,11 +8,15 @@ import java.util.UUID;
  * DuelRoom — in-memory state machine for a 1v1 word duel.
  *
  * Two players compete to be the first to answer each word correctly.
- * First to 5 points wins. Thread-safe for concurrent event handler access.
+ * First to 5 points wins. Writes and multi-field reads are synchronized, so a
+ * caller sees one consistent score snapshot instead of a torn mid-round mix.
  */
 public class DuelRoom {
 
     public static final int WIN_SCORE = 5;
+
+    /** R4-07-logic-F03：回合上限（wordRoundId 即已发题数）。超时不计分，否则双方挂机永不终止。 */
+    public static final int MAX_ROUNDS = 30;
 
     /**
      * FIX-DUEL-01: single-question timeout fallback (seconds).
@@ -34,6 +38,7 @@ public class DuelRoom {
     // Monotonic round id: incremented on every setCurrentWord so the timeout
     // task can tell a stale firing (old round) from the current one.
     private volatile long wordRoundId;
+    /** R4-07-logic-F01：掉线宽限期内暂停（在场方不得继续抢分）。 */ private volatile boolean paused;
 
     public enum AnswerResult {
         CORRECT,
@@ -72,7 +77,7 @@ public class DuelRoom {
      * Only one player can score per word (first correct wins).
      */
     public synchronized AnswerResult submitAnswer(UUID playerId, String answer) {
-        if (!active || currentWord == null) {
+        if (!active || currentWord == null || paused) { // R4-07-logic-F01：宽限期停盘，防在场方连答打满
             return AnswerResult.NOT_IN_DUEL;
         }
 
@@ -146,14 +151,19 @@ public class DuelRoom {
     /**
      * Check if the duel is finished (someone reached WIN_SCORE).
      */
-    public boolean isFinished() {
+    public synchronized boolean isFinished() {
         return score1 >= WIN_SCORE || score2 >= WIN_SCORE;
+    }
+
+    /** R4-07-logic-F03：回合上限到点（wordRoundId 即已发题数）。须在发下一题之前判定。 */
+    public synchronized boolean isRoundCapReached() {
+        return wordRoundId >= MAX_ROUNDS;
     }
 
     /**
      * Get the winner's UUID, or null if not finished.
      */
-    public UUID getWinner() {
+    public synchronized UUID getWinner() {
         if (!isFinished()) return null;
         return score1 >= WIN_SCORE ? player1 : player2;
     }
@@ -161,7 +171,7 @@ public class DuelRoom {
     /**
      * Get the loser's UUID, or null if not finished.
      */
-    public UUID getLoser() {
+    public synchronized UUID getLoser() {
         if (!isFinished()) return null;
         return score1 >= WIN_SCORE ? player2 : player1;
     }
@@ -178,6 +188,9 @@ public class DuelRoom {
     public synchronized void setActive(boolean active) {
         this.active = active;
     }
+
+    /** R4-07-logic-F01：掉线宽限期开始/结束时的暂停位。 */
+    public void setPaused(boolean p) { this.paused = p; }
 
     // --- Getters ---
 

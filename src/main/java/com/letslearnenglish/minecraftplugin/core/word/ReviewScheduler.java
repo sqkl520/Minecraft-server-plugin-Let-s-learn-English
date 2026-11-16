@@ -111,6 +111,11 @@ public class ReviewScheduler {
                 continue;
             }
 
+            // slice-10-logic-01：0 = 「从未排程」哨兵而非 1970 时间戳，不拦则永久 due。
+            if (lastReview <= 0) {
+                continue;
+            }
+
             long nextReviewTime;
             if (reviewCount >= reviewIntervalsSize) {
                 // Word has completed all Ebbinghaus intervals — enter low-frequency
@@ -146,7 +151,15 @@ public class ReviewScheduler {
      * 算出 nextReview = now + intervals[0]，未到期前不会立即 due。
      */
     public void seedReview(UUID playerId, String word) {
-        playerDataStore.seedReview(playerId, word);
+        // slice-10-dc-01：读侧把 lastReview <= 0 当「从未排程」（本类 :115），但
+        // PlayerDataStore.seedReview 的 guard 是 containsKey —— DB 里未作答词的空行
+        // last_review_time 恰为 0，键存在即空转，词被永久锁在复习池外。写侧补同一口径：
+        // 0 值按未排程处理，走 resetReview（无条件写 now/0），已有真实种子仍是幂等覆盖。
+        Long lastReview = playerDataStore.getLastReviewTimes(playerId).get(word.toLowerCase());
+        playerDataStore.seedReview(playerId, word);   // 仍先走：补 mastery 行，否则种子落不了盘
+        if (lastReview != null && lastReview <= 0L) {
+            playerDataStore.resetReview(playerId, word);
+        }
         dueWordCache.remove(playerId);
     }
 

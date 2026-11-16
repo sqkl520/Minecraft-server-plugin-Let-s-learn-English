@@ -48,6 +48,49 @@ public class WordLearningGUI {
     /** 与 {@link #RESERVED_SLOT_KEYS} 一一对应的默认槽位（配置缺键时按渲染侧默认值避让）。 */
     private static final int[] RESERVED_SLOT_DEFAULTS = {8, 4, 10, 13, 16, 14, 22};
 
+    /** {@link #RESERVED_SLOT_KEYS} 中 {@code back-button} 的下标（渲染与点击共用一份表）。 */
+    private static final int IDX_BACK = 0;
+    /** {@link #RESERVED_SLOT_KEYS} 中 {@code progress-info} 的下标。 */
+    private static final int IDX_PROGRESS = 1;
+    /** {@link #RESERVED_SLOT_KEYS} 中 {@code combo-info} 的下标。 */
+    private static final int IDX_COMBO = 2;
+    /** {@link #RESERVED_SLOT_KEYS} 中 {@code current-word} 的下标。 */
+    private static final int IDX_CURRENT_WORD = 3;
+    /** {@link #RESERVED_SLOT_KEYS} 中 {@code stop-button} 的下标。 */
+    private static final int IDX_STOP = 4;
+    /** {@link #RESERVED_SLOT_KEYS} 中 {@code pronunciation-button} 的下标。 */
+    private static final int IDX_PRON = 5;
+    /** {@link #RESERVED_SLOT_KEYS} 中 {@code start-button} 的下标。 */
+    private static final int IDX_START = 6;
+
+    /**
+     * R12-slot：读取 7 个 {@code gui-layout.word-learning.*.slot} 并做边界校验，
+     * 返回顺序与 {@link #RESERVED_SLOT_KEYS} 逐位对应。
+     *
+     * <p><b>缺陷本体</b>：{@link ConfigManager#getGuiSlot} 是无校验直读，而本菜单固定 27 格
+     * —— 服主把 {@code start-button.slot} 写成 28（{@code config.yml} 只写了
+     * "0-53，主菜单 0-26"，27 格这条没说）时，{@code inv.setItem(28, …)} 会抛
+     * {@code ArrayIndexOutOfBoundsException}，且发生在 {@code player.openInventory(inv)}
+     * 之前 —— 玩家看到的是「执行 /le word 后什么都没有」，服主看到的是日志里一条栈。
+     * 这条路径还在 {@link #refresh} 上重复触发（答题过程中每答一题原地重画）。
+     *
+     * <p><b>为什么整组回落</b>（{@link GUIUtils#readSlots} 的策略，与 {@code MainMenu}
+     * 同款）：逐键单独回落会让「两个键落进同一格」，而 {@code resolveChoiceOptionSlots}
+     * 靠「被功能槽占用的候选位跳过」来避让 —— 两键同格会让它少避让一格，选项与按钮重叠。
+     * 整组回落用的出厂表是两两不同的，天然没有这个问题。
+     *
+     * <p>回落后 {@link #resolveChoiceOptionSlots} 也必须用同一份结果：否则渲染按回落表、
+     * 避让按原配置，选项会被画到「按回落表已经放好按钮」的格子上。
+     *
+     * @param cm     配置管理器
+     * @param logger 日志出口，可为 null（纯 JVM 单测）
+     * @return 长度 7 的槽位数组，全部落在 {@code [0, MENU_SIZE)}
+     */
+    private static int[] resolveLayoutSlots(ConfigManager cm, java.util.logging.Logger logger) {
+        return GUIUtils.readSlots(cm, logger, "word-learning",
+                RESERVED_SLOT_KEYS, RESERVED_SLOT_DEFAULTS, MENU_SIZE);
+    }
+
     /** choice 选项物品材质（不新增配置键，固定用纸）。 */
     private static final Material CHOICE_OPTION_MATERIAL = Material.PAPER;
 
@@ -94,14 +137,32 @@ public class WordLearningGUI {
      * 功能槽占用的候选位直接跳过，因此管理员改布局不会出现"按钮盖住选项"。
      * 点击侧不读槽位 —— 它认的是物品上写入的选项下标，两侧天然不会错位。
      *
+     * <p><b>R12-slot：避让判据必须与渲染侧用<b>同一份</b>槽位。</b>
+     * 渲染侧（{@link #buildInventory}）走 {@link GUIUtils#readSlots}，配置越界时整组
+     * 回落默认表；本方法若仍逐键读原配置，会出现「按钮画在回落表的位置、选项却按原配置
+     * 避让」—— 选项正好落在已经放了按钮的格子上，setItem 后写的选项会盖掉按钮（或反过来，
+     * 取决于渲染顺序），玩家看到一个能点但不知道是按钮还是选项的格子。
+     *
+     * <p>传 {@code null} logger 是刻意的：本方法无法访问 plugin 实例，而越界告警已由
+     * 渲染侧那一遍打过（同一批键、同一份配置、同一次 open），这里再打一遍纯属刷屏。
+     *
      * @param cm 配置管理器
      * @return 可用选项槽（长度 0..4，按 A/B/C/D 顺序）
      */
     public static int[] resolveChoiceOptionSlots(ConfigManager cm) {
+        return choiceOptionSlotsFor(resolveLayoutSlots(cm, null));
+    }
+
+    /**
+     * 按<b>已裁决</b>的功能槽表算可用选项槽（渲染侧走这条，避免二次读配置）。
+     *
+     * @param layout 长度 7、已过边界校验的功能槽表（{@link #resolveLayoutSlots} 的产物）
+     * @return 可用选项槽（长度 0..4，按 A/B/C/D 顺序）
+     */
+    private static int[] choiceOptionSlotsFor(int[] layout) {
         boolean[] reserved = new boolean[MENU_SIZE];
-        for (int i = 0; i < RESERVED_SLOT_KEYS.length; i++) {
-            int slot = cm.getGuiSlot("word-learning", RESERVED_SLOT_KEYS[i], RESERVED_SLOT_DEFAULTS[i]);
-            if (slot >= 0 && slot < MENU_SIZE) {
+        for (int slot : layout) {
+            if (GUIUtils.isSlotInRange(slot, MENU_SIZE)) {
                 reserved[slot] = true;
             }
         }
@@ -220,16 +281,22 @@ public class WordLearningGUI {
         int score = state.session.getScore();
         double multiplier = wlManager.getComboMultiplier(combo);
 
+        // R12-slot：本方法一次读出全部 7 个配置槽位（越界则整组回落 + WARNING），
+        // 之后所有 setItem 都用这一份 —— 循环里重复 getGuiSlot 不仅慢，还会让
+        // 「同一个键在同一次渲染里读到两个不同值」（/lea reload 落在中间）成为可能。
+        int[] layout = resolveLayoutSlots(cm, plugin.getLogger());
+
         if (currentWord != null) {
             // FEAT-MODE-01：当前单词卡按 mode 渲染。出题展示阶段不泄露答案：
             // choice 正确项不加亮、fill 空不带答案。槽位/材质配置键不动。
             String mode = state.mode;
+            int wordSlot = layout[IDX_CURRENT_WORD];
             if (AnswerChecker.isChoice(mode)) {
-                renderChoiceOptions(inv, cm, messages, wlManager, player, currentWord, current);
+                renderChoiceOptions(inv, cm, messages, wlManager, player, currentWord, current, layout);
             } else if (AnswerChecker.isFillBlank(mode)) {
-                renderFillBlankCard(inv, cm, messages, currentWord);
+                renderFillBlankCard(inv, cm, messages, currentWord, wordSlot);
             } else {
-                renderSpellingCard(inv, cm, messages, currentWord);
+                renderSpellingCard(inv, cm, messages, currentWord, wordSlot);
             }
         }
 
@@ -238,9 +305,8 @@ public class WordLearningGUI {
                 MessageUtil.getGuiMsg(messages, "word.pronunciation-button"));
         String pronLore = ChatColor.translateAlternateColorCodes('&', "&7" +
                 MessageUtil.getGuiMsg(messages, "word.pronunciation-button-lore"));
-        int pronSlot = cm.getGuiSlot("word-learning", "pronunciation-button", 14);
         Material pronMat = cm.getGuiMaterial("word-learning", "pronunciation-button", Material.NOTE_BLOCK);
-        inv.setItem(pronSlot, createItem(pronMat, pronLabel, pronLore));
+        inv.setItem(layout[IDX_PRON], createItem(pronMat, pronLabel, pronLore));
 
         String progressLabel = ChatColor.translateAlternateColorCodes('&', "&a" +
                 MessageUtil.getGuiMsg(messages, "word-learning-gui.progress")
@@ -250,30 +316,30 @@ public class WordLearningGUI {
                 MessageUtil.getGuiMsg(messages, "word-learning-gui.score")
                         .replace("{score}", String.valueOf(score)));
 
-        inv.setItem(cm.getGuiSlot("word-learning", "progress-info", 4), createItem(cm.getGuiMaterial("word-learning", "progress-info", Material.CLOCK), progressLabel, scoreLore));
+        inv.setItem(layout[IDX_PROGRESS], createItem(cm.getGuiMaterial("word-learning", "progress-info", Material.CLOCK), progressLabel, scoreLore));
 
         String comboLabel = getComboLabel(combo, multiplier, messages);
-        inv.setItem(cm.getGuiSlot("word-learning", "combo-info", 10), createItem(cm.getGuiMaterial("word-learning", "combo-info", Material.BLAZE_ROD), comboLabel));
+        inv.setItem(layout[IDX_COMBO], createItem(cm.getGuiMaterial("word-learning", "combo-info", Material.BLAZE_ROD), comboLabel));
 
         String stopLabel = ChatColor.translateAlternateColorCodes('&', "&c" +
                 MessageUtil.getGuiMsg(messages, "word-learning-gui.stop-button"));
         String stopLore = ChatColor.translateAlternateColorCodes('&', "&7" +
                 MessageUtil.getGuiMsg(messages, "word-learning-gui.stop-lore"));
 
-        inv.setItem(cm.getGuiSlot("word-learning", "stop-button", 16), createItem(cm.getGuiMaterial("word-learning", "stop-button", Material.BARRIER), stopLabel, stopLore));
+        inv.setItem(layout[IDX_STOP], createItem(cm.getGuiMaterial("word-learning", "stop-button", Material.BARRIER), stopLabel, stopLore));
 
         String startLabel = ChatColor.translateAlternateColorCodes('&', "&a" +
                 MessageUtil.getGuiMsg(messages, "word-learning-gui.answer-hint"));
         String startLore = ChatColor.translateAlternateColorCodes('&', "&7" +
                 MessageUtil.getGuiMsg(messages, "word-learning-gui.answer-hint-lore-1"));
 
-        inv.setItem(cm.getGuiSlot("word-learning", "start-button", 22), createItem(cm.getGuiMaterial("word-learning", "start-button", Material.LIME_DYE), startLabel, startLore));
+        inv.setItem(layout[IDX_START], createItem(cm.getGuiMaterial("word-learning", "start-button", Material.LIME_DYE), startLabel, startLore));
 
         String backLabel = ChatColor.translateAlternateColorCodes('&', "&e" +
                 MessageUtil.getGuiMsg(messages, "gui.back-button"));
         String backLore = ChatColor.translateAlternateColorCodes('&', "&7" +
                 MessageUtil.getGuiMsg(messages, "gui.back-lore"));
-        inv.setItem(cm.getGuiSlot("word-learning", "back-button", 8), createItem(cm.getGuiMaterial("word-learning", "back-button", Material.RED_STAINED_GLASS_PANE), backLabel, backLore));
+        inv.setItem(layout[IDX_BACK], createItem(cm.getGuiMaterial("word-learning", "back-button", Material.RED_STAINED_GLASS_PANE), backLabel, backLore));
 
         // P0-5：空槽统一填灰玻璃（防 shift-click / 拖拽纵深；R12-M3 同款）。
         // 必须放在本方法全部 setItem 之后 —— 这是唯一的内容渲染公共出口（spelling /
@@ -285,7 +351,7 @@ public class WordLearningGUI {
      * FEAT-MODE-01：spelling 渲染 — 保持现状（中文 + 音标 + 关闭界面提示）。
      */
     private void renderSpellingCard(Inventory inv, ConfigManager cm,
-                                    FileConfiguration messages, Word currentWord) {
+                                    FileConfiguration messages, Word currentWord, int wordSlot) {
         String wordLabel = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "word-learning-gui.current-word")
                         .replace("{chinese}", currentWord.getChinese()));
@@ -308,7 +374,7 @@ public class WordLearningGUI {
             loreLines = new String[] { viewLore };
         }
 
-        inv.setItem(cm.getGuiSlot("word-learning", "current-word", 13),
+        inv.setItem(wordSlot,
                 createItem(cm.getGuiMaterial("word-learning", "current-word", Material.BOOK),
                         wordLabel, loreLines));
     }
@@ -328,7 +394,9 @@ public class WordLearningGUI {
      */
     private void renderChoiceOptions(Inventory inv, ConfigManager cm,
                                      FileConfiguration messages, WordLearningManager wlManager,
-                                     Player player, Word currentWord, int questionIndex) {
+                                     Player player, Word currentWord, int questionIndex,
+                                     int[] layout) {
+        int wordSlot = layout[IDX_CURRENT_WORD];
         String wordLabel = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "word-learning-gui.current-word")
                         .replace("{chinese}", currentWord.getChinese()));
@@ -348,13 +416,15 @@ public class WordLearningGUI {
                             .replace("{word}", options.get(i).getEnglish())));
         }
 
-        inv.setItem(cm.getGuiSlot("word-learning", "current-word", 13),
+        inv.setItem(wordSlot,
                 createItem(cm.getGuiMaterial("word-learning", "current-word", Material.BOOK),
                         wordLabel, lore.toArray(new String[0])));
 
         // 可点击选项：槽位与点击侧同源（resolveChoiceOptionSlots），槽数不足时按实际数量渲染。
         // 必须在 fillEmpty 之前 —— buildInventory 末尾统一兜灰玻璃，只填空槽不覆盖已渲染物。
-        int[] slots = resolveChoiceOptionSlots(cm);
+        // R12-slot：传入本次渲染已裁决的 layout，而不是让本方法再读一遍配置 —— 否则
+        // 「按钮按回落表画、选项按原配置避让」两套并存，选项会盖住按钮。
+        int[] slots = choiceOptionSlotsFor(layout);
         int clickable = Math.min(slots.length, options.size());
         for (int i = 0; i < clickable; i++) {
             String name = ChatColor.translateAlternateColorCodes('&',
@@ -428,7 +498,7 @@ public class WordLearningGUI {
      * （展示层实时读配置，reload 即时生效）；false 时只隐藏提示行，题目本身与判定不变。
      */
     private void renderFillBlankCard(Inventory inv, ConfigManager cm,
-                                     FileConfiguration messages, Word currentWord) {
+                                     FileConfiguration messages, Word currentWord, int wordSlot) {
         // R-11：加中文题面（与 spelling/choice 卡一致）——物品名用"当前单词: {中文}"，
         // 挖空例句下沉到 lore 第一行，只看 GUI 也知道在考哪个词。槽位/材质不动。
         String wordLabel = ChatColor.translateAlternateColorCodes('&',
@@ -451,7 +521,7 @@ public class WordLearningGUI {
         }
         lore.add(viewLore);
 
-        inv.setItem(cm.getGuiSlot("word-learning", "current-word", 13),
+        inv.setItem(wordSlot,
                 createItem(cm.getGuiMaterial("word-learning", "current-word", Material.BOOK),
                         wordLabel, lore.toArray(new String[0])));
     }

@@ -163,41 +163,155 @@ class WordBankUpgradeLintsTest {
     @DisplayName("L3 备份先于替换且失败即中止")
     class BackupBeforeReplace {
 
-        @Test
-        @DisplayName("存在备份目录构造与文件复制")
-        void backupExists() {
+        /** 升级方法的固定锚点；方法体一律经此提取，禁止对整文件做子串搜索。 */
+        private static final String UPGRADE_SIG = "private void upgradeWordBanksIfNeeded()";
+
+        /** 替换动作的字面量（true = 覆盖）。 */
+        private static final String REPLACE_CALL =
+                "plugin.saveResource(\"words/\" + tier + \".yml\", true)";
+
+        /**
+         * 取 {@code upgradeWordBanksIfNeeded()} 的方法体（花括号配对，跳过字符串字面量）。
+         *
+         * <p><b>为什么必须收窄</b>：本类原实现直接在整份 {@code ConfigManager.java} 上
+         * {@code contains("Files.copy(")} —— 而文件里<b>另一处</b>同形代码（配置合并前的
+         * 单槽 {@code .bak} 快照，消息里的 "merge-upgrade"）也含这四个词。实测：把备份
+         * 循环里的 {@code Files.copy(disk.toPath(), new File(backupDir, ...))} 两行整段删掉，
+         * 该断言<b>依然全绿</b>（8/8 通过）—— 备份目录建了但不往里复制，升级把服主改过的
+         * 词库硬覆盖，且没有任何回滚点。收窄到方法体后，锚点只可能由被检方法自己满足。
+         */
+        private String upgradeBody() {
             String c = code();
-            assertTrue(c.contains("words-backup-v"),
-                    "没有备份目录（words-backup-v…）—— 直接覆盖会静默冲掉服主自己编辑过的词库。"
-                            + "词库是官方支持手工编辑的资产（/lea exportwordbank 是既有功能）");
-            assertTrue(c.contains("Files.copy("),
-                    "没有把旧词库复制到备份目录 —— 只建目录不复制，回滚时无可恢复");
+            int sig = c.indexOf(UPGRADE_SIG);
+            assertTrue(sig >= 0,
+                    "ConfigManager.java 里找不到方法签名「" + UPGRADE_SIG + "」喵 —— "
+                            + "升级逻辑被改名/搬走了，请把本 lint 的锚点同步到新位置"
+                            + "（否则门禁会静默失效，而不是变红）");
+            int open = c.indexOf('{', sig + UPGRADE_SIG.length());
+            assertTrue(open > 0, "「" + UPGRADE_SIG + "」之后找不到左花括号喵");
+            int close = matchingBrace(c, open);
+            assertTrue(close > open,
+                    "「" + UPGRADE_SIG + "」的花括号不配对喵 —— 源码可能被截断");
+            return c.substring(open, close + 1);
         }
 
         @Test
-        @DisplayName("备份失败时不得继续替换")
+        @DisplayName("存在备份目录构造与文件复制（且都在升级方法体内）")
+        void backupExists() {
+            String body = upgradeBody();
+            assertTrue(body.contains("words-backup-v"),
+                    "升级方法体里没有备份目录（words-backup-v…）—— 直接覆盖会静默冲掉"
+                            + "服主自己编辑过的词库。词库是官方支持手工编辑的资产"
+                            + "（/lea exportwordbank 是既有功能）");
+            assertTrue(body.contains("Files.copy("),
+                    "升级方法体里没有把旧词库复制到备份目录 —— 只建目录不复制，回滚时无可恢复。\n"
+                            + "注意本断言只在 upgradeWordBanksIfNeeded() 方法体内搜索："
+                            + "ConfigManager 里另有一处配置合并前的 .bak 快照也含 `Files.copy(`，"
+                            + "拿全文件搜会被它兜住而假绿（实测删掉备份循环里的那次复制，断言仍绿）。\n"
+                            + "方法体原文：\n" + body);
+        }
+
+        /**
+         * 备份失败必须中止<b>替换</b> —— 不只是「置一个 flag」。
+         *
+         * <p>原实现的两处漏（都是实测确认过的假绿）：
+         * <ol>
+         *   <li>只断言窗口里有 {@code backupFailed = true}。把替换
+         *       {@code plugin.saveResource(..., true)} 整个挪到 {@code if (!backupFailed)}
+         *       块<b>外面</b>（还原 LG-02 的原始缺陷），flag 照置、断言照绿 —— 备份失败后
+         *       仍然硬覆盖，服主改动永久丢失。实测该变异 8/8 全绿。</li>
+         *   <li>「双向取更近的 catch」把窗口放宽到 500 字符。窗口是<b>偏移区间</b>不是
+         *       「守卫块」，只要附近有任何 {@code backupFailed = true} 命中即可，
+         *       与替换是否受守卫无关。</li>
+         * </ol>
+         *
+         * <p>现在改为<b>括号配对求守卫块区间</b>，并要求替换调用<b>恰好位于块内、且方法体
+         * 内只有这一处</b>：把调用挪出去会同时踩到「块内不含」与「块外那一处」两条。
+         */
+        @Test
+        @DisplayName("备份失败时不得继续替换（替换调用必须在 if (!backupFailed) 块内且唯一）")
         void backupFailureAbortsReplace() {
-            String c = code();
-            // 以 `if (!backupFailed)` 为锚点反推：它的 catch 在它**之前**。
-            // 不能从 Files.copy 往后找第一个 catch —— 文件里另有配置合并的
-            // catch (IOException e)（消息里的 "merge-upgrade"），会抓错。
-            int guard = c.indexOf("if (!backupFailed)");
-            assertTrue(guard > 0, "没有 `if (!backupFailed)` 守卫 —— 备份失败仍会覆盖");
+            String body = upgradeBody();
 
-            // 备份的 try/catch 与守卫的相对位置取决于写法（守卫可能在循环头、catch 在内层），
-            // 故双向找最近的 catch，取距离更近的那个。
-            int before = c.lastIndexOf("catch (IOException e)", guard);
-            int after = c.indexOf("catch (IOException e)", guard);
-            int catchIdx = -1;
-            if (before > 0 && after > 0) catchIdx = (guard - before) <= (after - guard) ? before : after;
-            else if (before > 0) catchIdx = before;
-            else catchIdx = after;
-            assertTrue(catchIdx > 0, "找不到备份用的 catch (IOException)");
+            int guard = body.indexOf("if (!backupFailed)");
+            assertTrue(guard >= 0,
+                    "升级方法体里没有 `if (!backupFailed)` 守卫 —— 备份失败仍会覆盖，"
+                            + "服主改过的词库彻底丢失且无法回滚。方法体原文：\n" + body);
 
-            String window = c.substring(Math.min(catchIdx, guard), Math.min(c.length(), Math.max(catchIdx, guard) + 500));
-            assertTrue(window.contains("backupFailed = true"),
-                    "备份失败时没有置 backupFailed —— 会在没有回滚点的情况下继续覆盖，"
-                            + "服主的改动永久丢失。窗口原文：\n" + window);
+            int guardOpen = body.indexOf('{', guard + "if (!backupFailed)".length());
+            assertTrue(guardOpen > guard,
+                    "`if (!backupFailed)` 之后找不到左花括号喵 —— 守卫没有块，无法判定替换是否受它保护");
+            int guardClose = matchingBrace(body, guardOpen);
+            assertTrue(guardClose > guardOpen,
+                    "`if (!backupFailed)` 的花括号不配对喵 —— 源码可能被截断");
+            String guarded = body.substring(guardOpen, guardClose + 1);
+
+            // 1) 备份失败必须置 flag 并中止当前档位（continue / return / throw 之一）。
+            // 取守卫块本身（不是"守卫 + 500 字符窗口"）：窗口会把块外的同名赋值一起算进来，
+            // 与「替换是否受守卫保护」无关 —— 那正是本条 lint 原先假绿的成因。
+            String tail = guarded;
+            assertTrue(tail.contains("backupFailed = true"),
+                    "守卫块里没有把 backupFailed 置 true —— 备份失败后其余档位仍会被覆盖。\n"
+                            + "守卫块原文：\n" + guarded);
+
+            // 2) 替换调用必须落在守卫块内。
+            assertTrue(guarded.contains(REPLACE_CALL),
+                    "替换调用 `" + REPLACE_CALL + "` 不在 `if (!backupFailed)` 块内喵。\n"
+                            + "这是 LG-02 的原始缺陷形状：守卫只包住备份、替换放在块外，"
+                            + "于是备份失败后<b>仍然硬覆盖</b>词库，没有回滚点。\n"
+                            + "守卫块原文：\n" + guarded);
+
+            // 3) 方法体里替换调用只能有这一处 —— 否则块内那份可以是摆设、块外那份才是真用的。
+            int total = countOccurrences(body, REPLACE_CALL);
+            assertEquals(1, total,
+                    "升级方法体里 `" + REPLACE_CALL + "` 出现了 " + total + " 次，期望恰好 1 次喵。\n"
+                            + "两处的典型形态是「守卫块内摆一次、块外再真正调一次」—— "
+                            + "纯文本无法判断哪一次被执行，但正确实现没有取两次的理由。\n"
+                            + "方法体原文：\n" + body);
+        }
+
+        /** 从 {@code leftBrace} 起做括号配对（跳过字符串/字符字面量），返回匹配的右花括号下标。 */
+        private int matchingBrace(String s, int leftBrace) {
+            int depth = 0;
+            int i = leftBrace;
+            while (i < s.length()) {
+                char ch = s.charAt(i);
+                if (ch == '"' || ch == '\'') {
+                    char quote = ch;
+                    i++;
+                    while (i < s.length()) {
+                        char d = s.charAt(i);
+                        if (d == '\\') {
+                            i += 2;
+                            continue;
+                        }
+                        i++;
+                        if (d == quote) {
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                if (ch == '{') {
+                    depth++;
+                } else if (ch == '}') {
+                    if (--depth == 0) {
+                        return i;
+                    }
+                }
+                i++;
+            }
+            return -1;
+        }
+
+        private int countOccurrences(String haystack, String needle) {
+            int n = 0;
+            int from = 0;
+            while ((from = haystack.indexOf(needle, from)) >= 0) {
+                n++;
+                from += needle.length();
+            }
+            return n;
         }
     }
 

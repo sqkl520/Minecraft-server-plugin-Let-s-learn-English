@@ -4,6 +4,7 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.manager.StatisticsHttpServer;
 import com.letslearnenglish.minecraftplugin.core.word.WordBank;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
+import com.letslearnenglish.minecraftplugin.util.AtomicFileWriter;
 import net.milkbowl.vault.economy.Economy;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
@@ -11,13 +12,13 @@ import org.bukkit.configuration.file.FileConfiguration;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 
 /**
@@ -168,6 +169,19 @@ public final class DiagnoseCommand {
 
     /** 报告文件名的时间戳格式（与 AdminCommandHandler 的词库导出口径一致）。 */
     private static final String FILE_STAMP = "yyyyMMdd-HHmmss";
+
+    /**
+     * FIX 6（round14 F2）：同一秒内多次 {@code diagnose save} 的文件名唯一化序号。
+     *
+     * <p>{@link #FILE_STAMP} 只有 1 秒分辨率、且文件名里没有任何唯一成分：同一秒内
+     * 连敲两次 {@code /lea diagnose save}（或两个管理员同时敲）会落到<b>同一个路径</b>，
+     * 第二次覆盖第一次，而两条命令都会回一句 {@code save.done} —— 前一份诊断报告
+     * 静默消失。诊断报告恰恰是"出故障时"导出的，丢一份就等于丢掉一次现场。
+     *
+     * <p>与 {@code ReportGenerator} 同款三段式（可读时间 + 进程内序号 + 随机段），
+     * 保留 {@code yyyyMMdd-HHmmss} 前缀是为了不破坏运维按文件名排序/glob 的习惯。
+     */
+    private static final AtomicLong FILE_SEQUENCE = new AtomicLong();
 
     /** 报告正文里"生成时间"的格式（人读，含日期与秒）。 */
     private static final String FILE_TIME = "yyyy-MM-dd HH:mm:ss";
@@ -345,11 +359,12 @@ public final class DiagnoseCommand {
 
     /**
      * 输出给命令发送者（玩家或控制台）。异常自吞——诊断失败只打印一行错误，绝不抛到命令层。
+     * 保护范围是整个方法体（第一句即 {@code try}），与上述不变量一致。
      */
     public static void send(LetsLearnEnglish plugin, CommandSender sender) {
-        Msg msg = forSender(plugin, sender);
-        sender.sendMessage(msg.get("header"));
         try {
+            Msg msg = forSender(plugin, sender);
+            sender.sendMessage(msg.get("header"));
             Report report = build(plugin, msg);
             for (Check c : report.checks()) {
                 sender.sendMessage(render(c, msg));
@@ -361,16 +376,17 @@ public final class DiagnoseCommand {
                 // 字面 '&' 被当成颜色码吃掉一个字符。
                 sender.sendMessage(line);
             }
+            sender.sendMessage(color(FOOTER));
         } catch (Throwable t) {
-            sender.sendMessage(msg.get("failed", "error", String.valueOf(t)));
+            sender.sendMessage(forSender(plugin, sender).get("failed", "error", String.valueOf(t)));
             plugin.getLogger().log(Level.WARNING, "Diagnostics command failed", t);
+            sender.sendMessage(color(FOOTER));
         }
-        sender.sendMessage(color(FOOTER));
     }
 
     /**
      * {@code /lea diagnose save}：与 {@link #send} <b>同一份</b>报告，改写到
-     * {@code <dataFolder>/exports/diagnose-<yyyyMMdd-HHmmss>.txt}（UTF-8）。
+     * {@code <dataFolder>/exports/diagnose-<yyyyMMdd-HHmmss>-<seq>-<rand>.txt}（UTF-8）。
      *
      * <p><b>为什么同线程同步写：</b>报告生成必须主线程（读 config / Vault /
      * Bukkit 插件表），能异步的只剩"把一个几 KB 的字符串落盘"这一步；为它多开一个
@@ -378,30 +394,56 @@ public final class DiagnoseCommand {
      * 分支就得为 {@code IllegalStateException} 兜底）。几 KB 的顺序写是微秒级，
      * 同步更简单也更可靠。
      *
+     * <p><b>FIX 6（round14 F2）两处收紧：</b>
+     * <ol>
+     *   <li>文件名加唯一后缀（见 {@link #uniqueFileStamp()}）——原来的
+     *       {@code yyyyMMdd-HHmmss} 只有 1 秒分辨率，同秒两次导出会互相覆盖；</li>
+     *   <li>落盘走 {@link AtomicFileWriter}——原来 {@code Files.writeString} 直写目标，
+     *       崩溃/盘满时留下半截 TXT，管理员却被回了一句 {@code save.done}。</li>
+     * </ol>
+     *
      * <p>落盘内容已剥掉颜色码：报告是给"整段贴进工单/论坛"用的，{@code §a} 这类
      * 转义字符在 Markdown/网页里只会变成乱码。
      *
      * <p>IO 失败只记 WARNING + 回一句 i18n 错误，绝不抛（命令层不允许异常逃逸）。
+     * 原子写失败在这里被<b>显式翻译成 {@link IOException}</b>，从而复用既有的
+     * {@code save.failed} 分支——失败只有一条出口，不会有一半代码认为成功。
      */
     public static void save(LetsLearnEnglish plugin, CommandSender sender) {
         Msg msg = forSender(plugin, sender);
         File file;
+        String content;
         try {
             Report report = build(plugin, msg);
+            content = fileContent(plugin, report, msg);
+        } catch (Throwable t) {
+            // 报告生成本身炸了（NPE 等）：与 send 同口径，报一句就收手。
+            plugin.getLogger().log(Level.WARNING, "Diagnostics command failed", t);
+            sender.sendMessage(msg.get("failed", "error", String.valueOf(t)));
+            return;
+        }
+        try {
             File exportsDir = new File(plugin.getDataFolder(), "exports");
             if (!exportsDir.exists() && !exportsDir.mkdirs() && !exportsDir.isDirectory()) {
                 throw new IOException("cannot create directory: " + exportsDir.getAbsolutePath());
             }
-            String stamp = new SimpleDateFormat(FILE_STAMP, Locale.ROOT).format(new Date());
-            file = new File(exportsDir, "diagnose-" + stamp + ".txt");
-            Files.writeString(file.toPath(), fileContent(plugin, report, msg),
-                    StandardCharsets.UTF_8);
+            file = new File(exportsDir, "diagnose-" + uniqueFileStamp() + ".txt");
+            // FIX 6：走 AtomicFileWriter（写临时文件 → 原子 rename），不再 Files.writeString
+            // 直写目标。原实现崩溃/盘满时会在 exports/ 里留下半截 TXT，而本方法随后仍打
+            // "Diagnostics report saved to:" 并对管理员回 save.done —— 管理员拿一份截断的
+            // 报告贴进工单，等于用假现场误导排查。
+            // 失败时 AtomicFileWriter 返回 false（且目标文件一个字节都不动），这里显式抛
+            // IOException 走下面<b>既有的</b> catch：日志 WARNING + save.failed，不新增第二条
+            // 失败通道，也不会落到"成功"分支。
+            if (!AtomicFileWriter.write(file.toPath(), () -> content, plugin.getLogger())) {
+                throw new IOException("atomic write failed: " + file.getName());
+            }
         } catch (IOException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to write the diagnostics report", e);
             sender.sendMessage(msg.get("save.failed", "error", String.valueOf(e.getMessage())));
             return;
         } catch (Throwable t) {
-            // 报告生成本身炸了（NPE 等）：与 send 同口径，报一句就收手。
+            // 兜底（OutOfMemoryError / SecurityException 等）：同样只报一句，绝不逃逸。
             plugin.getLogger().log(Level.WARNING, "Diagnostics command failed", t);
             sender.sendMessage(msg.get("failed", "error", String.valueOf(t)));
             return;
@@ -410,6 +452,26 @@ public final class DiagnoseCommand {
         // 不向玩家暴露服务器磁盘布局。
         plugin.getLogger().info("Diagnostics report saved to: " + file.getAbsolutePath());
         sender.sendMessage(msg.get("save.done", "file", "exports/" + file.getName()));
+    }
+
+    /**
+     * FIX 6（round14 F2）：{@code diagnose-yyyyMMdd-HHmmss-<seq>-<rand>.txt} 唯一戳。
+     *
+     * <p>三段各自的用处与 {@code ReportGenerator.uniqueFileStamp()} 完全同构：
+     * <ul>
+     *   <li>{@code yyyyMMdd-HHmmss} —— 保留原有的可读时间前缀，运维仍能按名字定位
+     *       "哪天的哪一次"；</li>
+     *   <li>{@link #FILE_SEQUENCE} —— 进程内单调递增，同秒多次导出按名字排序即先后顺序；</li>
+     *   <li>随机段 —— 序号在重启后归零，随机段覆盖"重启前后撞在同一秒"的跨进程窗口。</li>
+     * </ul>
+     * 序号固定 4 位、随机段固定 4 位十六进制：文件名长度稳定，可被 glob 精确匹配。
+     */
+    private static String uniqueFileStamp() {
+        String time = new SimpleDateFormat(FILE_STAMP, Locale.ROOT).format(new Date());
+        long seq = FILE_SEQUENCE.incrementAndGet();
+        String random = String.format(Locale.ROOT, "%04x",
+                ThreadLocalRandom.current().nextInt(0x10000));
+        return time + "-" + String.format(Locale.ROOT, "%04d", seq) + "-" + random;
     }
 
     /**
@@ -493,7 +555,14 @@ public final class DiagnoseCommand {
         String prefix = null;
         FileConfiguration main = plugin.getConfigManager().getMainConfig();
         if (main != null) {
-            prefix = main.getString("prefix." + lang);
+            // R14（wave-3 锐评 GAP-2）：必须用**归一化后**的语言拼接 prefix 键。
+            // 原先直接用 `lang` 原值，于是 `general.language: cn` 会去查 `prefix.cn`
+            // —— 该键不存在 → 静默丢掉服主在 config.yml 里配的 `prefix.zh` 覆盖，
+            // 回落到语言文件自带的 prefix。这正是 MT-01 要修的那类"原始值未归一化"
+            // 缺陷，在隔壁一层又复现了一次。canonicalLanguage 永不返回 null，
+            // 所以这里也不会拼出 `prefix.null`。
+            prefix = main.getString("prefix."
+                    + com.letslearnenglish.minecraftplugin.config.ConfigManager.canonicalLanguage(lang));
         }
         if (prefix == null || prefix.isEmpty()) {
             prefix = messages.getString("prefix", "");

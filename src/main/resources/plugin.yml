@@ -32,22 +32,26 @@ commands:
     # 或 admin，其余子命令维持 admin）。恢复命令级 admin 门会让仅持 report
     # 权限的老师在执行器之前就被 Bukkit 拦下，/lea report 功能失效。
 
+# ── 权限节点：只声明「代码真的会判定」的节点 ──────────────────────────────
+# 每个节点都必须有对应的 hasPermission("<节点>") 调用点，反之亦然；
+# 这条契约由 PermissionContractLintTest 双向钉死（改这里不补代码、或补代码不改这里，
+# 都会被该 lint 判红）。
+#
+# 为什么删掉了 use / word.* / dialogue.* / progress.* 四个节点（D-14 收口）：
+# 它们此前声明为 default: true 但全仓零 hasPermission 引用。三个 .* 节点还**没有
+# children: 段**，而 Bukkit 的通配展开只发生在「声明了 children 的父节点 + 权限附件
+# 计算」里（PermissibleBase.hasPermission 是纯精确名字查表，无前缀匹配）。
+# 于是服主执行 `/lp user X permission set letslearnenglish.word.* false` 后，
+# /le word 照常可用 —— 「配了但没生效」比没有这个节点更危险。
+# 玩家功能目前意向就是「默认全开」，要按类关闭请用模块开关（word-system.enabled /
+# ai-chat.enabled / progress-system.enabled 等，见 config.yml 与部署文档 5.8 节）。
 permissions:
-  letslearnenglish.use:
-    description: "Allows use of basic learning features"
-    default: true
   letslearnenglish.admin:
     description: "Allows use of admin features"
     default: op
-  letslearnenglish.word.*:
-    description: "Allows use of all word learning features"
-    default: true
-  letslearnenglish.dialogue.*:
-    description: "Allows use of AI scenario chat features"
-    default: true
-  letslearnenglish.progress.*:
-    description: "Allows viewing all progress information"
-    default: true
+  letslearnenglish.ai.reload:
+    description: "Allows reloading the AI API key and scenario file (GUI button + AI config only)"
+    default: op
   letslearnenglish.scenario.import:
     description: "Allows importing shared AI scenario codes as personal scenarios"
     default: op

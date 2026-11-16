@@ -139,6 +139,13 @@ class ChatFeedbackLearningLoopTest {
         when(messageUtil.getPlayerMessage(any(Player.class), anyString(), any(String[].class)))
                 .thenReturn("msg");
         lenient().when(plugin.getDatabaseManager()).thenReturn(databaseManager);
+        // R11：upsertChatFeedback 已改为返回 boolean，mock 默认值是 false —— 不铺这条，
+        // 本类的「成功落库」用例会静默走进失败补偿分支（登记一条永不重放的待补写）。
+        // 用 lenient：写任务在 commonPool 上异步，是否已被消费由调度时刻决定。
+        lenient().when(databaseManager.upsertChatFeedback(
+                        any(), anyString(), anyString(), anyString(),
+                        anyInt(), anyInt(), anyInt(), anyString(), any()))
+                .thenReturn(true);
     }
 
     /** 玩家在线 + UUID（mock 的 {@code isOnline()} 默认是 false，不 stub 会静默早退成假绿）。 */
@@ -205,9 +212,29 @@ class ChatFeedbackLearningLoopTest {
      */
     private void stubSummaryCallback(AIChatManager.SessionSummary summary,
                                      ConversationFeedback feedback) {
+        stubSummaryCallback(summary, feedback, true);
+    }
+
+    /**
+     * 同上，但显式指定防串台判据 {@code isLatestSession(...)} 的返回值。
+     *
+     * <p><b>为什么默认必须给 {@code true}</b>：R4-05-logic-F-L2 把
+     * {@code handleSummaryResult} 的判据收口成单一权威 {@code isLatestSession(...)}，
+     * 而 Mockito 对 {@code boolean} 的默认返回是 {@code false} —— 不补这条 stub，
+     * <b>全部</b>用例都会被推进「源会话不是最近会话」的静默分支（notify=false、
+     * 不显示 ai-header），把 {@code ai-header} / {@code wrong-book.auto-add} 的断言
+     * 一并打红。本组用例的前置条件都是「点评属于最近一场」，所以默认 {@code true}。
+     * 一处 helper 覆盖全部用例，断言语义一律不改；{@code false} 这条分支由
+     * {@link LateSummaryFromEndedSessionDoesNotLeak} 正向覆盖。
+     *
+     * @param latest 源会话是否就是最近一场（{@code false} = 迟到点评，应走静默分支）
+     */
+    private void stubSummaryCallback(AIChatManager.SessionSummary summary,
+                                     ConversationFeedback feedback, boolean latest) {
         when(aiChatManager.canRequestConversationSummary(player)).thenReturn(true);
         when(aiChatManager.getScenarioDisplayName(player, summary.scenarioKey()))
                 .thenReturn("Village Trade");
+        when(aiChatManager.isLatestSession(any(), anyString())).thenReturn(latest);
         doAnswer(invocation -> {
             BiConsumer<ConversationFeedback, String> callback = invocation.getArgument(2);
             callback.accept(feedback, null);
@@ -391,6 +418,13 @@ class ChatFeedbackLearningLoopTest {
             when(configManager.getMainConfig()).thenReturn(mainConfig);
             when(plugin.getDatabaseManager()).thenReturn(databaseManager);
             when(player.getUniqueId()).thenReturn(PLAYER_ID);
+            // R11：本组不铺 stubDeliverBasics，必须自己给 upsertChatFeedback 一个 true ——
+            // 否则 mock 默认 false 会让这条「成功落库」用例静默走进失败补偿分支，
+            // 用例仍然绿（没人断言登记表），但它测的已经不是成功路径了。
+            when(databaseManager.upsertChatFeedback(
+                            any(), anyString(), anyString(), anyString(),
+                            anyInt(), anyInt(), anyInt(), anyString(), any()))
+                    .thenReturn(true);
 
             feedbackManager.persistOnQuit(player, qualifiedSummary());
 
@@ -439,6 +473,10 @@ class ChatFeedbackLearningLoopTest {
             when(aiChatManager.canRequestConversationSummary(player)).thenReturn(true);
             when(aiChatManager.getScenarioDisplayName(player, "village_trade"))
                     .thenReturn("Village Trade");
+            // 同 {@link #stubSummaryCallback}：本组两场都是「刚结束的那一场点评到达」，
+            // 前置条件 = 源会话就是最近会话，否则判据会把点评全推入静默分支（notify=false），
+            // 而本组测的是目标词快照的清空/覆盖语义。
+            when(aiChatManager.isLatestSession(any(), anyString())).thenReturn(true);
             doAnswer(invocation -> {
                 BiConsumer<ConversationFeedback, String> callback = invocation.getArgument(2);
                 ConversationFeedback next = queue.poll();
@@ -562,6 +600,117 @@ class ChatFeedbackLearningLoopTest {
                     "目标词未按注入顺序出现在 prompt 里");
             assertTrue(prompt.getValue().startsWith(PromptComposer.SCENARIO_PREFIX),
                     "场景前缀被破坏：ChatHistoryEntry.extractScenarioFromSystemPrompt 会解析失败");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // G. 防串台判据必须接在 isLatestSession 上（R4-05-logic-F-L2）
+    // ------------------------------------------------------------------
+
+    /**
+     * 组 G —— 「A 结束 → 开 B → B 也结束 → A 的点评才到达」这条链的唯一回归。
+     *
+     * <p><b>为什么必须有这一组</b>：上面的 A/B/B'/C/D/F 全部把
+     * {@code isLatestSession(...)} stub 成 {@code true}（前置条件：点评属于最近一场），
+     * 于是它们<b>无法区分</b>「判据接在 isLatestSession 上」与「判据还是旧的
+     * hasActiveConversation + getActiveSessionId 组合」—— 这正是本条缺陷能逃过 295+ 用例
+     * 的原因。本组把判据钉死成 {@code false}（= 源会话已不是最近会话），断言防串台分支
+     * 真的生效：不渲染 ai-header、不回放 ai-comment，纠错仍以 {@code notify=false} 静默落地。
+     *
+     * <p><b>旧判据为什么在这里是空的</b>：B 也已经 {@code endConversation} 了 →
+     * {@code hasActiveConversation == false} → 旧 if 整体为假 → 走即时显示分支 →
+     * 玩家在 B 的 hint 之后看到 A 的 ai-header + ai-comment，会理解成「这是 B 的点评」；
+     * 附带 A 的纠错词会弹「已加入错题本」，并写进 suggestedFocusWords 污染下一场 TARGET WORDS。
+     */
+    @Nested
+    @DisplayName("组 G —— 迟到点评（源会话已非最近会话）必须静默落地、绝不渲染")
+    class LateSummaryFromEndedSessionDoesNotLeak {
+
+        /** 第三场（B 之后的会话 C）—— 与旧会话 id 明确不同，避免与去重语义纠缠。 */
+        private AIChatManager.SessionSummary laterSummary() {
+            return new AIChatManager.SessionSummary(
+                    "sess0003", "village_trade", "medium", 3, 2, true, 3_000L, 20L, List.of());
+        }
+
+        /**
+         * 正向回归：判据为 false（= 源会话已不是最近会话）时，点评必须完全静默。
+         *
+         * <p>时间线：A 结束（sessionId=sess0001，HTTP 在途）→ 玩家开 B →
+         * B 也结束 → B 的点评先回来 → A 的那一单此时才到达。
+         * 那一刻 {@code hasActiveConversation(B)} 已是 false（B 也从 sessions 摘除了），
+         * 旧判据整体为假，A 的点评会被当作即时点评渲染 —— 就是本用例要钉住的那个 bug。
+         */
+        @Test
+        @DisplayName("A 结束 → 开 B → B 结束 → A 回调到达：不得渲染 A 的点评，纠错静默落地")
+        void lateSummaryIsNotRendered() {
+            stubDeliverBasics();
+            stubLearningLoopTargets();
+            stubOnlinePlayer();
+            stubLogger();
+            when(configManager.isWordSystemEnabled()).thenReturn(true);
+            stubWordBank("go");
+            when(dataStore.incrementWrongCount(PLAYER_ID, "go")).thenReturn(1);
+
+            // 源会话已非最近会话 —— 经 helper 的 latest 参数下发（不能在此单独 when()：
+            // helper 内部对同 matcher 的 stub 会覆盖它）。
+            // 旧判据在这条时间线上的实际取值也一并钉死，让「判据换回旧判据」这个变异
+            // 真能走进即时显示分支（否则 mock 默认值恰好等价，变异不被区分）。
+            // lenient：新判据下这两条<b>不该被消费</b>；它们存在的唯一目的，是让
+            // 「把判据改回 hasActiveConversation + getActiveSessionId」这个变异真的走进
+            // 即时显示分支（从而被下面的 never() 抓住）。
+            lenient().when(aiChatManager.hasActiveConversation(player)).thenReturn(false);
+            lenient().when(aiChatManager.getActiveSessionId(PLAYER_ID)).thenReturn("sess0003");
+
+            AIChatManager.SessionSummary staleSummary = qualifiedSummary();
+            stubSummaryCallback(staleSummary, wordLevelFeedback(), false);
+
+            deliverEndOnPrimaryThread(staleSummary);
+
+            // ① 展示层：A 的点评一个字都不能出现（玩家此刻看到的是 B 的收尾）。
+            verify(messageUtil, never()).getPlayerMessage(player, "dialogue.feedback.ai-header");
+            verify(messageUtil, never()).getPlayerMessage(player, "dialogue.feedback.ai-comment",
+                    "comment", "Nice work");
+            // ② 闭环信号层：纠错仍要落地，但绝不弹「已加入错题本」（玩家已在新对话里）。
+            verify(dataStore, times(1)).incrementWrongCount(PLAYER_ID, "go");
+            assertEquals(List.of("go"), feedbackManager.getSuggestedFocusWords(PLAYER_ID),
+                    "静默分支必须照常写目标词快照：AI 花钱买来的纠错不能因为防串台就丢掉");
+            verify(messageUtil, never()).getPlayerMessage(player, "wrong-book.auto-add");
+            // ③ 数据层：仍要落库（source=ai 覆写本地行），只是不渲染。
+            verify(databaseManager, timeout(2000)).upsertChatFeedback(
+                    eq(PLAYER_ID), eq(SESSION_ID), eq("village_trade"), eq("medium"),
+                    eq(3), eq(2), eq(42), eq("ai"), anyString());
+
+            // 对照组用不到这条快照，但显式构造一次以证明 id 不同（防后来者误合并用例）。
+            assertTrue(!laterSummary().sessionId().equals(staleSummary.sessionId()),
+                    "对照组会话 id 与源会话重复，用例区分度失效");
+        }
+
+        /**
+         * 边界正向：判据为 true（源会话就是最近一场）时，点评照常渲染。
+         *
+         * <p>没有这一条，「无条件静默」也能让上面那条变绿 —— 那会让所有点评都不显示，
+         * 是比串台更严重的倒退。
+         */
+        @Test
+        @DisplayName("反向护栏：源会话是最近一场时点评必须照常渲染（不是无条件静默）")
+        void latestSummaryIsRendered() {
+            stubDeliverBasics();
+            stubLearningLoopTargets();
+            stubOnlinePlayer();
+            stubLogger();
+            when(configManager.isWordSystemEnabled()).thenReturn(true);
+            stubWordBank("go");
+            when(dataStore.incrementWrongCount(PLAYER_ID, "go")).thenReturn(1);
+
+            AIChatManager.SessionSummary summary = qualifiedSummary();
+            stubSummaryCallback(summary, wordLevelFeedback());
+
+            deliverEndOnPrimaryThread(summary);
+
+            verify(messageUtil, times(1)).getPlayerMessage(player, "dialogue.feedback.ai-header");
+            verify(messageUtil, times(1)).getPlayerMessage(player, "dialogue.feedback.ai-comment",
+                    "comment", "Nice work");
+            verify(dataStore, times(1)).incrementWrongCount(PLAYER_ID, "go");
         }
     }
 }

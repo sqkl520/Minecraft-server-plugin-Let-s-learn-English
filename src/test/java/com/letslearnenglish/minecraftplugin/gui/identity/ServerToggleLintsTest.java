@@ -114,10 +114,25 @@ class ServerToggleLintsTest {
             // 锚点按期望顺序排列。`midnightTask` 用 `midnightTask = null` 更精确：
             // `midnightTask` 裸词在方法体里出现两次（cancel 调用 + 置空），
             // 只查裸词会命中较晚的那个，反倒让「消息取消被挪到后面」这类变异滑过去。
+            //
+            // unv-tests-F-05（round1 遗留 MEDIUM，本轮补修）：原锚点 `cancelTaskQuietly(`
+            // 取的是**首次出现**，于是把「midnight-rollover 的显式 cancel」整段删掉、
+            // 只留前面 5 个 cancel，下标照样递增 → lint 全绿。午夜的 cancel 恰恰是
+            // 本方法注释里专门强调过的那一处（守卫原为 if(!isEnabled())，reload 期间
+            // plugin 一直 enabled，任务一旦触发就会在拆分之后重排下一天）。
+            //
+            // 锚点选型注意：{@link #stripComments} 会把**字面量内容抹成空格**，所以
+            // `cancelTaskQuietly("auto-save"` 这类带引号的锚点永远匹配不到（实测踩过）。
+            // 改用 `X = null` 形式 —— 每个具名任务取消后都会紧跟着置空，等价且不含引号。
             String[] anchors = {
                     "runtimeActive = false",
-                    "cancelTaskQuietly(",
+                    "autoSaveTask = null",
+                    "reviewNotifyTask = null",
+                    "dailyReminderTask = null",
+                    "leaderboardRefreshTask = null",
+                    "backupTask = null",
                     "midnightTask = null",
+                    "midnightMainPhaseTask = null",
                     "endConversation(",
                     "clearAllSessions()",
                     "resetTransientState()",
@@ -416,6 +431,35 @@ class ServerToggleLintsTest {
                             + " IllegalStateException）。\n"
                             + "这是语义锚点检查；若为等价重构（例如守卫抽成 shouldScheduleMidnight()），"
                             + "请同步本 lint —— 但必须仍在方法的第一条语句位置生效。");
+
+            // ---- 精确形状（防「两个名字都在、但语义已坏」）----
+            // 只查 contains 时，下面两种坏法都实测仍绿：
+            //   ① if (!isEnabled() || !isRuntimeActive()) { }      ← 守卫体被掏空，永不返回
+            //   ② if (!isEnabled() && !isRuntimeActive()) { return; } ← && 把 A7 的竞态原样放回来
+            //      （reload 期间 isEnabled() 恒 true ⇒ 整个条件恒假 ⇒ 从不 return）
+            // 因此这里连「否定 + 或 + 非空守卫体」一起钉住。
+            String condensed = firstStatement.replaceAll("\\s+", "");
+            assertTrue(condensed.equals("if(!isEnabled()||!isRuntimeActive()){")
+                            || condensed.equals("if(!isRuntimeActive()||!isEnabled()){"),
+                    "首行守卫形状不对喵，实测（去空白后）：" + condensed + "\n"
+                            + "要求：if (!isEnabled() || !isRuntimeActive()) {  （两个判断顺序可互换）。\n"
+                            + "为什么不能用 && ：/lea reload 期间 isEnabled() 恒为 true，"
+                            + "&& 会让整个条件恒假，等于把这个守卫删掉 —— A7 修的竞态会原样回来。\n"
+                            + "为什么两个判断都必须是否定式：写成 isEnabled() || isRuntimeActive() "
+                            + "语义正好反过来，正常运行时直接 return，午夜任务永远不再排。");
+
+            // 守卫体必须是裸 return（防止掏空成 {}）。
+            // firstStatement 的取法本身就是「从首个非空字符走到第一个 { 或 ;」，所以
+            // 方法体里的第一个 { 就是这条守卫的左花括号。
+            int guardOpen = body.indexOf('{');
+            int guardClose = findBlockEnd(body, guardOpen);
+            assertTrue(guardOpen >= 0 && guardClose > guardOpen,
+                    "找不到首行守卫的花括号配对喵。");
+            String guardBody = body.substring(guardOpen + 1, guardClose).strip();
+            assertEquals("return;", guardBody,
+                    "首行守卫的方法体必须恰好是 return; 喵，实测：[" + guardBody + "]\n"
+                            + "守卫体被掏空（{}）、或塞进日志/取值语句，都会让「不满足条件就提前退出」"
+                            + "这条语义失效 —— 午夜任务照样会往禁用态的 scheduler 里排任务。");
         }
 
         // ==================================================================
@@ -529,6 +573,107 @@ class ServerToggleLintsTest {
                             + "完全同构 —— 那正是第三方文档应该承诺的单一语义。\n"
                             + "注：本 lint 只验调用存在；若改成 clearInstance() 请先确认"
                             + "「插件已 disabled 时它会清」这条分支成立，再同步本 lint。");
+        }
+
+        /**
+         * L10：{@code disableAll()} 必须调 {@code ttsManager.shutdown()}，并且必须排在
+         * {@code this.ttsManager = null}（D10 置空）<b>之前</b>。
+         *
+         * <p><b>为什么这条必须是 lint</b>：{@code TtsManager.shutdown()} 从 R4-06-F1 写下
+         * javadoc「中断在途下载，不拖住关服」那天起，<b>全仓零调用点</b> —— 承诺没有执行者。
+         * 而这个缺口在测试里的可观测性为零：
+         * <ul>
+         *   <li>{@code TtsManager.shutdown()} 自身的 7 个用例全绿（它们测的是「调了之后
+         *       池确实关了」，没人测「谁调了它」—— 典型的自证桩形态）；</li>
+         *   <li>线程是 {@code setDaemon(true)}，漏调用不拖 JVM 退出，关服日志一切正常；</li>
+         *   <li>泄漏的形态是「{@code /lea reload} N 次后多 N 个 {@code LLEP-TTS} 线程，
+         *       且每个都钉住插件 ClassLoader」—— 只有跑够多次 reload 才看得出来。</li>
+         * </ul>
+         *
+         * <p>位置要求 {@code < ttsManager = null}：置空之后的调用是空指针的 no-op，
+         * 看起来「有这一行」但什么都没关。这是本条最容易写错的形状。
+         */
+        @Test
+        @DisplayName("L10：disableAll 调用 ttsManager.shutdown()，且在 D10 置空之前")
+        void ttsManagerIsShutDownBeforeTheFieldIsCleared() {
+            String body = methodBody(MAIN, "public void disableAll()");
+
+            int shut = body.indexOf("ttsManager.shutdown()");
+            assertTrue(shut >= 0,
+                    "disableAll() 里找不到 ttsManager.shutdown() 喵。\n"
+                            + "TtsManager 在字段初始化器里建了一个自建单线程池（LLEP-TTS），"
+                            + "而它的 shutdown() 全仓零调用点 —— javadoc 承诺的「中断在途下载，"
+                            + "不拖住关服」没有任何执行者。\n"
+                            + "后果：每轮 /lea reload 泄漏 1 个线程 + 1 个持有本插件引用的 "
+                            + "TtsManager 实例（线程是 daemon，不拖 JVM，但钉住插件 ClassLoader），"
+                            + "在途下载在停用后继续跑完并往 audio/ 写缓存。\n"
+                            + "为什么测试看不见：TtsManagerShutdownTest 测的是「调了之后池关了」，"
+                            + "没人测「disableAll 有没有调它」；线程是 daemon，关服日志一切正常。");
+
+            int cleared = body.indexOf("ttsManager = null");
+            assertTrue(cleared >= 0,
+                    "disableAll() 的 D10 里找不到 ttsManager = null 喵 —— 先修 L1 的锚点。");
+            assertTrue(shut < cleared,
+                    "ttsManager.shutdown() 出现在 D10 置空<b>之后</b> 喵（关停偏移=" + shut
+                            + "，置空偏移=" + cleared + "）。\n"
+                            + "置空之后的调用是在 null 上调用 —— 要么 NPE（被外层 catch 吞成一条"
+                            + " 让人误以为「已尝试」的 WARNING），要么根本走不到。"
+                            + "两种都等于没关线程池。\n"
+                            + "本 lint 是语义锚点检查；若为等价重构（例如把 TTS 关停收进一个"
+                            + " 更早的统一 teardown 辅助方法），请同步本 lint —— 但关停必须仍早于置空。");
+        }
+
+        /**
+         * L11：{@code PlayerJoinListener} 的 join 异步块首行守卫必须是
+         * {@code isFullyEnabled()}，<b>不能</b>是裸 {@code isEnabled()}。
+         *
+         * <p><b>为什么这条必须是 lint</b>：{@code isEnabled()} 在 {@code /lea reload} 期间
+         * <b>恒为 true</b>（插件没被 disable，只是模块被拆了）。而 {@code disableAll()} 的
+         * D10 会把 {@code dailyChallengeManager} 置 null —— 于是异步任务在 null 上 NPE，
+         * 堆栈从 Bukkit 调度线程冒出，日志里看不到任何「有人 reload 了」的线索。
+         *
+         * <p>行为测试抓不到的原因：要复现必须真的在「reload 的 DISABLE 分支 + 玩家进服」
+         * 这个几毫秒窗口里并发，纯 JVM 下 mock 出来的 {@code isEnabled()} 是固定值，
+         * 换判据前后都返回 true —— <b>测试全绿</b>。这正是 A2 审计称它为
+         * 「既有防护体系的一处漏网」的原因。
+         */
+        @Test
+        @DisplayName("L11：PlayerJoinListener 的 join 异步块用 isFullyEnabled 而非裸 isEnabled")
+        void joinAsyncBlockUsesFullyEnabledGate() {
+            String src = sourceOf("PlayerJoinListener.java");
+
+            // 先确认这个 async 块还在（定位失效比断言失败更危险：静默跳过整条 lint）。
+            int asyncAt = src.indexOf("runTaskAsynchronously(");
+            assertTrue(asyncAt >= 0,
+                    "PlayerJoinListener 里找不到 runTaskAsynchronously( 喵 —— 每日挑战分配"
+                            + "不再是异步了？请先确认现状，再同步本 lint。");
+
+            int fully = src.indexOf("plugin.isFullyEnabled()", asyncAt);
+            assertTrue(fully >= 0,
+                    "PlayerJoinListener 的 join 异步块里找不到 plugin.isFullyEnabled() 喵。\n"
+                            + "裸 plugin.isEnabled() 在 /lea reload 期间<b>恒为 true</b>：reload 走的是"
+                            + " HotReloadManager → disableAll()，插件本身一直是 enabled（没有 onDisable）。"
+                            + "于是这次异步任务会在 disableAll 的 D10 已把 dailyChallengeManager 置 null"
+                            + " 之后拿到 null → NPE 从 Bukkit 调度线程冒出，堆栈与真实原因"
+                            + "（有人 reload 了）毫无关联。\n"
+                            + "isFullyEnabled() 的第一项是 runtimeActive，而它是 disableAll 的"
+                            + "**第一条语句**置 false 的，所以拆解一开始这道闸就关 —— "
+                            + "A6 注释里「覆盖配置已 reload 成 false 但 pds 还没拆完的几百毫秒」"
+                            + "说的正是这个窗口。\n"
+                            + "为什么测试抓不到：纯 JVM mock 的 isEnabled() 是固定值，"
+                            + "换判据前后都返回 true，用例全绿。");
+
+            // 「有 isFullyEnabled」不等于「它把派发挡住了」：必须仍在 async 块内、
+            // 且早于 checkAndAssign。用 offset 关系钉，而不是只查 contains。
+            int assignAt = src.indexOf("checkAndAssign(", asyncAt);
+            assertTrue(assignAt >= 0,
+                    "join 异步块里找不到 checkAndAssign( 喵 —— 定位失效，先确认现状。");
+            assertTrue(fully < assignAt,
+                    "isFullyEnabled() 出现在 checkAndAssign( <b>之后</b> 喵（闸偏移=" + fully
+                            + "，派发偏移=" + assignAt + "）。\n"
+                            + "放在调用之后的守卫挡不住任何东西：NPE 在 checkAndAssign 那一行"
+                            + " 就抛出去了，根本走不到检查。\n"
+                            + "这是「闸在派发点之前」的顺序断言，不是「有没有这个词」的存在断言。");
         }
     }
 

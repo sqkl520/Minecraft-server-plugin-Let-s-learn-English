@@ -379,8 +379,12 @@ class DiagnoseI18nParityTest {
             assertNotNull(text, resource + " is missing admin-help.diagnose");
             assertTrue(text.contains("/lea diagnose"),
                     resource + " help line does not mention the command: " + text);
-            assertTrue(text.contains("save"),
-                    resource + " help line does not mention the save argument: " + text);
+            // 原断言是 text.contains("save")，实测偏弱：两份文案的解释部分都另有
+            // "save writes a file" / "（save 可导出为文件）"，把 "[save]" 这个可选参数
+            // 整段删掉后仍然命中（变异后 7/7 全绿）。玩家照着帮助行敲命令会发现参数对不上，
+            // 所以这里钉住带方括号的参数本身。
+            assertTrue(text.contains("[save]"),
+                    resource + " help line does not declare the optional [save] argument: " + text);
         }
     }
 

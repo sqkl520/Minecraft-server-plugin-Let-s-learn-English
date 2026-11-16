@@ -120,7 +120,9 @@ class ChatFeedbackShutdownFlushTest {
             started.countDown();
             // 卡住写任务，模拟「DB 慢 / 线程池排队」——此时记录仍在途
             release.await(5, TimeUnit.SECONDS);
-            return null;
+            // R11：upsertChatFeedback 已改为返回 boolean，成功必须显式 true ——
+            // 返回 null 会被拆箱成 false，让本类每一条「成功写入」用例误入失败补偿分支。
+            return true;
         }).when(databaseManager).upsertChatFeedback(
                 any(), anyString(), anyString(), anyString(),
                 anyInt(), anyInt(), anyInt(), anyString(), any());
@@ -158,7 +160,8 @@ class ChatFeedbackShutdownFlushTest {
         CountDownLatch gate = new CountDownLatch(1);
         doAnswer(invocation -> {
             gate.await(5, TimeUnit.SECONDS);
-            return null;
+            // R11：显式 true（见 flushPendingDrainsInFlightWrites 的说明）。
+            return true;
         }).when(databaseManager).upsertChatFeedback(
                 any(), anyString(), anyString(), anyString(),
                 anyInt(), anyInt(), anyInt(), anyString(), any());
@@ -258,7 +261,8 @@ class ChatFeedbackShutdownFlushTest {
         CountDownLatch writeHappened = new CountDownLatch(1);
         doAnswer(invocation -> {
             writeHappened.countDown();
-            return null;
+            // R11：显式 true（见 flushPendingDrainsInFlightWrites 的说明）。
+            return true;
         }).when(databaseManager).upsertChatFeedback(
                 any(), anyString(), anyString(), anyString(),
                 anyInt(), anyInt(), anyInt(), anyString(), any());

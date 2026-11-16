@@ -2,6 +2,7 @@ package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.word.Word;
+import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.data.DifficultWord;
 import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
 import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
@@ -14,9 +15,12 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.scheduler.BukkitScheduler;
 
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Wrong Book GUI — displays words the player has answered incorrectly 3+ times.
@@ -31,10 +35,36 @@ import java.util.*;
  *
  * 槽位定义（唯一真相，本类的常量供监听器判定点击，不要在别处再写魔法数字）：
  * 单词槽位与返回键/导航键槽位**不允许有交集**。
+ *
+ * <p><b>R19-GUI2（主线程冻结修复）：打开路径已两段式异步化。</b>
+ * {@code open(Player, int)} 是兼容入口，统一委托 {@link #openAsync(Player, int)}；
+ * 既有调用点（主菜单点击 / 翻页 / 删词后重开）零改动。异步段只做
+ * {@code getWrongBookEntries}（→ 缓存 miss 时一次 {@code difficult_words} SELECT）
+ * 与「列表为空时」的 {@code loadDifficultWords(...).readFailed()} 复检，主线程段只渲染
+ * （{@link #render}，零 DB 调用）。与 {@code DailyChallengeGUI} / {@code LearningCalendarGUI} /
+ * {@code ChatHistoryGUI} 同一范式。
+ *
+ * <p><b>为什么本类不用「先开占位界面、再异步回填」那种范式</b>（{@code ProfileGUI} 用的
+ * 是它）：本页的页码 clamp、标题里的 {@code {page}/{total}}、以及 holder 载荷里的
+ * {@code GuiPayload.Page} <b>三者必须逐字一致</b>，而 clamp 的上界只有拿到行数才知道。
+ * 占位界面只能编造一个页码 —— 编造会直接违反 {@code WrongBookListener} 唯一的页码来源
+ * （holder payload），翻页/删词后重开就会跳错页。行数未知时不开界面，是唯一不撒谎的选择。
  */
 public class WrongBookGUI {
 
     private static final int GUI_SIZE = 54;
+
+    /**
+     * R19-GUI2：openAsync 在途去重 token（per-class 序列 + per-player 记录，照
+     * {@code ChatHistoryGUI.OPEN_SEQ} 同式）。
+     *
+     * <p>为什么要 static：翻页/删词后重开每次都 {@code new WrongBookGUI(plugin)}，
+     * 实例级令牌拦不住「上一页的请求比这一页晚回来」——那会让玩家点"下一页"之后
+     * 界面又跳回上一页。连点两次翻页时后发起者胜，旧请求在回主线程 render 前作废。
+     * 条目量级 = 历史玩家数条 Long，每次 openAsync 覆写自身，惰性收口（不挂 quit 清理）。
+     */
+    private static final AtomicLong OPEN_SEQ = new AtomicLong();
+    private static final Map<UUID, Long> OPEN_SEQ_BY_PLAYER = new ConcurrentHashMap<>();
 
     public static final int PREV_SLOT = 47;
     public static final int BACK_SLOT = 8;
@@ -74,6 +104,16 @@ public class WrongBookGUI {
         this.plugin = plugin;
     }
 
+    /**
+     * R19-GUI2：兼容入口 —— 统一委托 {@link #openAsync(Player, int)}。
+     *
+     * <p>既有调用点（{@code MainMenuListener} 主菜单点击、{@code WrongBookListener}
+     * 的翻页与删词后重开）全部零改动，行为语义与原同步 open 一致（仅改为两段式异步）。
+     *
+     * <p>模块门留在这里而不是搬进异步段：{@code isWordSystemEnabled()} 是纯配置读
+     * （零 IO），而玩家在异步窗口内点了"翻页"时应当<b>立刻</b>收到 {@code module.disabled}
+     * ——把一句拒绝文案拖到几十毫秒之后，观感就是"点了没反应"。
+     */
     public void open(Player player, int page) {
         // 模块门（旅程验收收口）：word-system 承诺"错题本隐藏"——本类收敛所有打开
         // 入口（主菜单点击/翻页/删除后重开），单点门覆盖全链；点击侧
@@ -82,21 +122,205 @@ public class WrongBookGUI {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "module.disabled"));
             return;
         }
+        openAsync(player, page);
+    }
+
+    /**
+     * R19-GUI2：异步两段式打开入口（照 {@code DailyChallengeGUI.openAsync} 同式）。
+     *
+     * <p>异步段只碰数据层与 logger，<b>零 Bukkit 世界 API</b>：
+     * <ol>
+     *   <li>{@code getWrongBookEntries}（缓存 miss 时内含一次 {@code difficult_words} SELECT）；</li>
+     *   <li>「列表为空」时的 {@code loadDifficultWords(...).readFailed()} 复检 —— 空列表才有
+     *       歧义（确实没收录 vs 查询失败被吞成空）；</li>
+     *   <li>页码 clamp —— 上界来自行数，必须在这里算完，否则主线程还得再查一次。</li>
+     * </ol>
+     *
+     * <p><b>失败路径</b>：读异常 / 查询级读失败 → 保持旧行为（{@code daily.load-failed}
+     * 文案），但必须切回主线程再发（{@code sendMessage} 不保证异步安全）。
+     *
+     * <p><b>为什么失败时不开界面</b>：与旧同步实现逐字一致 —— 旧实现同样是「先查、
+     * 失败就提示并 return」，玩家停在来源界面。编造一个空错题本会谎报"还没有错题"。
+     */
+    public void openAsync(Player player, int page) {
+        UUID playerId = player.getUniqueId();
+        // 连点/翻页竞态：后发起者胜（旧请求回主线程 render 前比对失败即作废）。
+        final long token = OPEN_SEQ.incrementAndGet();
+        OPEN_SEQ_BY_PLAYER.put(playerId, token);
+
+        BukkitScheduler scheduler = Bukkit.getScheduler();
+        if (scheduler == null) {
+            // 无调度器环境（纯 JVM 单测夹具里 mockStatic(Bukkit) 默认返回 null）：退回
+            // 同步取数 + 渲染，与修复前的同步实现逐行等价。生产环境
+            // Bukkit.getScheduler() 永不为 null，故该分支不参与线上路径 —— 它存在的
+            // 唯一理由是「已经能跑通的既有夹具不该因为线程模型改造而被判红」。
+            // 本分支**不查 plugin.isEnabled()**：夹具里的 mock 插件默认 isEnabled=false，
+            // 而在无调度器窗口里"插件已停用"这个前提根本不成立。
+            WrongBookLoad load = loadWrongBook(playerId);
+            if (!load.ok()) {
+                notifyLoadFailed(player, playerId, token);
+                return;
+            }
+            int totalPages = totalPagesOf(load.entries());
+            render(player, load.entries(), clampPage(page, totalPages), totalPages);
+            return;
+        }
+        try {
+            scheduler.runTaskAsynchronously(plugin, () -> {
+                if (!plugin.isEnabled()) return;
+
+                WrongBookLoad load = loadWrongBook(playerId);
+                // 异常，或查询级读失败 → 可重试提示（不谎报"没有错题"）。
+                if (!load.ok()) {
+                    runOnMain(scheduler, () -> notifyLoadFailed(player, playerId, token));
+                    return;
+                }
+                final List<Map.Entry<String, DifficultWord>> entries = load.entries();
+
+                // 页码 clamp（旧实现在主线程做，现在必须在建界面之前算完，且只能算一次）：
+                // R5-1 起页码要写进 holder 的载荷（GuiPayload.Page 的构造器拒绝 page < 1，
+                // 越界会直接抛异常而不是静默回落）。同时保证「标题里的页码」与
+                // 「holder 载荷里的页码」逐字一致。
+                final int totalPages = totalPagesOf(entries);
+                final int safePage = clampPage(page, totalPages);
+
+                if (!plugin.isEnabled()) return;
+                runOnMain(scheduler, () -> {
+                    if (!player.isOnline()) return;
+                    // 连点/翻页竞态：已有更新的打开请求（翻页、删词重开），本次作废。
+                    if (OPEN_SEQ_BY_PLAYER.getOrDefault(playerId, -1L) != token) return;
+                    render(player, entries, safePage, totalPages);
+                });
+            });
+        } catch (IllegalStateException ignored) {
+            // 插件停用窗口（调度器已关闭）：放弃本次打开（玩家也已不可能看到界面）。
+        }
+    }
+
+    /**
+     * R19-GUI2：一次错题本读数的结果（{@code entries} 非 null 时 {@code readFailed=false}）。
+     *
+     * <p>为什么包成 record 而不是「返回 null 表示失败」：失败有两种成因（抛异常 /
+     * 查询级读失败被吞成空列表），而<b>空列表本身是合法成功值</b>。用 {@code null}
+     * 承载失败会让「空错题本」与「读失败」在类型层面同形 —— 那正是 R4-15-EH-15-02
+     * 花一整轮修掉的缺陷形状（旧判据把可见性挂在{@code isConnectionHealthy()}上，
+     * 查询级 SQLException 不改变它，玩家看到"还没有错题呢~"且无失败提示）。
+     */
+    private record WrongBookLoad(List<Map.Entry<String, DifficultWord>> entries, boolean readFailed) {
+        boolean ok() {
+            return entries != null && !readFailed;
+        }
+    }
+
+    /**
+     * R19-GUI2：错题本读数的<b>唯一</b>入口（异步段与同步兜底共用，避免两处判据漂移）。
+     *
+     * <p>只碰数据层与 logger，<b>不触任何 Bukkit 世界 API</b>，因此异步线程可安全调用。
+     */
+    private WrongBookLoad loadWrongBook(UUID playerId) {
+        // R9/P1-B：只展示"已收录"的词（wrong_count >= 3）——difficult_words 表在首次答错
+        // 即建行（兼作计数器），旧实现直接全量展示，与"错 3 次才进错题本"的提示自相矛盾。
+        // 15-EH-01/02：原链路无 try（RuntimeException 直冒到事件处理器）；读失败又被折叠成空列表 →
+        // 谎报「还没有错题呢~」。
+        // R4-15-EH-15-02 重修：旧判据把可见性挂在 isConnectionHealthy() 上，而它只测「持有且未关闭」——
+        // 查询级 SQLException（SQLITE_BUSY / 表缺失 / I/O 错误）不会让它变 false，玩家仍看到
+        // 「还没有错题呢~」且无失败提示。改问数据层要「这次读到底成没成」（loadDifficultWords 的 readFailed）。
+        try {
+            List<Map.Entry<String, DifficultWord>> wordList =
+                    plugin.getPlayerDataStore().getWrongBookEntries(playerId);
+            if (wordList == null) {
+                // 数据层违约（契约是恒非 null）：按「结果未知」处理，绝不当成空错题本。
+                return new WrongBookLoad(null, true);
+            }
+            if (!wordList.isEmpty()) {
+                return new WrongBookLoad(wordList, false);
+            }
+            // 空列表才有歧义：优雅区分「确实没收录」与「查询失败被吞成空」。
+            DatabaseManager.DifficultWordsLoad reload =
+                    plugin.getDatabaseManager().loadDifficultWords(playerId);
+            return new WrongBookLoad(wordList, reload == null || reload.readFailed());
+        } catch (RuntimeException e) {
+            logWarning("Failed to load wrong book for " + playerId, e);
+            return new WrongBookLoad(null, true);
+        }
+    }
+
+    /** 总页数：{@code ceil(rows / ITEMS_PER_PAGE)}，下限 1（空错题本也是 1 页）。 */
+    private static int totalPagesOf(List<Map.Entry<String, DifficultWord>> entries) {
+        if (entries == null || entries.isEmpty()) return 1;
+        return Math.max(1, (int) Math.ceil((double) entries.size() / ITEMS_PER_PAGE));
+    }
+
+    /** 页码 clamp：下界 1、上界 totalPages（totalPages 恒 ≥1）。 */
+    private static int clampPage(int page, int totalPages) {
+        if (page < 1) return 1;
+        return Math.min(page, totalPages);
+    }
+
+    /**
+     * 读失败提示（{@code daily.load-failed}，可重试语义）。
+     *
+     * <p>三件事必须一起做：① 在线复检（异步窗口内玩家可能已下线）；② token 复检
+     * （已有更新的打开请求时，这条陈旧提示不该弹）；③ 只发文案、<b>不开界面</b> ——
+     * 与旧同步实现逐字一致。
+     */
+    private void notifyLoadFailed(Player player, UUID playerId, long token) {
+        logWarning("Failed to load wrong book for " + playerId);
+        if (!player.isOnline()) return;
+        if (OPEN_SEQ_BY_PLAYER.getOrDefault(playerId, -1L) != token) return;
+        player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player, "daily.load-failed"));
+    }
+
+    /**
+     * R19-GUI2：把「异步段 → 主线程段」的调度收成一处，带 {@code IllegalStateException} 守卫。
+     *
+     * <p>关服竞态下 {@code runTask} 会抛 {@code IllegalStateException}；此时玩家必然已
+     * 下线/不可能看到界面，静默放弃是正确终态。单测里调度器被就地同步执行，本方法
+     * 只是一次直调（无额外 tick）。
+     */
+    private void runOnMain(BukkitScheduler scheduler, Runnable action) {
+        try {
+            scheduler.runTask(plugin, action);
+        } catch (IllegalStateException ignored) {
+            // 关服竞态：调度器已关闭，放弃本次回主线程
+        }
+    }
+
+    /** 日志辅助：{@code plugin.getLogger()} 在纯 JVM 单测的 mock 插件上可能为 null。 */
+    private void logWarning(String message) {
+        var logger = plugin.getLogger();
+        if (logger != null) {
+            logger.warning(message);
+        }
+    }
+
+    /** 带栈告警（{@link #logWarning(String)} 的重载）：失败根因要能追。 */
+    private void logWarning(String message, Throwable error) {
+        var logger = plugin.getLogger();
+        if (logger != null) {
+            logger.log(java.util.logging.Level.WARNING, message, error);
+        }
+    }
+
+    /**
+     * R19-GUI2：主线程渲染 —— 数据与页码 clamp 均由 {@link #openAsync(Player, int)} 预取，
+     * 本方法<b>零 DB 调用</b>；渲染段与修复前逐行等价（物品/槽位/lore 全同）。
+     *
+     * <p>唯一保留的「非 DB 但会摸数据层」的调用是 {@code getWord} / {@code getWrongCountIfCached}
+     * —— 前者读内存 {@code globalWordIndex}，后者<b>只查缓存、不触发载入</b>（见其 javadoc），
+     * 两者都不产生 IO，故留在这里。
+     *
+     * @param wordList   已收录的词（错次降序）
+     * @param page       已 clamp 到 [1, totalPages] 的页码
+     * @param totalPages 总页数（由 wordList.size() 算出，与标题/载荷同源）
+     */
+    private void render(Player player, List<Map.Entry<String, DifficultWord>> wordList,
+                        int page, int totalPages) {
         String lang = plugin.getPlayerLanguage(player);
         FileConfiguration messages = plugin.getConfigManager().getMessageConfig(lang);
 
-        // R9/P1-B：只展示"已收录"的词（wrong_count >= 3）——difficult_words 表在首次答错
-        // 即建行（兼作计数器），旧实现直接全量展示，与"错 3 次才进错题本"的提示自相矛盾。
-        List<Map.Entry<String, DifficultWord>> wordList = plugin.getPlayerDataStore()
-                .getWrongBookEntries(player.getUniqueId());
-
-        // 页码 clamp 必须在建界面之前：R5-1 起页码要写进 holder 的载荷
-        // （GuiPayload.Page 的构造器拒绝 page < 1，越界会直接抛异常而不是静默回落）。
-        // 同时保证「标题里的页码」与「holder 载荷里的页码」逐字一致。
-        int totalPages = Math.max(1, (int) Math.ceil((double) wordList.size() / ITEMS_PER_PAGE));
-        if (page < 1) page = 1;
-        if (page > totalPages) page = totalPages;
-
+        // 页码与总页数已由异步段算好（`page` 已 clamp 到 [1, totalPages]）——此处
+        // 不重算，否则「标题页码」「载荷页码」「翻页按钮指向」会有两个真相源。
         String title = ChatColor.translateAlternateColorCodes('&',
                 MessageUtil.getGuiMsg(messages, "wrong-book.title-page")
                         .replace("{page}", String.valueOf(page)));
@@ -157,9 +381,14 @@ public class WrongBookGUI {
                 lore.add(ChatColor.translateAlternateColorCodes('&',
                         MessageUtil.getGuiMsg(messages, "wrong-book.word-chinese")
                                 .replace("{chinese}", chinese)));
+                // R13：错次数字取<b>活缓存</b>而不是 dw 携带的快照 —— DifficultWord 不可变，
+                // 它带的是「加进错题本那一刻」的计数；玩家本次在线期间继续答错只改
+                // wrongCountCache，不重建那个对象，于是界面会一直显示旧数字直到重进服。
+                int liveWrongCount = plugin.getPlayerDataStore()
+                        .getWrongCountIfCached(player.getUniqueId(), wordKey, dw.getWrongCount());
                 lore.add(ChatColor.translateAlternateColorCodes('&',
                         MessageUtil.getGuiMsg(messages, "wrong-book.word-count")
-                                .replace("{count}", String.valueOf(dw.getWrongCount()))));
+                                .replace("{count}", String.valueOf(liveWrongCount))));
                 SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm");
                 lore.add(ChatColor.translateAlternateColorCodes('&',
                         MessageUtil.getGuiMsg(messages, "wrong-book.word-date")

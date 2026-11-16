@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
 import org.bukkit.configuration.file.FileConfiguration;
@@ -25,10 +26,66 @@ public class WordBank {
     public WordBank(String difficulty, FileConfiguration config) {
         this.difficulty = difficulty;
         this.description = config.getString("description", "");
-        this.words = new ArrayList<>();
+        this.words = new CopyOnWriteArrayList<>();
         this.random = new Random();
 
         loadWords(config);
+    }
+
+    /**
+     * 直接由「描述 + 词列表」构造（不经 YAML 解析）。仅供 {@link #empty} 与
+     * {@link #snapshotWith} 使用。
+     *
+     * <p>刻意私有：正常的词库来源只有一条 —— {@code words/*.yml} 经 {@code loadWords} 解析。
+     * 放开成 public 会允许调用方构造出「字段集与解析路径不一致」的词库对象，
+     * 而那正是本类历史上出现过的缺陷形态（两条路径各拼各的 Word）。
+     */
+    private WordBank(String difficulty, String description, List<Word> words) {
+        this.difficulty = difficulty;
+        this.description = description;
+        // 必须是新的容器：staging 快照与源词库绝不能共享同一个 CopyOnWriteArrayList，
+        // 否则「往快照里加词」会直接改到活词库，提交顺序的保证立刻失效。
+        this.words = new CopyOnWriteArrayList<>(words);
+        this.random = new Random();
+    }
+
+    /**
+     * 空词库（无描述、无词条）。
+     *
+     * <p>用途：{@code /lea importwordbank} 导入<b>尚不存在</b>的难度档时，需要一份
+     * 「基线词库」来拼落盘快照（见 {@link #snapshotWith}）。等价于旧实现里的
+     * {@code new WordBank(difficulty, new YamlConfiguration())}，但不把 Bukkit 的
+     * {@code YamlConfiguration} 依赖漏进本类。
+     */
+    public static WordBank empty(String difficulty) {
+        return new WordBank(difficulty, "", List.of());
+    }
+
+    /**
+     * 生成一份「本词库现有词 + {@code additional}」的一次性快照，<b>不改动本对象</b>。
+     *
+     * <p><b>为什么需要它</b>：{@code AdminCommandHandler.importWordBank} 的落盘必须先于
+     * 内存提交（写入失败时内存不得含新词）。而 {@link #addWord} 只能作用于活引用，
+     * 于是落盘需要一个「已经包含新词」的视图却不能污染活词库 —— 本方法就是这个视图。
+     * 快照与活词库共享<b>同一批不可变 {@link Word} 对象</b>（{@code Word} 全字段 final），
+     * 因此浅拷贝是安全的。
+     *
+     * <p>字段集保证：快照的 {@code difficulty} / {@code description} 与源词库逐字相同，
+     * 词列表顺序为「原有词在前、新词按导入顺序在后」。{@code saveWordBankToYaml} 对
+     * 它和活词库走的是<b>同一条</b>序列化代码（都遍历 {@link #getAllWords()}），
+     * 不存在「两条导出路径字段集分叉」的空间。
+     *
+     * <p>缓存字段有意留空（{@code cachedMasteredKey} 等为 null = 冷缓存）：快照是一次性的，
+     * 预热缓存既无收益，也会让快照持有对某次调用的 {@code masteredWords} 集合的引用。
+     *
+     * @param additional 追加到末尾的词（非 null，可为空列表）
+     * @return 新词库对象；本对象不受任何影响
+     */
+    public WordBank snapshotWith(List<Word> additional) {
+        List<Word> merged = new ArrayList<>(words.size() + additional.size());
+        merged.addAll(words);
+        merged.addAll(additional);
+        return new WordBank(difficulty, description, merged);
     }
 
     private void loadWords(FileConfiguration config) {
@@ -98,7 +155,7 @@ public class WordBank {
             }
 
             // freq_rank：NGSL 1.2 频次排名（1 = 最常用），**可选字段**。
-            // 缺省 = Word.FREQ_RANK_UNKNOWN(0) 是正常数据：1025 词里约 530 个
+            // 缺省 = Word.FREQ_RANK_UNKNOWN(0) 是正常数据：词库 1357 词里约 530 个
             // （apple / banana / pencil 这类具象名词）本来就不在通用频次表里，
             // 所以**绝不能**把它加进上面的 english/chinese 必填校验，也**绝不能**
             // 加进 WordBankValidator 的报错列表 —— 否则一次正常导入会刷出 500+ 条假错误。
@@ -133,7 +190,7 @@ public class WordBank {
      * 描述坏字段的诊断串：缺失 / 非 String（含实际类型）/ 空白，三选一。
      *
      * <p><b>只服务于必填键</b>（english / chinese）。{@code freq_rank} 这类可选派生
-     * 元数据<b>刻意不接入本方法</b>，也不接入 {@link WordBankValidator}：词库 1025 词里
+     * 元数据<b>刻意不接入本方法</b>，也不接入 {@link WordBankValidator}：词库 1357 词里
      * 约 530 个本来就没有 NGSL 排名，「缺失」是正常数据而非缺陷，接进来只会让每次
      * 正常加载/导入刷出 500+ 条假错误。同理不要给它加类型校验（写错类型按未知降级即可，
      * 见 {@link #loadWords} 里的解析注释）。
@@ -323,6 +380,11 @@ public class WordBank {
      * 进入异步线程（DailyChallengeManager.ensureWordChallengesAssigned 经午夜任务），
      * 与主线程 {@link #addWord}（/lea addword 导入）并发时理论可 CME。返回防御拷贝
      * （单词对象本身不可变，浅拷贝足够）——读侧任意线程安全。
+     *
+     * <p>slice-10-concurrency-r5-a10-con-01：仅靠上述拷贝不成立 —— 拷贝读的仍是裸
+     * {@code ArrayList} 的 {@code elementData}，与 {@link #addWord} 扩容重叠时会读到
+     * 「新 size + 旧短数组」而抛 NPE / AIOOBE。故容器本身改为
+     * {@link CopyOnWriteArrayList}（写侧仅 {@code /lea importwordbank} 一处，读远多于写）。
      */
     public List<Word> getAllWords() {
         return List.copyOf(words);
