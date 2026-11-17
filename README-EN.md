@@ -12,7 +12,7 @@ Vocabulary drills → spaced repetition → AI conversation practice → learnin
 ![Java](https://img.shields.io/badge/Java-21%2B%20%7C%2025%2B%20(mc26)-orange?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Paper-blue?style=flat-square)
 ![Words](https://img.shields.io/badge/word%20bank-1357%20words-success?style=flat-square)
-![Tests](https://img.shields.io/badge/tests-1502%20passing-brightgreen?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-1341%20passing-brightgreen?style=flat-square)
 ![License](https://img.shields.io/badge/license-GPL--3.0--only-blue?style=flat-square)
 
 **[⬇️ Download latest](https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/releases)** ·
@@ -408,7 +408,7 @@ Player (no client mod needed)
 | Language | Java 21 (104 source files, ~57,500 lines) |
 | Database | SQLite (default, bundled) / MySQL (`mysql-connector-j` shaded into the JAR) |
 | AI | DeepSeek API via `java.net.http.HttpClient`, async with per-player rate limiting |
-| Tests | JUnit 5 + Mockito, **1502** tests plus a JaCoCo coverage gate |
+| Tests | JUnit 5 + Mockito, **1341** tests plus a JaCoCo coverage gate |
 | Build | Maven with two profiles (default / `-Pmc26`) |
 
 ---

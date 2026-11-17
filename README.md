@@ -12,7 +12,7 @@
 ![Java](https://img.shields.io/badge/Java-21%2B%20%7C%2025%2B%20(mc26)-orange?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Paper-blue?style=flat-square)
 ![Words](https://img.shields.io/badge/word%20bank-1357%20words-success?style=flat-square)
-![Tests](https://img.shields.io/badge/tests-1502%20passing-brightgreen?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-1341%20passing-brightgreen?style=flat-square)
 ![License](https://img.shields.io/badge/license-GPL--3.0--only-blue?style=flat-square)
 
 **[⬇️ 下载最新版](https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/releases)** ·
@@ -388,7 +388,7 @@ SQLite 的 `DELETE` / `UPDATE` 只把页面标记为可复用，**不会把空�
 | 语言 | Java 21（104 个源文件，约 57,500 行） |
 | 数据库 | SQLite（默认，shade 内置）／ MySQL（`mysql-connector-j` 已 shade 进 JAR） |
 | AI | DeepSeek API，`java.net.http.HttpClient`，异步 + 每玩家限流 |
-| 测试 | JUnit 5 + Mockito，**1502 条**测试 + JaCoCo 覆盖率门禁 |
+| 测试 | JUnit 5 + Mockito，**1341 条**测试 + JaCoCo 覆盖率门禁 |
 | 构建 | Maven，双 profile（默认 / `-Pmc26`） |
 
 ---
