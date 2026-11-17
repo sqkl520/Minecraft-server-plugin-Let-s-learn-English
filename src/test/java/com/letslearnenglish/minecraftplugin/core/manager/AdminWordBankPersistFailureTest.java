@@ -810,17 +810,34 @@ class AdminWordBankPersistFailureTest {
         }
 
         @Test
-        @DisplayName("替换阶段失败（目标只读）：目标文件仍逐字节不变，.tmp 被清理")
+        @DisplayName("替换阶段失败（目标是非空目录）：目标内容原样保留，.tmp 被清理，且留 SEVERE")
         void failureAtMoveStageAlsoKeepsTarget() throws IOException {
+            // 失败注入手法：让 words/<difficulty>.yml 这个「目标路径」本身是一个非空目录。
+            //
+            // 为什么不用「把目标文件设为只读」（旧写法，在 Linux CI 上会静默失效）：
+            //   ATOMIC_MOVE 覆盖只读文件会失败，是 Windows/NTFS 的语义。POSIX 的 rename(2)
+            //   只要求对「父目录」有写权限，与目标文件自身的权限位无关 —— Linux 上只读目标
+            //   照样被成功替换，saveConfig 返回 true，于是这条用例在 CI 上红。
+            //   改成「用普通文件去覆盖非空目录」后两个平台都会拒绝
+            //   （Linux: rename → ENOTEMPTY/EISDIR；Windows: MoveFileEx → AccessDenied），
+            //   是真实文件系统拒绝，不依赖任何权限位假设。
+            //   「非空」是承重的：POSIX 的 rename 允许用文件替换一个**空**目录，删掉下面的
+            //   sentinel 文件会让这条用例在 Linux 上变回假绿。不要改回只读文件，也不要用
+            //   assumeTrue(isWindows) 跳过（那等于 CI 上不再覆盖这一支）。
+            //
+            // 为什么这仍然只测 move 阶段：.tmp 路径是 <target>.tmp，是 target 的兄弟
+            // （见 tmpOf），不是它的子项；父目录 words/ 正常存在，因此
+            // Files.writeString(tmp, ...) 能写成功。失败必定发生在随后的
+            // Files.move(tmp, target, REPLACE_EXISTING, ATOMIC_MOVE)，即
+            // AtomicFileWriter.moveIntoPlace 的 catch 分支 —— 与上面那条
+            // （.tmp 被空目录占住、writeString 阶段就失败）覆盖的是不同的分支。
             Path words = Files.createDirectories(dataDir.resolve("words"));
             Path target = words.resolve(DIFFICULTY + ".yml");
-            Files.writeString(target, GOOD_TARGET, StandardCharsets.UTF_8);
-            byte[] before = Files.readAllBytes(target);
+            Files.createDirectory(target);
+            Path sentinel = target.resolve("old-bank.yml");
+            Files.writeString(sentinel, GOOD_TARGET, StandardCharsets.UTF_8);
+            byte[] before = Files.readAllBytes(sentinel);
 
-            // 这一支走的是「.tmp 写成功、Files.move 失败」的路径：目标文件设只读，
-            // Windows 上 ATOMIC_MOVE 覆盖只读目标会抛 AccessDeniedException（实测确认），
-            // 且失败发生在目标被改动之前 —— 目标内容仍是 GOOD_TARGET。
-            assertTrue(target.toFile().setReadOnly(), "前置条件：必须能把目标文件设为只读");
             Path tmp = tmpOf(target);
             try (Captured logs = new Captured()) {
                 ConfigManager cm = newManager(logs);
@@ -832,15 +849,22 @@ class AdminWordBankPersistFailureTest {
                 assertFalse(cm.saveConfig(cfg, TARGET),
                         "替换失败必须返回 false（不能因为 .tmp 写成功就报成功）。实际日志：\n"
                                 + String.join("\n", logs.snapshot()));
-                assertArrayEquals(before, Files.readAllBytes(target),
-                        "替换阶段失败时目标文件也必须保持原样（ATOMIC_MOVE 失败不会半途"
-                                + "改动目标）。实际内容：\n"
-                                + Files.readString(target, StandardCharsets.UTF_8));
+                assertTrue(Files.isDirectory(target),
+                        "替换阶段失败时目标路径必须保持原样（仍是那个目录）。实际："
+                                + (Files.exists(target) ? "存在" : "不存在"));
+                try (var entries = Files.list(target)) {
+                    assertEquals(1L, entries.count(),
+                            "目标目录的内容不得被改动（既没被清空，也没有被塞进 .tmp）");
+                }
+                assertArrayEquals(before, Files.readAllBytes(sentinel),
+                        "替换阶段失败时目标路径下的旧数据也必须逐字节保持原样（ATOMIC_MOVE "
+                                + "失败不会半途改动目标）—— 与「目标文件不变」是同一条契约。"
+                                + "实际内容：\n" + Files.readString(sentinel, StandardCharsets.UTF_8));
                 assertFalse(Files.exists(tmp),
                         "替换失败后 .tmp 必须被清理，否则数据目录会残留一份孤儿配置");
-            } finally {
-                // Windows 下 @TempDir 清理遇到只读文件会失败
-                target.toFile().setWritable(true);
+                assertTrue(logs.anyAtOrAbove(java.util.logging.Level.SEVERE),
+                        "替换失败必须留 SEVERE 痕迹（返回 false 不是把日志也吞掉）。实际日志：\n"
+                                + String.join("\n", logs.snapshot()));
             }
         }
 

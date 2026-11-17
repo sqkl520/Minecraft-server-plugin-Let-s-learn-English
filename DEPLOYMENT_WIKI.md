@@ -243,9 +243,9 @@ plugins/LetsLearnEnglish/
 │   ├── zh.yml                    ← 中文语言文件
 │   └── en.yml                    ← 英文语言文件
 ├── words/
-│   ├── beginner.yml              ← 初级词库（317 词）
-│   ├── intermediate.yml          ← 中级词库（349 词）
-│   └── advanced.yml              ← 高级词库（330 词）
+│   ├── beginner.yml              ← 初级词库（487 词）
+│   ├── intermediate.yml          ← 中级词库（355 词）
+│   └── advanced.yml              ← 高级词库（515 词）
 ├── player_scenarios/             ← 玩家个人 AI 场景（按 UUID 落盘，导入分享码时生成）
 │   └── <uuid>.yml
 ├── exports/                      ← 导出目录（管理员导出/报告落盘）
@@ -1521,9 +1521,9 @@ sqlite3 playerdata.db "PRAGMA freelist_count; PRAGMA page_count;"
 
 | 词库文件 | 等级 | 单词数 |
 |---------|------|--------|
-| `beginner` | 初级 | 317 词 |
-| `intermediate` | 中级 | 349 词 |
-| `advanced` | 高级 | 330 词 |
+| `beginner` | 初级 | 487 词 |
+| `intermediate` | 中级 | 355 词 |
+| `advanced` | 高级 | 515 词 |
 
 ### B. 文件结构速查
 
@@ -1540,9 +1540,9 @@ plugins/LetsLearnEnglish/
 │   ├── zh.yml                 ← 中文翻译
 │   └── en.yml                 ← 英文翻译
 ├── words/
-│   ├── beginner.yml           ← 初级词库 317 词 (可自定义添加新词库文件)
-│   ├── intermediate.yml       ← 中级词库 349 词
-│   └── advanced.yml           ← 高级词库 330 词
+│   ├── beginner.yml           ← 初级词库 487 词 (可自定义添加新词库文件)
+│   ├── intermediate.yml       ← 中级词库 355 词
+│   └── advanced.yml           ← 高级词库 515 词
 ├── player_scenarios/          ← 玩家个人 AI 场景 (uuid.yml, 导入分享码时生成)
 ├── exports/                   ← 导出目录
 │   ├── <difficulty>_export_<时间戳>.yml    ← /lea exportwordbank 词库导出

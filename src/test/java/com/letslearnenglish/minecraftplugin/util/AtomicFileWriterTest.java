@@ -161,24 +161,49 @@ class AtomicFileWriterTest {
     }
 
     @Test
-    @DisplayName("替换阶段失败（目标只读）：目标仍逐字节不变，.tmp 被清理")
+    @DisplayName("替换阶段失败（目标是非空目录）：目标原样保留，.tmp 被清理，且留 SEVERE")
     void failureAtMoveStageAlsoKeepsTarget() throws IOException {
+        // 失败注入手法：把「目标路径」本身做成一个非空目录。
+        //
+        // 为什么不再用「把目标文件设为只读」（旧写法，已在 Linux CI 上失效）：
+        //   Windows 上 ATOMIC_MOVE 覆盖只读目标会抛 AccessDeniedException，但那是 NTFS 的
+        //   语义。POSIX 的 rename(2) 只要求对「父目录」有写权限，与目标文件自身的权限位
+        //   无关 —— 只读目标在 Linux 上照样被成功替换，write() 返回 true，断言就红了。
+        //   而「用一个普通文件去覆盖一个非空目录」两个平台都会拒绝
+        //   （Linux: rename 返回 ENOTEMPTY / EISDIR；Windows: MoveFileEx 返回 AccessDenied），
+        //   是真实的文件系统拒绝而非权限位假设，因此在 CI 与本地都成立。
+        //   「非空」两个字是承重的：POSIX 的 rename 允许用文件替换一个**空**目录，所以把
+        //   下面的 sentinel 文件删掉，Linux 上这条用例会立刻变回假绿 —— 别删它。
+        //   也不允许退化成 assumeTrue(isWindows) 跳过（那等于 CI 上不再测这一支）。
+        //
+        // .tmp 是 <target>.tmp，即 target 的兄弟路径（不是它的子项），父目录 dir 也存在，
+        // 所以临时写入这一步不受影响：失败一定落在 moveIntoPlace，与上面那条
+        // （.tmp 被占住、writeString 阶段就失败）覆盖的是不同的 catch 分支。
         Path target = dir.resolve("payload.yml");
-        Files.writeString(target, "keep: me\n", StandardCharsets.UTF_8);
-        byte[] before = Files.readAllBytes(target);
-        assertTrue(target.toFile().setReadOnly(), "前置：必须能把目标文件设为只读");
+        Files.createDirectory(target);
+        Path sentinel = target.resolve("old-data.yml");
+        String oldContent = "keep: me\n";
+        Files.writeString(sentinel, oldContent, StandardCharsets.UTF_8);
 
         try (Captured logs = new Captured()) {
-            // .tmp 写得进去，失败发生在 move 阶段（Windows 上 ATOMIC_MOVE 覆盖只读目标抛
-            // AccessDeniedException），因此这条覆盖的是与上一条不同的 catch 分支。
             assertFalse(AtomicFileWriter.write(target, () -> "replace: me\n", logs.logger),
                     "替换失败必须返回 false（不能因为 .tmp 写成功就报成功）。实际日志："
                             + logs.messages);
-            assertArrayEquals(before, Files.readAllBytes(target),
-                    "替换阶段失败时目标文件也必须保持原样");
-            assertFalse(Files.exists(tmpOf(target)), "替换失败后 .tmp 必须被清理");
-        } finally {
-            target.toFile().setWritable(true);
+
+            assertTrue(Files.isDirectory(target),
+                    "替换阶段失败时目标路径必须原样保留（仍是那个目录，没被删掉或换成文件）");
+            try (var entries = Files.list(target)) {
+                assertEquals(1L, entries.count(),
+                        "目标目录的内容不得被改动（既没被清空，也没有被塞进 .tmp）");
+            }
+            assertEquals(oldContent, Files.readString(sentinel, StandardCharsets.UTF_8),
+                    "目标路径下的旧数据必须逐字节保持原样 —— 与「目标文件不变」是同一条契约");
+            assertFalse(Files.exists(tmpOf(target)),
+                    "替换失败后 .tmp 必须被清理（否则数据目录残留孤儿文件，"
+                            + "且下次同路径写入可能被它挡住）");
+            assertTrue(logs.anyAtOrAbove(Level.SEVERE),
+                    "替换失败必须留 SEVERE 痕迹（返回 false 不是把日志也一起吞掉）。实际日志："
+                            + logs.messages);
         }
     }
 
