@@ -435,8 +435,8 @@ JAR 生成在 `target/` 目录。两个 profile 的产物名分别是
 
 代码不算漂亮，但每一轮修复都有测试钉着。想让它跑得更好 —— 欢迎来玩，Issue、PR 都收。
 
-- **贡献指南**：[`CONTRIBUTING.md`](CONTRIBUTING.md) —— 怎么报问题、怎么提 PR、代码风格与测试要求
-- **安全问题**：[`SECURITY.md`](SECURITY.md) —— 漏洞报告渠道
+- **贡献指南**：[`CONTRIBUTING.md`](CONTRIBUTING.md) / [`CONTRIBUTING-EN.md`](CONTRIBUTING-EN.md) —— 怎么报问题、怎么提 PR、门禁脚本与测试要求
+- **安全问题**：[`SECURITY.md`](SECURITY.md) / [`SECURITY-EN.md`](SECURITY-EN.md) —— 插件发什么出去、密钥存在哪、漏洞报告渠道
 - **构建与测试**：`mvn verify`（见上方「构建」一节）
 - **报 bug 请带上**：插件版本（`/lea info`）、服务端版本、Java 版本、复现步骤、控制台日志
 
@@ -447,8 +447,8 @@ JAR 生成在 `target/` 目录。两个 profile 的产物名分别是
 | 文档 | 内容 |
 |---|---|
 | [`DEPLOYMENT_WIKI.md`](DEPLOYMENT_WIKI.md) | **部署总纲**：环境要求、安装步骤、全部配置项、故障排查、命令参考 |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | 贡献指南 |
-| [`SECURITY.md`](SECURITY.md) | 安全策略与漏洞报告 |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) / [`CONTRIBUTING-EN.md`](CONTRIBUTING-EN.md) | 贡献指南（中 / 英） |
+| [`SECURITY.md`](SECURITY.md) / [`SECURITY-EN.md`](SECURITY-EN.md) | 安全策略（中 / 英）：数据采集面、密钥位置、漏洞报告 |
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | 第三方组件与词库来源声明 |
 | [`src/main/resources/words/README.md`](src/main/resources/words/README.md) | 词库字段模板、来源、许可与已知质量限制 |
 | [`CHANGELOG.md`](CHANGELOG.md) | 版本变更记录 |

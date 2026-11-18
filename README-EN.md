@@ -458,8 +458,8 @@ The JAR lands in `target/`. The two profiles produce
 The code isn't beautiful, but every fix is pinned by tests. If you want to make it better —
 come play. Issues and PRs are welcome.
 
-- **Contributing guide**: [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to report, how to PR, style and testing requirements
-- **Security**: [`SECURITY.md`](SECURITY.md) — vulnerability reporting channel
+- **Contributing guide**: [`CONTRIBUTING.md`](CONTRIBUTING.md) (中文) / [`CONTRIBUTING-EN.md`](CONTRIBUTING-EN.md) — how to report, how to PR, gates and testing requirements
+- **Security**: [`SECURITY.md`](SECURITY.md) (中文) / [`SECURITY-EN.md`](SECURITY-EN.md) — what the plugin sends, where credentials live, how to report a vulnerability
 - **Build and test**: `mvn verify` (see "Building" above)
 - **When reporting a bug**, include: plugin version (`/lea info`), server version, Java version, repro steps, and console logs
 
@@ -470,8 +470,8 @@ come play. Issues and PRs are welcome.
 | Document | Contents |
 |---|---|
 | [`DEPLOYMENT_WIKI.md`](DEPLOYMENT_WIKI.md) | **Deployment handbook**: requirements, install steps, every config key, troubleshooting, command reference (Chinese) |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contributing guide |
-| [`SECURITY.md`](SECURITY.md) | Security policy and vulnerability reporting |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) / [`CONTRIBUTING-EN.md`](CONTRIBUTING-EN.md) | Contributing guide (中文 / English) |
+| [`SECURITY.md`](SECURITY.md) / [`SECURITY-EN.md`](SECURITY-EN.md) | Security policy (中文 / English): data handling, credential locations, vulnerability reporting |
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | Third-party components and word-bank sources |
 | [`src/main/resources/words/README.md`](src/main/resources/words/README.md) | Word-bank field template, sources, licenses and known quality limits |
 | [`CHANGELOG.md`](CHANGELOG.md) | Version history |
