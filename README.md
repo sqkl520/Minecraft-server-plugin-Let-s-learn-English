@@ -21,10 +21,10 @@
 
 </div>
 
-> ⚠️ **一个人维护的开源项目，仍在持续迭代中**
+> ⚠️ **这是一个高一牲用 AI 辅助开发（vibe coding）做的插件，处于早期开发中**
 >
-> 有问题、有想法都欢迎提 [Issues](https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/issues)；
-> 觉得有用就 Star 一下喵 ⭐
+> 有任何问题、建议都欢迎提交 [Issues](https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/issues)；
+> 如果喜欢这个项目就 Star 一下喵 ⭐
 >
 > **对外可下载的包以 [Releases 页](https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/releases) 为准。**
 > 本 README 不单独维护版本号 —— 与 Releases 页对不上时一律以 Releases 页为准。

@@ -21,7 +21,7 @@ Vocabulary drills → spaced repetition → AI conversation practice → learnin
 
 </div>
 
-> ⚠️ **A solo-maintained open-source project, still under active development**
+> ⚠️ **A plugin built by a high-school first-year student with AI assistance (vibe coding), still in early development**
 >
 > Questions and ideas are welcome in [Issues](https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/issues);
 > if you find it useful, a star helps ⭐
