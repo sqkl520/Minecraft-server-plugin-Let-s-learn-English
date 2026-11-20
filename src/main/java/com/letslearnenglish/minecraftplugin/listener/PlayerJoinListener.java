@@ -6,6 +6,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.plugin.IllegalPluginAccessException;
 
 import java.util.UUID;
 
@@ -97,7 +98,7 @@ public class PlayerJoinListener implements Listener {
                                         + " (player joined during a reload/shutdown window?)", e);
                     }
                 });
-            } catch (IllegalStateException ignored) {
+            } catch (IllegalPluginAccessException | IllegalStateException ignored) {
                 // 插件停用窗口（调度器已关闭）：放弃本次预热，读侧懒加载兜底
                 //（与下方 R13-M1 的每日挑战分配同姿态）。
             }
@@ -208,7 +209,7 @@ public class PlayerJoinListener implements Listener {
                                     + " (player joined during a reload/shutdown window?)", e);
                 }
             });
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 插件停用窗口（调度器已关闭）：放弃本次分配（R-32 补分配兜底）
         }
     }

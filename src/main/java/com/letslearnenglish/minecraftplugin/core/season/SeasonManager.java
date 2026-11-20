@@ -18,6 +18,7 @@ import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.IllegalPluginAccessException;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -647,7 +648,7 @@ public class SeasonManager {
                     }
                 }
             });
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 插件停用窗口（调度器已关闭）：任务不会执行，必须复位防重入标志
             settleInFlight.set(false);
         }
@@ -1487,7 +1488,7 @@ public class SeasonManager {
         try {
             plugin.getServer().getScheduler().runTaskLaterAsynchronously(plugin,
                     this::drainPendingReleases, DRAIN_DELAY_TICKS);
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             releaseDrainScheduled.set(false); // 停用窗口：任务不会执行
         }
     }
@@ -1581,7 +1582,7 @@ public class SeasonManager {
                         + " " + (FOREIGN_CLAIM_STALE_MS / 60000L) + "min staleness threshold.");
                 settleIfNeededAsync();
             }, delayTicks);
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             foreignClaimRecheckScheduled.set(false); // 停用窗口：任务不会执行
         }
     }

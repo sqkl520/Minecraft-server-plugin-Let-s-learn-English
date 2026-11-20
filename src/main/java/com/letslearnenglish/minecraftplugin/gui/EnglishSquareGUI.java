@@ -18,6 +18,7 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
+import org.bukkit.plugin.IllegalPluginAccessException;
 import org.bukkit.scheduler.BukkitScheduler;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
@@ -411,7 +412,7 @@ public class EnglishSquareGUI {
                             socialEnabled, messages);
                 });
             });
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 插件停用窗口（调度器已关闭）：放弃本次打开（玩家也已不可能看到界面）。
         }
     }
@@ -788,13 +789,14 @@ public class EnglishSquareGUI {
     }
 
     /**
-     * R19-GUI2：把「异步段 → 主线程段」的调度收成一处，带 {@code IllegalStateException} 守卫
-     * （关服竞态下 {@code runTask} 会抛）。
+     * R19-GUI2：把「异步段 → 主线程段」的调度收成一处，带 {@code IllegalStateException}
+     * 守卫（关服竞态下 {@code runTask} 会抛）；插件停用窗口抛的是它的兄弟
+     * {@code IllegalPluginAccessException}，一并吞掉（两者无继承关系）。
      */
     private void runOnMain(BukkitScheduler scheduler, Runnable action) {
         try {
             scheduler.runTask(plugin, action);
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 关服竞态：调度器已关闭，放弃本次回主线程
         }
     }

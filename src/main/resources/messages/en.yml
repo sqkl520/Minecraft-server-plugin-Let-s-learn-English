@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 27
+config-version: 28
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -52,6 +52,11 @@ word:
   mode-fill_blank: "Fill-blank"
   mode-disabled: "{prefix}&cThat learning mode has been disabled by the server admin~"
   no-modes-enabled: "{prefix}&cAll learning modes are disabled. Please contact the admin."
+  # D7: /le word only accepts <difficulty> and <difficulty> <mode>; extra tokens are no longer ignored.
+  # usage carries no {prefix}: it is passed as the {usage} argument of extra-arguments, so a prefix
+  # here would render two prefixes on one line.
+  usage: "&eUsage: /le word <difficulty> [mode]"
+  extra-arguments: "{prefix}&cUnexpected extra argument(s): &e{extra}&c. Usage: &e{usage}"
 
 review:
   notification: "{prefix}&6You have &e{count} &6words due for review! Type &e/le review &6to start"

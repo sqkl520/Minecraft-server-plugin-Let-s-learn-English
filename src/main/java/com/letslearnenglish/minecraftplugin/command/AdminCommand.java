@@ -10,6 +10,7 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.IllegalPluginAccessException;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -107,11 +108,11 @@ public class AdminCommand implements CommandExecutor, TabCompleter {
                                             "admin.export-failed"));
                                 }
                             });
-                        } catch (IllegalStateException e) {
+                        } catch (IllegalPluginAccessException | IllegalStateException e) {
                             // 关服竞态：调度器已关闭，放弃回投消息
                         }
                     });
-                } catch (IllegalStateException e) {
+                } catch (IllegalPluginAccessException | IllegalStateException e) {
                     // 插件停用窗口（调度器已关闭）：放弃本次导出
                     sender.sendMessage(plugin.getMessageUtil().getSenderMessage(sender,
                             "admin.export-failed"));

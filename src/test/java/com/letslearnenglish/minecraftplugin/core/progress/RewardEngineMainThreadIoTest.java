@@ -31,6 +31,7 @@ import org.bukkit.Server;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.IllegalPluginAccessException;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.junit.jupiter.api.AfterEach;
@@ -424,8 +425,12 @@ class RewardEngineMainThreadIoTest {
     @Test
     @DisplayName("关服窗口调度器拒收：退回同步尽力写一次，不静默丢额度")
     void schedulerRejectionDuringShutdownFallsBackToSynchronousWrite() {
+        // 真实类型：CraftScheduler.validate() 在插件已禁用时抛的是
+        // IllegalPluginAccessException（extends RuntimeException，**不是** ISE 的子类）。
+        // 曾经这里抛 IllegalStateException —— 那等于让测试替身复刻了生产代码的错误假设，
+        // 于是"守卫有效"永远为真。抛真实类型后仍绿，才证明 catch 真的接得住。
         when(scheduler.runTaskAsynchronously(any(Plugin.class), any(Runnable.class)))
-                .thenThrow(new IllegalStateException("Plugin attempted to register task while disabled"));
+                .thenThrow(new IllegalPluginAccessException("Plugin attempted to register task while disabled"));
 
         assertEquals(400.0, engine.depositCappedReward(player, 400.0), 1e-9);
 

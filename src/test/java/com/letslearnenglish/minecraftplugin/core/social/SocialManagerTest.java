@@ -53,7 +53,11 @@ import static org.mockito.Mockito.when;
  * <ul>
  *   <li><b>重复鼓励计数虚高</b> —— 广场上「❤ 鼓励 ×N」比实际人数多；</li>
  *   <li><b>隐私门漏一侧</b> —— 关掉「英语广场中可见」的玩家仍然被展示 / 被互动；</li>
- *   <li><b>鼓励名单不带隐私过滤</b> —— 隐身玩家的名字出现在别人的「谁鼓励了我」里；</li>
+ *   <li><b>隐私门越界</b> —— {@code showInSquare} 被当成「一切行为痕迹的总开关」，
+ *       连隐身玩家<b>鼓励别人</b>这一操作留下的痕迹（名字进「谁鼓励了我」名单）也被遮蔽。
+ *       注意这与上一条方向相反：上一条是漏、这一条是过度解读。R31 用户裁决：
+ *       「隐身管的是其动态可不可见，不是其（比如鼓励）操作」—— 该开关只管<b>动态</b>，
+ *       不管<b>操作</b>；</li>
  *   <li><b>计数漂移</b> —— 鼓励者被 {@code /lea reset} 后，作者的计数不减（见
  *       {@link KnownDefects}）。</li>
  * </ul>
@@ -537,62 +541,65 @@ class SocialManagerTest {
         }
 
         /**
-         * <b>D3（隐私单向泄露）：鼓励者的 {@code showInSquare} 必须过滤。</b>
+         * <b>产品裁决（R31）：{@code showInSquare} 管「动态」可见性，不管「操作」痕迹。</b>
          *
-         * <p>缺陷形状：{@code DatabaseManager.loadCheerers} 原先只 JOIN {@code player_data}
-         * 取名字，<b>不 JOIN</b> {@code player_profiles} 过滤 {@code show_in_square}。于是：
-         * <ol>
-         *   <li>隐身玩家 B 仍能打开广场并看到 A 的动态（读取侧只过滤「作者隐身」）；</li>
-         *   <li>B 鼓励 A；</li>
-         *   <li>A 左键自己的条目 → 名单里出现 B 的名字。</li>
-         * </ol>
-         * 也就是说「隐身」只挡住了「我作为作者被展示」，没挡住「我作为鼓励者被点名」——
-         * <b>单向泄露</b>，而且 B 自己从界面上完全看不出来（他看不到别人的鼓励名单）。
+         * <p>用户原话：「隐身管的是其动态可不可见，不是其（比如鼓励）操作」。
+         * 据此，「谁鼓励了我」记的是<b>一次操作</b>，不是一条<b>动态</b>，
+         * 因此鼓励者的 {@code show_in_square} <b>不得</b>用来遮蔽他的名字。
          *
-         * <p>与 plan-social §1.6 已文档化的那条边界（「隐身期间收到的鼓励摘要照常发送」）
-         * 不同：那条说的是<b>作者的收件箱</b>（只含条数、不含名字，且只发给本人），
-         * 而这里是<b>鼓励者的身份</b>被第三方看到。修复口径与榜单/动态流一致：
-         * {@code LEFT JOIN player_profiles} + {@code COALESCE(show_in_square,1) <> 0}。
+         * <p>缺陷形状（本用例守护的那次过度修复）：{@code DatabaseManager.loadCheerers}
+         * 曾被改成 {@code LEFT JOIN player_profiles} + {@code COALESCE(show_in_square,1) <> 0}，
+         * 把「关掉广场展示」升格成了「一切行为痕迹的总开关」—— 隐身玩家点了赞，
+         * 作者左键自己的条目却看到名单里没有他。那不是隐私修复，是语义误读。
          *
-         * <p>本用例的隐私位<b>必须落库</b>（{@code saveProfileSettings}）：过滤发生在 SQL 里，
-         * 只改内存缓存对 {@code loadCheerers} 不可见 —— 那样测的是缓存而不是过滤。
+         * <p>与作者侧口径对照：{@code getFeedCacheRows} 过滤 {@code show_in_square} 是对的
+         * （它展示的正是「动态/展示面貌」）；本方法展示的是「操作痕迹」，不同源，故不过滤。
          */
         @Test
-        @DisplayName("D3：隐身玩家不得出现在别人的「谁鼓励了我」里")
-        void hiddenCheererNameShouldNotBeExposedToAuthor() {
+        @DisplayName("产品裁决：隐身玩家的名字仍出现在「谁鼓励了我」里（showInSquare 只管动态）")
+        void hiddenCheererNameStillAppearsInCheererList() {
             authorVisible();
             long feedId = seedFeed(AUTHOR_ID);
             social.refreshCacheAsync();
 
-            // B 隐身。注意：cheer() 的隐身门查的是**作者**，所以 B 照样能鼓励成功。
-            // 隐私位必须落库 —— loadCheerers 的过滤是 SQL 层的 player_profiles JOIN。
+            // B 隐身。cheer() 的隐身门查的是**作者**，与鼓励者无关，所以 B 照样能鼓励成功。
+            // 隐私位落库（saveProfileSettings）：本用例要证明的正是「即使该位为 false，
+            // 读取侧也不得据此过滤」—— 只改内存缓存证明不了 SQL 里没过滤。
             store.getProfileSettings(CHEERER_ID).setShowInSquare(false);
             store.saveProfileSettings(CHEERER_ID);
+            // 名字来自 player_data 的 LEFT JOIN；不铺这行会回落成 UUID，断言「名字出现」
+            // 就会以「查不到名字」为由红，红的原因与本次裁决无关。
+            seedPlayerDataName(CHEERER_ID, "Cheerer");
             social.cheer(player(CHEERER_ID, "Cheerer"), feedId);
 
             assertEquals(1, cheerRowsInDb(feedId),
                     "前置条件：鼓励行必须真的写进去（隐身不阻断鼓励 —— 见 "
                             + "hiddenPlayerCanStillCheerOthers）。若这里是 0，本用例会因为"
-                            + "「本来就没鼓励」而不是因为过滤而绿。");
+                            + "「本来就没鼓励」而不是因为名单内容而绿。");
 
             AtomicReference<List<String>> got = new AtomicReference<>();
             social.getCheerersAsync(AUTHOR_ID, feedId, got::set);
 
-            assertEquals(List.of(), got.get(),
-                    "隐身玩家的名字不得出现在别人的「谁鼓励了我」里（D2 隐私优先）喵 —— "
-                            + "实际：" + got.get());
+            assertEquals(List.of("Cheerer"), got.get(),
+                    "产品裁决（R31）：showInSquare 管的是「我的动态是否可见」，"
+                            + "不遮蔽「我的操作（如鼓励）留下的痕迹」。鼓励者的名字必须出现喵 —— "
+                            + "若这里是空，说明有人把 showInSquare 过度解读成了行为痕迹总开关"
+                            + "（历史上 loadCheerers 就曾这么错过）。实际：" + got.get());
         }
 
         /**
-         * <b>D3 的反向半边（不可少）</b>：同一份数据、只把鼓励者的 {@code show_in_square}
-         * 翻回 true，名字就必须出现。
+         * <b>与上一条同口径的正面半边</b>：鼓励者 {@code show_in_square = true} 时名字当然出现。
          *
-         * <p>没有这一条，上一条可以靠「无论如何都返回空」通过 —— 那是把过滤实现成
-         * 「名单永远为空」也能蒙对的假绿。两条成对才证明过滤<b>按位生效</b>：
-         * 隐身 → 不出现；可见 → 出现。
+         * <p>它的存在理由在 R31 裁决后变了：原先它是「防上一轮过滤被实现成一律返空」的
+         * 反向对照（隐身→空 / 可见→有，成对证明「按位生效」）；回退过滤后口令变成
+         * 「两种取值都必须出现」，本用例与上一条合起来证明的是一件事：
+         * <b>鼓励者的可见性开关对名单没有影响</b> —— 无论 true 还是 false，名字都在。
+         *
+         * <p>保留本条还有独立价值：它同时断言名字确实来自 {@code player_data} 的 JOIN
+         * （而不是回落成 uuid），这是「名单可读」的基础保障。
          */
         @Test
-        @DisplayName("D3 反向：鼓励者可见时名字必须出现（防「一律返回空」的假绿）")
+        @DisplayName("口径一致：鼓励者可见时名字出现（与隐身用例相同结果，证明开关不影响名单）")
         void visibleCheererNameIsStillExposed() {
             authorVisible();
             long feedId = seedFeed(AUTHOR_ID);
@@ -601,7 +608,7 @@ class SocialManagerTest {
             store.getProfileSettings(CHEERER_ID).setShowInSquare(true);
             store.saveProfileSettings(CHEERER_ID);
             // 名字来自 player_data 的 LEFT JOIN —— 不铺这一行，MAX(p.player_name) 是 null，
-            // 名单会回落成 UUID，本用例会因为「查不到名字」而不是因为隐私过滤而红。
+            // 名单会回落成 UUID，本用例会因为「查不到名字」而红。
             seedPlayerDataName(CHEERER_ID, "Cheerer");
             social.cheer(player(CHEERER_ID, "Cheerer"), feedId);
 
@@ -609,23 +616,27 @@ class SocialManagerTest {
             social.getCheerersAsync(AUTHOR_ID, feedId, got::set);
 
             assertEquals(List.of("Cheerer"), got.get(),
-                    "可见鼓励者的名字必须出现在名单里喵 —— 否则上一条的「空」不能归因于隐私过滤");
+                    "可见鼓励者的名字必须出现在名单里喵 —— 与隐身用例结果相同，"
+                            + "因为 showInSquare 不管操作痕迹（R31 裁决）");
         }
 
         /**
-         * <b>产品语义边界（D3 修复后仍是设计决策，不是缺陷）</b>：隐身只作用于
-         * 「我的<b>展示面貌</b>」，不剥夺「我的<b>参与能力</b>」—— 隐身玩家依然可以鼓励
-         * 别人的动态（{@code cheer()} 的隐身门查的是 {@code item.authorId()}，不是鼓励者）。
+         * <b>产品语义边界（R31 裁决的正向印证，不是缺陷）</b>：隐身只作用于
+         * 「我的<b>动态</b>在广场是否可见」，完全不触及「我的<b>操作能力</b>」——
+         * 隐身玩家依然可以鼓励别人的动态（{@code cheer()} 的隐身门查的是
+         * {@code item.authorId()}，不是鼓励者）。
          *
-         * <p>D3 修复只在<b>读取侧</b>（{@code loadCheerers} 的 SQL 过滤）藏起隐身鼓励者的
-         * 名字，没有、也不该在写入侧阻拦鼓励 —— 否则「关掉广场展示」会连带变成
-         * 「不能给别人点赞」，那是没人要求过的功能剥夺。
+         * <p>本用例与上面两条互补：上面两条证明「隐身不影响名字出现在<u>别人的</u>名单里」，
+         * 本条证明「隐身也不影响我<u>自己</u>发起鼓励这个动作」。三者合起来才是 R31 裁决的
+         * 完整形状 —— {@code showInSquare} 这个开关的作用域<b>只有动态可见性</b>，
+         * 既不遮蔽鼓励痕迹、也不剥夺鼓励能力。
          *
-         * <p>本用例守护这条边界：将来若有人为了修 D3 而在 {@code cheer()} 里加一道
-         * 「隐身者不得鼓励」的门，这里会红并提示「过度修复」。
+         * <p>本用例守护这条边界：将来若有人把 {@code showInSquare} 再次升格成
+         * 「一切社交行为的闸门」而在 {@code cheer()} 里加一道「隐身者不得鼓励」的门，
+         * 这里会红并提示「过度修复」。
          */
         @Test
-        @DisplayName("设计边界：隐身玩家仍可鼓励他人（隐身只管展示面，不剥夺参与能力）")
+        @DisplayName("设计边界：隐身玩家仍可鼓励他人（showInSquare 只管动态可见性）")
         void hiddenPlayerCanStillCheerOthers() {
             authorVisible();
             long feedId = seedFeed(AUTHOR_ID);
@@ -636,8 +647,8 @@ class SocialManagerTest {
 
             assertEquals(1, cheerRowsInDb(feedId),
                     "隐身不阻断鼓励（cheer() 的隐身门查的是 item.authorId()，与鼓励者无关）喵 —— "
-                            + "若这里是 0，说明有人为了修 D3 在写入侧加了门，那是过度修复："
-                            + "隐身只该管「展示面」，不该剥夺「参与能力」");
+                            + "若这里是 0，说明有人把 showInSquare 当成了社交行为总闸门"
+                            + "（过度解读，R31 裁决已明确它只管动态可见性）");
             assertTrue(messages.contains("square.feed.cheer-success"),
                     "且回的是成功提示，不是 cheer-hidden：" + messages);
         }
@@ -953,8 +964,11 @@ class SocialManagerTest {
      *
      * <p>{@code loadCheerers} 的名字来自 {@code LEFT JOIN player_data p}，
      * 查不到行时 {@code MAX(p.player_name)} 为 null，名单回落成 UUID 字符串。
-     * 隐私过滤用例必须先把名字铺好，否则「可见 -> 出现名字」那条会因为
-     * 「名字本来就没有」而红，红的原因与隐私过滤无关。
+     * 断言「名单里是某个<b>名字</b>」的用例必须先把名字铺好，否则会以
+     * 「名字本来就没有」为由红（红的原因与用例想证明的东西无关）。
+     *
+     * <p>R31 裁决后 {@code loadCheerers} 不再按 {@code show_in_square} 过滤，
+     * 所以隐身/可见两条用例都同样需要这行 —— 它们现在是「同口径」的两个正例。
      */
     private void seedPlayerDataName(UUID playerId, String name) {
         synchronized (db.getConnectionLock()) {

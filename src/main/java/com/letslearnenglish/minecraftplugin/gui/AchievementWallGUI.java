@@ -17,6 +17,7 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.plugin.IllegalPluginAccessException;
 
 import java.io.File;
 import java.text.SimpleDateFormat;
@@ -169,7 +170,7 @@ public class AchievementWallGUI {
                             "Failed to preload achievement wall for " + targetId, e);
                     try {
                         Bukkit.getScheduler().runTask(plugin, () -> notifyLoadFailed(viewer));
-                    } catch (IllegalStateException ignored) {
+                    } catch (IllegalPluginAccessException | IllegalStateException ignored) {
                         // 关服竞态：调度器已关闭，放弃提示
                     }
                     return;
@@ -187,11 +188,11 @@ public class AchievementWallGUI {
                         }
                         openWithData(viewer, targetId, lang, messages, achConfig, visible, data);
                     });
-                } catch (IllegalStateException ignored) {
+                } catch (IllegalPluginAccessException | IllegalStateException ignored) {
                     // 关服竞态：调度器已关闭，放弃本次渲染
                 }
             });
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 插件停用窗口（调度器已关闭）：放弃本次打开
         }
     }

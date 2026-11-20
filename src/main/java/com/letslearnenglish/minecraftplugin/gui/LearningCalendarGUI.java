@@ -13,6 +13,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.plugin.IllegalPluginAccessException;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -134,7 +135,7 @@ public class LearningCalendarGUI {
                                     "daily.load-failed"));
                             SoundManager.playSound(player, "incorrect");
                         });
-                    } catch (IllegalStateException ignored) {
+                    } catch (IllegalPluginAccessException | IllegalStateException ignored) {
                         // 关服竞态：调度器已关闭，放弃提示（与同方法既有 openWithData 调度守卫同款）
                     }
                     return;
@@ -148,11 +149,11 @@ public class LearningCalendarGUI {
                         if (openSeq.getOrDefault(playerId, -1L) != token) return;
                         openWithData(player, targetId, dayData);
                     });
-                } catch (IllegalStateException ignored) {
+                } catch (IllegalPluginAccessException | IllegalStateException ignored) {
                     // 关服竞态：调度器已关闭，放弃本次渲染
                 }
             });
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 插件停用窗口（调度器已关闭）：放弃本次打开
         }
     }

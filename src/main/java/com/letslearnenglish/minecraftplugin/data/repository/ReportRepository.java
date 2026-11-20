@@ -336,11 +336,27 @@ public class ReportRepository {
     /**
      * Q8：窗口内每日挑战完成度（完成行数 / 总行数）。
      *
+     * <p><b>D9：分子剔除系统自动放弃的行。</b>{@code degradeStale} 会把玩家没做完的挑战
+     * 写成 {@code completed=1, claimed=1}（自动放弃，不发奖励），在列值上与"玩家真完成并已领"
+     * 完全相同 —— 旧分子 {@code completed = 1} 因此把这部分也数成孩子做的，家长报表面向的是
+     * "孩子完成了多少每日挑战"，系统性偏高。{@code abandoned} 列（D9 新增）是这一形态的
+     * 唯一正交判据：{@code degradeStale} 写 1，其余所有写路径（{@code assignAll} 显式列、
+     * {@code complete} 只置 completed、{@code advanceChallengeProgress} 的 CASE、
+     * {@code markClaimedOrFail} 只置 claimed）都留默认 0。</p>
+     *
+     * <p>{@code COALESCE} 是给存量行兜底的：迁移用 {@code ALTER TABLE ... ADD COLUMN
+     * abandoned INT DEFAULT 0} 补列后，老行在新列上可能是 {@code NULL}（旧 SQLite 的
+     * ADD COLUMN 不回填；MySQL 侧虽然会补默认值，但两侧口径不能赌）。{@code COALESCE}
+     * 在 SQLite 与 MySQL 上语义一致。</p>
+     *
+     * <p><b>分母刻意不改</b>：总行数仍含降级行。降级行代表"当天系统确实给过他这张挑战"，
+     * 把它从分母剔除会让完成率变成 1/1 而不是 1/3，等于把一次没做完粉饰成满分。</p>
+     *
      * @param dateFrom 窗口起始日（yyyy-MM-dd，含）
      * @param dateTo   窗口结束日（yyyy-MM-dd，含）
      */
     public ChallengeRows countDailyChallengesOrFail(UUID playerId, String dateFrom, String dateTo) {
-        String sql = "SELECT SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) AS done,"
+        String sql = "SELECT SUM(CASE WHEN completed = 1 AND COALESCE(abandoned, 0) = 0 THEN 1 ELSE 0 END) AS done,"
                 + " COUNT(*) AS total FROM " + prefix() + "daily_challenges"
                 + " WHERE uuid = ? AND challenge_date >= ? AND challenge_date <= ?";
         synchronized (db.getConnectionLock()) {

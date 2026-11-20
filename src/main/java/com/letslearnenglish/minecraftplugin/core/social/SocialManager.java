@@ -6,6 +6,7 @@ import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.util.SchedulerGuard;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.IllegalPluginAccessException;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.time.LocalDate;
@@ -240,7 +241,7 @@ public class SocialManager {
         try {
             maintenanceTask = plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin,
                     this::periodicMaintenance, PERIODIC_REFRESH_TICKS, PERIODIC_REFRESH_TICKS);
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 停用窗口：调度器已关闭，周期刷新放弃（缓存仍可用，下次 enable 重排）
             maintenanceTask = null;
         }

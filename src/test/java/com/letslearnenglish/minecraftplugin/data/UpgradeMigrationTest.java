@@ -343,6 +343,73 @@ class UpgradeMigrationTest {
         }
 
         /**
+         * D9：{@code daily_challenges.abandoned} 是升级补的列，存量行必须拿到 0，且报表 Q8
+         * 的分子 SQL 在升级库上<b>能真正执行</b>。
+         *
+         * <h3>为什么必须单独一条</h3>
+         * <p>{@code legacyDdl()} 里的 {@code daily_challenges} 刻意不含 {@code abandoned}
+         * （那正是迁移目标），但<b>没有别的用例会插一行旧挑战数据再回读它</b> ——
+         * {@code SchemaConvergence} 只比较列集合，证明不了「旧行的值是 0 而不是 NULL」，
+         * 也证明不了「新分子 SQL 在升级库上不撞 no such column」。这两件事各自都会让
+         * 报表的 {@code COALESCE(abandoned, 0)} 兜底被掩盖成「一切都好」。
+         *
+         * <p>断言分子 SQL 本身（而不是只读列）是刻意的：R14 那个 {@code claim_date} 缺陷
+         * 就是「列集合对、SQL 仍然跑不了」的形态。
+         */
+        @Test
+        @DisplayName("D9：旧 daily_challenges 行升级后 abandoned 补成 0，且报表分子 SQL 可执行")
+        void legacyDailyChallengeRowsGainAbandonedZero(@TempDir Path dir) throws Exception {
+            newLegacyDb(dir);
+            // 旧行：completed=1 且 claimed=1（老版本里既可能是真完成，也可能是降级 ——
+            // 升级时无法区分，只能一律按「未放弃」处理，理由见下面的断言消息）
+            try (Connection c = open(dir, LEGACY_DB);
+                 PreparedStatement ps = c.prepareStatement(
+                         "INSERT INTO " + PREFIX + "daily_challenges"
+                                 + " (uuid, challenge_date, challenge_id, progress, completed, claimed)"
+                                 + " VALUES (?, '2026-02-10', 'answer_10', 10, 1, 1)")) {
+                ps.setString(1, PLAYER.toString());
+                ps.executeUpdate();
+            }
+
+            boot(dir, LEGACY_DB);
+
+            try (Connection c = open(dir, LEGACY_DB)) {
+                try (PreparedStatement ps = c.prepareStatement(
+                        "SELECT abandoned FROM " + PREFIX + "daily_challenges WHERE uuid = ?")) {
+                    ps.setString(1, PLAYER.toString());
+                    try (ResultSet rs = ps.executeQuery()) {
+                        assertTrue(rs.next(), "旧挑战行必须还在（升级不删数据）");
+                        int abandoned = rs.getInt("abandoned");
+                        boolean wasNull = rs.wasNull();
+                        assertEquals(0, abandoned,
+                                "补列必须给旧行 0 喵。为 NULL 时报表分子的 COALESCE 兜底会把它读成"
+                                        + "「未放弃」，表面结果一样，但列的三态就永远说不清了 —— "
+                                        + "更糟的是若将来有人去掉 COALESCE，NULL 会被 `= 0` 静默排除，"
+                                        + "于是<b>升级服的全部历史完成数一夜清零</b>。");
+                        assertFalse(wasNull, "abandoned 不得为 NULL —— 声明是 `INT DEFAULT 0`");
+                    }
+                }
+
+                // 报表分子 SQL 原样跑一遍：升级库上不得因为缺列而在 prepare 阶段抛。
+                try (PreparedStatement ps = c.prepareStatement(
+                        "SELECT SUM(CASE WHEN completed = 1 AND COALESCE(abandoned, 0) = 0"
+                                + " THEN 1 ELSE 0 END) AS done, COUNT(*) AS total"
+                                + " FROM " + PREFIX + "daily_challenges"
+                                + " WHERE uuid = ? AND challenge_date >= ? AND challenge_date <= ?")) {
+                    ps.setString(1, PLAYER.toString());
+                    ps.setString(2, "2026-02-01");
+                    ps.setString(3, "2026-02-28");
+                    try (ResultSet rs = ps.executeQuery()) {
+                        assertTrue(rs.next());
+                        assertEquals(1, rs.getInt("done"),
+                                "升级前写下的完成行必须计入（它的 abandoned 补成了 0）");
+                        assertEquals(1, rs.getInt("total"));
+                    }
+                }
+            }
+        }
+
+        /**
          * 1.0.0 → 1.0.7 的一段真实断代：{@code total_coins_earned} / {@code total_coins_spent}
          * 是 1.0.6 之后才加的（CHANGELOG「彻底分离学习分数与金币统计」），而
          * {@code createTables()} 至今保留着针对它们的 {@code addColumnIfMissing} ——

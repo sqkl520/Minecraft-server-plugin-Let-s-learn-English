@@ -11,6 +11,7 @@ import com.letslearnenglish.minecraftplugin.util.AtomicFileWriter;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.plugin.IllegalPluginAccessException;
 
 import java.io.File;
 import java.text.SimpleDateFormat;
@@ -1289,7 +1290,7 @@ public class ReportGenerator {
     private void runAsync(Runnable task) {
         try {
             plugin.getServer().getScheduler().runTaskAsynchronously(plugin, task);
-        } catch (IllegalStateException e) {
+        } catch (IllegalPluginAccessException | IllegalStateException e) {
             plugin.getLogger().fine("Report task skipped: scheduler unavailable (plugin disabling).");
         }
     }
@@ -1314,7 +1315,7 @@ public class ReportGenerator {
         }
         try {
             plugin.getServer().getScheduler().runTask(plugin, action);
-        } catch (IllegalStateException e) {
+        } catch (IllegalPluginAccessException | IllegalStateException e) {
             // 调度器已在停用窗口关闭：放弃本次反馈（已生成的文件保留在磁盘）
         }
     }

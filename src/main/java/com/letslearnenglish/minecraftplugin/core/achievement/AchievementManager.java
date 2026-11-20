@@ -13,6 +13,7 @@ import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.IllegalPluginAccessException;
 
 import java.io.File;
 import java.text.SimpleDateFormat;
@@ -333,7 +334,7 @@ public class AchievementManager {
         } else {
             try {
                 Bukkit.getScheduler().runTask(plugin, () -> notifyUnlock(playerId, achievement));
-            } catch (IllegalStateException e) {
+            } catch (IllegalPluginAccessException | IllegalStateException e) {
                 // 插件停用窗口（调度器已关闭）：放弃本次通知，解锁记录已落库
             }
         }
@@ -556,7 +557,7 @@ public class AchievementManager {
                     tryUnlock(playerId, Achievement.HELPFUL);
                 }
             });
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 插件停用窗口（调度器已关闭）：放弃本次判定（解锁记录不损，下次鼓励重判）
         }
     }

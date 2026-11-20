@@ -26,6 +26,7 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.IllegalPluginAccessException;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -194,6 +195,21 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             }
             new WordBankSelectGUI(plugin).open(player);
         } else {
+            // D7：/le word 的合法形态只有 `<难度>` 与 `<难度> <模式>` 两种 —— 与
+            // onTabComplete 的补全层数同源（args.length==2 补难度、==3 补模式、>=4 无候选）。
+            // 在此之前 args.length > 3 的多余 token 被**静默丢弃**：玩家从别处抄来
+            // `/le word beginner choice 3` 想「来 3 题」，实际走的是默认题数，既不报错
+            // 也不提示，等于骗了玩家一次。这里显式拒绝并把多余的 token 原样回显。
+            // 位置说明：参数**语法**错误先于难度/模式的**语义**校验判定 —— 先告诉玩家
+            // 「你多敲了词」，再让他去改词；否则 `/le word xyz choice 3` 会先报
+            // invalid-difficulty，玩家改完难度又被 extra-arguments 打脸第二次。
+            if (args.length > 3) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "word.extra-arguments",
+                        "extra", String.join(" ", Arrays.copyOfRange(args, 3, args.length)),
+                        "usage", plugin.getMessageUtil().getPlayerMessage(player, "word.usage")));
+                return;
+            }
             // R-86c：difficulty 先归一化再校验存在性（大小写不敏感匹配后解析回词库
             // 规范 key）。原先直接透传原始输入，大小写不符 / 难度不存在都会抛英文
             // IllegalArgumentException 给玩家。
@@ -587,7 +603,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                             reward, economyAvailable);
                 });
             });
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 插件停用窗口（调度器已关闭）：放弃本次异步查询
         }
     }
@@ -828,6 +844,19 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
 
         String sub = args[1].toLowerCase();
 
+        // D7 同族缺陷：/le duel 的多余参数此前也被静默丢弃（`/le duel accept now` 照常
+        // 接受挑战，`/le duel Bob extra` 照常发邀请）。合法形态与 onTabComplete 的补全
+        // 层数同源：
+        //   /le duel <玩家名> | accept | quit | gui  → 2 个 token（含 "duel"）
+        //   /le duel cancel <玩家名>（GM）           → 3 个 token
+        // cancel 的长度判定刻意留在它自己的分支里（权限门之后）—— 无权限者应先收到
+        // no-permission，不因"参数多了"而把拒绝语义换成 usage。
+        if (args.length > 2 && !"cancel".equals(sub)) {
+            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                    "duel.usage"));
+            return;
+        }
+
         // MC-2 模块门（plan-menu-config §4.2 特殊语义）：duel.enabled=false 时
         // "发起 / 接受"恒被拦（module.disabled）；"quit / gui"在"已在局中"时放行 ——
         // 关开关后进行中的对局仍可退出 / 重开界面，随后自然收尾；
@@ -864,6 +893,14 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 return;
             }
             if (args.length < 3) {
+                player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                        "duel.cancel-usage"));
+                return;
+            }
+            // D7 同族：cancel 的合法长度恰为 3（duel cancel <玩家名>），多敲的 token
+            // 同样不能被静默丢弃 —— 否则 GM 会以为 `/le duel cancel Bob now` 里的
+            // 附加条件生效了（实际只解散 Bob）。
+            if (args.length > 3) {
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "duel.cancel-usage"));
                 return;
@@ -1040,7 +1077,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                     }
                 });
             });
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 插件停用窗口（调度器已关闭）：放弃本次异步查询
         }
     }
@@ -1053,7 +1090,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     private void runTaskSafe(Runnable task) {
         try {
             Bukkit.getScheduler().runTask(plugin, task);
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 插件停用窗口：放弃主线程回调
         }
     }

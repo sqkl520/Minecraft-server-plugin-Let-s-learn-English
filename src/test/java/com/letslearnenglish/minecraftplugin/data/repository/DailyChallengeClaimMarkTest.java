@@ -703,6 +703,59 @@ class DailyChallengeClaimMarkTest {
     }
 
     // ==================================================================
+    // 用例 10：D9 —— degradeStale 必须写 abandoned=1（否则该列是死列）
+    // ==================================================================
+
+    /**
+     * {@code degradeStale} 除了写 {@code completed=1, claimed=1}，<b>还必须</b>写
+     * {@code abandoned=1}。
+     *
+     * <h3>为什么这条必须有（只加 schema 不加写入方 = 死列）</h3>
+     * <p>报表 Q8 的分子改用 {@code completed = 1 AND COALESCE(abandoned, 0) = 0}
+     * 之后，若 {@code degradeStale} 不写这一列，<b>报表行为一个字节都不会变</b>
+     * —— 而 schema 里那列永远读成 0，看起来一切正常。本用例是这条链路的写入端唯一守卫：
+     * 删掉 SET 里的 {@code abandoned = 1} 而不改任何断言，Q8 的修复会静默失效。</p>
+     *
+     * <h3>同时钉住「不越界改写」</h3>
+     * <p>SQL 的 WHERE 是 {@code completed = 0 AND claimed = 0}，即只降级"孩子确实没做"的行。
+     * 已完成未领取（{@code completed=1, claimed=0}）的行保留其应得奖励 —— 本用例播种这样
+     * 一行并断言 {@code claimed} 仍为 0、{@code abandoned} 仍为 0。否则一个忘了写 WHERE
+     * 的实现会把「孩子做完了在等领奖」也标成放弃，那是<b>少发钱</b>。</p>
+     */
+    @Test
+    @DisplayName("D9：degradeStale 写 completed=1/claimed=1/abandoned=1，且不动已完成的待领行")
+    void degradeStaleWritesAbandonedFlag() throws Exception {
+        // 该被降级的：孩子零进度、未完成未领取
+        seed(PLAYER, DATE, CHALLENGE, 0, false, false);
+        // 不该被动的：同一玩家、同一挑战，但孩子真做完了、只是在等领奖（另一天，
+        // 与该行不共享主键 —— 这样才能真正检验 WHERE 的 `completed = 0 AND claimed = 0`，
+        // 而不是靠 uuid/challenge_id 不匹配蒙对）
+        final String pendingDate = "2026-02-11";
+        seed(PLAYER, pendingDate, CHALLENGE, 10, true, false);
+
+        assertEquals(1, repo.degradeStale(PLAYER, DATE, CHALLENGE),
+                "零进度未完成未领取的那一行必须被降级（受影响 1 行）喵");
+
+        assertEquals(Boolean.TRUE, completedInDb(PLAYER, DATE, CHALLENGE), "降级必须置 completed=1");
+        assertEquals(Boolean.TRUE, claimedInDb(PLAYER, DATE, CHALLENGE), "降级必须置 claimed=1（堵住再完成分支）");
+        assertEquals(Integer.valueOf(1), abandonedInDb(PLAYER, DATE, CHALLENGE),
+                "degradeStale 必须写 abandoned=1 喵 —— 不写的话报表分子那处修复就是死的："
+                        + "列恒为 0，Q8 仍把系统放弃的算成孩子完成的。");
+
+        assertEquals(0, repo.degradeStale(PLAYER, pendingDate, CHALLENGE),
+                "completed=1 且 claimed=0 的行<b>不得</b>被降级（受影响 0 行）喵 —— "
+                        + "孩子做完了在等领奖，被标成放弃就是少发钱");
+        assertEquals(Boolean.FALSE, claimedInDb(PLAYER, pendingDate, CHALLENGE), "待领行的 claimed 必须仍是 0");
+        assertEquals(Integer.valueOf(0), abandonedInDb(PLAYER, pendingDate, CHALLENGE),
+                "待领行不得被标成 abandoned");
+
+        // 幂等：降级过的行再降级一次不得重复命中（WHERE 的 completed=0 已不成立）
+        assertEquals(0, repo.degradeStale(PLAYER, DATE, CHALLENGE),
+                "已降级的行再次调用必须 0 行 —— 否则重复调用会重复写同一行的状态");
+        assertEquals(Integer.valueOf(1), abandonedInDb(PLAYER, DATE, CHALLENGE), "幂等调用后 abandoned 仍是 1");
+    }
+
+    // ==================================================================
     // 夹具
     // ==================================================================
 
@@ -769,6 +822,31 @@ class DailyChallengeClaimMarkTest {
 
     private Boolean completedInDb(UUID playerId, String date, String challengeId) {
         return flagInDb("completed", playerId, date, challengeId);
+    }
+
+    /**
+     * 独立连接直读 {@code abandoned}（D9）。
+     *
+     * <p>返回 {@code Integer}（可 {@code null}）而不是 {@code boolean}：这一列要区分
+     * 「0 / 1 / NULL」三态 —— {@code getBoolean()} 会把 NULL 静默折成 {@code false}，
+     * 那样「迁移把存量行补成了什么值」这个必须被看见的事实就被抹掉了。
+     * 迁移用 {@code INT DEFAULT 0} 补列，新行与补过的旧行都应是 0，出现 NULL 即说明
+     * 迁移路径与本 DDL 不一致。
+     */
+    private Integer abandonedInDb(UUID playerId, String date, String challengeId) throws SQLException {
+        try (Connection c = DriverManager.getConnection(dbUrl());
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT abandoned FROM " + PREFIX + "daily_challenges"
+                             + " WHERE uuid = ? AND challenge_date = ? AND challenge_id = ?")) {
+            ps.setString(1, playerId.toString());
+            ps.setString(2, date);
+            ps.setString(3, challengeId);
+            try (ResultSet rs = ps.executeQuery()) {
+                assertTrue(rs.next(), "必须能读到那一行喵");
+                Object raw = rs.getObject(1);
+                return raw == null ? null : ((Number) raw).intValue();
+            }
+        }
     }
 
     private Boolean flagInDb(String column, UUID playerId, String date, String challengeId) {

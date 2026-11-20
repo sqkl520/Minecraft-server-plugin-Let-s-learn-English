@@ -775,7 +775,10 @@ public class RewardEngine {
      * <p><b>为什么保留同步退化路径</b>（三条都不牺牲正确性）：
      * <ol>
      *   <li>无调度器（DI 未就绪 / 单测直接 new 的本类）→ 就地写，行为与改动前逐字一致；</li>
-     *   <li>关服窗口 {@code runTaskAsynchronously} 抛 {@code IllegalStateException} →
+     *   <li>关服窗口 {@code runTaskAsynchronously} 抛 {@code IllegalPluginAccessException}
+     *       （Paper 的 {@code CraftScheduler.validate} 抛的是它，继承 {@code RuntimeException}
+     *       而<b>不是</b> {@code IllegalStateException}；本类用 {@code catch (RuntimeException)}
+     *       收口，故两种都接得住）→
      *       退回同步<b>尽力写一次</b>（比 {@code incrementTodayAnswerCount} 的「静默弃」
      *       更保守：日限账本丢一段会让重启后多发，不值得为了退出快 1ms 丢掉）；</li>
      *   <li>写失败 / 库不可用仍由 {@code withConnection} 记 WARNING 并降级，本方法不吞错。</li>

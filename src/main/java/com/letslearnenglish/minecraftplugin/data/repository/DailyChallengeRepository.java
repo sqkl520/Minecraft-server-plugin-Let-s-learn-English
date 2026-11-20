@@ -212,8 +212,17 @@ public class DailyChallengeRepository {
 
     /**
      * R-21：把某玩家某日指定挑战中"既未完成也未领取"的行直接标记为 completed+claimed
-     * （自动放弃，不发奖励）。SQL 只动 {@code completed = 0 AND claimed = 0} 的行，
-     * 已完成未领取（completed=1、claimed=0）的行保留其应得奖励。
+     * 并置 {@code abandoned = 1}（自动放弃，不发奖励）。SQL 只动
+     * {@code completed = 0 AND claimed = 0} 的行，已完成未领取（completed=1、claimed=0）
+     * 的行保留其应得奖励。
+     *
+     * <p><b>D9：{@code abandoned = 1} 是这一行的业务身份。</b>降级写出的
+     * {@code completed=1/claimed=1} 与"玩家真完成并已领"在列值上完全相同，
+     * {@code progress} 也不能当判据（{@code COMBO_5} 走二进制完成时 progress 同样是 0）。
+     * 报表 Q8（{@link ReportRepository#countDailyChallengesOrFail}）的分子据此剔除，
+     * 否则家长报表里的"本期完成挑战数"会把系统放弃的也数成孩子做的。
+     * 降级行的 {@code claimed=1} 会让所有"再完成"分支（均带 {@code claimed = 0} 护栏）
+     * 永久失效，因此本标记一旦写下不会被撤销。
      *
      * <p>原 SQL 出处：{@code DailyChallengeManager:382}（{@code degradeStaleChallenges}）。</p>
      *
@@ -226,7 +235,7 @@ public class DailyChallengeRepository {
      */
     public int degradeStale(UUID playerId, String date, String challengeId) {
         String sql = "UPDATE " + prefix()
-                + "daily_challenges SET completed = 1, claimed = 1 "
+                + "daily_challenges SET completed = 1, claimed = 1, abandoned = 1 "
                 + "WHERE uuid = ? AND challenge_date = ? AND challenge_id = ? "
                 + "AND completed = 0 AND claimed = 0";
         synchronized (db.getConnectionLock()) {

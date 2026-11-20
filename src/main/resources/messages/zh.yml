@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 27
+config-version: 28
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -52,6 +52,10 @@ word:
   mode-fill_blank: "填空题"
   mode-disabled: "{prefix}&c该学习模式已被服务器管理员关闭喵~"
   no-modes-enabled: "{prefix}&c所有学习模式都被关闭了喵~ 请联系管理员"
+  # D7：/le word 的合法形态只有 <难度> 与 <难度> <模式>，多余 token 不再被静默丢弃。
+  # usage 刻意不带 {prefix}：它被当作实参塞进 extra-arguments 的 {usage}，带前缀会出现两个前缀。
+  usage: "&e用法: /le word <难度> [模式]"
+  extra-arguments: "{prefix}&c多余的参数: &e{extra}&c。用法: &e{usage}"
 
 review:
   notification: "{prefix}&6你有 &e{count} &6个单词需要复习！输入 &e/le review &6开始复习"

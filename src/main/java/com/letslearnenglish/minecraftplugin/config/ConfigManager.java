@@ -58,7 +58,7 @@ public class ConfigManager {
      * 迁移后写回的版本号与 JAR 资源不一致，下次升级会重复合并；少了"键集合指纹"，
      * 改了 yml 却忘了 bump 版本号时无人发现。</p>
      */
-    private static final int MESSAGE_CONFIG_VERSION = 27;
+    private static final int MESSAGE_CONFIG_VERSION = 28;
 
     /** 受支持语言的两个 canonical 取值（也是 {@code messages/*.yml} 的文件名主干）。 */
     private static final String LANG_ZH = "zh";

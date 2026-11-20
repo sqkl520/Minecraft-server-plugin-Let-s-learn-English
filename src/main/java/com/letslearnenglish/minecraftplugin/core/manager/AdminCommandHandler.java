@@ -16,6 +16,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.IllegalPluginAccessException;
 
 import java.io.File;
 import java.io.IOException;
@@ -1246,7 +1247,7 @@ public class AdminCommandHandler {
     private void runClassAsync(Runnable task) {
         try {
             plugin.getServer().getScheduler().runTaskAsynchronously(plugin, task);
-        } catch (IllegalStateException e) {
+        } catch (IllegalPluginAccessException | IllegalStateException e) {
             plugin.getLogger().fine("Class task skipped: scheduler unavailable (plugin disabling).");
         }
     }
@@ -1262,7 +1263,7 @@ public class AdminCommandHandler {
         }
         try {
             plugin.getServer().getScheduler().runTask(plugin, action);
-        } catch (IllegalStateException e) {
+        } catch (IllegalPluginAccessException | IllegalStateException e) {
             // 调度器已在停用窗口关闭：放弃本次投递
         }
     }

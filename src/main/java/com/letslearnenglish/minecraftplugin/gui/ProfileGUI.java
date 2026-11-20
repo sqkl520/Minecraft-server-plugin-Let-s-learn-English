@@ -19,6 +19,7 @@ import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
+import org.bukkit.plugin.IllegalPluginAccessException;
 
 import java.util.*;
 import java.util.function.Function;
@@ -569,11 +570,11 @@ public class ProfileGUI {
                     scheduler.runTask(plugin, () -> placeProfileData(
                             viewer, target, opened, snapshot, hideResults,
                             achievementsEnabled, duelRowRendered, coinsAsync, messages, msg));
-                } catch (IllegalStateException ignored) {
+                } catch (IllegalPluginAccessException | IllegalStateException ignored) {
                     // 关服竞态：调度器已关闭，放弃本次回填（玩家也已不可能看到结果）
                 }
             });
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 插件停用窗口（调度器已关闭）：各槽留在「加载中」，界面不会露出
         }
     }

@@ -107,6 +107,11 @@ CREATE TABLE IF NOT EXISTS {prefix}daily_challenges (
     progress INT DEFAULT 0,
     completed BOOLEAN DEFAULT 0,
     claimed BOOLEAN DEFAULT 0,
+    -- 1 = 系统自动放弃（degradeStale 写入 completed=1/claimed=1 的同时置 1）。
+    -- 报表 Q8 的分子据此剔除：否则「玩家没做完、跨天被降级」与「玩家真完成」同形，
+    -- 家长看到的「本期完成挑战数」系统性偏高。用 INT 而非 BOOLEAN：MySQL/SQLite 双后端
+    -- 默认值口径统一，且与 seasons.ledger_pending 等标记列同款。
+    abandoned INT DEFAULT 0,
     PRIMARY KEY (uuid, challenge_date, challenge_id)
 );
 

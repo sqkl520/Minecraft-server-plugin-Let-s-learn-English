@@ -67,6 +67,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.plugin.IllegalPluginAccessException;
 import org.bukkit.scheduler.BukkitTask;
 
 public final class LetsLearnEnglish extends JavaPlugin {
@@ -1492,13 +1493,13 @@ public final class LetsLearnEnglish extends JavaPlugin {
                                 scheduleNextMidnightRollover();
                             }
                         });
-                    } catch (IllegalStateException ignored) {
+                    } catch (IllegalPluginAccessException | IllegalStateException ignored) {
                         // 插件停用窗口（调度器已关）：两段链终止。isEnabled 已为 false，
                         // 自续本就不会重排（scheduleNextMidnightRollover 首行守卫）。
                     }
                 });
                 modules().track(asyncPhase);
-            } catch (IllegalStateException ignored) {
+            } catch (IllegalPluginAccessException | IllegalStateException ignored) {
                 // 停用窗口：异步段未派发，无自续需求（同上）。
             }
         }, delayTicks);

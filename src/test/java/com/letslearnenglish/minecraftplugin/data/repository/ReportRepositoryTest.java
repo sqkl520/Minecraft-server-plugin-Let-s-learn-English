@@ -7,7 +7,6 @@ import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -874,9 +873,10 @@ class ReportRepositoryTest {
     //       Q9（批量学习天数 = COUNT(*)）遇重复行一起算多，而成就墙
     //       （AchievementRepository.countDistinctStudyDays）用 COUNT(DISTINCT) —— 同
     //       一个"学习天数"在报告与成就墙给出不同数字。
-    //   (2) 【D2】Q8 的 COUNT(*) 把 degradeStale 写的"自动放弃"行算进"本期完成"分子
+    //   (2) 【D2 · 已在 D9 修复】Q8 的分子把 degradeStale 写的"自动放弃"行算进"本期完成"
     //       （它写 completed=1, claimed=1）。发钱面为零（降级路径显式拒发），但报告会
-    //       说"完成 3/3"而孩子只做了 2 个。
+    //       说"完成 3/3"而孩子只做了 2 个。现由 abandoned 列剔除（schema + 迁移 +
+    //       degradeStale 写入 + 分子 COALESCE 四步）。
     //   (3) 【D3 已证伪】初始假设是"MySQL 的 <= 23:59:59 上界丢最后一秒"，在真实
     //       MariaDB 13.0.2 上被证伪（TIMESTAMP(0) 截断小数秒，两分支等价）。留下的是
     //       一条"两分支等价"的回归护栏 + 一条非 UTC 时区换算的事实钉桩。
@@ -938,10 +938,10 @@ class ReportRepositoryTest {
     }
 
     /**
-     * 【D2 · round28 复核定级 LOW-MEDIUM，<b>不修</b>，理由已更新】
-     * Q8 的"本期完成每日挑战 done/all"分子把 {@code degradeStale} 的"自动放弃"算成"完成"。
+     * 【D2 · 已修（D9）】Q8 的"本期完成每日挑战 done/all"分子曾把 {@code degradeStale}
+     * 的"自动放弃"算成"完成"，现由 {@code abandoned} 列剔除。
      *
-     * <p>缺陷本体（{@code ReportRepository.countDailyChallengesOrFail}）：
+     * <p>缺陷本体（{@code ReportRepository.countDailyChallengesOrFail} 的旧分子）：
      * <pre>
      *   SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) AS done,   -- 只认 completed=1
      *   COUNT(*) AS total                                          -- 窗口内全部行
@@ -952,7 +952,7 @@ class ReportRepositoryTest {
      * 不发奖励"，见 {@code DailyChallengeManager.degradeStaleChallenges}）。降级行在报告
      * 里与"孩子真的完成了"同形。
      *
-     * <h2>round28 复核：<b>不是</b>死路径（原假设「AI 关了就不分配」不成立）</h2>
+     * <h2>为什么这条路径<b>不是</b>死路径（原假设「AI 关了就不分配」不成立）</h2>
      * 分配侧确实过滤不可用类型（{@code doCheckAndAssign} 只从 {@code isChallengeAvailable}
      * 为真的集合里抽），所以<b>从未有过 AI Key 的服</b>抽不到 {@code AI_CHAT_5}。但
      * {@code isChallengeAvailable(AI_CHAT_5)} 读的是<b>当下</b>的
@@ -968,82 +968,96 @@ class ReportRepositoryTest {
      * </ul>
      * 结论：可达，但需要"当天先可用、后不可用"这个额外条件，正常服不触发。
      *
-     * <h2>为什么本轮<b>不修</b></h2>
-     * 修法必须是加列（{@code abandoned INTEGER DEFAULT 0}）而不是纯 SQL：
-     * {@code completed=1, claimed=1} 两态对"真完成"与"降级"完全相同，且 {@code progress=0}
-     * 不能当判据 —— {@code COMBO_5} 走 {@code completeChallenge} 二进制完成时 {@code progress}
-     * 同样是 0（见下一条测试）。而加列之后<b>必须由 {@code degradeStale} 写
-     * {@code abandoned=1}</b>，否则这一列永远是 0、Q8 一个字节都不会变 ——
-     * 那个写入点在 {@code DailyChallengeRepository}，<b>不在本轮可写范围</b>（本轮只授权
-     * {@code ReportRepository} / 本测试 / {@code schema.sql} / {@code DatabaseManager} 的加列 DDL）。
-     * 只改 schema 不改写入方 = 交付一个恒为 0 的死列，比不加更糟。
-     *
-     * <p>影响面复核（决定"值不值"）：零下游自动消费 —— 报告只写 {@code exports/reports/*.txt}
-     * 给服主/管理员看（{@code /lea report}，{@code default: op}），无代码读这些 TXT、
-     * 统计服务不碰、无 PAPI 占位符。方向是<b>多报</b>（把没做算成做了），金额面为零。
-     *
-     * <p><b>下一轮若要修</b>：schema 加 {@code abandoned INTEGER DEFAULT 0} +
-     * {@code addColumnIfMissing} 迁移 + {@code degradeStale} 的 SET 增 {@code abandoned = 1}
-     * + 本方法分子改 {@code completed = 1 AND abandoned = 0}。其余写路径
-     * （{@code assignAll} 显式列、{@code complete} 只置 completed、
+     * <h2>D9 修法与证据链（四步缺一不可）</h2>
+     * <ol>
+     *   <li>{@code schema.sql} + {@code createTables()} 加 {@code abandoned INT DEFAULT 0}；</li>
+     *   <li>{@code addColumnIfMissing} 给存量库补列（否则升级服 prepare 阶段报
+     *       {@code no such column: abandoned}）—— 由 {@code UpgradeMigrationTest} 的
+     *       {@code upgradedSchemaCoversFreshSchema} 守着；</li>
+     *   <li>{@code degradeStale} 的 SET 增 {@code abandoned = 1} —— 少了这一步就是交付一个
+     *       恒为 0 的死列，本类用例会用独立连接造 {@code abandoned=1} 行的方式验分母，
+     *       写入侧则由 {@code DailyChallengeClaimMarkTest} 真跑 {@code degradeStale} 钉住；</li>
+     *   <li>本方法分子改 {@code completed = 1 AND COALESCE(abandoned, 0) = 0}。</li>
+     * </ol>
+     * 其余写路径（{@code assignAll} 显式列、{@code complete} 只置 completed、
      * {@code advanceChallengeProgress} 的 CASE、{@code markClaimedOrFail} 只置 claimed）
-     * 都是默认 0，且降级行的 {@code claimed=1} 会让所有"再完成"分支（均带 {@code claimed = 0}
-     * 护栏）永久失效，因此 {@code abandoned=1} 一旦写下不会被撤销 —— 迁移安全。
+     * 都不碰该列，走建表默认 0；降级行的 {@code claimed=1} 会让所有"再完成"分支
+     * （均带 {@code claimed = 0} 护栏）永久失效，因此 {@code abandoned=1} 一旦写下不会被撤销
+     * —— 迁移安全。
+     *
+     * <p>影响面：零下游自动消费 —— 报告只写 {@code exports/reports/*.txt}
+     * 给服主/管理员看（{@code /lea report}，{@code default: op}），无代码读这些 TXT、
+     * 统计服务不碰、无 PAPI 占位符。方向原本是<b>多报</b>（把没做算成做了），金额面为零。
      */
     @Test
-    @Disabled("不修（LOW-MEDIUM，本轮越界）：需加 abandoned 列并由 degradeStale 写入，"
-            + "该写入点在 DailyChallengeRepository —— 不在本轮可写范围。"
-            + "只加列不改写入方会得到一个恒为 0 的死列。"
-            + "非死路径：/lea reload 重读 ai_config.yml，Key 中途失效时 AI_CHAT_5 当日即可被降级。"
-            + "本测试断言的是期望行为 —— 摘掉 @Disabled 即红。")
-    @DisplayName("【D2】【期望】自动放弃（degradeStale）的挑战不应计入'本期完成'")
+    @DisplayName("【D2】自动放弃（degradeStale）的挑战不应计入'本期完成'")
     void d2AutoAbandonedChallengeShouldNotCountAsCompleted() throws Exception {
         // 孩子真的完成 1 个
         insertChallenge(PLAYER, "2026-01-05", "answer_10", true);
-        // 另外 2 个是 R-21 降级写的：completed=1, claimed=1，孩子一个都没做
-        insertChallengeClaimedNoWork(PLAYER, "2026-01-05", "ai_chat_5");
-        insertChallengeClaimedNoWork(PLAYER, "2026-01-06", "ai_chat_5");
+        // 另外 2 个是 R-21 降级写的：completed=1, claimed=1, abandoned=1，孩子一个都没做
+        insertAbandonedChallenge(PLAYER, "2026-01-05", "ai_chat_5");
+        insertAbandonedChallenge(PLAYER, "2026-01-06", "ai_chat_5");
 
         ReportRepository.ChallengeRows r =
                 repo.countDailyChallengesOrFail(PLAYER, "2026-01-05", "2026-01-07");
         assertTrue(r.complete());
         assertEquals(1, r.progress().done(),
-                "孩子实际只亲手完成 1 个。现状得到 3（两个降级行也算 completed=1）—— "
+                "孩子实际只亲手完成 1 个。修复前得到 3（两个降级行也算 completed=1）—— "
                         + "家长看到'本期完成每日挑战 3/3'，其中 2/3 是系统放弃的。");
-    }
-
-    /** 造一行"降级形态"的挑战：completed=1 + claimed=1 但 progress=0（孩子零进度）。 */
-    private void insertChallengeClaimedNoWork(UUID id, String date, String challengeId)
-            throws Exception {
-        exec("INSERT INTO " + PREFIX + "daily_challenges"
-                + " (uuid, challenge_date, challenge_id, progress, completed, claimed)"
-                + " VALUES ('" + id + "', '" + date + "', '" + challengeId + "', 0, 1, 1)");
+        assertEquals(3, r.progress().total(),
+                "分母<b>刻意不改</b>：降级行代表'当天系统确实给过他这张挑战'。"
+                        + "把它从分母剔除会让完成率变成 1/1 而不是 1/3，等于把一次没做完粉饰成满分。");
     }
 
     /**
-     * 【D2 附带事实】降级行与真实完成行在报告 SQL 里不可区分 —— 钉住"为什么 D2 不能
-     * 纯 SQL 修"。degradeStale 写出的行（completed=1/claimed=1/progress=0）与"玩家真的
-     * 完成并已领"（completed=1/claimed=1/progress=target）唯一差别是 progress，而
-     * progress=0 又是 COMBO_5 二进制完成的合法形态。三态没有正交的列组合可判。
+     * 造一行"系统自动放弃"的挑战：{@code completed=1 + claimed=1 + abandoned=1} 但
+     * {@code progress=0}（孩子零进度）。这正是 {@code degradeStale} 写出的形态。
+     */
+    private void insertAbandonedChallenge(UUID id, String date, String challengeId)
+            throws Exception {
+        exec("INSERT INTO " + PREFIX + "daily_challenges"
+                + " (uuid, challenge_date, challenge_id, progress, completed, claimed, abandoned)"
+                + " VALUES ('" + id + "', '" + date + "', '" + challengeId + "', 0, 1, 1, 1)");
+    }
+
+    /**
+     * 【D2 反过度修复】{@code abandoned} 是<b>唯一</b>判据：{@code progress=0} 的
+     * <b>合法</b>完成行不能被误剔。
+     *
+     * <p>{@code COMBO_5} 这类挑战走 {@code completeChallenge} 的二进制完成路径 ——
+     * 直接置 {@code completed=1}，{@code progress} 保持 0。它的列组合
+     * （{@code completed=1, claimed=1, progress=0, abandoned=0}）与降级行只差
+     * {@code abandoned} 这一列。如果哪天有人"顺手"把分子改成
+     * {@code completed = 1 AND progress > 0} 或 {@code progress > 0}，玩家真做完的连击挑战
+     * 就会从"已完成"里消失 —— 那是<b>少报</b>，比原来的多报更难被发现（家长只会觉得孩子
+     * 做得少）。本用例钉住反向：只有 {@code abandoned=1} 才剔除。
+     *
+     * <p>同时钉住 {@code COALESCE} 的兜底语义：{@code abandoned} 为 {@code NULL} 的存量行
+     * （迁移补列后旧 SQLite 可能不回填）必须按"未放弃"计入，不能被 {@code abandoned = 0}
+     * 的 NULL 三值逻辑静默排除。
      */
     @Test
-    @DisplayName("【D2 附带】降级行与真实完成行在报告 SQL 里不可区分（progress=0 也不可靠）")
-    void d2DegradedRowIsIndistinguishableFromRealCompletion() throws Exception {
-        // 真完成并已领取
+    @DisplayName("【D2 反过度修复】progress=0 的合法完成行与 abandoned=NULL 的存量行都必须计入")
+    void d2OnlyAbandonedFlagExcludesARowNotZeroProgress() throws Exception {
+        // COMBO_5 式二进制完成：completed=1, claimed=1, progress=0, abandoned=0（默认）
         exec("INSERT INTO " + PREFIX + "daily_challenges"
                 + " (uuid, challenge_date, challenge_id, progress, completed, claimed)"
-                + " VALUES ('" + PLAYER + "', '2026-01-05', 'answer_10', 10, 1, 1)");
-        // 降级（自动放弃）
-        insertChallengeClaimedNoWork(PLAYER, "2026-01-06", "ai_chat_5");
+                + " VALUES ('" + PLAYER + "', '2026-01-05', 'combo_5', 0, 1, 1)");
+        // 迁移补列后的存量行：abandoned 为 NULL（旧 SQLite 的 ADD COLUMN 不回填）
+        exec("INSERT INTO " + PREFIX + "daily_challenges"
+                + " (uuid, challenge_date, challenge_id, progress, completed, claimed, abandoned)"
+                + " VALUES ('" + PLAYER + "', '2026-01-06', 'answer_10', 10, 1, 1, NULL)");
+        // 真正的降级行（唯一该被剔除的形态）
+        insertAbandonedChallenge(PLAYER, "2026-01-07", "ai_chat_5");
 
         ReportRepository.ChallengeRows r =
                 repo.countDailyChallengesOrFail(PLAYER, "2026-01-05", "2026-01-07");
-        assertEquals(2, r.progress().done(), "报告 SQL 只看 completed=1，两行都计入。");
-
-        assertEquals(1, scalar("SELECT COUNT(*) FROM " + PREFIX + "daily_challenges"
-                        + " WHERE uuid = '" + PLAYER + "' AND completed = 1 AND claimed = 1"
-                        + " AND progress = 0"),
-                "progress=0 不能当降级判据：COMBO_5 走二进制完成时 progress 也是 0。");
+        assertTrue(r.complete());
+        assertEquals(2, r.progress().done(),
+                "前两行都必须计入：progress=0 不是放弃判据（COMBO_5 就是 0 进度完成），"
+                        + "abandoned=NULL 也不能被 `abandoned = 0` 的三值逻辑顺手排掉 —— "
+                        + "这正是分子用 COALESCE(abandoned, 0) 而不是裸 abandoned = 0 的原因。");
+        assertEquals(3, r.progress().total(), "分母仍含降级行（见下一条用例的说明）");
     }
 
     /**

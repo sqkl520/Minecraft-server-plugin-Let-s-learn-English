@@ -15,6 +15,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.plugin.IllegalPluginAccessException;
 import org.bukkit.scheduler.BukkitScheduler;
 
 import java.text.SimpleDateFormat;
@@ -196,7 +197,7 @@ public class WrongBookGUI {
                     render(player, entries, safePage, totalPages);
                 });
             });
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 插件停用窗口（调度器已关闭）：放弃本次打开（玩家也已不可能看到界面）。
         }
     }
@@ -338,16 +339,17 @@ public class WrongBookGUI {
     }
 
     /**
-     * R19-GUI2：把「异步段 → 主线程段」的调度收成一处，带 {@code IllegalStateException} 守卫。
+     * R19-GUI2：把「异步段 → 主线程段」的调度收成一处，带关服窗口守卫。
      *
-     * <p>关服竞态下 {@code runTask} 会抛 {@code IllegalStateException}；此时玩家必然已
-     * 下线/不可能看到界面，静默放弃是正确终态。单测里调度器被就地同步执行，本方法
-     * 只是一次直调（无额外 tick）。
+     * <p>关服竞态下 {@code runTask} 会抛 {@code IllegalStateException}；停用窗口抛的是
+     * 它的兄弟 {@code IllegalPluginAccessException}（两者无继承关系，必须并列捕获）。
+     * 此两种情况下玩家必然已下线/不可能看到界面，静默放弃是正确终态。单测里调度器被
+     * 就地同步执行，本方法只是一次直调（无额外 tick）。
      */
     private void runOnMain(BukkitScheduler scheduler, Runnable action) {
         try {
             scheduler.runTask(plugin, action);
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 关服竞态：调度器已关闭，放弃本次回主线程
         }
     }

@@ -23,6 +23,7 @@ import com.letslearnenglish.minecraftplugin.data.DifficultWord;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.LeaderboardEntry;
 import com.letslearnenglish.minecraftplugin.core.word.LearningSession;
+import org.bukkit.plugin.IllegalPluginAccessException;
 
 /**
  * Player Data Store
@@ -214,8 +215,13 @@ public class PlayerDataStore {
     private void runIfSameEpoch(UUID playerId, Runnable task) {
         AtomicLong epoch = playerCacheEpoch.computeIfAbsent(playerId, k -> new AtomicLong());
         long at = epoch.get();
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin,
-                () -> { if (epoch.get() == at) { task.run(); } });
+        try {
+            plugin.getServer().getScheduler().runTaskAsynchronously(plugin,
+                    () -> { if (epoch.get() == at) { task.run(); } });
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
+            // 关服窗口调度器已关：静默弃（与同类派发点同口径 —— 停用窗口里迟到的
+            // 写本来就会被 unloadPlayerData 的落盘覆盖，丢掉它是正确终态）。
+        }
     }
 
     public PlayerDataStore(LetsLearnEnglish plugin, DatabaseManager databaseManager) {
@@ -420,7 +426,7 @@ public class PlayerDataStore {
         try {
             plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () ->
                     databaseManager.incrementDailyAnswerCount(playerId, todayStr)); // ③ 异步落库
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 关服窗口调度器已关：静默弃（与 R2-H1 纪律一致）
         }
         return v;
@@ -476,7 +482,7 @@ public class PlayerDataStore {
         try {
             plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () ->
                     databaseManager.incrementAiRound(playerId, todayStr)); // ③ 异步落库
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 关服窗口调度器已关：静默弃（与 R2-H1 纪律一致）
         }
         return v;
@@ -503,7 +509,7 @@ public class PlayerDataStore {
         try {
             plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () ->
                     databaseManager.decrementAiRound(playerId, todayStr));
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 关服窗口调度器已关：静默弃（与 R2-H1 纪律一致）
         }
         return v;

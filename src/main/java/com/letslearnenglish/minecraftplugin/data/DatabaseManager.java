@@ -673,9 +673,18 @@ public class DatabaseManager {
                         "  progress INT DEFAULT 0," +
                         "  completed BOOLEAN DEFAULT 0," +
                         "  claimed BOOLEAN DEFAULT 0," +
+                        // D9：1 = 系统自动放弃（degradeStale 在写 completed=1/claimed=1 时一并置 1）。
+                        // 报表 countDailyChallengesOrFail 的分子据此剔除，否则「没做完被降级」
+                        // 与「玩家真完成」同形，家长报表的完成数系统性偏高。用 INT 不用 BOOLEAN：
+                        // MySQL/SQLite 双后端默认值与读取口径统一（同 seasons.ledger_pending）。
+                        "  abandoned INT DEFAULT 0," +
                         "  PRIMARY KEY (uuid, challenge_date, challenge_id)" +
                         ")"
         );
+        // D9 老库补列：存量库的 daily_challenges 没有 abandoned，不补则上面那列只在
+        // 全新安装存在 —— 升级服第一次跑 degradeStale / 报表 Q8 就在 prepare 阶段抛
+        // `no such column: abandoned`（R14 缺陷的同款形态，见 SchemaSqlConsistencyTest）。
+        addColumnIfMissing(tablePrefix + "daily_challenges", "abandoned", "INT DEFAULT 0");
 
         executeUpdate(
                 "CREATE TABLE IF NOT EXISTS " + tablePrefix + "daily_challenge_words (" +
@@ -3680,43 +3689,40 @@ public class DatabaseManager {
     /**
      * 鼓励者名单本体（"谁鼓励了我"）。
      *
-     * <p><b>隐私（D3）：读取侧过滤鼓励者自己的 {@code show_in_square}</b>，口径与榜单/
-     * 动态流完全一致（{@code LEFT JOIN player_profiles} + {@code COALESCE(...,1) <> 0}，
-     * 见 {@link #getTopCoins} / {@link #getFeedCacheRows}）。「无档案行视为可见」沿用
-     * 既有口径：{@code COALESCE} 的默认值是 1，与"新玩家默认公开"同源。
-     *
-     * <p><b>为什么这条过滤必须存在</b>：{@code showInSquare} 此前只挡住了「我作为<b>作者</b>
-     * 被展示」（{@link #getFeedCacheRows} 的 JOIN），没挡住「我作为<b>鼓励者</b>被点名」。
-     * 于是关掉广场展示的玩家，名字仍会出现在别人动态的「谁鼓励了我」里 —— <b>单向泄露</b>，
-     * 且他自己界面上看不出来（他看不到别人的鼓励名单）。这不是 plan-social §1.6 那条
-     * 已文档化的边界（「A 隐身期间收到的鼓励离线摘要照常发送」—— 那是发给作者本人、
-     * 只含条数不含名字），而是把鼓励者的身份递给第三方。
-     *
-     * <p><b>SQL 结构说明（别名/聚合，双后端兼容）</b>：
+     * <p><b>本方法刻意不过滤鼓励者自己的 {@code show_in_square} —— 这是产品裁决，
+     * 不是遗漏。</b>裁决口径（用户在 R31 明确，原话：「隐身管的是其动态可不可见，
+     * 不是其（比如鼓励）操作」）：
      * <ul>
-     *   <li>名字走 {@code player_data p}（别名 {@code p} 已被占用），故 profiles 用别名
-     *       {@code pr}；{@code player_profiles.uuid} 是主键，一鼓励者至多一行，
-     *       不会让结果行数翻倍。</li>
-     *   <li>{@code show_in_square} 只出现在 {@code WHERE} 里、不进 {@code SELECT}，
-     *       因此 {@code GROUP BY c.cheerer_uuid, c.created_at} 与 {@code MAX(p.player_name)}
-     *       的语义<b>逐字不变</b>，MySQL {@code ONLY_FULL_GROUP_BY} 与 SQLite 均合法。</li>
-     *   <li>过滤发生在 {@code GROUP BY} 之前，且每个 {@code cheerer_uuid} 只对应
-     *       profiles 的一行 —— 故 WHERE 是「整组保留 / 整组丢弃」，不会出现
-     *       「同一人只露一半名字」这种半过滤形态。</li>
+     *   <li>{@code showInSquare == false} 的语义边界只有一条：<b>「我的动态」</b>
+     *       （我在广场上发的那条 feed）不对他人展示。它由
+     *       {@link #getFeedCacheRows} 的 {@code LEFT JOIN player_profiles} 实现。</li>
+     *   <li>它<b>不遮蔽我的「操作」</b>（鼓励、签到等）留下的可见痕迹。鼓励是一次<b>操作</b>，
+     *       不是一条<b>动态</b>；「谁鼓励了我」记的是操作，故不套用动态的可见性开关。</li>
+     *   <li>因此隐身玩家的名字<b>仍然出现</b>在别人动态的鼓励者名单里，也仍然出现在
+     *       {@code notify-online} 的即时提醒里 —— 两者都是「操作痕迹」，同一条口径。</li>
      * </ul>
      *
-     * <p>列表因此可能比 {@code social_feed.cheer_count} 短（甚至为空）—— 那是隐私过滤的
-     * 预期结果，调用方不得据此认为「数据不一致」。
+     * <p><b>不要"顺手补上"这条过滤。</b> 本项目曾经加过
+     * {@code LEFT JOIN player_profiles pr} + {@code COALESCE(pr.show_in_square,1) <> 0}
+     * 把它当成「隐私单向泄露」来修，被用户判定为<b>过度解读</b>并回退 ——
+     * 那是把「动态可见性」开关错误地升格成了「一切行为痕迹的总开关」。
+     * 榜单（{@link #getTopCoins}）与动态流（{@link #getFeedCacheRows}）过滤
+     * {@code show_in_square} 是因为它们展示的正是<b>动态/展示面貌</b>，与本方法不同源。
+     *
+     * <p><b>名字来源与一致性</b>：名字走 {@code LEFT JOIN player_data p} 取，
+     * 查不到行或无名字时回落 uuid（见下方读取循环）。正因为<b>没有</b>额外的过滤，
+     * 名单长度应当与 {@code social_feed.cheer_count} 对得上（唯一例外是 {@code limit}
+     * 截断，以及历史遗留的、{@code player_data} 已被清理的孤儿鼓励行 —— 后者回落 uuid，
+     * 不会凭空少人）。
      */
     public CheerersLoad loadCheerers(long feedId, int limit) {
         List<String> names = new ArrayList<>();
         String sql = "SELECT c.cheerer_uuid, MAX(p.player_name) AS player_name"
                 + " FROM " + tablePrefix + "social_cheers c"
                 + " LEFT JOIN " + tablePrefix + "player_data p ON p.uuid = c.cheerer_uuid"
-                // D3：鼓励者的隐私过滤（与 getTopCoins / getFeedCacheRows 同口径）。
-                // 别名必须与上面的 player_data 区分开，否则名字列会被 profiles 的 JOIN 覆盖。
-                + " LEFT JOIN " + tablePrefix + "player_profiles pr ON pr.uuid = c.cheerer_uuid"
-                + " WHERE c.feed_id = ? AND COALESCE(pr.show_in_square, 1) <> 0"
+                // 刻意不 JOIN player_profiles：showInSquare 管「我的动态是否可见」，
+                // 不管「我的鼓励操作留下的痕迹是否可见」（用户 R31 裁决）。
+                + " WHERE c.feed_id = ?"
                 + " GROUP BY c.cheerer_uuid, c.created_at"
                 + " ORDER BY c.created_at ASC LIMIT ?";
         synchronized (connectionLock) {

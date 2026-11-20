@@ -17,6 +17,7 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.plugin.IllegalPluginAccessException;
 
 import java.sql.Timestamp;
 import java.text.ParseException;
@@ -191,11 +192,11 @@ public class ChatHistoryGUI {
                         if (OPEN_SEQ_BY_PLAYER.getOrDefault(playerId, -1L) != token) return;
                         openWithData(player, effPage, totalSessions, sessions, previews);
                     });
-                } catch (IllegalStateException ignored) {
+                } catch (IllegalPluginAccessException | IllegalStateException ignored) {
                     // 关服竞态：调度器已关闭，放弃本次渲染
                 }
             });
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 插件停用窗口（调度器已关闭）：放弃本次打开
         }
     }
@@ -389,11 +390,11 @@ public class ChatHistoryGUI {
                         if (OPEN_SEQ_BY_PLAYER.getOrDefault(playerId, -1L) != token) return;
                         openSessionWithData(player, sessionId, returnPage, messages, feedback);
                     });
-                } catch (IllegalStateException ignored) {
+                } catch (IllegalPluginAccessException | IllegalStateException ignored) {
                     // 关服竞态：调度器已关闭，放弃本次渲染
                 }
             });
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
             // 插件停用窗口（调度器已关闭）：放弃本次打开
         }
     }

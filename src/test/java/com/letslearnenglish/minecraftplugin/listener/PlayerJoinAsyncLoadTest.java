@@ -10,6 +10,7 @@ import com.letslearnenglish.minecraftplugin.util.MessageUtil;
 import org.bukkit.Server;
 import org.bukkit.entity.Player;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.plugin.IllegalPluginAccessException;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -68,7 +69,8 @@ import static org.mockito.Mockito.when;
  *       内存态（它不会再被 quit 清一次）。{@link #joinQuitRaceMustNotRepopulateCache()}
  *       用「profile 缓存键已消失」模拟 quit，要求预热自我作废；</li>
  *   <li><b>进服路径不许抛</b>：异步段里未捕获的异常会变成一条与真实原因无关的裸堆栈，
- *       调度器不可用时 {@code IllegalStateException} 也不许冒出去。</li>
+ *       调度器不可用时 {@code IllegalPluginAccessException}（真实类型，不是
+ *       {@code IllegalStateException} 的子类）也不许冒出去。</li>
  * </ol>
  *
  * <h2>为什么用 mock 而不是真库</h2>
@@ -412,18 +414,22 @@ class PlayerJoinAsyncLoadTest {
     }
 
     /**
-     * 插件停用窗口：{@code runTaskAsynchronously} 抛 {@code IllegalStateException}
+     * 插件停用窗口：{@code runTaskAsynchronously} 抛 {@code IllegalPluginAccessException}
      * （调度器已关闭）时，join 必须照常走完 —— <b>进服路径不许因为预热而抛</b>。
      *
      * <p>这是「宁可少预热一个，也不要让玩家进不来」的直接落地。
+     *
+     * <p><b>类型是真实的</b>：CraftScheduler.validate() 在插件已禁用时抛的就是这个类，
+     * 它 extends RuntimeException 而<b>不是</b> IllegalStateException 的子类。本用例曾抛
+     * ISE —— 测试替身复刻了生产代码的错误假设，所以守卫写错也永远绿。
      */
     @Test
-    @DisplayName("R18-M1：调度器已关闭（IllegalStateException）→ join 不抛，主线程段照常")
+    @DisplayName("R18-M1：调度器已关闭（IllegalPluginAccessException）→ join 不抛，主线程段照常")
     void closedSchedulerDoesNotBreakJoin() {
         stubCollaborators();
         profileCachePresent();
         when(scheduler.runTaskAsynchronously(any(org.bukkit.plugin.Plugin.class), any(Runnable.class)))
-                .thenThrow(new IllegalStateException("Plugin attempted to register task while disabled"));
+                .thenThrow(new IllegalPluginAccessException("Plugin attempted to register task while disabled"));
 
         runJoinMainThreadSection(); // 旧式「无 try 的派发」会在这里把异常抛出去
 

@@ -36,7 +36,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -129,10 +128,10 @@ import static org.mockito.Mockito.when;
  * </ol>
  *
  * <h2>已知缺陷（{@code @Disabled} 锁定，只报告不修）</h2>
- * 一条，在 {@link MainThreadContract} 里，{@code @Disabled} 的原因写了复现方式与修法：
- * <ol>
- *   <li>多余参数（{@code /le word beginner choice 3}）被静默忽略。</li>
- * </ol>
+ * 当前<b>零条</b>。D7（多余参数被静默忽略）已修并转为正向契约：
+ * {@link WordValidation#extraArgumentsAreNotSilentlyIgnored}、
+ * {@link WordValidation#extraArgumentsWinOverSemanticValidation}、
+ * {@link DuelRouting#extraArgumentsAreNotSilentlyIgnored}。
  * <p><b>R31 已修</b>：{@code /le challenge} 的主线程同步查库（原 3 条 + 第 4 条
  * {@code getTodayChallenges}）已异步化；{@code command/} 也已加进
  * {@code MainThreadIoContractTest.SCAN_DIRS}，门面方法名同时进了 {@code DB_READ_METHODS}。
@@ -850,6 +849,53 @@ class LearnCommandParsingTest {
             assertTrue(run("word", "beginner"));
             assertSaid("word.no-words-available");
         }
+
+        /**
+         * <b>D7 已修</b>：{@code /le word <难度> <模式> <多余>} 曾静默忽略多余参数。
+         *
+         * <p>修前 {@code handleWordCommand} 只看 {@code args[1]} / {@code args[2]}，
+         * {@code args.length > 3} 时多出来的 token 既不被拒绝也不提示。玩家从别处抄来
+         * {@code /le word beginner choice 3} 会以为「3 题」生效了，实际是默认题数。
+         *
+         * <p>修法：{@code handleWordCommand} 在难度/模式语义校验<b>之前</b>判
+         * {@code args.length > 3} → 发 {@code word.extra-arguments}（带 {@code {extra}}
+         * 与 {@code {usage}}）并 return，不开始学习会话。
+         *
+         * <p>本用例钉三件事：① 会话不开（{@code startQuiz} 零调用 + 零 GUI）；② 发的是
+         * {@code word.extra-arguments} 而不是别的拒绝 key；③ {@code {extra}} 里是玩家
+         * 真敲的那些 token（只断言 key 存在的话，「多敲的词被吞掉但仍报错」也能绿）。
+         */
+        @Test
+        @DisplayName("/le word beginner choice 3 的多余参数应被拒绝并回显，且不开局")
+        void extraArgumentsAreNotSilentlyIgnored() {
+            assertTrue(run("word", "beginner", "choice", "3"));
+
+            assertSaid("word.extra-arguments");
+            verify(wordLearningManager, never()).startQuiz(any(), anyString(), anyString());
+            assertEquals(0, wordLearningCtor.constructed().size(),
+                    "多余参数时不得打开答题界面喵 —— 玩家会以为新参数生效了");
+            assertEquals("3", placeholder("word.extra-arguments", "extra"),
+                    "回显的多余参数不对喵 —— {extra} 必须是玩家真敲的那几个 token");
+            assertNotNull(placeholder("word.extra-arguments", "usage"),
+                    "{usage} 必须由调用方传入具体用法串，不能留空喵");
+            assertNeverSaid("word.invalid-difficulty");
+            assertNeverSaid("word.invalid-mode");
+        }
+
+        /**
+         * 顺序契约：多余的 token 是<b>语法</b>错误，必须先于难度/模式的<b>语义</b>校验判定。
+         * 反过来的话 {@code /le word xyz choice 3} 会先报 invalid-difficulty，玩家改完难度
+         * 又被 extra-arguments 打脸第二次 —— 一次调用暴露一个错误，玩家要试两轮。
+         */
+        @Test
+        @DisplayName("语法错误先于语义错误：/le word xyz choice 3 先报 extra-arguments")
+        void extraArgumentsWinOverSemanticValidation() {
+            assertTrue(run("word", "xyz", "telepathy", "3"));
+
+            assertSaid("word.extra-arguments");
+            assertNeverSaid("word.invalid-difficulty");
+            assertNeverSaid("word.invalid-mode");
+        }
     }
 
     // ==================================================================
@@ -1005,6 +1051,34 @@ class LearnCommandParsingTest {
             assertSaid("module.disabled");
             verify(server, never()).getPlayer(anyString());
             verify(duelManager, never()).sendDuelRequest(any(), any());
+        }
+
+        /**
+         * <b>D7 已修（word 同族）</b>：{@code /le duel accept now} / {@code /le duel Bob extra}
+         * 的多余 token 也曾被静默丢弃 —— 玩家以为附加条件生效了，实际只有前两个 token 起作用。
+         *
+         * <p>合法长度与 {@code onTabComplete} 的补全层数同源：动词式恰为 2 个 token，
+         * {@code cancel <玩家名>} 恰为 3 个。三条断言各自钉一个动词族，且都验 zero 动作 ——
+         * 只断言 key 存在的话，一个「先执行再报错」的实现也能绿。
+         */
+        @Test
+        @DisplayName("多余参数：accept / 发起 / cancel 三族各回自己的 usage，且不执行任何决斗动作")
+        void extraArgumentsAreNotSilentlyIgnored() {
+            assertTrue(run("duel", "accept", "now"));
+            assertSaid("duel.usage");
+            verify(duelManager, never()).acceptDuel(any(Player.class));
+
+            keysSent.clear();
+            assertTrue(run("duel", "Bob", "extra"));
+            assertSaid("duel.usage");
+            verify(server, never()).getPlayer(anyString());
+            verify(duelManager, never()).sendDuelRequest(any(), any());
+
+            keysSent.clear();
+            when(player.hasPermission("letslearnenglish.admin")).thenReturn(true);
+            assertTrue(run("duel", "cancel", "Bob", "extra"));
+            assertSaid("duel.cancel-usage");
+            verify(duelManager, never()).cancelDuelByAdmin(any(), anyString());
         }
     }
 
@@ -2034,10 +2108,14 @@ class LearnCommandParsingTest {
             run("word", "beginner", "fill_blank");   // 第三个模式的 label 也要收到
             run("word", "beginner", "telepathy");
             run("word", "nonsense");
+            // D7：多余参数的两条新键（word.extra-arguments / word.usage）也必须真跑出来，
+            // 否则组 10 的「key 在两份语言文件里都存在」对它们是空转。
+            run("word", "beginner", "choice", "3");
             run("review");
             run("duel");
             run("duel", "cancel", "Bob");           // 无权限 → general.no-permission
             run("duel", "bob");
+            run("duel", "accept", "now");           // D7：duel.usage
             run("challenge");
             run("season");
             run("class");
@@ -2256,28 +2334,6 @@ class LearnCommandParsingTest {
                         dbCall + " 出现在 runTaskAsynchronously <b>之前</b>喵 —— 主线程同步查库。"
                                 + "远程 MySQL 抖动时全服卡死，而功能表现完全正常。");
             }
-        }
-
-        /**
-         * <b>已知缺陷（只报告）</b>：{@code /le word <难度> <模式> <垃圾>} 静默忽略多余参数。
-         *
-         * <p>{@code handleWordCommand} 只看 {@code args[1]} / {@code args[2]}，
-         * {@code args.length > 3} 时多出来的 token 既不被拒绝也不提示。玩家从别处
-         * 抄来 {@code /le word beginner choice 3} 会以为「3 题」生效了，实际是默认题数。
-         * 同族问题在 {@code /le duel <玩家> <多余>} 与 {@code /le help <多余>} 上也存在。
-         *
-         * <p>修法（需要改 src/main，本轮禁止）：三个分支各加一句
-         * {@code args.length > N} → 回一条 usage 键。
-         */
-        @Test
-        @Disabled("缺陷未修：多余参数被静默忽略。修好后启用本用例。")
-        @DisplayName("【缺陷】/le word beginner choice 3 的多余参数应被拒绝或提示")
-        void extraArgumentsAreNotSilentlyIgnored() {
-            assertTrue(run("word", "beginner", "choice", "3"));
-            assertTrue(keysSent.contains("general.extra-arguments")
-                            || keysSent.contains("word.usage"),
-                    "多余参数被静默忽略了喵 —— 玩家会以为 '3' 生效了，实际是默认题数。"
-                            + "实际发出的 key：" + keysSent);
         }
     }
 

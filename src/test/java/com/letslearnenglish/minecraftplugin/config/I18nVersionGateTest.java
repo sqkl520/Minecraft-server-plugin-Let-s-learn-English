@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.Iterator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -93,16 +94,17 @@ import static org.mockito.Mockito.when;
  * 取 SHA-256）：数量相同但"删一个加一个"的键集合变化能被抓住，而值改动仍然不触发
  * —— 这一点很关键，本仓文案调优频繁，指纹<b>刻意只覆盖键名、不覆盖值</b>。
  *
- * <h2>行为验证：真的把一份 711 键的 v26 文件升级成 786 键</h2>
+ * <h2>行为验证：真的把一份 711 键的 v26 文件升级到<b>当前</b>版本</h2>
  * <p>只改常量不算修好 —— 还要证明 {@code migrateMessageConfig} 在这个具体场景下是对的。
  * {@link #releasedShapedFileIsUpgradedToCurrent()} 用<b>推导</b>的方式构造出与已发布版本
- * 同形的 711 键文件（当前 786 键减去 {@link #KEYS_ADDED_IN} 记录的新增键与新增 section），
- * 再走真实 {@code loadMessageConfig}，断言迁移后键集合与 JAR 内完全一致、用户改过的值被保留、
- * 落盘成功并留了 {@code .bak} 快照。
+ * 同形的 711 键文件（当前键数减去 {@link #KEYS_ADDED_IN} / {@link #SECTIONS_ADDED_IN}
+ * 记录的全部新增键与新增 section），再走真实 {@code loadMessageConfig}，断言迁移后键集合与
+ * JAR 内完全一致、用户改过的值被保留、落盘成功并留了 {@code .bak} 快照。
  *
  * <p>{@link #derivationReproducesTheReleasedShape()} 顺手钉住一条更强的结论：
- * {@code 786 - 75 == 711} 且"从当前文件里只删掉那 75 个键就精确得到 711 键"，
- * 等价于证明 <b>1.0.7 → 本轮之间没有删除任何键</b>（纯新增），因此合并是纯 add-only 操作。
+ * {@code 当前键数 - 已登记新增键数 == 711} 且"从当前文件里只删掉那些新增键就精确得到
+ * 711 键"，等价于证明 <b>1.0.7 → 当前之间没有删除任何键</b>（纯新增），
+ * 因此合并是纯 add-only 操作。
  */
 class I18nVersionGateTest {
 
@@ -120,7 +122,7 @@ class I18nVersionGateTest {
 
     /**
      * 版本号 → 该版本 {@code messages/*.yml} 的<b>叶子键总数</b>（含 {@code config-version}
-     * 这个元数据叶子，与本类 {@link #leafKeys} 的口径一致：711 / 786 正是这两个数）。
+     * 这个元数据叶子，与本类 {@link #leafKeys} 的口径一致：711 / 786 / 788 正是这几个数）。
      *
      * <p>新增一行 = 一次语言文件变更的永久档案。加键后若忘了 bump 常量，
      * {@code LEAF_COUNTS.get(常量)} 取到的仍是旧数量，与实际数量不等 ⇒ 红。
@@ -148,6 +150,9 @@ class I18nVersionGateTest {
         // 1.0.7 → 本轮（闸门 26 → 27）：净增 75 个叶子键，删除 0 个。
         LEAF_COUNTS.put(LAST_RELEASED_VERSION, 711);
         LEAF_COUNTS.put(27, 786);
+        // 27 → 28（D7 多余参数）：净增 2 个（word.usage + word.extra-arguments），删除 0 个。
+        // 键数用真 YAML 解析数出来（788 = 788，zh/en 一致），不是 grep 数缩进行。
+        LEAF_COUNTS.put(28, 788);
 
         SECTIONS_ADDED_IN.put(27, Set.of("diagnose"));
 
@@ -170,6 +175,41 @@ class I18nVersionGateTest {
                 "square.feed.cheer-failed",
                 "wordbank.import-persist-failed",
                 "wordbank.reason-unsafe-path"));
+
+        // 27 → 28：D7 仅两键，都落在既有的 word: 段（该段 27 时就存在，故不进 SECTIONS_ADDED_IN）。
+        KEYS_ADDED_IN.put(28, Set.of(
+                "word.extra-arguments",
+                "word.usage"));
+    }
+
+    /**
+     * <b>「当前版本」</b> —— 一律从 {@link #gateVersion()} 派生，<b>绝不写字面量</b>。
+     *
+     * <p>本类正文此前散落着 23 处 {@code 27} / {@code 786} 字面量：每次 bump 版本都要靠人
+     * 逐个手改，R31 → D7 那次就有 4 个用例因此变红。用一个派生值取代后，正文只表达
+     * 「当前版本应当满足什么」，下一轮 bump 只需在 {@link #LEAF_COUNTS} /
+     * {@link #KEYS_ADDED_IN} 里<b>新增一行历史记录</b>，正文一个字都不用动。
+     *
+     * <p>注意区分两类数字：{@link #LEAF_COUNTS} 里的 {@code 27→786} 是<b>历史档案</b>
+     * （v27 当时的键数，不可改写），必须原样保留；而断言里的「当前键数」必须走
+     * {@link #currentLeafCount()}。
+     */
+    private static final int CURRENT_VERSION = gateVersion();
+
+    /**
+     * 当前版本在 {@link #LEAF_COUNTS} 里登记的唯一合法键数。
+     *
+     * <p>不做裸 {@code LEAF_COUNTS.get(CURRENT_VERSION)}：漏登记时那会抛一个无从下手的
+     * {@code NullPointerException}，把「你 bump 了版本却没在表里加行」这个真因藏起来
+     * （本类 {@link #gateVersionIsStrictlyAheadOfReleased} 刻意避开 NPE 是同一个理由）。
+     */
+    private static int currentLeafCount() {
+        Integer count = LEAF_COUNTS.get(CURRENT_VERSION);
+        if (count == null) {
+            throw new AssertionError("LEAF_COUNTS 里没有当前版本 " + CURRENT_VERSION + " 的登记。"
+                    + "改语言文件后必须新增一行（而不是修改旧行）。现有登记: " + LEAF_COUNTS);
+        }
+        return count;
     }
 
     /**
@@ -179,7 +219,7 @@ class I18nVersionGateTest {
      * {@code I18nFullParityTest} 管）。这里断言两份各自等于本值，等于同时钉住了平价。
      */
     private static final String KEYSET_SHA256 =
-            "3873ed4202cad2fa6eaed1b352dd4e3c9184cadba0be12258bce0b52b1df47b2";
+            "3fc5423905e9dab90ba8c7df0fddf69f7e04bca65f8c227867e16a53c9491180";
 
     // ============================================================
     //  A. 闸门版本契约（lint）
@@ -279,41 +319,42 @@ class I18nVersionGateTest {
     }
 
     // ============================================================
-    //  B. 行为验证：真把 711 键的 v26 文件升级成 786 键
+    //  B. 行为验证：真把 711 键的 v26 文件升级到当前版本
     // ============================================================
 
     @Test
-    @DisplayName("反推：当前 786 键减去本轮新增的 75 键，精确得到已发布版本的 711 键（=纯新增）")
+    @DisplayName("反推：当前键数减去已登记的全部新增键，精确得到已发布版本的 711 键（=纯新增）")
     void derivationReproducesTheReleasedShape() {
         YamlConfiguration bundled = loadBundled(ZH);
-        int currentCount = leafKeys(bundled).size();
+        Set<String> bundledLeaves = leafKeys(bundled);
+        int currentCount = bundledLeaves.size();
 
         Map<String, Object> released = stripKeysAddedAfter(bundled, LAST_RELEASED_VERSION);
         int derivedCount = leafKeys(toConfig(released)).size();
 
-        int addedBySections = leafKeys(bundled).stream()
-                .filter(k -> k.startsWith("diagnose."))
-                .toList().size();
-        int recordedAdded = KEYS_ADDED_IN.get(27).size() + addedBySections;
+        int recordedAdded = registeredLeavesSince(LAST_RELEASED_VERSION, bundledLeaves);
+        int tableDelta = currentLeafCount() - LEAF_COUNTS.get(LAST_RELEASED_VERSION);
 
-        assertEquals(LEAF_COUNTS.get(27) - LEAF_COUNTS.get(LAST_RELEASED_VERSION), recordedAdded,
-                "本轮记录的『新增键数』(" + recordedAdded + ") 与 LEAF_COUNTS 记录的差值 ("
-                        + (LEAF_COUNTS.get(27) - LEAF_COUNTS.get(LAST_RELEASED_VERSION))
-                        + ") 不一致 —— 说明 KEYS_ADDED_IN / SECTIONS_ADDED_IN 记漏或记多了");
+        assertEquals(tableDelta, recordedAdded,
+                "自 1.0.7 以来登记的全部新增键数 (" + recordedAdded + ") 与 LEAF_COUNTS 里"
+                        + "「当前版本 " + CURRENT_VERSION + " 减已发布版本 " + LAST_RELEASED_VERSION
+                        + "」的差值 (" + tableDelta + ") 不一致 —— 说明 KEYS_ADDED_IN / "
+                        + "SECTIONS_ADDED_IN 记漏或记多了");
         assertEquals(LEAF_COUNTS.get(LAST_RELEASED_VERSION), derivedCount,
-                "从当前文件里删掉本轮新增的 " + recordedAdded + " 个键后应得到 "
+                "从当前文件里删掉已登记的全部新增键（" + recordedAdded + " 个）后应得到 "
                         + LEAF_COUNTS.get(LAST_RELEASED_VERSION) + " 个叶子键（已发布版本的形状），"
-                        + "实际 " + derivedCount + " 个。差值说明 1.0.7 → 本轮之间<b>还有</b>未登记的"
+                        + "实际 " + derivedCount + " 个。差值说明 1.0.7 → 当前之间<b>还有</b>未登记的"
                         + "键变化（新增或删除）。本测试的意义正是证明「纯新增、零删除」，"
                         + "有删除就必须显式面对。");
-        assertEquals(currentCount, LEAF_COUNTS.get(27),
-                "当前语言文件的叶子键数量与 LEAF_COUNTS 登记不符");
+        assertEquals(currentCount, currentLeafCount(),
+                "当前语言文件的叶子键数量与 LEAF_COUNTS 里当前版本 " + CURRENT_VERSION
+                        + " 的登记不符");
     }
 
     @Test
-    @DisplayName("P0 复现：已发布形状（711 键 / v26）经真实 loadMessageConfig 后应变成 786 键 / v27")
+    @DisplayName("P0 复现：已发布形状（711 键 / v26）经真实 loadMessageConfig 后应变成当前版本 / 当前键数")
     void releasedShapedFileIsUpgradedToCurrent(@TempDir Path tempDir) throws Exception {
-        int currentCount = LEAF_COUNTS.get(27);
+        int currentCount = currentLeafCount();
         Path file = writeReleasedShapedFile(tempDir, ZH);
 
         // 前置：夹具真的停在已发布形态（否则下面的升级断言就是假绿）。
@@ -353,19 +394,32 @@ class I18nVersionGateTest {
 
         // 日志：一次成功合并必须有且只有一条 "Merged ..." INFO —— 既是可运维性，也是幂等断言的锚。
         //
-        // 统计数字也钉住（针对<b>真实的</b> 1.0.7 语言文件实测值）：
-        //   711 键 = 710 个既有叶子 + 顶层 config-version（版本号被单独剔除，不计入 preserved）
-        //   → preserved=710、added=17（散落新键）+ 1（diagnose 整段作为一个新 section 计入）
-        //   → 但 [[ConfigManager.mergeMissing]] 对整段是在<b>顶层</b> user.put(section) 计 1 次 added，
-        //     段内 58 个叶子不再逐个计数，故日志报 added=18。
+        // 统计数字<b>从真实数据派生</b>，不写死：
+        //   preserved = 升级前文件的叶子数 - config-version（版本号被单独剔除，不参与统计）
+        //               711 - 1 = 710。前提是"已发布文件的每个叶子在新版里都存在且类型一致"，
+        //               而这正是 {@link #derivationReproducesTheReleasedShape} 钉住的纯新增结论。
+        //   added     = 自 1.0.7 以来登记的<b>分支级</b>插入数：散落的新叶子每缺一个计 1，
+        //               整段新增的 section 在顶层只计 1（mergeMissing 不逐个下钻计数）。
         // "0 type conflict(s)" 是这条场景最重要的一个数字：711 个既有键与新 JAR 的类型完全一致，
         // 没有任何键被"以新版结构为准"覆盖 —— 因此本轮升级对服主文案是<b>零风险</b>的纯补键。
+        int expectedPreserved = leafKeys(before).size() - 1;
+        int expectedAdded = registeredBranchInsertionsSince(LAST_RELEASED_VERSION);
+        int bundledLeavesExcludingVersion = leafKeys(loadBundled(ZH)).size() - 1;
+        int registeredLeaves = registeredLeavesSince(LAST_RELEASED_VERSION, leafKeys(loadBundled(ZH)));
+        // 记账恒等式：保留下来的叶子 + 登记的新增叶子，必须正好铺满 JAR 内除 config-version
+        // 以外的全部叶子 —— 既不重复计数，也不漏键。这条与上面两条精确值互为交叉验证。
+        assertEquals(bundledLeavesExcludingVersion, expectedPreserved + registeredLeaves,
+                "合并记账不闭合：preserved(" + expectedPreserved + ") + 登记的新增叶子("
+                        + registeredLeaves + ") 不等于 JAR 内叶子数减 config-version("
+                        + bundledLeavesExcludingVersion + ")");
+
         verify(logger, times(1)).info(contains("Merged " + ZH));
-        verify(logger, times(1)).info(contains("710 user value(s) kept"));
-        verify(logger, times(1)).info(contains("18 new key(s) added"));
+        verify(logger, times(1)).info(contains(expectedPreserved + " user value(s) kept, "
+                + expectedAdded + " new key(s) added"));
+        verify(logger, times(1)).info(contains("0 obsolete key(s) kept"));
         verify(logger, times(1)).info(contains("0 type conflict(s) resolved"));
 
-        // 幂等：第二次调用时磁盘版本已是 27，闸门不再触发，不得再合并一次。
+        // 幂等：第二次调用时磁盘版本已是当前版本，闸门不再触发，不得再合并一次。
         FileConfiguration second = manager.loadMessageConfig(ZH);
         assertEquals(currentCount, leafKeys(second).size(), "第二次加载把键搞丢/搞多了");
         verify(logger, times(1)).info(contains("Merged " + ZH));
@@ -394,8 +448,8 @@ class I18nVersionGateTest {
                 "迁移把服主改过的既有键覆盖了");
         // 同时新键仍然补齐 —— 保留用户值与补齐缺键必须同时成立。
         assertTrue(loaded.contains("diagnose.header"), "补新键与保留用户值不能二选一");
-        assertEquals(LEAF_COUNTS.get(27), leafKeys(loaded).size(),
-                "键数量不对：保留用户值的同时必须把 75 个新键补齐");
+        assertEquals(currentLeafCount(), leafKeys(loaded).size(),
+                "键数量不对：保留用户值的同时必须把自 1.0.7 以来新增的键全部补齐");
     }
 
     @Test
@@ -426,10 +480,20 @@ class I18nVersionGateTest {
     @Test
     @DisplayName("自检：countMismatch 对「版本对不上」真的会报，对正确组合才返回 null")
     void countMismatchReallyFires() {
-        assertNull(countMismatch(LEAF_COUNTS, 27, 786), "正确组合被误判为不一致");
-        assertNotNull(countMismatch(LEAF_COUNTS, 27, 785), "数量差 1 时必须报");
-        assertNotNull(countMismatch(LEAF_COUNTS, 26, 786), "用旧版本号对当前数量时必须报");
-        assertNotNull(countMismatch(LEAF_COUNTS, 99, 786), "未登记的版本号必须报（不许静默放过）");
+        // 这里刻意用<b>历史版本 v27</b> 当测试数据，而不是 {@link #CURRENT_VERSION}：
+        // 本用例测的是 countMismatch 这个纯函数的判别力，需要一对"已知且永远不变"的
+        // 版本/数量组合（v27 的档案值 786 已封存，不会随 bump 漂移）。
+        // 若改用当前版本，它只会跟着表一起变，反而失去"已知输入 → 已知输出"的锚。
+        int archivedVersion = 27;
+        int archivedCount = LEAF_COUNTS.get(archivedVersion);
+        assertNull(countMismatch(LEAF_COUNTS, archivedVersion, archivedCount),
+                "正确组合被误判为不一致");
+        assertNotNull(countMismatch(LEAF_COUNTS, archivedVersion, archivedCount - 1),
+                "数量差 1 时必须报");
+        assertNotNull(countMismatch(LEAF_COUNTS, LAST_RELEASED_VERSION, archivedCount),
+                "用旧版本号对当前数量时必须报");
+        assertNotNull(countMismatch(LEAF_COUNTS, 99, archivedCount),
+                "未登记的版本号必须报（不许静默放过）");
     }
 
     @Test
@@ -475,6 +539,77 @@ class I18nVersionGateTest {
         } catch (ReflectiveOperationException e) {
             throw new AssertionError("无法读取 MESSAGE_CONFIG_VERSION", e);
         }
+    }
+
+    /**
+     * 自 {@code afterVersion} 之后<b>所有</b>版本登记的<b>叶子键</b>数量（历史记录的全量和）。
+     *
+     * <p>刻意不写死某一版（原先写的是 {@code KEYS_ADDED_IN.get(27)}）：版本每涨一档就可能
+     * 又多登记几个键，逐版点名会让每次 bump 都要回来改断言。这里改成"把表里
+     * {@code > afterVersion} 的行全加起来"，于是新增一版只需新增表行。
+     *
+     * <p>整段新增（{@link #SECTIONS_ADDED_IN}）的贡献用<b>当前文件里该段的实际叶子数</b>计算，
+     * 而不是"记得当初有 58 个"——段内少了一个键会立刻让数量对不上，而不是被历史数字掩盖。
+     */
+    private static int registeredLeavesSince(int afterVersion, Set<String> bundledLeaves) {
+        int total = 0;
+        Set<String> coveredBySections = new HashSet<>();
+        for (Map.Entry<Integer, Set<String>> e : SECTIONS_ADDED_IN.entrySet()) {
+            if (e.getKey() <= afterVersion) {
+                continue;
+            }
+            for (String section : e.getValue()) {
+                String prefix = section + ".";
+                total += (int) bundledLeaves.stream().filter(k -> k.startsWith(prefix)).count();
+                coveredBySections.add(prefix);
+            }
+        }
+        for (Map.Entry<Integer, Set<String>> e : KEYS_ADDED_IN.entrySet()) {
+            if (e.getKey() <= afterVersion) {
+                continue;
+            }
+            for (String key : e.getValue()) {
+                if (coveredBySections.stream().anyMatch(key::startsWith)) {
+                    continue; // 已被整段新增覆盖，不重复计数
+                }
+                total++;
+            }
+        }
+        return total;
+    }
+
+    /**
+     * 自 {@code afterVersion} 之后登记的<b>分支级插入</b>数量 —— 即 {@code mergeMissing}
+     * 的 {@code stats.added} 口径：整段新增的 section 在顶层只计 <b>1</b> 次，段内叶子不逐个下钻。
+     *
+     * <p>这是日志 {@code "N new key(s) added"} 的期望值来源。与
+     * {@link #registeredLeavesSince} 的差别只在于整段 section 的记账粒度，两个数配合
+     * {@code preserved} 可以交叉验证合并是否既不重复计数也不漏键。
+     */
+    private static int registeredBranchInsertionsSince(int afterVersion) {
+        int total = 0;
+        Set<String> sectionPrefixes = new HashSet<>();
+        for (Map.Entry<Integer, Set<String>> e : SECTIONS_ADDED_IN.entrySet()) {
+            if (e.getKey() <= afterVersion) {
+                continue;
+            }
+            for (String section : e.getValue()) {
+                total++;
+                sectionPrefixes.add(section + ".");
+            }
+        }
+        for (Map.Entry<Integer, Set<String>> e : KEYS_ADDED_IN.entrySet()) {
+            if (e.getKey() <= afterVersion) {
+                continue;
+            }
+            for (String key : e.getValue()) {
+                if (sectionPrefixes.stream().anyMatch(key::startsWith)) {
+                    continue; // 整段新增已按 1 次计入
+                }
+                total++;
+            }
+        }
+        return total;
     }
 
     /** 纯函数：数量与登记不符时返回说明，一致时返回 {@code null}（便于自检）。 */
@@ -642,7 +777,7 @@ class I18nVersionGateTest {
     private static Path writeReleasedShapedFile(Path tempDir, String resource) throws Exception {
         Map<String, Object> released = stripKeysAddedAfter(loadBundled(resource), LAST_RELEASED_VERSION);
         // 版本号必须<b>最后</b>写：stripKeysAddedAfter 保留的键集里含 config-version（它是叶子键，
-        // 指纹与数量都算它），先写会被 writeTree 用当前版本的 27 覆盖回去 —— 夹具就悄悄变成
+        // 指纹与数量都算它），先写会被 writeTree 用当前文件的版本号覆盖回去 —— 夹具就悄悄变成
         // 「已是最新版」，升级分支永不进入。本条断言放在测试里做前置校验，正是为了不让它静默。
         YamlConfiguration cfg = new YamlConfiguration();
         writeTree(cfg, released);
