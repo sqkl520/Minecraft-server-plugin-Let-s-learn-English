@@ -524,8 +524,10 @@ public class DatabaseManager {
         // initialTimeout) ≈ 2×(10 秒 + 2 秒)=24 秒，且这是<b>有界</b>的一次性开销，可接受。
         // 为什么不干脆删掉：没有 autoReconnect 时，一次通信中断会让连接进入 closed 态，
         // 下一次访问要等本类 getConnection() 的自愈（connection.isClosed() → 重新
-        // initialize()），而 initialize() 会重跑 23 条建表 DDL + 18 条索引存在性探测，
+        // initialize()），而 initialize() 会重跑 23 条建表 DDL + 19 条索引存在性探测，
         // 比驱动内重连一次贵得多，且那条自愈路径失败时会退化成 UNAVAILABLE 代理。
+        // （索引数按 createIndexIfMissing 的真实调用点算 = 19；schema.sql 里另有 22 条
+        //   CREATE INDEX，差额来自 MySQL 侧不支持 IF NOT EXISTS、走的是代码路径分支。）
         // 另：本插件在 MySQL 上<b>不设置任何会话级状态</b>（无 SET SESSION / 用户变量 /
         // GET_LOCK / SELECT ... FOR UPDATE，已 grep 确认），所以 autoReconnect 常被诟病的
         // "静默重连丢会话状态"在本代码库里没有可丢的东西。
@@ -804,6 +806,25 @@ public class DatabaseManager {
                 "ai_chat_history(player_uuid, timestamp)");
         createIndexIfMissing("idx_chat_session",
                 "ai_chat_history(session_id)");
+        // Round 21：保留期清理专用索引（与 schema.sql 的同名索引一一对应）。
+        //
+        // cleanupOldChatHistory 的第一条语句是
+        //   DELETE FROM <p>ai_chat_history WHERE timestamp < <30 天前>
+        // 上面两个索引的前导列是 player_uuid / session_id，都不以 timestamp 开头。
+        //
+        // SQLite 侧的实际后果比"全表扫"更微妙：planner 会用 (player_uuid, timestamp)
+        // 做 skip-scan（EXPLAIN 显示 `SEARCH ... USING INDEX idx_chat_player_time
+        // (ANY(player_uuid) AND timestamp<?)`），代价 ≈ 前导列去重值个数 × 索引探测。
+        // 实测（10 万行、7 次取中位数、真 WAL 库）：
+        //   40 名玩家 0.25 ms / 400 名 2.2 ms / 5000 名 65.6 ms —— 玩家数越多越慢，
+        //   而 5000 人是本插件面向的"万人服"量级真实形状。
+        // 加本索引后三种规模一律 0.1 ms（恒为单个时间范围 seek）。
+        //
+        // MySQL/InnoDB 没有 skip-scan，过去只能在 3 条二级索引里挑一条做全扫。
+        // 这是纯性能索引，删掉它不会有任何测试变红（本仓 MEMORY 的教训：删索引后
+        // 506 个测试全绿），故由 ChatCleanupIndexTest 直接对真库断言其存在。
+        createIndexIfMissing("idx_chat_timestamp",
+                "ai_chat_history(timestamp)");
         // PF-SEA-03：player_sessions 被周/月/赛季/streak/日历大量按日期范围查询，
         // 补 (uuid, session_date) 复合索引防全表扫。
         createIndexIfMissing("idx_sessions_uuid_date",
@@ -1307,6 +1328,34 @@ public class DatabaseManager {
      * <p>修复批 D（R3-L2）：天数经占位符绑定（原为字符串拼接；唯一调用传常量 30
      * 无注入面，此处对齐全仓参数化惯例）——SQLite 绑字符串 modifier（"-N days"）、
      * MySQL 绑 int，见 {@link #bindKeepDays}。
+     *
+     * <p><b>Round 21：本方法整段在 {@code connectionLock} 内执行</b>（单连接无池，
+     * 该锁全局唯一且 {@code synchronized} 无超时），因此这 7 条 DELETE 里任何一条
+     * 变慢，全服所有 DB 操作都会排队等它。玩家可见症状 = 「午夜整点卡一下」，
+     * 且随数据量单调恶化。
+     *
+     * <p>逐条的索引可用性（真库 {@code EXPLAIN QUERY PLAN} 实测，非推断）：
+     * <ul>
+     *   <li><b>sql1 {@code ai_chat_history}</b> —— 原无 {@code timestamp} 前导索引，
+     *       SQLite 退化成 {@code (player_uuid, timestamp)} 上的 skip-scan，代价随
+     *       <b>玩家数</b>增长（10 万行：40 人 0.25 ms / 5000 人 49 ms）。
+     *       Round 21 已加 {@code idx_chat_timestamp}，现恒为单次范围 seek；</li>
+     *   <li><b>sql2 {@code ai_chat_feedback}</b> —— {@code created_at} 无索引，
+     *       真 {@code SCAN}。但该表每会话至多一行（UNIQUE(player_uuid, session_id)
+     *       且只落达标会话），量级比 ai_chat_history 小一个数量级，
+     *       <b>判定：暂不加索引</b>（见下）；</li>
+     *   <li><b>sql3/sql5/sql6/sql7 四张日期台账</b> —— 均有
+     *       {@code UNIQUE(player_uuid, &lt;date&gt;)} 兜底，planner 走同样的 skip-scan，
+     *       但前导列去重值 = 玩家数、表内行数也 = 玩家数 × 天数，
+     *       实测均在亚毫秒级。<b>判定：不加</b>；</li>
+     *   <li><b>sql4 {@code duel_stats}</b> —— 已有 {@code idx_duel_created},
+     *       走 {@code SEARCH ... USING INDEX idx_duel_created}，本来就是最优。</li>
+     * </ul>
+     *
+     * <p><b>为什么只给 sql1 加索引、其余不加</b>：索引不是免费的 —— 每次 INSERT
+     * 都要多维护一棵 B 树。判定标准是「这张表的行数量级 × 清理频率」是否值得。
+     * 只有 {@code ai_chat_history} 达到「每场对话数十行 × 玩家数 × 保留期」的
+     * 十万级，其余几张表即使全扫也在毫秒级。
      */
     public void cleanupOldChatHistory(int daysToKeep) {
         String dateExpr;
@@ -2894,17 +2943,91 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * {@code total_coins_earned} 的<b>两态退化视图</b>（
+     * {@link #getCoinsEarnedWithStatus} 的折叠版）。
+     *
+     * <p><b>语义</b>：与改造前逐字节一致 —— {@code READ_FAILED} 与「无行」都折成 {@code 0}。
+     * 保留它<b>不是</b>因为它是个好接口，而是因为三个调用方（
+     * {@code AchievementManager} 的成就判定与成就墙进度、{@code EnglishSquareGUI} 的自己头像）
+     * 本来就把「未知」渲染成 0，改它们 = 成本 + 0 收益。范式的先例是
+     * {@code clearSeasonLedgerPending} / {@code clearSeasonLedgerPendingDetailed} 那一对。
+     *
+     * <p><b>凡是要区分「读失败」与「确实是 0」的调用方必须改用三态版</b>；
+     * 继续用本方法就会把「不知道」固化成「确认的 0」。
+     *
+     * @param playerId the player
+     * @return 库内累计金币；无行或读失败均为 {@code 0}
+     */
     public long getCoinsEarned(UUID playerId) {
+        return getCoinsEarnedWithStatus(playerId).value();
+    }
+
+    /**
+     * R22-D2：{@code total_coins_earned} 读取结果的<b>可分辨</b>状态。
+     *
+     * <p><b>为什么需要它</b>：{@link #getCoinsEarned} 在 {@code SQLException} 时
+     * {@code return 0L}，与「这个玩家确实赚了 0 枚」逐字节同形。对展示型调用方无害，
+     * 但 {@code LLEPapiExpansion.scheduleCoinsLoad} 的 javadoc 逐字承诺
+     * 「<b>绝不</b>把失败折成 0 写进缓存 —— 那会把「不知道」固化成「确实是 0」」，
+     * 而它的 {@code catch (RuntimeException)} 根本收不到 SQL 失败（异常在
+     * {@code getCoinsEarned} 内部就被吃掉了）—— 那段承诺是死代码，
+     * 且失败值会走 60s「确认值」TTL 而不是 15s 退避，记分板对本人显示可信的假 0。
+     *
+     * <p><b>为什么只有两态</b>：{@code player_data} 无行 ≡ 0 枚（此人确实没赚过），
+     * 两者语义相同，不像 {@code MinSeasonIdResult} 那样有「表空 vs 有值」的业务分支。
+     * 真正需要区分的只有「读到了」与「读失败」。
+     */
+    public enum CoinsReadResult {
+        /** 查询成功：{@code value} 是库内真值（无行为 0）。 */
+        PRESENT,
+        /** 查询/连接失败（已记 WARNING）：结果<b>未知</b>，不得当作 0。 */
+        READ_FAILED
+    }
+
+    /**
+     * {@link CoinsReadResult} 的带值版本（{@code PRESENT} 时携带库内值）。
+     *
+     * @param result 状态
+     * @param value  已确认的库内值；{@code READ_FAILED} 时无意义（恒 0）
+     */
+    public record CoinsEarnedRead(CoinsReadResult result, long value) {
+
+        /** 读失败的共享实例（避免每次失败都新建对象 —— PAPI 每秒可能读多次）。 */
+        public static final CoinsEarnedRead FAILED = new CoinsEarnedRead(CoinsReadResult.READ_FAILED, 0L);
+
+        /** 已确认值的工厂方法。 */
+        public static CoinsEarnedRead present(long value) {
+            return new CoinsEarnedRead(CoinsReadResult.PRESENT, value);
+        }
+
+        /** @return {@code true} = 本次读取失败，{@code value} 不可信 */
+        public boolean readFailed() {
+            return result == CoinsReadResult.READ_FAILED;
+        }
+    }
+
+    /**
+     * 三态版 {@code total_coins_earned} 读取（见 {@link CoinsEarnedRead}）。
+     *
+     * <p>SQL 与异常处理与 {@link #getCoinsEarned} 完全一致（失败仍落
+     * {@code Level.WARNING} "Failed to query coins for ..." —— 服主需要这条一手信号），
+     * 唯一差别是失败时返回 {@link CoinsEarnedRead#FAILED} 而不是一个看起来可信的 0。
+     *
+     * @param playerId the player
+     * @return {@code PRESENT}（含无行的 0）或 {@code READ_FAILED}
+     */
+    public CoinsEarnedRead getCoinsEarnedWithStatus(UUID playerId) {
         String sql = "SELECT total_coins_earned FROM " + tablePrefix + "player_data WHERE uuid = ?";
         synchronized (connectionLock) {
             try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
                 stmt.setString(1, playerId.toString());
                 try (ResultSet rs = stmt.executeQuery()) {
-                    return rs.next() ? rs.getLong(1) : 0L;
+                    return CoinsEarnedRead.present(rs.next() ? rs.getLong(1) : 0L);
                 }
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING, "Failed to query coins for " + playerId, e);
-                return 0L;
+                return CoinsEarnedRead.FAILED;
             }
         }
     }
@@ -3554,12 +3677,46 @@ public class DatabaseManager {
     /** R4-17-EH-F3：读面三态（照 {@link CheckInLoad} 范式）——「读失败」不得与「确实无人鼓励」同形。 */
     public record CheerersLoad(List<String> names, boolean readFailed) {}
 
+    /**
+     * 鼓励者名单本体（"谁鼓励了我"）。
+     *
+     * <p><b>隐私（D3）：读取侧过滤鼓励者自己的 {@code show_in_square}</b>，口径与榜单/
+     * 动态流完全一致（{@code LEFT JOIN player_profiles} + {@code COALESCE(...,1) <> 0}，
+     * 见 {@link #getTopCoins} / {@link #getFeedCacheRows}）。「无档案行视为可见」沿用
+     * 既有口径：{@code COALESCE} 的默认值是 1，与"新玩家默认公开"同源。
+     *
+     * <p><b>为什么这条过滤必须存在</b>：{@code showInSquare} 此前只挡住了「我作为<b>作者</b>
+     * 被展示」（{@link #getFeedCacheRows} 的 JOIN），没挡住「我作为<b>鼓励者</b>被点名」。
+     * 于是关掉广场展示的玩家，名字仍会出现在别人动态的「谁鼓励了我」里 —— <b>单向泄露</b>，
+     * 且他自己界面上看不出来（他看不到别人的鼓励名单）。这不是 plan-social §1.6 那条
+     * 已文档化的边界（「A 隐身期间收到的鼓励离线摘要照常发送」—— 那是发给作者本人、
+     * 只含条数不含名字），而是把鼓励者的身份递给第三方。
+     *
+     * <p><b>SQL 结构说明（别名/聚合，双后端兼容）</b>：
+     * <ul>
+     *   <li>名字走 {@code player_data p}（别名 {@code p} 已被占用），故 profiles 用别名
+     *       {@code pr}；{@code player_profiles.uuid} 是主键，一鼓励者至多一行，
+     *       不会让结果行数翻倍。</li>
+     *   <li>{@code show_in_square} 只出现在 {@code WHERE} 里、不进 {@code SELECT}，
+     *       因此 {@code GROUP BY c.cheerer_uuid, c.created_at} 与 {@code MAX(p.player_name)}
+     *       的语义<b>逐字不变</b>，MySQL {@code ONLY_FULL_GROUP_BY} 与 SQLite 均合法。</li>
+     *   <li>过滤发生在 {@code GROUP BY} 之前，且每个 {@code cheerer_uuid} 只对应
+     *       profiles 的一行 —— 故 WHERE 是「整组保留 / 整组丢弃」，不会出现
+     *       「同一人只露一半名字」这种半过滤形态。</li>
+     * </ul>
+     *
+     * <p>列表因此可能比 {@code social_feed.cheer_count} 短（甚至为空）—— 那是隐私过滤的
+     * 预期结果，调用方不得据此认为「数据不一致」。
+     */
     public CheerersLoad loadCheerers(long feedId, int limit) {
         List<String> names = new ArrayList<>();
         String sql = "SELECT c.cheerer_uuid, MAX(p.player_name) AS player_name"
                 + " FROM " + tablePrefix + "social_cheers c"
                 + " LEFT JOIN " + tablePrefix + "player_data p ON p.uuid = c.cheerer_uuid"
-                + " WHERE c.feed_id = ?"
+                // D3：鼓励者的隐私过滤（与 getTopCoins / getFeedCacheRows 同口径）。
+                // 别名必须与上面的 player_data 区分开，否则名字列会被 profiles 的 JOIN 覆盖。
+                + " LEFT JOIN " + tablePrefix + "player_profiles pr ON pr.uuid = c.cheerer_uuid"
+                + " WHERE c.feed_id = ? AND COALESCE(pr.show_in_square, 1) <> 0"
                 + " GROUP BY c.cheerer_uuid, c.created_at"
                 + " ORDER BY c.created_at ASC LIMIT ?";
         synchronized (connectionLock) {
@@ -4791,6 +4948,13 @@ public class DatabaseManager {
      * 残行（毫秒窗口；玩家重进时数据正常覆盖，影响极小）。如需根治需引入
      * resetting per-player 标志（本表标记删中，写侧见此跳过），F5-03 备查。
      *
+     * <p><b>D5：去规范化列 {@code social_feed.cheer_count} 的对账。</b>
+     * 删 {@code social_cheers} 之前先快照「本玩家鼓励过哪些 feed」，删完按
+     * {@code COUNT(*)} 重算这些 feed 的 {@code cheer_count}（见
+     * {@link #selectCheeredFeedIds} / {@link #reconcileCheerCounts}）。此前只删行不减计数，
+     * 于是「谁鼓励了我」名单少人、而广场卡片的「❤ 鼓励 ×N」不变 —— 同一张卡片上两个
+     * 自相矛盾的数字，且没有任何对账路径能修回来。整段在同一事务内，中间态不可见。
+     *
      * @param playerId the player whose rows should be removed
      * @return {@code true} = 事务已 commit，全部 22 张本玩家数据表的本玩家行已删除
      *         （{@code classes.created_by} 也已置哨兵；缺表的 player_uuid 系表按
@@ -4873,9 +5037,30 @@ public class DatabaseManager {
                     // 无条件建出。
                     failed |= !delPlayerUuidTable(conn, table, id, playerId);
                 }
+                // D5：去规范化计数对账。必须在删除<b>之前</b>取快照 —— 删完就查不到
+                // 「本人鼓励过哪些 feed」了（行已经没了）。affectedFeeds 只含本玩家鼓励过的
+                // feed id（走 idx_cheers_cheerer，代价与该玩家的鼓励条数成正比，不是全表）。
+                List<Long> affectedFeeds = selectCheeredFeedIds(conn, id);
+                boolean snapshotOk = affectedFeeds != null;
+                if (!snapshotOk) {
+                    // 快照失败 = 后面的对账无从做起 → 与「删表失败」同等处理：整批回滚。
+                    // 宁可一条不删，也不能留下一个「行删了、计数没对账」的半成品（那正是 D5）。
+                    failed = true;
+                }
                 // 顺序敏感：先删本人在他人 feed 上的鼓励，再删本人 feed（否则子查询无行可命中）。
                 failed |= !del(conn, "DELETE FROM " + tablePrefix + "social_cheers WHERE cheerer_uuid = ?",
                         "social_cheers given by " + playerId, id);
+                // D5：删完立刻按「实际行数」重算受影响 feed 的 cheer_count（不是 -1/N 的
+                // 增量推测）。用 COUNT(*) 重算而不是减去 N 的理由：本方法要修的是
+                // 「计数与行数不一致」这件事本身，重算是幂等的，且能顺手修掉历史遗留漂移；
+                // 增量扣减只能在计数本来正确时成立（而它正是因为不总正确才有这条缺陷）。
+                // 语句形状（UPDATE social_feed ⋈ 子查询 social_cheers）在 MySQL/SQLite 都合法：
+                // 更新表与子查询表不同，不触碰 MySQL 的「更新-子查询自引用」限制
+                // （同 markFeedCheersRead 里那条注释的判据）。
+                // 快照为 null 时跳过（失败标志已置，整批会回滚），避免对 null 列表做增强 for。
+                if (snapshotOk && !reconcileCheerCounts(conn, affectedFeeds)) {
+                    failed = true;
+                }
                 failed |= !del(conn, "DELETE FROM " + tablePrefix + "social_cheers WHERE feed_id IN"
                         + " (SELECT id FROM " + tablePrefix + "social_feed WHERE player_uuid = ?)",
                         "social_cheers on feed rows of " + playerId, id);
@@ -4920,6 +5105,91 @@ public class DatabaseManager {
             }
             return committed;
         }
+    }
+
+    /**
+     * D5：取出该玩家作为<b>鼓励者</b>留下的全部 {@code feed_id}（去重）。
+     *
+     * <p>必须在 {@code DELETE FROM social_cheers WHERE cheerer_uuid = ?} <b>之前</b>调用 ——
+     * 删完就无从得知「该玩家影响过哪些 feed」，也就没法只重算受影响的那些行。
+     *
+     * <p>代价：走 {@code idx_cheers_cheerer}（schema.sql 已建），只按 UUID 取一列，
+     * 与「该玩家鼓励过多少帖子」成正比，<b>与全表规模无关</b>。
+     *
+     * <p>为什么是 {@code SELECT DISTINCT}：同一玩家对同一条 feed 至多一行（UNIQUE 约束），
+     * DISTINCT 只是让返回集合的语义显式（去重后重算 COUNT(*) 不会重复写同一条 feed）。
+     *
+     * @param conn 已开事务的连接
+     * @return 去重后的 feed id 列表（可能为空 = 该玩家没鼓励过任何帖子）；
+     *         <b>null</b> = 查询失败 —— 调用方据此把整个 reset 回滚，因为跳过快照会在
+     *         库里留下「行删了 / 计数没对账」的半成品（那正是 D5 要消灭的状态）
+     */
+    private List<Long> selectCheeredFeedIds(Connection conn, String uuid) {
+        List<Long> ids = new ArrayList<>();
+        try (PreparedStatement stmt = conn.prepareStatement(
+                "SELECT DISTINCT feed_id FROM " + tablePrefix + "social_cheers WHERE cheerer_uuid = ?")) {
+            stmt.setString(1, uuid);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    ids.add(rs.getLong(1));
+                }
+            }
+            return ids;
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING,
+                    "Failed to snapshot cheered feed ids of " + uuid + " (reset rolled back)", e);
+            return null;
+        }
+    }
+
+    /**
+     * D5：把指定 feed 的 {@code social_feed.cheer_count} 按 {@code social_cheers} 的
+     * <b>实际行数</b>重算（对账，不是增量扣减）。
+     *
+     * <p><b>为什么选「重算」而不是「减去 N」</b>（方案 A 与方案 B 之间的实测取舍）：
+     * <ul>
+     *   <li>受影响 feed 的集合来自 {@link #selectCheeredFeedIds}（有界，走
+     *       {@code idx_cheers_cheerer}），所以这里已经拿到了方案 A「只动受影响的 feed」
+     *       的好处 —— 不是方案 B 那种 O(全表) 的 {@code UPDATE ... WHERE} 全量重算；</li>
+     *   <li>但每条 feed 的<b>新值</b>用 {@code COUNT(*)} 重新数，而不是
+     *       {@code cheer_count - 1}：本方法要修的正是「计数与行数不一致」，
+     *       重算是幂等的、可重复执行，且能顺手把 {@code cheer_count} 已经漂移过的历史
+     *       行也拉回正确值；增量扣减只在「计数本来就对」的前提下成立，而那正是缺陷的
+     *       反面假设（一旦之前漂过，扣减只会继续错）。</li>
+     * </ul>
+     * 一句话：<b>范围按方案 A（只碰受影响的 feed），值按重算（幂等、可自愈）</b>。
+     *
+     * <p>语句按条逐个执行而不是拼一条巨大的 {@code IN (...) + CASE}：受影响 feed 数量
+     * 就是该玩家鼓励过的帖子数（正常玩家个位数到几十），逐条预编译语句更清晰、不触
+     * 参数个数上限，且失败能精确到是哪条 feed。
+     *
+     * <p>SQLite/MySQL 双兼容：{@code UPDATE frequent LEFT JOIN something} 在 SQLite 上
+     * 不可移植，故这里用「每条 feed 一条独立 UPDATE + 标量子查询」的通用形态
+     * （{@code UPDATE … SET cheer_count = (SELECT COUNT(*) FROM … WHERE feed_id = ?) WHERE id = ?}）。
+     * 子查询涉及的表（{@code social_cheers}）与被更新表（{@code social_feed}）不同，
+     * 不触碰 MySQL 的「更新-子查询自引用」限制（同 {@link #markFeedCheersRead} 的判据）。
+     *
+     * @return true = 全部对账语句执行成功；false = 任一条失败（调用方整批回滚）
+     */
+    private boolean reconcileCheerCounts(Connection conn, List<Long> feedIds) {
+        String sql = "UPDATE " + tablePrefix + "social_feed"
+                + " SET cheer_count = (SELECT COUNT(*) FROM " + tablePrefix
+                + "social_cheers c WHERE c.feed_id = ?)"
+                + " WHERE id = ?";
+        for (Long feedId : feedIds) {
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setLong(1, feedId);
+                stmt.setLong(2, feedId);
+                // 影响 0 行是正常态：该 feed 可能已被作者 reset 删掉（或本就属于别人且已清理）。
+                // 成败判据只有「SQL 没抛异常」—— 与 eraseClassCreator 同口径。
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to reconcile cheer_count of feed " + feedId + " (reset rolled back)", e);
+                return false;
+            }
+        }
+        return true;
     }
 
     /** DC-02：单条 DELETE 失败只记 WARNING 并返回 false；调用方据此整批回滚。 */

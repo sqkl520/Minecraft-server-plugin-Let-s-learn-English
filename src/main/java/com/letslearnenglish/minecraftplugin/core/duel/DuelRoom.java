@@ -192,6 +192,23 @@ public class DuelRoom {
     /** R4-07-logic-F01：掉线宽限期开始/结束时的暂停位。 */
     public void setPaused(boolean p) { this.paused = p; }
 
+    /**
+     * R24-A2：宽限期停盘位只读访问。
+     *
+     * <p>存在的唯一理由是让 {@code DuelManager.submitAnswer} 能<b>区分两种拒收原因</b>：
+     * {@link #submitAnswer} 对 {@code !active} / {@code currentWord == null} / {@code paused}
+     * 三种情况一律返回 {@link AnswerResult#NOT_IN_DUEL}（这是 R4-07-logic-F01 的既定契约，
+     * 四条既有用例逐条钉住它，不得改枚举），于是调用方无从知道"他其实就在对局里，只是
+     * 对手断线停盘中"，只能回一句"你当前不在对决中"——与事实相反。
+     *
+     * <p>刻意<b>不</b>把 {@code paused} 折进 {@code DuelManager.isInDuel}：那个判据被 13 处
+     * 调用方用来表达"这名玩家已被一场对决占用"（不开新答题 / 不开 AI 对话 / 不进错题练习 /
+     * 主菜单该重开对决界面而非发起挑战）。停盘不改变"占用"事实 —— 房间还在、GUI 还开着、
+     * 30 秒后自动复赛，把占用一并解除会让上述守卫在宽限期内集体失效，制造出
+     * "答题 / 练习 / 对话与对决并存"的半死态（正是那些守卫当初要防的缺陷类）。
+     */
+    public boolean isPaused() { return this.paused; }
+
     // --- Getters ---
 
     public UUID getPlayer1() { return player1; }

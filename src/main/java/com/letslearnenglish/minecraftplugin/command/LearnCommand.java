@@ -1,6 +1,8 @@
 package com.letslearnenglish.minecraftplugin.command;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager.ChallengeProgress;
+import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager.WordChallengeProgress;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
 import com.letslearnenglish.minecraftplugin.core.ai.ScenarioCodec;
@@ -511,13 +513,96 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         }
     }
 
+    /**
+     * R31：{@code /le challenge} 的<b>主线程段</b>只做模块门与配置判定（零 JDBC），
+     * 四次查库全部挪进 {@code runTaskAsynchronously} 的 lambda，结果经
+     * {@link #runTaskSafe} 回主线程由 {@link #renderChallenge} 渲染。
+     *
+     * <p><b>为什么必须异步（R31 缺陷 1）</b>：本方法原实现在主线程同步走了四条 JDBC 链路 ——
+     * {@code getTodayWordProgress} → {@code getDailyChallengeWordsProgress}、
+     * {@code getTodayWordDetails} → {@code loadDailyChallengeWords}（+ 逐词
+     * {@code isWordCompleted}）、{@code isWordRewardPaidToday} →
+     * {@code isDailyWordRewardClaimed}、{@code getTodayChallenges} →
+     * {@code findTodayChallenges}。远程 MySQL 抖动时一次 {@code /le challenge}
+     * 就能把主线程钉住（{@code socketTimeout=30000} ×4），
+     * <b>全服 TPS 跟着这个命令走</b>，而功能表现完全正常 —— 这类退化没有任何单测能观测。
+     * 现由 {@code MainThreadIoContractTest}（已扩展扫 {@code command/}）静态守住。
+     *
+     * <p><b>渲染决策全部前置到主线程</b>（{@code reward} / {@code economyAvailable}）：
+     * 它们读的是内存配置与 Vault 句柄，零 IO；放在异步段反而要跨线程读插件状态。
+     * 与 {@code handleClassCommand} 同一形状（赛季窗口也在主线程先算好）。
+     *
+     * <p><b>取数顺序刻意保留原样</b>：{@code total == 0} 时不再读后三个 ——
+     * {@code getTodayWordDetails} 内部会走 {@code ensureWordChallengesAssigned}
+     * （可能触发一次分配写入），阅读顺序若变，一条"没有挑战"的只读展示就可能
+     * 变成一次分配尝试。异步化只改线程，不改语义。
+     */
     private void handleChallengeCommand(Player player) {
         // MC-2 模块门：daily-challenges.enabled=false → /le challenge 拒绝。
         if (requireEnabled(player, plugin.getConfigManager().isDailyChallengesEnabled())) {
             return;
         }
-        var dcm = plugin.getDailyChallengeManager();
-        int[] progress = dcm.getTodayWordProgress(player);
+        // 主线程段（零 IO）：奖励金额与经济可用性都是内存读，且决定渲染分支。
+        final double reward = getWordChallengeReward();
+        final boolean economyAvailable = isEconomyAvailable();
+        final UUID playerId = player.getUniqueId();
+
+        try {
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                final int[] progress;
+                final List<WordChallengeProgress> details;
+                final boolean paid;
+                final List<ChallengeProgress> challenges;
+                try {
+                    var dcm = plugin.getDailyChallengeManager();
+                    progress = dcm.getTodayWordProgress(player);
+                    if (progress[1] == 0) {
+                        // 无挑战词：后三次查询原实现也不会执行，这里同样跳过。
+                        details = List.of();
+                        paid = false;
+                        challenges = List.of();
+                    } else {
+                        details = dcm.getTodayWordDetails(player);
+                        paid = dcm.isWordRewardPaidToday(playerId);
+                        challenges = dcm.getTodayChallenges(playerId);
+                    }
+                } catch (RuntimeException e) {
+                    // 异步段不得直调 Bukkit API：切回主线程提示 + 记日志（照抄 DailyChallengeGUI.openAsync）。
+                    plugin.getLogger().log(java.util.logging.Level.WARNING,
+                            "Failed to load /le challenge data for " + playerId, e);
+                    runTaskSafe(() -> {
+                        if (player.isOnline()) {
+                            player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
+                                    "daily.load-failed"));
+                        }
+                    });
+                    return;
+                }
+                runTaskSafe(() -> {
+                    // 异步间隙玩家可能已下线 —— 渲染前复检（同 handleClassCommand 的 4A tester L-1 收口）。
+                    if (!player.isOnline()) {
+                        return;
+                    }
+                    renderChallenge(player, progress, details, paid, challenges,
+                            reward, economyAvailable);
+                });
+            });
+        } catch (IllegalStateException ignored) {
+            // 插件停用窗口（调度器已关闭）：放弃本次异步查询
+        }
+    }
+
+    /**
+     * R31：{@code /le challenge} 的<b>主线程渲染段</b> —— 数据由
+     * {@link #handleChallengeCommand} 预取，本方法零 DB 调用。
+     *
+     * <p>顺序与原实现逐行一致（先 header、再词表、再庆祝提示、再行为挑战、最后庆祝页），
+     * 因为玩家读到的段落顺序就是这段代码的顺序。
+     */
+    private void renderChallenge(Player player, int[] progress,
+                                 List<WordChallengeProgress> details, boolean paid,
+                                 List<ChallengeProgress> challenges,
+                                 double reward, boolean economyAvailable) {
         int completed = progress[0];
         int total = progress[1];
 
@@ -534,7 +619,6 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 "total", String.valueOf(total)));
 
         // Show individual word status
-        var details = dcm.getTodayWordDetails(player);
         for (var wordProgress : details) {
             String statusKey = wordProgress.completed
                     ? "daily-challenge.word-done"
@@ -547,7 +631,6 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         // paid asynchronously-ish (M12 deposit-then-mark), so completion alone
         // must not trigger the "reward granted" message.
         boolean allDone = completed >= total && total > 0;
-        boolean paid = dcm.isWordRewardPaidToday(player.getUniqueId());
         if (allDone && paid) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "daily-challenge.all-complete-chat"));
@@ -557,7 +640,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             // R-44: money.enabled=false is NOT a "pending retry" case — the
             // coins will never arrive, so hint "economy disabled" instead of
             // promising an auto re-issue that can never happen.
-            if (!isEconomyAvailable()) {
+            if (!economyAvailable) {
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "daily-challenge.economy-disabled"));
             } else {
@@ -567,14 +650,13 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 // 而补发时实际到账 99.9 —— 又是「报的数与落账的数不同源」。
                 player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                         "daily-challenge.reward-pending",
-                        "reward", formatCoins(getWordChallengeReward())));
+                        "reward", formatCoins(reward)));
             }
         }
 
         // FIX-CHAL-01: cross-visibility (read-only) — show behavioral challenge
         // progress right below the word list so players can see both systems
         // from one entry point. Claim path stays inside DailyChallengeGUI.
-        var challenges = dcm.getTodayChallenges(player.getUniqueId());
         if (!challenges.isEmpty()) {
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,
                     "daily-challenge.behavioral-header"));
@@ -635,7 +717,7 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
             plugin.getGuiNavigationManager().pushBack(player.getUniqueId(),
                     () -> new MainMenu(plugin).open(player));
             new com.letslearnenglish.minecraftplugin.gui.ChallengeCompleteGUI(plugin)
-                    .open(player, getWordChallengeReward());
+                    .open(player, reward);
         }
     }
 

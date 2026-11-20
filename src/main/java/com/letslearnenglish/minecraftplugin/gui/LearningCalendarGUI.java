@@ -2,6 +2,7 @@ package com.letslearnenglish.minecraftplugin.gui;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.core.social.FeedTextFormatter;
 import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
 import com.letslearnenglish.minecraftplugin.gui.identity.PluginGuiHolder;
 import org.bukkit.Bukkit;
@@ -170,8 +171,10 @@ public class LearningCalendarGUI {
                 ? "calendar.title" : "calendar.viewing-title";
         String title = msg.getString(titleKey, "");
         if (!targetId.equals(player.getUniqueId())) {
+            // D8 同源落地点：目标名来自 player_data.player_name，标题随之进转码器。
             title = title.replace("{player}",
-                    plugin.getPlayerDataStore().getPlayerName(targetId));
+                    FeedTextFormatter.sanitizePlayerText(
+                            plugin.getPlayerDataStore().getPlayerName(targetId)));
         }
         title = ChatColor.translateAlternateColorCodes('&', title);
         // R5-3/R5-16：挂结构身份（holder），holder 是唯一身份，标题仅作显示。

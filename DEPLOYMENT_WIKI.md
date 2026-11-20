@@ -852,7 +852,7 @@ progress-system:
 
 #### 5.9.1 硬要求
 
-插件存储的"每日"是 `yyyy-MM-dd` 格式的**纯日期字符串**（`DATE` 列），不是时间戳。「今天」由各服 JVM 的 `systemDefault` 时区在 `LocalDate.now()` 处决定，全仓共 **74 处** `LocalDate.now()` 调用。
+插件存储的"每日"是 `yyyy-MM-dd` 格式的**纯日期字符串**（`DATE` 列），不是时间戳。「今天」由各服 JVM 的 `systemDefault` 时区在 `LocalDate.now()` 处决定，全仓共 **71 处** `LocalDate.now()` 调用（`src/main/java` 净代码行，剥掉注释后的口径；含注释行的粗略 grep 是 77 处，两个数都不是 74 —— 那个数字已经过期）。
 
 因此硬要求是：**所有连接到同一数据库的子服，其 JVM 时区必须彼此完全一致。** 只要两台子服对"今天"给出不同的 `yyyy-MM-dd`，下面的问题就会发生。
 

@@ -118,6 +118,14 @@ public class MessageUtil {
 
         if (placeholders != null) {
             for (Map.Entry<String, String> entry : placeholders.entrySet()) {
+                // R31：null **值**必须跳过，与 formatMessage / formatSafe 同口径。
+                // String#replace(CharSequence, CharSequence) 对 replacement 为 null 直接 NPE，
+                // 会把「文案降级」变成「异常穿透到监听器/命令」。刻意**不**替换成字面量
+                // "null"（那会把内部状态漏给玩家），保留 {name} 原文。
+                // null **键**的行为保持不变（仍拼成字面量 {null}，不 NPE）。
+                if (entry.getValue() == null) {
+                    continue;
+                }
                 message = message.replace("{" + entry.getKey() + "}", entry.getValue());
             }
         }

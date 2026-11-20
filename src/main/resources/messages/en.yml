@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 26
+config-version: 27
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -328,6 +328,10 @@ duel:
   opponent-correct: "{prefix}&e{player} &agot it right! They score!"
   opponent-wrong: "{prefix}&e{player} &cgot it wrong! The answer is &e{word}&c, you score!"
   round-ended: "{prefix}&eThis round already ended — your answer doesn't count!"
+  # R24-A2: shown when a chat line is rejected by the room while the duel is paused
+  # during the 30s disconnect grace period. Not reusing not-in-duel — that message
+  # contradicts the facts here (the player IS in a duel) and would repeat for 30s.
+  paused-opponent-disconnected: "{prefix}&7Your opponent is disconnected and the duel is paused — your message did not count as an answer. Waiting for them to reconnect!"
   win: "{prefix}&6★ &aYou won the duel! &7Score: &e{score1}&7-&c{score2} &7Opponent: &e{opponent}"
   lose: "{prefix}&cYou lost the duel! &7Score: &e{score1}&7-&c{score2} &7Opponent: &e{opponent}"
   forfeit: "{prefix}&cYou forfeited the duel!"
@@ -339,6 +343,10 @@ duel:
   opponent-reconnected: "{prefix}&a{player} &ahas reconnected! Duel resumes!"
   duel-already-over: "{prefix}&cThe duel already ended while you were disconnected!"
   lost-by-disconnect: "{prefix}&cYou lost by disconnect timeout. &e{player} &cwon this duel."
+  # R23: the opponent used /le duel quit while you were disconnected. Not reusing
+  # cancelled-by-gm (that says "dismissed by an admin" — a lie here), nor
+  # lost-by-disconnect (quit declares no winner and records no stats).
+  opponent-quit-while-disconnected: "{prefix}&cWhile you were disconnected, your opponent &e{player} &cquit the duel."
   gui-title: "&6&lWord Duel"
   scoreboard-title: "&6&lWord Duel"
   scoreboard-title-grace: "&c&lDuel &7({seconds}s)"
@@ -886,6 +894,10 @@ diagnose:
     not-initialized: "Database: not initialized"
     sqlite: "Database: SQLite ({file}, {size})"
     mysql: "Database: MySQL connected ({host}/{database})"
+    # R26: emitted when the connectivity probe fails (see DiagnoseCommand#probeConnection).
+    sqlite-missing: "Database: SQLite file is missing or empty ({file}, {size}) — all player data is gone; keep players out and check the data directory permissions or restore a backup"
+    sqlite-unavailable: "Database: SQLite ({file}, {size}) but the connection is unusable — every read and write will fail; see 'Database self-heal failed' in the startup log"
+    mysql-unavailable: "Database: MySQL connection unusable ({host}/{database}) — the probe statement failed, so every read and write will fail; check that the database server is running"
 
   driver:
     bundled: "MySQL driver: bundled ({driver})"
@@ -897,6 +909,15 @@ diagnose:
     disabled: "Backup: disabled (general.backup.enabled=false)"
     none: "Backup: none yet (first backup after {minutes} min)"
     latest: "Backup: {file} ({ago})"
+    # R26: general.backup.interval <= 0 means the task is never scheduled at startup.
+    interval-off-none: "Backup: auto-backup is DEAD (general.backup.interval is 0 or negative, so the task was never scheduled) and there is not a single backup — set it to 1440 and restart"
+    interval-off-stale: "Backup: auto-backup is DEAD (general.backup.interval is 0 or negative, so the task was never scheduled); the newest one is {file} ({ago}) — set it to 1440 and restart, and take a manual backup before then"
+
+  # R26: proxy inbound-frame signing (proxy.inbound-secret). Reports configured / not configured only — never the value.
+  proxy:
+    single-server: "Proxy signing: single-server mode (proxy.server-name is empty), inbound-secret not needed"
+    secret-set: "Proxy signing: proxy.inbound-secret is configured — inbound frames are signature-checked"
+    secret-missing: "Proxy signing: server {server} has no proxy.inbound-secret — inbound frames are NOT signature-checked, so a modified client can forge global broadcasts / achievements / season results"
 
   economy:
     no-provider: "Vault economy: Vault installed but no Economy provider registered"

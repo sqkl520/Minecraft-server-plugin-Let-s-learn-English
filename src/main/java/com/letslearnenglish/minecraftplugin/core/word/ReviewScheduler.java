@@ -13,6 +13,23 @@ public class ReviewScheduler {
 
     private static final long CACHE_TTL_MS = TimeUnit.SECONDS.toMillis(30);
 
+    /**
+     * 内置默认复习档位（小时）：1h / 6h / 24h / 72h / 168h(7d)。
+     *
+     * <p>取值与出厂 {@code config.yml} 的 {@code word-system.review.intervals}
+     * （{@code [1, 6, 24, 72, 168]}）逐字一致 —— 这不是"另一套参数"，就是出厂档位本身，
+     * 只是在这里再存一份常量，以便配置读空时能继续按出厂行为工作。
+     *
+     * <p>为什么需要这份兜底：{@code YamlConfiguration#getIntegerList} 在<b>键缺失</b>时会回落到
+     * defaults（{@code JavaPlugin#reloadConfig} 先 {@code setDefaults(getResource("config.yml"))}，
+     * 出厂值把这一半兜住了）；但服主显式写 {@code intervals: []} 时 defaults 救不了 ——
+     * 键存在、值就是空列表，读到的是真空表。此时若放任 {@code reviewIntervalsSize = 0}，
+     * 读侧 {@code reviewCount >= reviewIntervalsSize} 对任何词都恒成立，每个词都被判为
+     * "已掌握"塞进 30 天 mastered 池 —— 复习提醒事实上停摆一个月，而构造器零日志，
+     * 服主完全无从察觉。故空表一律按出厂档位继续工作，并 WARNING 点名该键。
+     */
+    private static final int[] DEFAULT_REVIEW_INTERVALS_HOURS = {1, 6, 24, 72, 168};
+
     private final LetsLearnEnglish plugin;
     private final WordManagerImpl wordManager;
     private final PlayerDataStore playerDataStore;
@@ -32,6 +49,24 @@ public class ReviewScheduler {
 
         List<Integer> intervals = plugin.getConfigManager().getMainConfig()
                 .getIntegerList("word-system.review.intervals");
+        // FIX-REVIEW-EMPTY（Round 31）：显式写 `intervals: []` 时 defaults 兜不住 —— 键在、值就是
+        // 空表。若放任 reviewIntervalsSize=0，读侧 `reviewCount >= reviewIntervalsSize` 对任何词
+        // 恒真，全部词被塞进 30 天 mastered 池；而本类零日志，服主无从察觉。
+        // 修复必须两条一起：WARNING 让服主能看见配置错误，回落出厂档位让复习照常工作。
+        // 只做告警 = 功能还是坏的；只做回落 = 配置错误被掩盖。
+        if (intervals.isEmpty()) {
+            plugin.getLogger().warning("[Config Audit] 'word-system.review.intervals' is empty"
+                    + " (it is present in config.yml but has no entries). Left as-is, every word"
+                    + " would be treated as mastered and review reminders would degrade to the"
+                    + " 30-day mastered cycle. Falling back to the built-in defaults "
+                    + Arrays.toString(DEFAULT_REVIEW_INTERVALS_HOURS) + " (hours)."
+                    + " Please check the 'word-system.review.intervals' key in config.yml.");
+            List<Integer> builtInDefaults = new ArrayList<>(DEFAULT_REVIEW_INTERVALS_HOURS.length);
+            for (int hours : DEFAULT_REVIEW_INTERVALS_HOURS) {
+                builtInDefaults.add(hours);
+            }
+            intervals = builtInDefaults;
+        }
         this.reviewIntervalsSize = intervals.size();
         this.reviewIntervalsMs = new long[reviewIntervalsSize];
         for (int i = 0; i < reviewIntervalsSize; i++) {

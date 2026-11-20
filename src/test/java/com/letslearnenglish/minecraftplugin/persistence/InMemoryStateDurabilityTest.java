@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -53,16 +54,25 @@ import net.milkbowl.vault.economy.Economy;
  * 第 17 轮审计的三条「<b>纯内存状态</b>」问题：进程内状态在异常 / 重启 / reload 窗口里
  * 会丢或泄漏（N9 / N10 / N12）。
  *
- * <h2>本类的定位：诊断 + 门禁，不是修复</h2>
- * 三条都不在本轮修复范围内（并行批次分工保护）。本类做两件事：
+ * <h2>本类的定位：诊断 + 门禁</h2>
  * <ol>
  *   <li><b>把缺陷写成 {@code @Disabled} 的期望断言</b> —— 摘掉注解即红，红的信息里带着
  *       实测值。刻意<b>不</b>写「断言现状 = 双发 / 集合只增」的绿测试：那会把缺陷固化成
- *       契约（同 {@code DailyCapCrossServerTest} 的绿/红划分理由）。</li>
+ *       契约（同 {@code DailyCapCrossServerTest} 的绿/红划分理由）。
+ *       目前只剩 <b>N9</b> 一条（{@code pendingClaimLedgerWrites} 纯内存、无持久化）。</li>
  *   <li><b>钉住审计报告说错、或修复后仍必须成立的事实</b>（绿测试）—— 尤其是 N9 的补写
  *       登记表<b>确实</b>会被午夜 rollover 清掉这一点（审计说「不清」，实测相反），
  *       以及 N12 的<b>结构性不可达</b>证据。</li>
  * </ol>
+ *
+ * <h2>N10 已修（跨天裁剪）</h2>
+ * <p>{@code paidButUnmarked} 过去只增不删。修法是在领奖入口<b>跨天后的第一次点击</b>整片
+ * 裁掉非今日的键（{@code MiscGUIListener.prunePaidButUnmarkedForNewDay}），并由
+ * 「已裁剪到哪一天」的闸门把扫描次数收敛到<b>每个自然日至多一次</b>。
+ * 见 {@link N10PaidButUnmarked#hasACleanupPointTriggeredByTheClaimEntry()}（形状门禁）与
+ * {@link N10PaidButUnmarked#crossDayPruneDropsStaleKeys()}（行为，反射直调 private 方法）。
+ * 刻意<b>不</b>加 {@code PlayerQuitEvent} 按玩家清 —— 那会把「钱已到账、台账没写」的护栏
+ * 在玩家重进后重新打开（二次付款）。
  *
  * <h2>N12 的结论（本类最重要的产出）</h2>
  * 审计称「{@code Thread.sleep} 在 stripe lock 内，GUI 领奖路径可达」。<b>实测不成立</b>：
@@ -368,48 +378,137 @@ class InMemoryStateDurabilityTest {
         }
 
         /**
-         * <b>缺陷记录（N10）</b>：{@code paidButUnmarked} 全仓没有任何 {@code remove} /
-         * {@code clear} / {@code removeIf}，也没有 quit 清理钩子 —— 条目只增不减。
+         * <b>N10 已修（跨天裁剪）</b>：{@code paidButUnmarked} 的条目永不释放 —— 键含日期只让
+         * 它在<b>逻辑</b>上跨天失效（昨天的键今天不会再被 {@code contains} 命中），条目照样
+         * 占着堆。跑几个月的服量级是「玩家数 × 挑战数 × 天数」。
          *
-         * <h2>量级判断（为什么是 LOW，不是 MEDIUM）</h2>
-         * 一条只在<b>台账写失败</b>时才会写入。正常服上这是罕见事件，键含日期、逻辑上跨天
-         * 失效，所以不会 OOM。但<b>慢性 DB 写故障 + Vault 正常</b>这个组合下它会无界增长：
-         * 每次点击都对 (玩家, 挑战, 日期) 新增一条，永不释放。100 人在线、每人每天 3 条
-         * 挑战，一年约 11 万条短字符串 —— 不是事故，但也不是零。
+         * <h2>修法与触发时机</h2>
+         * 由 {@code prunePaidButUnmarkedForNewDay(today)} 在<b>跨天后的第一次领奖点击</b>整片
+         * 裁掉非今日的键，并由 {@code paidButUnmarkedDay} 闸门保证每个自然日至多真正遍历一次。
+         * 刻意<b>不</b>加 {@code PlayerQuitEvent} 按玩家清：quit 清会把「钱已到账、台账没写」
+         * 的护栏在玩家重进后重新打开（二次付款）。
          *
-         * <p>{@code /lea reload} 也<b>不</b>清它：{@code MiscGUIListener} 在
-         * {@code enableAll()} 里新建，但 legacy 的 FULL reload
-         * <b>不重建</b>运行时，所以常规 reload 保留该集合；只有 {@code server.enabled} 切换
-         * 导致 {@code enableAll()} 重跑时才换成新实例。本类<b>没有</b> {@code unloadPlayer}
-         * 之类的 quit 入口（已 grep 确认：既无 {@code PlayerQuitEvent} 也无
-         * {@code unloadPlayer}）。
-         *
-         * <h2>断言的是「期望」，不是「现状」</h2>
-         * 本用例断言<b>清理点存在</b>（{@code remove}/{@code clear}/{@code removeIf} 或 quit 钩子）。
-         * 当前代码两者皆无 → 它必红，故 {@code @Disabled}。
-         * 刻意不写成「断言它确实没有清理点」的绿测试 —— 那会把缺陷固化成契约。
-         *
-         * <p><b>修复后请摘掉 {@code @Disabled}</b>：给集合加任一清理点（quit 清理 /
-         * 午夜裁剪过期日期 / reload 清理）都应让本用例转绿。
+         * <h2>本条断言的是「形状」，行为由下一条用例真跑</h2>
+         * 源码 lint 只能证明「清理点存在且在正确的顺序上」；真正证明它清的是
+         * {@link #crossDayPruneDropsStaleKeys()}。
          */
-        @Disabled("已知残留（N10）：paidButUnmarked 全仓无 remove/clear，也无 PlayerQuitEvent "
-                + "清理钩子；键含日期所以逻辑上跨天失效，但内存条目永不释放。"
-                + "本用例断言的是【应有清理点】这一期望，修复后摘掉本注解即可当回归用。"
-                + "修复方向：unloadPlayer 式 quit 钩子，或在午夜 rollover 里 removeIf(日期!=今天)")
         @Test
-        @DisplayName("N10 期望：paidButUnmarked 应当有清理点（当前无 → 本条红，故 @Disabled）")
-        void hasNoCleanupPointAtAll() {
+        @DisplayName("N10 契约：paidButUnmarked 有跨天裁剪点，且裁剪排在 contains 判定之前")
+        void hasACleanupPointTriggeredByTheClaimEntry() {
             String src = sourceOf("MiscGUIListener.java");
 
-            assertTrue(src.contains("paidButUnmarked.remove")
-                            || src.contains("paidButUnmarked.clear")
-                            || src.contains("paidButUnmarked.removeIf"),
-                    "paidButUnmarked 仍然没有任何清理点喵 —— 收集只会无界增长。\n"
+            assertTrue(src.contains("paidButUnmarked.removeIf"),
+                    "paidButUnmarked 仍然没有任何清理点喵 —— 条目只会无界增长。\n"
                             + "注意：键含日期只让它在<b>逻辑</b>上跨天失效，条目照样占着内存。");
 
-            assertTrue(src.contains("PlayerQuitEvent") || src.contains("unloadPlayer"),
-                    "MiscGUIListener 也没有 quit 清理钩子喵（本类根本没监听 PlayerQuitEvent，"
-                            + "也没有 DailyChallengeManager.unloadPlayer 那样的入口）。");
+            String claimBody = methodBody("MiscGUIListener.java",
+                    "private void claimBehavioralChallenge(Player player, int idx)");
+            int pruneIdx = claimBody.indexOf("prunePaidButUnmarkedForNewDay(");
+            int containsIdx = claimBody.indexOf("paidButUnmarked.contains(");
+            assertTrue(pruneIdx > 0,
+                    "领奖入口里找不到裁剪调用喵 —— 清理点存在但没人调用，等于没修。\n"
+                            + "实测方法体：\n" + claimBody.strip());
+            assertTrue(containsIdx > pruneIdx,
+                    "裁剪必须排在 paidButUnmarked.contains 判定<b>之前</b>喵"
+                            + "（裁剪@" + pruneIdx + "，contains@" + containsIdx + "）。\n"
+                            + "顺序反了会让「今天的键」在本次点击里仍被上一轮的陈旧判定命中，"
+                            + "而裁剪真正生效要等下一次点击 —— 中间那一次点击是错误的拒付。");
+
+            String pruneBody = methodBody("MiscGUIListener.java",
+                    "private void prunePaidButUnmarkedForNewDay(LocalDate today)");
+            // stripComments 会把字符串字面量内容抹成空格（`endsWith(    + today)`），
+            // 而这里判的恰恰是<b>字面量里有没有竖线</b>，所以必须读未剥的原文。
+            // 取的是方法<b>体</b>（自左花括号起），方法 javadoc 不在其内 —— 不会自证。
+            String rawPruneBody = rawMethodBody("MiscGUIListener.java",
+                    "private void prunePaidButUnmarkedForNewDay(LocalDate today)");
+            assertTrue(rawPruneBody.contains("endsWith(\"|\" + today)"),
+                    "裁剪判据必须带<b>竖线</b>一起匹配（`endsWith(\"|\" + today)`）喵。\n"
+                            + "只比日期串时，判据依赖「challengeId 不会以日期形态收尾」这个隐含前提；"
+                            + "带上分隔符后，「最后一段等于今天」在结构上成立，"
+                            + "`|2026-02-1` 与 `|2026-02-10` 这类前缀歧义不可能发生。\n"
+                            + "实测方法体（原文）：\n" + rawPruneBody.strip());
+
+            assertTrue(pruneBody.contains("paidButUnmarkedDay"),
+                    "裁剪必须由「已裁剪到哪一天」的闸门守卫喵 —— 没有闸门就是每次领奖点击都"
+                            + "遍历整个集合（O(集合大小) 挂在主线程的点击路径上）。");
+        }
+
+        /**
+         * <b>N10 行为</b>：真正驱动裁剪 —— 造出「昨天的键 + 今天的键」，把时钟指到今天后
+         * 断言昨日键被清掉、今日键保留；再把闸门与跨天各验一次。
+         *
+         * <p><b>为什么必须反射</b>：{@code paidButUnmarked} 与
+         * {@code prunePaidButUnmarkedForNewDay} 都是 private 且本类在另一个包。行为断言比
+         * 「源码里有 removeIf」强得多 —— 后者在判据写反（例如清掉今天的键）时照样绿。
+         *
+         * <p><b>变异判别</b>：把 {@code !key.endsWith("|" + today)} 改成
+         * {@code false}（永不裁剪），或把判据里的 {@code !} 去掉（清反方向），本用例必红。
+         */
+        @Test
+        @DisplayName("N10 行为：跨天裁剪清掉昨日键、保留今日键，同日重复调用不误删")
+        void crossDayPruneDropsStaleKeys() throws Exception {
+            com.letslearnenglish.minecraftplugin.listener.MiscGUIListener listener =
+                    newListener();
+            Set<String> keys = paidKeysOf(listener);
+
+            String uuid = "00000000-0000-0000-0000-0000000000aa";
+            String yesterdayKey = uuid + "|answer_10|2026-02-09";
+            String todayKey = uuid + "|answer_10|2026-02-10";
+            keys.add(yesterdayKey);
+            keys.add(todayKey);
+
+            LocalDate today = LocalDate.of(2026, 2, 10);
+            pruneTo(listener, today);
+
+            assertEquals(Set.of(todayKey), keys,
+                    "跨天裁剪后集合里应<b>只剩今天</b>的键喵。\n"
+                            + "多了 → 陈旧条目没被清（N10 未修）；少了 → 判据把今天的键也清掉了"
+                            + "（防重复付款的护栏失效，钱可二次发放）。实测：" + keys);
+
+            // 闸门：同一自然日再进来一次，不得重扫 / 不得误删刚写进去的今日键
+            String laterTodayKey = uuid + "|combo_5|2026-02-10";
+            keys.add(laterTodayKey);
+            pruneTo(listener, today);
+            assertTrue(keys.contains(laterTodayKey),
+                    "同一自然日内的第二次调用把今日键删掉了喵 —— 闸门失效或判据方向错，"
+                            + "护栏会在同一天里被自己拆掉。实测：" + keys);
+
+            // 跨到下一天：所有 2026-02-10 的键都该被清掉（含刚加的 combo_5）
+            pruneTo(listener, today.plusDays(1));
+            assertTrue(keys.isEmpty(),
+                    "跨天后旧日期的条目应被整片清掉喵，实测残留：" + keys);
+        }
+
+        /**
+         * {@link #crossDayPruneDropsStaleKeys()} 的夹具：{@code MiscGUIListener} 的构造器
+         * 只取 {@code DatabaseManager} 与 {@code Logger} 两个引用（无 I/O、无建表），
+         * 故 mock 掉 {@code LetsLearnEnglish} 即可，不需要真库。
+         */
+        private com.letslearnenglish.minecraftplugin.listener.MiscGUIListener newListener() {
+            LetsLearnEnglish plugin = mock(LetsLearnEnglish.class);
+            when(plugin.getDatabaseManager()).thenReturn(mock(DatabaseManager.class));
+            when(plugin.getLogger()).thenReturn(Logger.getLogger("N10Fixture"));
+            return new com.letslearnenglish.minecraftplugin.listener.MiscGUIListener(plugin);
+        }
+
+        @SuppressWarnings("unchecked")
+        private Set<String> paidKeysOf(
+                com.letslearnenglish.minecraftplugin.listener.MiscGUIListener listener)
+                throws Exception {
+            java.lang.reflect.Field field = com.letslearnenglish.minecraftplugin.listener
+                    .MiscGUIListener.class.getDeclaredField("paidButUnmarked");
+            field.setAccessible(true);
+            return (Set<String>) field.get(listener);
+        }
+
+        private void pruneTo(
+                com.letslearnenglish.minecraftplugin.listener.MiscGUIListener listener,
+                LocalDate day) throws Exception {
+            java.lang.reflect.Method method = com.letslearnenglish.minecraftplugin.listener
+                    .MiscGUIListener.class.getDeclaredMethod(
+                            "prunePaidButUnmarkedForNewDay", LocalDate.class);
+            method.setAccessible(true);
+            method.invoke(listener, day);
         }
 
         /**
@@ -620,6 +719,43 @@ class InMemoryStateDurabilityTest {
 
     private String methodBody(String fileName, String signature) {
         return extractBody(sourceOf(fileName), signature);
+    }
+
+    /**
+     * 未剥注释的<b>方法体</b>（自左花括号起）。
+     *
+     * <p><b>为什么需要它</b>：{@link #sourceOf} 走 {@link #stripComments}，把字符串字面量的
+     * <b>内容</b>抹成空格 —— 于是 {@code endsWith("|" + today)} 在剥过的源码里变成
+     * {@code endsWith(    + today)}，任何「字面量里有没有某个字符」的断言都会恒红。
+     * 反过来直接读<b>整份原文</b>又会让断言被 javadoc 里的同名提及满足（自证桩）。
+     *
+     * <p>所以这里只做一件事：原文 + 方法体范围。javadoc 在签名之前，天然被排除。
+     */
+    private String rawMethodBody(String fileName, String signature) {
+        return extractBody(rawSourceOf(fileName), signature);
+    }
+
+    /** 未剥注释的整份源码。仅用于必须看见字面量内容的断言。 */
+    private String rawSourceOf(String fileName) {
+        List<Path> hits = new ArrayList<>();
+        for (Path p : allMainSources()) {
+            if (p.getFileName().toString().equals(fileName)) {
+                hits.add(p);
+            }
+        }
+        if (hits.isEmpty()) {
+            fail("源码树里找不到 " + fileName + " 喵 —— 文件可能被移动 / 改名，"
+                    + "请同步本 lint（否则门禁会静默失效）。");
+        }
+        if (hits.size() > 1) {
+            fail("源码树里有 " + hits.size() + " 个 " + fileName + "，无法唯一定位喵。");
+        }
+        try {
+            return Files.readString(hits.get(0), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            fail("读取 " + hits.get(0).toAbsolutePath() + " 失败喵：" + e.getMessage());
+            return ""; // 不可达
+        }
     }
 
     private Path srcRoot() {

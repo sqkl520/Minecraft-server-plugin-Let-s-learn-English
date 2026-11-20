@@ -5,6 +5,7 @@ import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.season.SeasonManager;
 import com.letslearnenglish.minecraftplugin.data.CheckInData;
+import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.data.repository.PlayerDirectoryRepository;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
@@ -60,6 +61,28 @@ import java.util.concurrent.ConcurrentHashMap;
  * from the DB on the calling thread — it keeps its own 60s value cache and
  * fills it from an async task, returning "" (unknown) on a miss instead of
  * blocking on a SELECT under the shared connection lock.
+ *
+ * <h2>「值已缓存，计分板刷新不碰 DB」这条不变量的真实边界</h2>
+ *
+ * <p>上面这条承诺只对<b>缓存命中</b>成立，而且只覆盖 {@link #cache} 与
+ * {@link #coinsCache} 两级 TTL。TTL 过期后的首个刷新<b>必然</b>走一次
+ * {@link #resolveRequest}，而它在三种情况下会同步查库：
+ * <ol>
+ *   <li>隐私开关 {@code loadProfileSettingsForDisplay} 的 miss（一行 player_profiles）；</li>
+ *   <li>{@code longest_streak} 的单列 SELECT（{@code streak} 则读签到表）；</li>
+ *   <li>PlayerStats 族的 {@code getPlayerStats} —— 它 miss 时会同步
+ *       {@code loadPlayerData}（两条 SELECT + difficult_words，全抢 connectionLock）。</li>
+ * </ol>
+ *
+ * <p><b>R22-D1 的处置正是把第 3 条收敛到「真的需要才读」</b>：{@code coins_earned} /
+ * {@code rank} / {@code streak} / {@code longest_streak} / {@code achievements}
+ * 这 5 个占位符一个字节的 PlayerStats 都不需要，原实现却无条件先付一次全量加载。
+ * 其中 {@code coins_earned} 最刺眼 —— 它刻意不入 30s 外层缓存（否则首轮暂态空串会被
+ * 冻 30 秒），于是它<b>每次</b>刷新都要多付那次同步加载，把「异步补读」的优化抵消干净。
+ *
+ * <p>剩下的 1、2 两条是<b>刻意保留</b>的：它们各自只是单条主键/单列 SELECT，且都是
+ * 「这个值本身就必须从库里拿」的数据，异步化需要引入三态占位 UI（"加载中"），
+ * 那是产品决策而不是性能修补。真实风险描述见 {@link #resolveRequest} 的注释。
  */
 public class LLEPapiExpansion extends PlaceholderExpansion implements Relational {
 
@@ -99,7 +122,16 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
             // 导致「关掉 showResults 的玩家」在游戏内被成就墙挡住（SocialListener
             // 成就墙点击分支对目标 showResults=false 直接拒绝），PAPI 却照发解锁
             // 进度 —— 同一份隐私开关在产品内出现两套口径，是最糟的那种不一致。
-            "achievements");
+            "achievements",
+            // R22-D3：答题会话连击峰值 %lle_longest_streak%。它不是「活跃度」（那是
+            // 签到连击 streak），而是答题成绩的直接产物 —— 峰值高 ⇔ 连续答对过很多题。
+            // 关掉 showResults 的玩家仍能被他人读到它，等于用计分板绕过隐私开关。
+            // 产品内先例：ProfileGUI 的决斗连胜行在 hideResults 时整行不渲染
+            // （DuelStatsText 的 hideValues 分支，见 messages 的 stats-duel-streak 注释
+            // 「nor when the target player has hidden their results」）。
+            // 注意 %lle_streak%（签到连击）刻意<b>不</b>入本集合：它衡量的是「有没有每天
+            // 来」，不透露任何答题对错，与 C3 用例「签到连击不受这条门约束」同口径。
+            "longest_streak");
 
     private final LetsLearnEnglish plugin;
 
@@ -216,7 +248,13 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
     @Override
     public String onRequest(OfflinePlayer offlinePlayer, @NotNull String params) {
         if (offlinePlayer == null) {
-            return "";
+            // R22-D5：null player 时也必须守住「归属契约」——未知占位符返回 null
+            // （= 不归我管，让别的 expansion 试），只有<b>已知</b>占位符才返回空串
+            // （= 归我管，但没有值）。原实现在 params 判定之前无差别 return ""，
+            // 于是 %lle_<任意东西>% 都被本扩展宣称「归我管」，把别人注册在 lle
+            // namespace 下的占位符静默吃掉。判据复用 resolveCached 的同一套预检，
+            // 保证「已知」的定义只有一个真相源。
+            return isKnownOrValidAchievement(params) ? "" : null;
         }
         // R-43 缓存键必须区分查看语言与查看关系。
         Player langPlayer = offlinePlayer.isOnline() ? offlinePlayer.getPlayer() : null;
@@ -224,6 +262,23 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
         // （fail-closed）。原实现用「目标在线」冒充本人，使三门对任何在线玩家全部短路。
         // 需要本人视角请用 %rel_lle_<params>%（见 onPlaceholderRequest）。
         return resolveCached(offlinePlayer, langPlayer, false, params);
+    }
+
+    /**
+     * R22-D5：{@code params} 是否落在本扩展的管辖范围内。
+     *
+     * <p>{@link #resolveCached} 里的两段预检（动态成就位合法 id → 固定集合）在此收口成
+     * 一个谓词，供 null-player 分支复用 —— 「已知」的定义只允许存在一处，
+     * 否则两条路径会慢慢分叉（本类已经因为「两处各判一遍」踩过隐私口径不一致的坑）。
+     *
+     * @param params 占位符参数名，非 null
+     * @return {@code true} = 归本扩展管（无值时该给空串）；{@code false} = 不归本扩展管（该给 null）
+     */
+    private boolean isKnownOrValidAchievement(@NotNull String params) {
+        if (params.startsWith("achievement_")) {
+            return Achievement.fromId(params.substring("achievement_".length())) != null;
+        }
+        return isKnownParams(params);
     }
 
     /**
@@ -280,7 +335,7 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
 
         String resolved;
         try {
-            resolved = resolveRequest(offlinePlayer, langPlayer, playerId, params, isSelfView);
+            resolved = resolveRequest(langPlayer, playerId, params, isSelfView);
         } catch (RuntimeException e) {
             // slice-02-eh-08：下游异常不穿透 PAPI 调用者、不编造数值、不写缓存，返回 null（下轮重试）。
             plugin.getLogger().log(java.util.logging.Level.WARNING,
@@ -300,7 +355,22 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
         return resolved;
     }
 
-    private String resolveRequest(OfflinePlayer offlinePlayer, Player viewer,
+    /**
+     * 解析单个占位符的实际取值（不含缓存）。
+     *
+     * <p><b>参数语义</b>：{@code viewer} 就是「看这一屏的人」，用于两种 i18n 取值
+     * （隐私文案 / 未上榜文案）与 {@code isSelfView} 判定；{@code playerId} 是被查看的
+     * 目标。R22-D6 之后<b>不再</b>需要单独的 {@code offlinePlayer} 形参 —— 原实现用它
+     * 判「目标是否在线」来决定未上榜文案的语言，而正确口径是查看者语言（文案渲染在
+     * 查看者屏幕上），目标是否在线与它无关。
+     *
+     * @param viewer      查看者（plain 入口为 null = 拿不到调用者身份，回落服务端默认语言）
+     * @param playerId    目标玩家 UUID
+     * @param params      占位符参数名（已知集合内或合法成就 id）
+     * @param isSelfView  查看者是否就是目标本人
+     * @return 解析结果；{@code null} = 不归本扩展管（永不缓存）
+     */
+    private String resolveRequest(Player viewer,
                                   UUID playerId, @NotNull String params, boolean isSelfView) {
         PlayerDataStore store = plugin.getPlayerDataStore();
 
@@ -333,10 +403,10 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
                 return String.valueOf(seasonDaysLeft(season));
             }
             if (!isSelfView && !ps.isShowInSquare()) {
-                return getUnrankedText(offlinePlayer);
+                return getUnrankedText(viewer);
             }
             int seasonRank = season.getRankOf(playerId);
-            return seasonRank > 0 ? "#" + seasonRank : getUnrankedText(offlinePlayer);
+            return seasonRank > 0 ? "#" + seasonRank : getUnrankedText(viewer);
         }
 
         // R-43 门禁 1：隐身者（showInSquare=false）—— 非本人查看时，
@@ -344,7 +414,7 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
         // 既有语义，P0 R-05 SQL 已把隐身者排除出榜，此处与之对齐）。
         if (!isSelfView && !ps.isShowInSquare()) {
             if (params.equals("rank")) {
-                return getUnrankedText(offlinePlayer);
+                return getUnrankedText(viewer);
             }
             return getPrivateText(viewer);
         }
@@ -376,23 +446,60 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
             return unlocked ? "✓" : "✗";
         }
 
-        // Ensure data is loaded (may trigger DB load for offline players)
-        PlayerDataStore.PlayerStats stats = store.getPlayerStats(playerId);
-        if (stats == null) {
-            return params.equals("rank") ? getUnrankedText(offlinePlayer) : "0";
-        }
-
-        return switch (params) {
-            case "score" -> String.valueOf(stats.getTotalScore());
+        // R22-D1（性能，不是取值错误）：PlayerStats 只在这几个占位符真正需要时才读。
+        //
+        // 原实现把 getPlayerStats 无条件放在 switch 之前，而它在缓存 miss 时会<b>同步</b>
+        // 调 loadPlayerData（word_progress + player_data 两条 SELECT，外加 difficult_words），
+        // 全部抢 connectionLock。这对 score/words/... 是必需的，但下面这 5 个占位符
+        // 一个字节的 PlayerStats 都不需要 —— 而它们里有 3 个（coins_earned / streak /
+        // longest_streak）自己就要查库，等于一次刷新多付一次与结果无关的全量加载。
+        // 最刺眼的是 coins_earned：它刻意<b>不入</b>外层 30s 缓存（否则首轮暂态空串会被
+        // 冻 30 秒，见 getCoinsCached），所以它每次刷新都走到这里，一次摊销都没有 ——
+        // 「异步补读金币」这个优化被同一次调用里的同步 SELECT 原样抵消。
+        //
+        // 这不改变任何返回值，只是把「读什么」收敛到「这个占位符真的需要什么」。
+        switch (params) {
             // R-16（性能）：原实现直连 DatabaseManager.getCoinsEarned —— 那是一次
             // 同步 SELECT 且抢 connectionLock，而本类的既有不变量（见类 javadoc）是
             // 「值已缓存，计分板刷新不碰 DB」。占位符每题秒级刷新，冲突面是整个
             // 单连接库。改走 getCoinsCached：命中零 IO，未命中返回空串并在后台补读。
-            case "coins_earned" -> getCoinsCached(playerId);
+            case "coins_earned" -> {
+                return getCoinsCached(playerId);
+            }
             case "rank" -> {
                 int rank = plugin.getProgressManager().getLeaderboard().getPlayerRank(playerId);
-                yield rank > 0 ? "#" + rank : getUnrankedText(offlinePlayer);
+                return rank > 0 ? "#" + rank : getUnrankedText(viewer);
             }
+            case "streak" -> {
+                // P3-03：签到连击（checkin_data.streak_count），与 PlayerStats 无关。
+                return String.valueOf(getCurrentCheckInStreak(playerId));
+            }
+            case "longest_streak" -> {
+                // 答题会话连击峰值（player_data.longest_streak），直查单列，与 PlayerStats 无关。
+                return String.valueOf(getLongestStreak(playerId));
+            }
+            case "achievements" -> {
+                int unlocked = plugin.getAchievementManager().getUnlockedCount(playerId);
+                int total = Achievement.values().length;
+                return unlocked + "/" + total;
+            }
+            default -> {
+                // 落到下方 PlayerStats 族（score / words / accuracy / sessions /
+                // correct / incorrect）。switch 穷尽性由 isKnownParams 的固定集合保证。
+            }
+        }
+
+        PlayerDataStore.PlayerStats stats = store.getPlayerStats(playerId);
+        if (stats == null) {
+            // R22-D15：这条兜底只服务 PlayerStats 族，故一律 "0" —— 原先那句
+            // `params.equals("rank") ? 未上榜 : "0"` 的分支随着 rank 上移已成为死代码，
+            // 而「coins_earned 也走这里返回 0」这个副作用（与 COINS_UNKNOWN 的空串契约
+            // 自相矛盾，同一份代码里「金币未知」有两种展示）也随之消失。
+            return "0";
+        }
+
+        return switch (params) {
+            case "score" -> String.valueOf(stats.getTotalScore());
             case "words" -> String.valueOf(stats.getTotalWords());
             case "accuracy" -> {
                 int total = stats.getTotalCorrect() + stats.getTotalIncorrect();
@@ -400,19 +507,16 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
                     yield "0.0%";
                 }
                 double acc = (double) stats.getTotalCorrect() / total * 100.0;
-                yield String.format("%.1f%%", acc);
+                // R22-D11：必须显式 Locale.ROOT。默认 Locale 在德语/法语环境输出
+                // "75,0%"（逗号小数点），第三方插件解析这个数字会静默得到 0 或 NaN。
+                // 仓库其余格式化（ReportGenerator / ChallengeCompleteGUI / DailyChallengeGUI）
+                // 一律 Locale.ROOT，此处与之对齐。
+                yield String.format(java.util.Locale.ROOT, "%.1f%%", acc);
             }
             case "sessions" -> String.valueOf(stats.getTotalSessions());
-            case "streak" -> String.valueOf(getCurrentCheckInStreak(playerId));
-            case "longest_streak" -> String.valueOf(getLongestStreak(playerId));
-            case "achievements" -> {
-                int unlocked = plugin.getAchievementManager().getUnlockedCount(playerId);
-                int total = com.letslearnenglish.minecraftplugin.core.achievement.Achievement.values().length;
-                yield unlocked + "/" + total;
-            }
             case "correct" -> String.valueOf(stats.getTotalCorrect());
             case "incorrect" -> String.valueOf(stats.getTotalIncorrect());
-            default -> null; // Unknown placeholder
+            default -> null; // 不可达：固定集合外的键已在 resolveCached 返回 null
         };
     }
 
@@ -493,7 +597,14 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
             plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
                 Long value = null;
                 try {
-                    value = plugin.getDatabaseManager().getCoinsEarned(playerId);
+                    // R22-D2：走三态版而不是 getCoinsEarned —— 后者的 SQLException 分支
+                    // return 0L，与「确实赚了 0 枚」逐字节同形，本方法下方 finally 里的
+                    // 「失败 → null + 退避」承诺因此永远收不到信号（异常在 DatabaseManager
+                    // 内部就被吃掉了）。失败必须显式落成「未知」，否则记分板会显示一个
+                    // 看起来可信的假 0，并走 60s 确认值 TTL（而不是 15s 退避）。
+                    DatabaseManager.CoinsEarnedRead read =
+                            plugin.getDatabaseManager().getCoinsEarnedWithStatus(playerId);
+                    value = read.readFailed() ? null : read.value();
                 } catch (RuntimeException e) {
                     // 连接层运行期异常（重连失败等）：保持未知，等退避后重试。
                 } finally {
@@ -615,10 +726,24 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
         return plugin.getMessageUtil().getMessage("placeholder.private");
     }
 
-    private String getUnrankedText(OfflinePlayer player) {
-        // 在线玩家按其自身语言取，离线玩家没有语言信息，退回服务端默认语言
-        if (player.isOnline() && player.getPlayer() != null) {
-            return plugin.getMessageUtil().getPlayerMessage(player.getPlayer(), "placeholder.rank-unranked");
+    /**
+     * R-05 / R22-D6：{@code rank} / {@code season_rank} 的「未上榜」文案。
+     *
+     * <p><b>语言口径必须是查看者</b>：占位符的输出是渲染在<b>查看者</b>屏幕上的
+     * 计分板/全息字，{@link #getPrivateText} 也一直按查看者取（同一方法里的两条回落
+     * 路径必须同口径）。原实现按<b>目标</b>玩家语言取，于是英文客户端看中文目标的
+     * 名次会拿到中文「未上榜」，而缓存键里的 {@code lang} 段又是查看者语言 ——
+     * 同一次调用里两套语言口径。
+     *
+     * <p>离线/无查看者上下文（plain 入口，PAPI 只回传 target）时无法知道查看者语言，
+     * 退回服务端默认语言：此时「目标是否为离线玩家」不再是判据 —— 因为本人视角
+     * （关系型入口）也走这条路径，而本人一定是在线的。
+     *
+     * @param viewer 查看者（可为 null = plain 入口拿不到调用者）
+     */
+    private String getUnrankedText(Player viewer) {
+        if (viewer != null) {
+            return plugin.getMessageUtil().getPlayerMessage(viewer, "placeholder.rank-unranked");
         }
         return plugin.getMessageUtil().getMessage("placeholder.rank-unranked");
     }

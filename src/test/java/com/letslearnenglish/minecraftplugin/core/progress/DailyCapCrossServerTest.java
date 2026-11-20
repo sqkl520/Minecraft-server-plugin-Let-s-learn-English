@@ -1,12 +1,17 @@
 package com.letslearnenglish.minecraftplugin.core.progress;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -16,6 +21,8 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
@@ -26,8 +33,8 @@ import org.bukkit.entity.Player;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -75,14 +82,29 @@ import com.letslearnenglish.minecraftplugin.util.MessageUtil;
  *       所以缺陷<b>只在</b>「cache hit 且命中值陈旧」这一条路径上，不是「DB 不共享」。</li>
  * </ol>
  *
- * <h2>本类的绿/红划分（刻意）</h2>
- * 三个 {@code @Test} 钉的都是<b>修复后仍必须成立</b>的事实（不会因修完而变红）。
- * 缺陷本身写成 {@code @Disabled}：断言的是<b>期望</b>（跨服总额不超过 cap），
- * 一旦摘掉 {@code @Disabled} 就会红，且红的信息里带着实发额。
+ * <h2>Round 30 修复后：本类必须显式启用「多进程判据」</h2>
+ * 生产判据是 {@code DatabaseManager.isSQLite()} 的<b>反</b>（见
+ * {@code RewardEngine.usesSharedDailyLedger} 的 javadoc：SQLite 单文件结构上只有一个
+ * 进程，MySQL 可能有第二个）。而本类为了能在纯 JVM 里跑，必然用 SQLite —— 于是
+ * {@code isSQLite() == true}，生产判据会把它判成<b>单进程</b>，那条新路径永远走不到。
+ * 故每条用例前调 {@code setSharedDailyLedger(true)}（包级可见的测试缝，与
+ * {@code setClock} 同一姿态），让「两个进程」这个前提真的生效。
+ *
+ * <p><b>这个缝本身也被钉住了</b>：{@link #defaultLedgerModeIsSingleProcessOnSqlite()}
+ * 断言未强制时 SQLite 走内存判据 —— 否则"忘了把开关接到判据上"会让本类全绿而生产
+ * 行为完全没变（假绿的典型形态）。
+ *
+ * <h2>本类的绿/红划分（Round 30 之后）</h2>
+ * 缺陷本体那条用例已摘掉 {@code @Disabled}（修复落地后它就是回归用例）。
+ * 另外三条钉的是「修复后仍必须成立」的事实，不会因修完而变红。
  * <b>刻意不写「断言现状 = 900 金币」的绿测试</b> —— 那会把缺陷固化成契约。
  */
 @DisplayName("money.daily-cap 的多子服语义：按进程记账 vs 按玩家记账")
 class DailyCapCrossServerTest {
+
+    /** 被测源码（lint 断言的是<b>形状</b>，所以必须读真实文件，不能读 class）。 */
+    private static final Path ENGINE_SRC = Path.of(
+            "src/main/java/com/letslearnenglish/minecraftplugin/core/progress/RewardEngine.java");
 
     /** 与 {@code database.mysql.table-prefix} 默认值一致。 */
     private static final String PREFIX = "lle_";
@@ -116,6 +138,9 @@ class DailyCapCrossServerTest {
     private final AtomicLong vaultCents = new AtomicLong();
     private final AtomicInteger depositCalls = new AtomicInteger();
 
+    /** 模拟 Vault provider 拒付（补偿逻辑的守门人用例用）。 */
+    private volatile boolean failDeposits;
+
     // ---- 两个「服务端进程」 ------------------------------------------------
     private DatabaseManager dbA;
     private DatabaseManager dbB;
@@ -134,6 +159,7 @@ class DailyCapCrossServerTest {
     void setUp(@TempDir Path dir) {
         vaultCents.set(0L);
         depositCalls.set(0);
+        failDeposits = false;
 
         // 真 YamlConfiguration：getInt/getBoolean 的默认值必须真的生效，
         // 否则 money.daily-cap 被 mock 成 0（= 不限），整类测不到任何东西。
@@ -178,6 +204,12 @@ class DailyCapCrossServerTest {
         dbB.initialize();
         when(pluginB.getDatabaseManager()).thenReturn(dbB);
         engineB = new RewardEngine(pluginB);
+
+        // Round 30：本类的"两个进程"是用<b>两个 SQLite 连接</b>模拟的，而生产判据
+        // （isSQLite() 的反）会把它判成单进程。不强制这一步，被测的跨进程预占路径
+        // 一行都不会执行，摘掉 @Disabled 也是绿的 —— 那就是假绿。
+        engineA.setSharedDailyLedger(true);
+        engineB.setSharedDailyLedger(true);
     }
 
     @AfterEach
@@ -195,9 +227,10 @@ class DailyCapCrossServerTest {
     // ==================================================================
 
     /**
-     * <b>缺陷证明</b>：玩家 P 当天先后经过 B、A 两台子服，总额落在 {@code 2 × cap}。
+     * <b>缺陷本体（Round 30 已修，现为回归用例）</b>：玩家 P 当天先后经过 B、A 两台
+     * 子服，总额必须<b>不越过</b> {@code money.daily-cap}。
      *
-     * <h2>时间线（{@code money.daily-cap: 500}）</h2>
+     * <h2>修复前的失败时间线（{@code money.daily-cap: 500}）</h2>
      * <table border="1">
      *   <caption>跨服日限失守</caption>
      *   <tr><th>时刻</th><th>事件</th><th>B 服 cache</th><th>A 服 cache</th><th>DB 行</th><th>已发合计</th></tr>
@@ -208,7 +241,7 @@ class DailyCapCrossServerTest {
      *       <td>50000（<b>hit，未读 DB</b>）</td><td>50000</td><td>90000</td><td><b>900</b></td></tr>
      * </table>
      *
-     * <p>09:20 那次判定是<b>cache hit</b>：{@code todayCoinsCache} 里 P 的条目
+     * <p>09:20 那次判定在修复前是<b>cache hit</b>：{@code todayCoinsCache} 里 P 的条目
      * {@code date == today}，{@code getTodayCoinsEarnedCents} 的
      * {@code entry == null || !today.equals(entry.date)} 整个不成立，于是
      * {@code readDailyCoinsFromDb} 根本不被调用，B 拿着 09:00 的 10000 分算出
@@ -219,15 +252,16 @@ class DailyCapCrossServerTest {
      * 因此「P 离开 B 服」不会让条目不新鲜；唯一会让它失效的是
      * {@code /lea reload}（{@code resetDailyCoinsCache}）或跨自然日。
      *
-     * <p>反过来说：若 P 是<b>当天第一次</b>在 B 上出现（cache 真 miss），B 会回读 DB
-     * 拿到 50000 并正确拦住 —— 见 {@link #aCacheMissOnTheSecondServerStillEnforcesTheCap()}。
-     * 所以事故的触发条件是「同一天先在 B 玩过、再跨到 A、再跨回 B」，而不是「随便跨服」。
+     * <p><b>Round 30 的修法</b>：多进程判据下（{@link #setSharedDailyLedger} 强制），
+     * 发币前先走 {@code reserveDailyCoinsInDb} —— 一次条件 UPDATE
+     * （{@code WHERE cents = ?旧值}）把"够不够"交给库回答，affected rows 决定谁赢。
+     * 于是 09:20 那次 B 的条件 UPDATE 落败（库里的值已被 A 改成 50000）→ 一分不发。
+     *
+     * <p><b>变异判别</b>：把 {@code clampToDailyCap} 里的多进程分支整段删掉
+     * （退回纯内存判据）→ 本用例必红，实发变成 400。
      */
     @Test
-    @Disabled("已知缺陷：money.daily-cap 的账本是进程内 todayCoinsCache，多子服共享库时"
-            + "每台服各算一份，日限实际额度 = 子服数 × cap。修复（DB 原子条件 UPDATE 或"
-            + "每次发币前强制回读）后摘掉本注解即可当回归用")
-    @DisplayName("缺陷记录：同一天跨两台子服，日限总额被突破到 2 × cap")
+    @DisplayName("跨两台子服：同一天先后经过，日限总额不得越过 cap（Round 30 回归）")
     void crossServerDailyCapIsNotEnforcedAcrossProcesses() {
         // 09:00 —— P 在 B 服拿到 100，B 的 cache 由此建立今天的条目。
         assertEquals(100.0, engineB.depositCappedReward(player, 100.0), 1e-9,
@@ -328,6 +362,250 @@ class DailyCapCrossServerTest {
     }
 
     // ==================================================================
+    // Round 30：补偿逻辑（转账失败必须退回预占）
+    // ==================================================================
+
+    /**
+     * <b>补偿逻辑的守门人（多进程版）</b>：Vault 转账失败时，已由库侧预占的额度
+     * <b>必须</b>退回 —— 否则一次 provider 抖动就把玩家当日额度永久烧掉，
+     * 比原缺陷（多发钱）更严重，因为不可逆。
+     *
+     * <p>与 {@code RewardEngineDailyCapTest.vaultFailureDoesNotConsumeDailyCap} 的分工：
+     * 那条钉的是<b>单进程</b>路径（预占都还没发生，本来就不该占额度）；
+     * 这条钉的是<b>多进程</b>路径（额度已经写进库了，必须补偿反向 UPDATE 才算完）。
+     * 两条都不可省 —— 单进程路径<b>根本不经过</b>补偿代码。
+     *
+     * <p><b>变异判别（实测）</b>：把 {@code payCappedReward} 失败分支里的
+     * {@code releaseDailyCapHold(...)} 删掉 → 本用例必红，库值停在 40000。
+     */
+    @Test
+    @DisplayName("多进程：Vault 拒付必须补偿退回已预占的额度（不得永久烧掉当日额度）")
+    void crossServerVaultFailureReleasesTheReservation() {
+        failDeposits = true;
+
+        double failed = engineA.depositCappedReward(player, 400.0);
+
+        assertEquals(0.0, failed, 1e-9, "拒付必须返回 0（调用方据此不标记已领）喵");
+        assertEquals(0L, vaultCents.get(), "拒付不得改变 Vault 余额");
+        assertEquals(0L, dbDailyCents(dbA),
+                "拒付后 daily_coin_counters 必须回到 0 —— 停在 40000 说明预占没被补偿，"
+                        + "玩家当日额度被一次 provider 抖动永久烧掉了（比多发钱更伤的不可逆损失）");
+
+        // 恢复经济后端：同一笔请求必须仍能拿到完整 400（额度真的退回来了，不是"记账上退了"）。
+        failDeposits = false;
+        assertEquals(400.0, engineA.depositCappedReward(player, 400.0), 1e-9,
+                "重试必须仍能拿到完整 400（而不是只剩 0）喵");
+        assertEquals(40000L, vaultCents.get(), "重试后 Vault 恰好 400.00");
+        assertEquals(40000L, dbDailyCents(dbA), "重试成功后库值恰为 400.00");
+    }
+
+    /**
+     * 多进程路径下<b>不重复落库</b>：预占已经写进 {@code daily_coin_counters}，
+     * 若再走一次 {@code addTodayCoinsEarned}（增量 UPSERT），库值会变成 2 倍，
+     * 于是玩家下一笔就被提前卡住 —— 症状是"钱发得比 cap 少很多"，不会多发，
+     * 但那是明显的功能回归。
+     *
+     * <p>判据是<b>库里的分</b>而不是内存：内存镜像本来就会被覆盖成预占读到的值。
+     */
+    @Test
+    @DisplayName("多进程：预占成功后不得再落一次库（否则当日额度双计、日限提前收紧）")
+    void crossServerReservationIsNotDoubleCounted() {
+        assertEquals(200.0, engineA.depositCappedReward(player, 200.0), 1e-9);
+
+        assertEquals(20000L, dbDailyCents(dbA),
+                "库值必须恰好是 200.00（预占写入一次）。停在 40000 说明预占之后"
+                        + "又走了一次增量 UPSERT —— 当日额度被双计，玩家会提前撞上限");
+        assertEquals(20000L, dbDailyCents(dbB),
+                "另一台服的连接也必须看到同一个 200.00（同一行、同一个库）");
+
+        // 剩余额度必须仍是 300（不是 100）。
+        assertEquals(300.0, engineB.depositCappedReward(player, 300.0), 1e-9,
+                "B 服应能发出剩余的全部 300.00 —— 若只有 100 说明 A 的那笔被算了两次");
+        assertEquals(50000L, vaultCents.get(), "合计恰好 500.00");
+        assertEquals(50000L, dbDailyCents(dbA), "库值恰好 500.00");
+    }
+
+    // ==================================================================
+    // Round 30：分流判据的源码 lint（行为测试在这里<b>测不出来</b>，见下）
+    // ==================================================================
+
+    /**
+     * <b>分流判据的生产形状</b>：源码 lint。
+     *
+     * <h2>为什么这条不能用行为测试</h2>
+     * 判据是 {@code isSQLite()} 的<b>反</b>，而本类的双写者装置<b>必然</b>是 SQLite
+     * （纯 JVM 里造两个共享库的进程只有这样可行）。于是：
+     * <ul>
+     *   <li>把判据写成恒 {@code true}（永远走库侧预占）—— <b>行为上完全安全</b>，
+     *       只是给 SQLite 单进程部署（绝大多数）每笔发币白加 3 条语句。
+     *       「多发钱」这一类断言抓不到它，实测在恒 true 的变异体上
+     *       {@link #crossServerDailyCapIsNotEnforcedAcrossProcesses()} 与
+     *       {@code RewardEngineDailyCapTest} 全部 27 个用例<b>照样全绿</b>；</li>
+     *   <li>把判据写成恒 {@code false} —— 靠 {@code setSharedDailyLedger(true)} 强制后
+     *       本类仍绿，只有生产行为是坏的（正是本缺陷原样）。</li>
+     * </ul>
+     * 两种"接错线"都只有<b>源码形状</b>能 100% 确定地钉住。这是仓库里既定的处置：
+     * {@code RewardEngineMainThreadIoTest.SourceShape} 用同一手法钉住"异步只有一个出口"，
+     * 理由逐字相同（纯线程归属 / 纯分支选择的改动在单测里不可观测）。
+     *
+     * <h2>钉住的四件事</h2>
+     * <ol>
+     *   <li>判据读 {@code isSQLite()}（而不是常量、也不是 {@code proxy.server-name}）；</li>
+     *   <li>测试缝 {@code sharedDailyLedger} <b>先于</b>生产判据被读取（否则缝是死的）；</li>
+     *   <li>{@code clampToDailyCap} 里同时出现 {@code usesSharedDailyLedger()} 与
+     *       {@code reserveDailyCoinsInDb}（判据必须真的接到预占上）；</li>
+     *   <li>{@code payCappedReward} 里同时出现 {@code reserveDailyCoinsInDb} 的下游用法
+     *       —— 转账失败分支必须调 {@code releaseDailyCapHold}。</li>
+     * </ol>
+     */
+    @Nested
+    @DisplayName("源码 lint：分流判据真的读后端、真的接到预占与补偿上")
+    class LedgerModeWiring {
+
+        @Test
+        @DisplayName("判据 = isSQLite() 的反；测试缝先于生产判据被读（缝不能是死的）")
+        void predicateReadsTheBackendNotAConstant() throws IOException {
+            String code = strippedEngineSource();
+
+            String predicate = methodBody(code, "boolean", "usesSharedDailyLedger");
+            assertNotNull(predicate, "应能定位 usesSharedDailyLedger 的方法体（锚方法名，不锚行号）");
+            assertTrue(predicate.contains("isSQLite()"),
+                    "分流判据必须读 DatabaseManager.isSQLite() —— 那是「进程数上限 = 1」的"
+                            + "结构性保证。恒 true 会给 SQLite 单进程部署白加每笔 3 条语句，"
+                            + "恒 false 则本缺陷原样保留。实际方法体：\n" + predicate);
+            assertFalse(predicate.contains("server-name"),
+                    "不得改判 proxy.server-name：它为空**不等于**单服"
+                            + "（MySQL + 两台子服忘填名字完全可能），漏判方向是多发钱。"
+                            + "实际方法体：\n" + predicate);
+
+            int seam = predicate.indexOf("sharedDailyLedger");
+            int backend = predicate.indexOf("isSQLite()");
+            assertTrue(seam >= 0, "测试缝 sharedDailyLedger 必须被读取（否则算不出强制值）。"
+                    + "实际方法体：\n" + predicate);
+            assertTrue(seam < backend,
+                    "测试缝必须在生产判据**之前**被读 —— 顺序反了会让 setSharedDailyLedger "
+                            + "形同虚设，本类靠它才走得到跨进程路径。实际方法体：\n" + predicate);
+        }
+
+        @Test
+        @DisplayName("clampToDailyCap 把判据接到预占上；payCappedReward 把补偿接在失败分支上")
+        void reservationAndCompensationAreWired() throws IOException {
+            String code = strippedEngineSource();
+
+            String clamp = methodBody(code, "DailyCapHold", "clampToDailyCap");
+            assertNotNull(clamp, "应能定位 clampToDailyCap 的方法体");
+            assertTrue(clamp.contains("usesSharedDailyLedger()"),
+                    "clampToDailyCap 必须真的查一次分流判据。实际：\n" + clamp);
+            assertTrue(clamp.contains("reserveDailyCoinsInDb("),
+                    "多进程分支必须调 reserveDailyCoinsInDb（库侧原子预占）——"
+                            + "没有它，判据永远停在进程内缓存上，本缺陷原样保留。实际：\n" + clamp);
+
+            String pay = methodBody(code, "double", "payCappedReward");
+            assertNotNull(pay, "应能定位 payCappedReward 的方法体");
+            assertTrue(pay.contains("clampToDailyCap("),
+                    "payCappedReward 必须先取日限判据。实际：\n" + pay);
+            assertTrue(pay.contains("releaseDailyCapHold("),
+                    "转账失败分支必须调 releaseDailyCapHold —— 漏了它，一次 Vault 抖动就把"
+                            + "预占的额度永久烧掉（比多发钱更伤的不可逆损失）。实际：\n" + pay);
+            // 预占成功的路径不得再落一次库（会把当日额度双计 → 日限提前收紧）。剥掉
+            // 「内存镜像」那个方法自身的声明与另一处受控调用后才断言。
+            String memoryMirror = methodBody(code, "void", "addTodayCoinsEarnedInMemoryOnly");
+            assertNotNull(memoryMirror, "应能定位 addTodayCoinsEarnedInMemoryOnly 的方法体");
+            String payWithoutMirrorCall = pay.replace("addTodayCoinsEarnedInMemoryOnly(", " ");
+            assertTrue(payWithoutMirrorCall.contains("addTodayCoinsEarned("),
+                    "非预占路径（单进程）仍必须走 addTodayCoinsEarned 落库 —— 否则 SQLite "
+                            + "部署的日限账本不再写穿，重启后额度会凭空恢复。实际：\n" + pay);
+            assertTrue(pay.indexOf("reservedInDb()") > 0,
+                    "必须按 hold.reservedInDb() 分支决定是否再落库（预占路径再落一次 = 双计）。"
+                            + "实际：\n" + pay);
+        }
+
+        // ---- 源码读/剥注释/取方法体（与 RewardEngineMainThreadIoTest.SourceShape 同法） ----
+
+        private String strippedEngineSource() throws IOException {
+            assertTrue(Files.isRegularFile(ENGINE_SRC),
+                    "必须能读到 RewardEngine 源码（工作目录应为项目根）: "
+                            + ENGINE_SRC.toAbsolutePath());
+            return stripComments(Files.readString(ENGINE_SRC));
+        }
+
+        /**
+         * 剥掉 {@code //} 与 block 注释，字符串字面量原样保留。
+         *
+         * <p><b>必须先剥</b>：本类这次改动的方法 javadoc 里逐字写着
+         * {@code usesSharedDailyLedger} / {@code reserveDailyCoinsInDb} /
+         * {@code releaseDailyCapHold} —— 不剥注释，每条断言都会被<b>它自己的注释</b>满足。
+         */
+        private String stripComments(String src) {
+            StringBuilder out = new StringBuilder(src.length());
+            int i = 0;
+            int n = src.length();
+            while (i < n) {
+                char c = src.charAt(i);
+                if (c == '"' || c == '\'') {
+                    int j = i + 1;
+                    while (j < n) {
+                        char d = src.charAt(j);
+                        if (d == '\\') {
+                            j += 2;
+                            continue;
+                        }
+                        if (d == c) {
+                            j++;
+                            break;
+                        }
+                        j++;
+                    }
+                    out.append(src, i, Math.min(j, n));
+                    i = Math.min(j, n);
+                } else if (c == '/' && i + 1 < n && src.charAt(i + 1) == '/') {
+                    while (i < n && src.charAt(i) != '\n') {
+                        i++;
+                    }
+                } else if (c == '/' && i + 1 < n && src.charAt(i + 1) == '*') {
+                    i += 2;
+                    while (i + 1 < n && !(src.charAt(i) == '*' && src.charAt(i + 1) == '/')) {
+                        i++;
+                    }
+                    i = Math.min(i + 2, n);
+                    out.append(' ');
+                } else {
+                    out.append(c);
+                    i++;
+                }
+            }
+            return out.toString();
+        }
+
+        /** 按「返回类型 + 方法名」定位方法体（含花括号）。锚返回类型只匹配声明，不匹配调用点。 */
+        private String methodBody(String code, String returnType, String name) {
+            Pattern p = Pattern.compile(
+                    "\\b" + Pattern.quote(returnType) + "\\s+" + Pattern.quote(name) + "\\s*\\(");
+            Matcher m = p.matcher(code);
+            if (!m.find()) {
+                return null;
+            }
+            int open = code.indexOf('{', m.end());
+            if (open < 0) {
+                return null;
+            }
+            int depth = 0;
+            for (int i = open; i < code.length(); i++) {
+                char c = code.charAt(i);
+                if (c == '{') {
+                    depth++;
+                } else if (c == '}') {
+                    depth--;
+                    if (depth == 0) {
+                        return code.substring(open, i + 1);
+                    }
+                }
+            }
+            return null;
+        }
+    }
+
+    // ==================================================================
     // helpers
     // ==================================================================
 
@@ -358,6 +636,10 @@ class DailyCapCrossServerTest {
         when(eco.depositPlayer(any(OfflinePlayer.class), anyDouble())).thenAnswer(inv -> {
             double amount = inv.getArgument(1);
             depositCalls.incrementAndGet();
+            if (failDeposits) {
+                return new EconomyResponse(0.0, vaultCents.get() / 100.0,
+                        EconomyResponse.ResponseType.FAILURE, "simulated refusal");
+            }
             long balance = vaultCents.addAndGet(Math.round(amount * 100.0));
             return new EconomyResponse(amount, balance / 100.0,
                     EconomyResponse.ResponseType.SUCCESS, null);

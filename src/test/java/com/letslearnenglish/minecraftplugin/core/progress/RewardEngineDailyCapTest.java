@@ -35,7 +35,6 @@ import org.bukkit.entity.Player;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -82,15 +81,17 @@ import com.letslearnenglish.minecraftplugin.util.MessageUtil;
  *       所以那条用例特意<b>同时</b>断言 WARNING 存在 —— 没有天花板就没有这条告警。</li>
  * </ul>
  *
- * <h2>本类刻意<b>不</b>覆盖的一处（可测性缺陷）</h2>
- * <p>「跨自然日自动清零」——{@code RewardEngine} 在
+ * <h2>已修并转为回归的两处</h2>
+ * <p><b>① 跨自然日自动清零</b>：{@code RewardEngine} 过去在
  * {@code getTodayCoinsEarnedCents} / {@code addTodayCoinsEarned} /
- * {@code notifyEconomyDisabledOncePerDay} 三处直接调 {@code LocalDate.now()}，
- * 没有任何可注入的 Clock 缝；本仓库也从未用过 {@code mockStatic(LocalDate}）。
- * 故写成 {@code @Disabled} 并记为可测性缺陷。</p>
+ * {@code notifyEconomyDisabledOncePerDay} 三处直接调 {@code LocalDate.now()}，没有任何可注入
+ * 的时钟缝 —— 那条用例只能靠真的等到午夜才能驱动。现在三处统一收口到
+ * {@code currentDate()}（{@code LocalDate.now(clock)}），clock 默认为
+ * {@code Clock.systemDefaultZone()}，并由包级可见的 {@code setClock} 供测试注入。
+ * 见 {@link #dailyCapResetsOnNewDay()}（真驱动跨天）与 {@link #defaultClockIsSystemDefaultZone()}
+ * （钉默认值 = 生产行为零变化）。</p>
  *
- * <h2>已修并转为回归的一处</h2>
- * <p>{@code money.daily-cap<=0}（不限）时 {@code RewardEngine} 侧<b>没有</b>金额天花板 ——
+ * <p><b>② {@code money.daily-cap<=0}（不限）时的金额天花板</b> ——
  * 见 {@link #unlimitedCapHasNoAmountCeiling()}（原为 {@code @Disabled}，天花板落地后摘除）。
  * 天花板是 {@code RewardEngine.MAX_SINGLE_PAYOUT_CENTS = 100_000_000L} 分 = 1,000,000 金币，
  * 与 {@code SeasonManager.MAX_REWARD_CENTS} 同值，加在 {@code clampToDailyCap} 内部，
@@ -637,19 +638,110 @@ class RewardEngineDailyCapTest {
                 "quit 后去重条目应被清除，下次上线可再提示一次喵（F1-24 防 UUID 条目永久残留）");
     }
 
+    /**
+     * <b>跨自然日额度清零</b> —— 本类原本唯一一条 {@code @Disabled}，理由是「{@code RewardEngine}
+     * 三处直接调 {@code LocalDate.now()}，没有可注入的时钟缝，只能真的等到午夜」。
+     *
+     * <p>Clock 缝落地后本用例变成纯 JVM 可驱动：注入 {@link MutableClock} 并把时间推到次日，
+     * 断言额度回到满额。
+     *
+     * <p><b>为什么用可变 Clock 而不是两次 {@code Clock.fixed}</b>：{@code Clock.fixed} 是
+     * 恒定时刻，本身不能"跨天"；要靠它模拟跨天必须<b>重复注入</b>，那测的是"注入生效"，
+     * 而不是"同一个注入点在时间推进后被重新读取"。可变 Clock 只注入一次、此后推进内部
+     * {@code Instant}，与真实世界的时间流逝同构 —— 若实现把"今天"缓存进字段、每次发币只读
+     * 缓存，本用例同样会红。
+     *
+     * <p><b>变异判别</b>：把 {@code currentDate()} 里的 {@code LocalDate.now(clock)} 改回裸
+     * {@code LocalDate.now()} → 第二次发放仍按真实今天算额度（已满）→ 返回 0，本用例必红。
+     * 这就是「Clock 真的被用上了」的证据。
+     */
     @Test
-    @Disabled("可测性缺陷：跨自然日清零依赖硬编码 LocalDate.now()，RewardEngine 无 Clock 注入缝，"
-            + "本仓库也从未用 mockStatic(LocalDate)（grep 0 命中），故无法在不改生产代码的前提下控制「今天」")
-    @DisplayName("跨自然日：额度自动清零重计（需要 Clock 注入缝）")
+    @DisplayName("跨自然日：额度自动清零重计（Clock 注入缝驱动）")
     void dailyCapResetsOnNewDay() {
+        MutableClock clock = new MutableClock(
+                LocalDate.of(2026, 2, 10).atTime(12, 0));
+        engine.setClock(clock);
+
         assertEquals(500.0, engine.depositCappedReward(player, 500.0), 1e-9);
         assertEquals(0.0, engine.depositCappedReward(player, 10.0), 1e-9,
                 "前置：当日额度已满");
+        assertEquals(50000L, vaultBalanceCents.get(), "前置：Vault 里应正好是 500.00");
+        assertEquals(1, depositCalls.get(),
+                "前置：额度已满时不得产生第二次转账");
 
-        // 期望：把「今天」推进到明天后，额度回到 500。
+        // 时间推进到次日（不重新注入 —— 同一个时钟对象，只是内部 Instant 前进）
+        clock.advance(java.time.Duration.ofDays(1));
+
         double nextDay = engine.depositCappedReward(player, 400.0);
         assertEquals(400.0, nextDay, 1e-9,
-                "跨天后额度应清零并重新发放喵 —— 当前实现无 Clock 缝，本断言无法在纯 JVM 下驱动");
+                "跨天后额度应清零并重新发放喵 —— 实发 0 说明日限读到的还是「昨天=今天」，"
+                        + "即 currentDate() 没有走注入的 clock");
+        assertEquals(90000L, vaultBalanceCents.get(),
+                "跨天后的 400.00 必须真的到账（昨日 500.00 + 今日 400.00 = 900.00）");
+        assertEquals(2, depositCalls.get(), "跨天应产生第二次转账");
+    }
+
+    /**
+     * <b>默认行为不变的直接证据</b>：{@code setClock} 从未被调用时，本类的"今天"必须与
+     * {@code LocalDate.now()} 逐字相同 —— 生产路径上 Clock 缝必须是零影响的。
+     *
+     * <p>测试手法：反射读出 {@code clock} 字段，断言它<b>就是</b>
+     * {@code Clock.systemDefaultZone()} 的等价物（同一 zone、且 {@code LocalDate.now(clock)}
+     * 与 {@code LocalDate.now()} 相等）。
+     *
+     * <p>为什么不只靠"其余 16 条用例全绿"：那是一份间接证据 —— 那些用例只覆盖当天行为，
+     * 而"缝的默认值选错 zone"（例如 {@code Clock.systemUTC()}）在东八区的 00:00~08:00
+     * 会算成<b>昨天</b>，恰好把所有当日用例都跑在"昨日"这一侧而仍能通过。故这里直接钉默认值。
+     */
+    @Test
+    @DisplayName("Clock 默认值 = systemDefaultZone（生产行为零变化）")
+    void defaultClockIsSystemDefaultZone() throws Exception {
+        java.lang.reflect.Field field = RewardEngine.class.getDeclaredField("clock");
+        field.setAccessible(true);
+        java.time.Clock injected = (java.time.Clock) field.get(engine);
+
+        assertEquals(java.time.ZoneId.systemDefault(), injected.getZone(),
+                "clock 的默认 zone 必须是系统默认时区喵 —— 用 UTC 会让东八区玩家在凌晨 "
+                        + "00:00~08:00 领到「昨天」的额度，且当日用例仍能通过（假绿）");
+        assertEquals(LocalDate.now(), LocalDate.now(injected),
+                "默认 clock 下 currentDate() 必须与 LocalDate.now() 返回同一个日期喵");
+    }
+
+    /**
+     * 测试用可变时钟：内部持一个可前进的 {@link java.time.Instant}。
+     *
+     * <p>只在测试里存在 —— 生产代码的 Clock 是 {@code Clock.systemDefaultZone()}。
+     * zone 取系统默认，使 {@code LocalDate.now(clock)} 与生产口径一致。
+     */
+    private static final class MutableClock extends java.time.Clock {
+
+        private final java.util.concurrent.atomic.AtomicReference<java.time.Instant> now;
+        private final java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+
+        MutableClock(java.time.LocalDateTime start) {
+            this.now = new java.util.concurrent.atomic.AtomicReference<>(
+                    start.atZone(java.time.ZoneId.systemDefault()).toInstant());
+        }
+
+        void advance(java.time.Duration by) {
+            now.updateAndGet(i -> i.plus(by));
+        }
+
+        @Override
+        public java.time.ZoneId getZone() {
+            return zone;
+        }
+
+        @Override
+        public java.time.Clock withZone(java.time.ZoneId newZone) {
+            // 本测试从不需要换 zone；返回自身避免引入第二份可变状态。
+            return this;
+        }
+
+        @Override
+        public java.time.Instant instant() {
+            return now.get();
+        }
     }
 
     // ==================================================================

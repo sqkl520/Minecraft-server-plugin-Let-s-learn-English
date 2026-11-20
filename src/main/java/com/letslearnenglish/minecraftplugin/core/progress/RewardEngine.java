@@ -1,5 +1,6 @@
 package com.letslearnenglish.minecraftplugin.core.progress;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.Locale;
 import java.util.Map;
@@ -148,12 +149,516 @@ public class RewardEngine {
     private final Map<UUID, DailyCoins> todayCoinsCache = new ConcurrentHashMap<>();
 
     /**
+     * Round 30：日限账本<b>是否与其他进程共享</b>（{@code null} = 按生产判据自动决定）。
+     *
+     * <p><b>为什么要分流而不是统一</b>：{@link #todayCoinsCache} 是<b>进程内</b>账本。
+     * 单进程（SQLite 单文件）时它就是完整真相，读它零 IO；多进程共享一个 MySQL 时它是
+     * 一份会陈旧的副本 —— 玩家在 A 服花掉的额度，B 服的条目里没有，于是日限实际额度
+     * 变成「子服数 × cap」（时间线与触发条件见 {@code DailyCapCrossServerTest}）。
+     * 两条路的最优解相反，压成一条就必然有一条吃亏：统一走库 = 给绝大多数单服部署
+     * 每笔发币加若干次 IO；统一走内存 = 多服部署的日限永久失守。
+     *
+     * <p><b>生产判据是 {@code DatabaseManager.isSQLite()}</b>，不是
+     * {@code proxy.server-name} 是否为空：后者为空<b>不等于</b>单服（MySQL + 两台子服
+     * 忘了填名字完全可能存在），而本分流的漏判方向是<b>多发钱</b>，不能靠"运营者填对了
+     * 配置"来保证。{@code isSQLite()} 是「后端只有一个文件、只能被一个进程持有」的
+     * <b>结构性</b>保证 —— 恰好多服场景在结构上不可能满足。
+     *
+     * <p><b>为什么需要这个测试缝</b>：{@code DailyCapCrossServerTest} 用「两个
+     * {@link DatabaseManager} 指向同一个 SQLite 文件」造出「两个进程」的最小可观测等价物
+     * —— 那是唯一能在纯 JVM 里跑起来的双写者装置。若判据硬编 {@code !isSQLite()}，
+     * 那条回归用例<b>永远走不到</b>新代码（它必然是 SQLite），修法与测试就脱钩了：
+     * 把原子预占改回纯内存判据，测试照样全绿。所以留一个包级可见的强制开关，
+     * 让它在真 SQLite 上驱动<b>同一段</b>预占/补偿 SQL（SQLite 与 MySQL 只差
+     * {@code INSERT OR IGNORE} / {@code INSERT IGNORE} 这一处，已由既有
+     * {@code isSQLite()} 分支处理）。与 {@link #setClock} 同一姿态：包级可见、
+     * 生产零调用方、{@code null} 回落生产判据。
+     */
+    private volatile Boolean sharedDailyLedger;
+
+    /**
+     * 仅供测试强制 {@link #usesSharedDailyLedger()} 的返回值；{@code null} = 回落生产判据。
+     *
+     * <p>包级可见（不是 {@code public}）：与 {@link #setClock} 同口径 —— 生产代码没有
+     * 调用方，同包测试可直接调，不必把这个开关暴露成 public API。
+     */
+    void setSharedDailyLedger(Boolean forced) {
+        this.sharedDailyLedger = forced;
+    }
+
+    /**
+     * Round 30：库侧原子预占的 CAS 重试上限。
+     *
+     * <p><b>为什么是 CAS 而不是 {@code SELECT ... FOR UPDATE}</b>：本仓在 MySQL 上
+     * <b>不设置任何会话级状态</b>（无 {@code SET SESSION} / 用户变量 / {@code GET_LOCK} /
+     * {@code SELECT ... FOR UPDATE}，{@code initializeMySQL} 的注释明写并已 grep 确认）。
+     * 乐观 CAS 只靠"读到一个值 → 只在这个值上做加法 → 看 affected rows 是否 1"，
+     * 不需要行锁、不需要事务、不需要会话态，跨进程语义由后端的行级原子性保证。
+     *
+     * <p><b>为什么 affected rows 在 CAS 下是可信的</b>：本仓 MySQL URL 没有显式设置
+     * {@code useAffectedRows}，connector-j 8.3.0 的默认值是 {@code false}，即驱动会发
+     * {@code CLIENT_FOUND_ROWS}（已由字节码核实：{@code NativeAuthenticationProvider}
+     * 里 {@code clientFlags |= useAffectedRows ? 0 : CLIENT_FOUND_ROWS}）。该开关会改变
+     * <b>"匹配到但值未变"</b> 的返回口径（1 vs 0），所以本类<b>刻意不依赖</b>
+     * {@code ON DUPLICATE KEY UPDATE} 的返回值 —— 那是既有
+     * {@code DatabaseManager.claimCheckIn} javadoc 已经论证过的坑，此处沿用同一结论。
+     * 而 CAS 的 {@code SET cents = cents + ?} 里 {@code ? >= 1}（见
+     * {@link #reserveDailyCoinsInDb} 的 {@code delta} 计算：{@code remaining > 0} 且
+     * {@code want >= 1}），值<b>必然变化</b>，于是"匹配且变化"在两种口径下都是 <b>1</b>；
+     * "CAS 落败"（{@code cents <> 旧值}）在两种口径下都是 <b>0</b>。判据因此与驱动参数无关。
+     *
+     * <p>4 次而不是 2 次：同一玩家在同一毫秒被两台服同时发币时，每次 CAS 落败都说明对方
+     * 抢赢了一次，重读后剩余额度只会更小；4 次足够覆盖真实的跨服连点，再多只会在病态竞争下
+     * 空转（且每次空转都在主线程上）。耗尽时<b>不发钱</b>（fail-closed，方向安全），见该方法。
+     */
+    private static final int RESERVE_CAS_ATTEMPTS = 4;
+
+    /**
+     * Round 30：一笔发币的日限判据结果。
+     *
+     * <p><b>为什么不是一个 {@code double}</b>：{@link #clampToDailyCap} 原来只回答
+     * "能发多少"，但多进程路径上"能发多少"是<b>库侧预占</b>出来的 —— 预占一旦成功，
+     * 这笔额度就已经写进库了。于是调用方必须同时知道三件事，否则要么重复记账、要么在
+     * Vault 转账失败时把额度永久烧掉：
+     * <ol>
+     *   <li>{@link #grantedCents()} —— 实际放行多少（可能少于请求额，也可能 0）；</li>
+     *   <li>{@link #earnedCents()} —— <b>本次放行之前</b>的"今日已用"，与判据同源，
+     *       供 {@code progress.daily-cap-reached} 的 {@code {earned}} 占位符使用
+     *       （拿内存旧值渲染就是又一次"报给玩家的数字与真相不同源"）。
+     *       刻意是"放行前"：改动前那条文案读的就是 {@code getTodayCoinsEarned}（尚未累加
+     *       本次），改成"放行后"会让所有既有提示的数字整体偏大一笔，是没人要的副作用；</li>
+     *   <li>{@link #reservedInDb()} —— 额度是否已由库侧预占写好。是则
+     *       {@code addTodayCoinsEarned} 不得再落一次库（会双计），且转账失败必须补偿反向
+     *       UPDATE。</li>
+     * </ol>
+     *
+     * @param date          判据使用的自然日（补偿时要用<b>同一个</b>日期，否则跨午夜会把
+     *                      退款打到另一行 —— 预占与补偿相隔几微秒，但时钟确实会翻页）
+     * @param grantedCents  实际放行的"分"（用于预占/补偿记账；{@code <= 0} = 一分不放）
+     * @param paid          实际入账金额（金币）。<b>单进程路径上<b>不是</b>
+     *                      {@code grantedCents / 100.0} 的等价物</b>：改动前
+     *                      {@code money.daily-cap <= 0} 时原样返回配置里的 double，
+     *                      亚分精度就直接进了 Vault。这里保留原值，否则"不限额度"这条
+     *                      最常用的路径会静默多一次四舍五入（{@link CappedPayout} 的
+     *                      javadoc 正好记着这类"面值 vs 实发"的坑）
+     * @param earnedCents   本次放行<b>之前</b>的今日已用；{@code < 0} = 不可知（仅
+     *                      {@link #unlimited} 用，那条路必定全额放行、不会渲染文案）
+     * @param reservedInDb  true = {@code grantedCents} 已在 {@code daily_coin_counters} 里预占
+     */
+    private record DailyCapHold(LocalDate date, long grantedCents, double paid,
+                                long earnedCents, boolean reservedInDb) {
+
+        /** 一分不放（NaN 等"没有可发金额"的输入）。 */
+        static DailyCapHold none(LocalDate date) {
+            return new DailyCapHold(date, 0L, 0.0, 0L, false);
+        }
+
+        /** {@code money.daily-cap <= 0}（不限额度）：原样放行，不预占、不落库。 */
+        static DailyCapHold unlimited(LocalDate date, double requested) {
+            return new DailyCapHold(date, Math.round(requested * 100.0), requested, -1L, false);
+        }
+
+        /** 纯内存判据（单进程 SQLite 路径，行为与改动前逐字节一致）。 */
+        static DailyCapHold memory(LocalDate date, long grantedCents, long earnedCents) {
+            return new DailyCapHold(date, grantedCents, grantedCents / 100.0, earnedCents, false);
+        }
+
+        /** 库侧已原子预占。 */
+        static DailyCapHold reserved(LocalDate date, long grantedCents, long earnedCents) {
+            return new DailyCapHold(date, grantedCents, grantedCents / 100.0, earnedCents, true);
+        }
+
+        /** 一分不放（调用方据此直接返回，不给 Vault 任何调用）。 */
+        boolean blocked() {
+            return paid <= 0;
+        }
+
+        /** 放行后的今日已用（库侧预占时用于回填内存镜像）。 */
+        long earnedAfterCents() {
+            return earnedCents < 0 ? earnedCents : earnedCents + grantedCents;
+        }
+
+        /** 本次放行前的今日已用（金币），仅用于玩家文案；{@code < 0} 时由调用方回落。 */
+        double earnedBeforeCoins() {
+            return earnedCents / 100.0;
+        }
+    }
+
+    /**
+     * {@link #reserveDailyCoinsInDb} 的结果：放行额 + 放行<b>之前</b>的今日已用。
+     *
+     * <p>{@link #usedBeforeCents()} 为负是<b>哨兵</b>（"库不可用，判据不可知"），不是金额 ——
+     * 用负数而不是 {@code null} 是为了让"额度已满（放行 0）"与"读不到库（放行 0）"这两件
+     * 后果完全不同的事<b>在类型上就分得开</b>。混成一个 0 会让库抖动被谎报成
+     * "你今天额度用完了"，玩家收到一条错误提示且这一笔白丢。
+     */
+    private record DailyCapReserve(long grantedCents, long usedBeforeCents) {
+
+        static DailyCapReserve unavailable() {
+            return new DailyCapReserve(0L, -1L);
+        }
+
+        boolean isUnavailable() {
+            return usedBeforeCents < 0;
+        }
+    }
+
+    /**
+     * 发币<b>唯一</b>的收口（Round 30）：日限判据（含跨进程原子预占）→ Vault 转账 →
+     * 流水 → 今日记账，失败时<b>补偿</b>已预占的额度。
+     *
+     * <h2>为什么必须是一个收口而不是各调用点自己拼</h2>
+     * 原来五个发币入口各自重复"钳位 → 转账 → 记流水 → 今日记账"四步。多进程路径把
+     * <b>顺序</b>变成了正确性的一部分：预占必须排在转账<b>之前</b>（否则两个进程都能通过
+     * 判据），而补偿必须排在转账<b>之后</b>（否则一次 provider 抖动会把额度永久烧掉）。
+     * 五处各写一遍意味着第六个入口出现时必然漏掉其中一步，而漏掉的方向是"多发钱"或
+     * "白烧额度"两种事故之一。收成一个方法后，"能发的钱"与"记账/退款"只有一份实现。
+     *
+     * <h2>补偿为什么可靠</h2>
+     * 见 {@link #releaseDailyCapHold}：反向 UPDATE 用 {@code CASE WHEN cents >= ? ...} 保证
+     * 不会把行减成负数，<b>不看 affected rows</b>（那是 {@code useAffectedRows} 会改变口径的
+     * 地方），失败时重试一次，仍失败则留一条点名金额与玩家的 WARNING —— 那是唯一需要人工
+     * 介入的形态，绝不能静默。
+     *
+     * @param eco    已确认非 null 的经济后端
+     * @param player 收款玩家
+     * @param amount 拟发金额（金币）
+     * @param source 日限/天花板告警的配置来源标签（只进日志）
+     * @param action Vault 操作名（进既有 WARNING 格式）
+     * @return 实际入账金额（0 = 未付：被日限拦下或转账失败；调用方据此不发"已到账"提示）
+     */
+    private double payCappedReward(Economy eco, Player player, double amount,
+                                  String source, String action) {
+        if (eco == null || !(amount > 0)) {
+            // 负数/0/NaN 一律到此为止：NaN 也在这里被拦（`!(NaN > 0)` 为 true），
+            // 不让它有机会进 Math.round 或 Vault（见 clampToDailyCap 的 NaN 说明）。
+            return 0;
+        }
+        DailyCapHold hold = clampToDailyCap(player, amount, source);
+        if (hold.blocked()) {
+            return 0;
+        }
+        double pay = hold.paid();
+        if (!depositSucceeded(eco, player, pay, action)) {
+            // 转账没成 → 钱没动。预占过的额度必须退回，否则一次 provider 抖动 = 玩家当日
+            // 额度永久缩水（比"多发钱"更伤的不可逆损失）。
+            releaseDailyCapHold(player.getUniqueId(), hold);
+            return 0;
+        }
+        // R11：流水写失败只记日志并继续（钱已到账；见 recordCoinLedger 的失败方向说明）。
+        recordCoinLedger(player, player.getUniqueId(), pay, true);
+        if (hold.reservedInDb()) {
+            // 库侧预占已经把这笔写进 daily_coin_counters 了。再调 addTodayCoinsEarned
+            // 会二次落库（当日额度凭空翻倍 → 日限提前收紧）——故这里只同步内存展示值。
+            addTodayCoinsEarnedInMemoryOnly(player.getUniqueId(), hold);
+        } else {
+            addTodayCoinsEarned(player.getUniqueId(), pay);
+        }
+        return pay;
+    }
+
+    /**
+     * Round 30：库侧已预占时的内存镜像 —— <b>只写内存，绝不落库</b>。
+     *
+     * <p>{@code todayCoinsCache} 在多进程路径上不再是判据（判据是库），只服务两件事：
+     * {@code {earned}} 占位符的展示，以及"库整个不可用"时的降级判据。所以这里
+     * <b>直接覆盖</b>为预占时读到的库值，而不是累加 —— 累加会让镜像与库慢慢漂移，
+     * 而漂移的镜像正是本缺陷的成因。
+     */
+    private void addTodayCoinsEarnedInMemoryOnly(UUID playerId, DailyCapHold hold) {
+        if (hold == null || hold.grantedCents() <= 0) {
+            return;
+        }
+        long earnedAfter = hold.earnedAfterCents();
+        if (earnedAfter < 0) {
+            return;
+        }
+        DailyCoins entry = todayCoinsCache.computeIfAbsent(playerId, k -> new DailyCoins());
+        synchronized (entry) {
+            entry.date = hold.date();
+            entry.cents.set(earnedAfter);
+        }
+    }
+
+    /**
+     * Round 30：转账失败后把已预占的额度退回（补偿反向 UPDATE）。
+     *
+     * <p>这条路径<b>必须</b>存在：改"先转账后记账"为"先预占后转账"之后，漏了它就是
+     * "一次 Vault 抖动 → 额度永久烧掉"，比原缺陷严重得多。
+     * {@code RewardEngineDailyCapTest.vaultFailureDoesNotConsumeDailyCap} 是它在
+     * 单进程路径上的守门人；{@code DailyCapCrossServerTest} 里有一条对应的多进程用例。
+     *
+     * <p>内存镜像在<b>库侧确实退回之后</b>才校正为"预占之前"的那个值 —— 不用
+     * {@code -granted} 的增量写法：这次失败的发币从未把镜像推进过（推进只发生在转账
+     * <b>成功</b>之后），对一份没被推进的镜像做减法会把额度凭空多让出来。改成
+     * 直接写入 {@link DailyCapHold#earnedCents()}（预占时读到的库值）与库同源，
+     * 且对"镜像还停留在更早的旧值"这种本来就存在的偏差也顺带纠正。
+     */
+    private void releaseDailyCapHold(UUID playerId, DailyCapHold hold) {
+        if (hold == null || !hold.reservedInDb() || hold.grantedCents() <= 0) {
+            return;
+        }
+        boolean released = releaseDailyCoinsInDb(playerId, hold.date(), hold.grantedCents());
+        if (!released) {
+            // 唯一需要人工介入的形态，绝不静默：额度被扣掉但这笔钱没发出去。
+            warn("Failed to release the daily-cap quota reserved for " + playerId + " / "
+                    + hold.date() + " after the Vault transfer failed: "
+                    + (hold.grantedCents() / 100.0) + " coins stay counted as earned although"
+                    + " nothing was paid out. The player's money.daily-cap allowance is"
+                    + " permanently reduced by that amount for today. Retry the reservation"
+                    + " cleanup manually: UPDATE " + tablePrefixOrEmpty() + "daily_coin_counters"
+                    + " SET cents = CASE WHEN cents >= " + hold.grantedCents() + " THEN cents - "
+                    + hold.grantedCents() + " ELSE 0 END WHERE player_uuid = '"
+                    + playerId + "' AND coin_date = '" + hold.date() + "'");
+            return;
+        }
+        if (hold.earnedCents() < 0) {
+            return;
+        }
+        DailyCoins entry = todayCoinsCache.get(playerId);
+        if (entry == null) {
+            return;
+        }
+        synchronized (entry) {
+            if (hold.date().equals(entry.date)) {
+                entry.cents.set(hold.earnedCents());
+            }
+        }
+    }
+
+    /** 日志里引用表名用；{@code DatabaseManager} 不在时给空串（告警本身不能因此抛异常）。 */
+    private String tablePrefixOrEmpty() {
+        try {
+            DatabaseManager db = plugin.getDatabaseManager();
+            if (db != null && db.getTablePrefix() != null) {
+                return db.getTablePrefix();
+            }
+        } catch (RuntimeException e) {
+            // 拿不到前缀不该让"额度没退"这条告警消失。
+        }
+        return "";
+    }
+
+    /**
+     * Round 30：在库侧<b>原子预占</b>一段今日额度，返回实际放行额。
+     *
+     * <h2>为什么不是"先 SELECT 再判再 UPDATE"</h2>
+     * 那正是缺陷的形状：两个进程各自读到 {@code remaining=400}，各自付 400。
+     * 判据必须<b>下推到库</b>，让"够不够"由一次写操作的结果回答。
+     *
+     * <h2>三步（每条都是单语句，不依赖事务）</h2>
+     * <ol>
+     *   <li>{@code INSERT OR IGNORE} / {@code INSERT IGNORE} 建行（幂等）——
+     *       条件 UPDATE 在"行不存在"时也返回 0，与"额度不足"无法区分，必须先保证行在；</li>
+     *   <li>{@code SELECT cents} 读当前已用；</li>
+     *   <li>{@code UPDATE ... SET cents = cents + ? WHERE ... AND cents = ?旧值} ——
+     *       affected rows == 1 表示"在<b>我读到的那个值</b>上抢到了"，== 0 表示别的进程
+     *       在这两步之间改动过（重试一次 CAS）。</li>
+     * </ol>
+     * 不需要 {@code BEGIN}：单条 UPDATE 自带行级原子性；也不需要
+     * {@code SELECT ... FOR UPDATE}（本仓在 MySQL 上不设任何会话级状态）。
+     *
+     * <h2>为什么 CAS 用等值比较而不是 {@code >=}</h2>
+     * {@code cents} 在本表里对同一行<b>单调递减可用额度</b>（只增，除补偿/夜间清理）。
+     * 等值比较能精确分辨"我算的那份剩余额度还有效"，{@code >=} 会在对方写过更大的值时
+     * 静默按旧值放行 —— 那就是超发。单调性让 CAS 一定能收敛：每次落败后重读到的
+     * 已用额度只会更大、剩余只会更小。
+     *
+     * @param wantCents 本次想预占的分（调用方已保证 {@code >= 1} 且不超过 cap）
+     * @param capCents  当日上限（分）
+     * @return 放行额 + 放行<b>之前</b>的今日已用；库不可用时返回
+     *         {@link DailyCapReserve#unavailable()}（调用方按内存判据降级，与改动前同向）
+     */
+    private DailyCapReserve reserveDailyCoinsInDb(UUID playerId, LocalDate date,
+                                                 long wantCents, long capCents) {
+        DatabaseManager db = plugin.getDatabaseManager();
+        if (db == null || wantCents <= 0) {
+            return DailyCapReserve.unavailable();
+        }
+        ensureDailyCoinsTable();
+        String table = db.getTablePrefix() + "daily_coin_counters";
+        // 两种后端的 IGNORE 插入语义一致（1 = 插入 / 0 = 已存在），且返回值本方法不看。
+        String insertSql = (db.isSQLite() ? "INSERT OR IGNORE INTO " : "INSERT IGNORE INTO ")
+                + table + " (player_uuid, coin_date, cents) VALUES (?, ?, 0)";
+        String selectSql = "SELECT cents FROM " + table
+                + " WHERE player_uuid = ? AND coin_date = ?";
+        String updateSql = "UPDATE " + table + " SET cents = cents + ?"
+                + " WHERE player_uuid = ? AND coin_date = ? AND cents = ?";
+        DailyCapReserve result = db.withConnection(conn -> {
+            try (java.sql.PreparedStatement ins = conn.prepareStatement(insertSql)) {
+                ins.setString(1, playerId.toString());
+                ins.setString(2, date.toString());
+                ins.executeUpdate();
+            }
+            long lastUsed = 0L;
+            for (int attempt = 0; attempt < RESERVE_CAS_ATTEMPTS; attempt++) {
+                long used;
+                try (java.sql.PreparedStatement sel = conn.prepareStatement(selectSql)) {
+                    sel.setString(1, playerId.toString());
+                    sel.setString(2, date.toString());
+                    try (java.sql.ResultSet rs = sel.executeQuery()) {
+                        if (!rs.next()) {
+                            // 建行成功却读不到：库的行为不可解释，按"判据不可知"降级，
+                            // 不谎报成"额度已满"。
+                            return DailyCapReserve.unavailable();
+                        }
+                        used = rs.getLong(1);
+                    }
+                }
+                lastUsed = used;
+                long remaining = capCents - used;
+                if (remaining <= 0) {
+                    return new DailyCapReserve(0L, used);
+                }
+                long delta = Math.min(wantCents, remaining);
+                if (delta <= 0) {
+                    return new DailyCapReserve(0L, used);
+                }
+                try (java.sql.PreparedStatement upd = conn.prepareStatement(updateSql)) {
+                    upd.setLong(1, delta);
+                    upd.setString(2, playerId.toString());
+                    upd.setString(3, date.toString());
+                    upd.setLong(4, used);
+                    if (upd.executeUpdate() == 1) {
+                        // used 是<b>预占前</b>的已用额度 —— {earned} 占位符要的就是这个
+                        // （与改动前读 getTodayCoinsEarned 的时机一致）。
+                        return new DailyCapReserve(delta, used);
+                    }
+                }
+            }
+            // CAS 连败（同一个玩家正被多台服同时发币）。fail-closed：不放行、不转账。
+            // 报"额度已满"在语义上不精确，但方向安全（不会多发），且留了 WARNING。
+            warn("Daily-cap reservation for " + playerId + " / " + date + " lost the"
+                    + " compare-and-swap " + RESERVE_CAS_ATTEMPTS + " times in a row (another"
+                    + " server keeps winning the same row). This payout was skipped to keep the"
+                    + " cap from being exceeded; the player will be paid on their next attempt.");
+            // 再读一次只为让玩家提示里的 {earned} 是真实数字（这条路径罕见，多一次
+            // 单行 SELECT 换掉一个编造的数，值得）。读不到就沿用最后一次成功读到的值。
+            long forDisplay = lastUsed;
+            try (java.sql.PreparedStatement sel = conn.prepareStatement(selectSql)) {
+                sel.setString(1, playerId.toString());
+                sel.setString(2, date.toString());
+                try (java.sql.ResultSet rs = sel.executeQuery()) {
+                    if (rs.next()) {
+                        forDisplay = rs.getLong(1);
+                    }
+                }
+            }
+            return new DailyCapReserve(0L, Math.max(0L, forDisplay));
+        }, DailyCapReserve.unavailable());
+        return result == null ? DailyCapReserve.unavailable() : result;
+    }
+
+    /**
+     * Round 30：退回一段已预占的额度（补偿反向 UPDATE）。
+     *
+     * <p><b>不看 affected rows</b>：{@code CASE WHEN cents >= ? THEN cents - ? ELSE 0 END}
+     * 在"库里的值本来就是 0"时是<b>匹配但值不变</b>，而 MySQL 的 {@code CLIENT_FOUND_ROWS}
+     * 会把这个 1 变成 0（见 {@link #RESERVE_CAS_ATTEMPTS} 的核实记录）。用返回值判成败
+     * 就会把"退成功"误判成"退失败"并打一条假告警。所以这里<b>无异常即成功</b>。
+     *
+     * <p>{@code ELSE 0} 而不是直接相减：补偿与另一台服的预占可能交错，硬减会得到负数，
+     * 而负数已用额度等于<b>凭空放大</b>当日剩余额度 —— 方向是超发。
+     *
+     * <p>失败重试一次：单发币路径上的失败几乎都是短暂锁冲突（SQLite
+     * {@code busy_timeout=5000} 到点 / MySQL 锁等待超时），立刻重试通常就过了；
+     * 两次都不成才是真的需要人看。
+     *
+     * @return true = 已退回（或本来就没什么可退）；false = 两次都失败，调用方必须告警
+     */
+    private boolean releaseDailyCoinsInDb(UUID playerId, LocalDate date, long cents) {
+        if (cents <= 0) {
+            return true;
+        }
+        DatabaseManager db = plugin.getDatabaseManager();
+        if (db == null) {
+            return false;
+        }
+        String sql = "UPDATE " + db.getTablePrefix() + "daily_coin_counters"
+                + " SET cents = CASE WHEN cents >= ? THEN cents - ? ELSE 0 END"
+                + " WHERE player_uuid = ? AND coin_date = ?";
+        for (int attempt = 0; attempt < 2; attempt++) {
+            Boolean ok = db.withConnection(conn -> {
+                try (java.sql.PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setLong(1, cents);
+                    stmt.setLong(2, cents);
+                    stmt.setString(3, playerId.toString());
+                    stmt.setString(4, date.toString());
+                    stmt.executeUpdate();
+                }
+                return Boolean.TRUE;
+            }, Boolean.FALSE);
+            if (Boolean.TRUE.equals(ok)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 本进程的日限账本是否需要「库侧原子预占」这条慢路径。
+     *
+     * @return {@code true} = 存在第二个写者（或测试强制），必须由库侧条件 UPDATE 判定
+     */
+    private boolean usesSharedDailyLedger() {
+        Boolean forced = this.sharedDailyLedger;
+        if (forced != null) {
+            return forced.booleanValue();
+        }
+        DatabaseManager db = plugin.getDatabaseManager();
+        return db != null && !db.isSQLite();
+    }
+
+    /**
      * R-44 fan-in：{@code progress.economy-disabled} 的 per-player 每自然日去重。
      * money.enabled=false 但 Vault 存在时，发币入口每天只提示一次，避免每答对一题刷屏。
      * 条目随自然日用 {@link LocalDate#equals} 判新鲜，跨天自动失效（无需清理）；
      * F1-24：quit 时经 {@link #unloadPlayer} 移除，防一次性玩家的 UUID 条目永久残留。
      */
     private final Map<UUID, LocalDate> economyDisabledNotified = new ConcurrentHashMap<>();
+
+    /**
+     * 「今天」的<b>唯一读取口</b>（可注入的 {@link Clock}）。
+     *
+     * <p><b>为什么要有这个缝</b>：本类三处「读今天」（{@link #notifyEconomyDisabledOncePerDay}、
+     * {@link #getTodayCoinsEarnedCents}、{@link #addTodayCoinsEarned}）过去直接调
+     * {@code LocalDate.now()}，而 {@code money.daily-cap} 的<b>核心不变量</b>恰恰是
+     * 「跨自然日额度清零重计」—— 那条用例只能靠真的等到午夜（或 {@code Thread.sleep}
+     * 24 小时）来触发，等于无法测试。这是<b>可测性</b>缺陷，不是行为缺陷：生产代码是对的。
+     *
+     * <p><b>为什么是字段而非常量</b>：测试需要把时钟「推进到明天」，方法级静态调用做不到。
+     * 注入后 {@code RewardEngineDailyCapTest} 的跨天用例变成纯 JVM 可驱动。
+     *
+     * <p><b>默认行为必须逐字不变</b>：{@code Clock.systemDefaultZone()} 是
+     * {@code LocalDate.now()} 的无参重载<b>内部本来就调用的那个时钟</b>（同一
+     * {@code Clock.systemDefaultZone()} + {@code ZoneId}），所以生产路径上
+     * 「{@code LocalDate.now(clock)}」与「{@code LocalDate.now()}」返回值恒等，
+     * 只有测试把 clock 换掉时才分叉。
+     *
+     * <p><b>可变但 {@code volatile}</b>：测试在驱动用例前写入、生产路径只读；用 volatile
+     * 是为了避免「写测试线程 → 读异步落库线程」之间的可见性争议（本类的发币链路会跨到
+     * {@link #scheduleAsync} 的池线程）。
+     */
+    private volatile Clock clock = Clock.systemDefaultZone();
+
+    /**
+     * 仅供测试注入时钟；传 {@code null} 回落 {@link Clock#systemDefaultZone()}。
+     *
+     * <p>包级可见（不是 {@code public}）：继承 {@code ChatFeedbackManager.setWriteExecutor}
+     * 那类测试口的同一姿态 —— 生产代码没有调用方，但同包测试可以直接调，
+     * 不必为此把 {@code Clock} 暴露到 public API 上。
+     *
+     * <p>回落而不是抛 NPE：与 {@code setWriteExecutor(null)} 同口径，让「测试忘了传」
+     * 退化成生产行为（跨天用例会因此红，而不是把整个类炸掉）。
+     */
+    void setClock(Clock clock) {
+        this.clock = (clock == null) ? Clock.systemDefaultZone() : clock;
+    }
+
+    /** 「今天」的唯一读取口 —— 全类所有日期判定都必须经它，不得再写裸 {@code LocalDate.now()}。 */
+    private LocalDate currentDate() {
+        return LocalDate.now(clock);
+    }
 
     /** 当日金币累计条目：日期 + 累计分。 */
     private static final class DailyCoins {
@@ -350,7 +855,7 @@ public class RewardEngine {
      */
     private void notifyEconomyDisabledOncePerDay(Player player) {
         UUID id = player.getUniqueId();
-        LocalDate today = LocalDate.now();
+        LocalDate today = currentDate();
         // put 返回旧值；旧值即今日说明今天已提示过，直接返回（主线程调用，无竞态）
         if (today.equals(economyDisabledNotified.put(id, today))) {
             return;
@@ -422,7 +927,7 @@ public class RewardEngine {
      * 使 reload 与重启后日限仍然有效（读失败按 0 降级，同 getAiRoundCount 口径）。
      */
     private long getTodayCoinsEarnedCents(UUID playerId) {
-        LocalDate today = LocalDate.now();
+        LocalDate today = currentDate();
         DailyCoins entry = todayCoinsCache.get(playerId);
         if (entry == null || !today.equals(entry.date)) {
             ensureDailyCoinsTable();
@@ -470,7 +975,7 @@ public class RewardEngine {
     private void addTodayCoinsEarned(UUID playerId, double amount) {
         long cents = Math.round(amount * 100.0);
         if (cents <= 0) return;
-        LocalDate today = LocalDate.now();
+        LocalDate today = currentDate();
         ensureDailyCoinsTable();
         DailyCoins entry = todayCoinsCache.computeIfAbsent(playerId, k -> new DailyCoins());
         boolean rollover = !today.equals(entry.date);
@@ -744,8 +1249,8 @@ public class RewardEngine {
     }
 
     /**
-     * 金币门"部分发放"：给定拟发金额，返回在不突破 daily-cap 前提下实际可发金额。
-     * 若已无剩余额度，发送 cap 提示并返回 0。
+     * 金币门"部分发放"：给定拟发金额，返回在不突破 daily-cap 前提下<b>实际可发</b>的额度，
+     * 以及这次判定所依赖的"今日已用"与"是否已在库侧预占"（见 {@link DailyCapHold}）。
      *
      * <p><b>本方法内部是<b>两层</b>钳位，顺序不可交换</b>：
      * <ol>
@@ -756,70 +1261,120 @@ public class RewardEngine {
      *       {@code Long.MAX_VALUE}，先按分算就会把饱和值当成"真实请求额"参与后续比较。</li>
      *   <li><b>再</b>过 {@code money.daily-cap} 的剩余额度（本方法原本的职责）。</li>
      * </ol>
-     * 因此返回值语义仍是「<b>实际可发金额</b>（0 = 别发）」，只是现在有两条独立的上界：
      * 请求额 → min(天花板, 面值) → min(上一步, 剩余额度)。调用方拿到的永远是"真能发的钱"，
      * 这个契约在天花板触发时依然成立（见 {@link CappedPayout#capped()} 对"少发"的判定 ——
      * 天花板触发也是真实的"少发"，玩家确实只拿到钳后的钱）。
      *
-     * <p><b>为什么只留两参数版本给 {@code depositCappedReward} 用</b>：那个方法由
-     * 另一个改动方认领，签名一个字都不能动；它调用本重载时拿到的 {@code source} 是
-     * {@link #DEFAULT_PAYOUT_SOURCE}。其余四个发币入口用三参数版本各报自己的来源，
-     * 这样日志能直接指向"是哪笔奖励的配置写错了"。
+     * <p><b>Round 30：判据分两条路，由 {@link #usesSharedDailyLedger()} 决定</b>
+     * <ul>
+     *   <li><b>单进程（SQLite，绝大多数部署）</b>：判据仍是 {@link #todayCoinsCache}，
+     *       <b>零额外 IO</b>，返回值与改动前逐字节等价（放行额、提示时机、提示内容都不变）。</li>
+     *   <li><b>多进程（共享 MySQL）</b>：判据下推到库（{@link #reserveDailyCoinsInDb}），
+     *       放行即预占。于是"两个进程同时读到剩余 400"不再可能 —— 谁的 CAS 先落库谁发。
+     *       库不可用时<b>降级</b>回内存判据（与"库抖动不该让日限彻底关掉"权衡后的选择，
+     *       失败方向是回到改动前的行为，而不是新引入一个更宽的窗口）。</li>
+     * </ul>
      *
-     * @param player the player about to be paid
-     * @param amount the intended payout
-     * @return actual payout in whole cents as double (0 = blocked, caller must not pay)
-     */
-    private double clampToDailyCap(Player player, double amount) {
-        return clampToDailyCap(player, amount, DEFAULT_PAYOUT_SOURCE);
-    }
-
-    /**
-     * 三参数版本：多一个 {@code source} 标签，只用于天花板日志的定位
-     * （日限部分的行为与两参数版本<b>完全一致</b>）。
+     * <p><b>为什么玩家文案里的 {@code {earned}} 在多进程路径上必须用库值</b>：
+     * 库侧预占返回的"放行后已用"是<b>唯一</b>与真实账本同源的数字。拿内存旧值渲染就是
+     * 又一次"报给玩家的数字与真相不同源"（{@link CappedPayout} 记录的那类事故）。
      *
      * @param player the player about to be paid
      * @param amount the intended payout
      * @param source 发币入口的配置来源描述（仅进 WARNING，不参与任何算术）
-     * @return actual payout in whole cents as double (0 = blocked, caller must not pay)
+     * @return 判据结果；{@link DailyCapHold#blocked()} 为 true 时调用方不得付款
      */
-    private double clampToDailyCap(Player player, double amount, String source) {
+    private DailyCapHold clampToDailyCap(Player player, double amount, String source) {
+        LocalDate today = currentDate();
         double requested = clampToPayoutCeiling(player, amount, source);
         // NaN 是唯一已经"失去数值语义"的输入：下游 Math.round(NaN) 得 0，而 0 会让
         // dailyCap<=0 的路径原样把 NaN 交回给 depositPlayer —— 一个 NaN 进入经济 provider
         // 会把玩家余额变成 NaN，之后加多少都是 NaN（永不可恢复）。这里统一按"别发"处理。
         if (Double.isNaN(requested)) {
-            return 0;
+            return DailyCapHold.none(today);
         }
         int dailyCap = plugin.getConfigManager().getMainConfig()
                 .getInt("money.daily-cap", 500);
-        if (dailyCap <= 0) return requested;
+        if (dailyCap <= 0) {
+            // 原实现此处 `return requested`（原样交回配置里的 double，含亚分精度），
+            // 所以这里把 requested 原值带下去，而不是 /100.0 还原。
+            return DailyCapHold.unlimited(today, requested);
+        }
         long capCents = (long) dailyCap * 100;
+        long amountCents = Math.round(requested * 100.0);
+
+        if (usesSharedDailyLedger() && amountCents > 0) {
+            DailyCapReserve reserve = reserveDailyCoinsInDb(
+                    player.getUniqueId(), today, amountCents, capCents);
+            if (!reserve.isUnavailable()) {
+                long granted = Math.min(reserve.grantedCents(), amountCents);
+                DailyCapHold hold = granted > 0
+                        ? DailyCapHold.reserved(today, granted, reserve.usedBeforeCents())
+                        : DailyCapHold.memory(today, 0L, reserve.usedBeforeCents());
+                warnIfCapped(player, dailyCap, hold, amountCents);
+                return hold;
+            }
+            // 库不可用 → 掉下去走内存判据（见方法 javadoc 的降级说明）。
+        }
+
+        // ---- 单进程路径：与改动前逐字节等价（含各分支的提示时机与顺序） ----
         long earnedCents = getTodayCoinsEarnedCents(player.getUniqueId());
         long remaining = capCents - earnedCents;
         if (remaining <= 0) {
-            String msg = plugin.getMessageUtil().getPlayerMessage(player,
-                    "progress.daily-cap-reached",
-                    "cap", String.valueOf(dailyCap),
-                    "earned", formatCoins(getTodayCoinsEarned(player.getUniqueId())));
-            if (msg != null && !msg.isEmpty()) {
-                player.sendMessage(msg);
-            }
-            return 0;
+            DailyCapHold hold = DailyCapHold.memory(today, 0L, earnedCents);
+            // 改动前这一分支<b>无条件</b>发提示（不看请求额），照抄。
+            notifyCapReached(player, dailyCap, hold);
+            return hold;
         }
-        long amountCents = Math.round(requested * 100.0);
         long payCents = Math.min(amountCents, remaining);
+        DailyCapHold hold = DailyCapHold.memory(today, payCents, earnedCents);
         if (payCents < amountCents) {
-            // 部分发放：告知玩家今日额度只剩这么多
-            String msg = plugin.getMessageUtil().getPlayerMessage(player,
-                    "progress.daily-cap-reached",
-                    "cap", String.valueOf(dailyCap),
-                    "earned", formatCoins(getTodayCoinsEarned(player.getUniqueId())));
-            if (msg != null && !msg.isEmpty()) {
-                player.sendMessage(msg);
-            }
+            notifyCapReached(player, dailyCap, hold);
         }
-        return payCents / 100.0;
+        return hold;
+    }
+
+    /**
+     * 日限触发时的玩家提示（"额度已满"与"部分发放"共用同一条 i18n key，与改动前一致）。
+     *
+     * <p>抽出来是为了让 {@code {earned}} 走<b>判据同源</b>的那个数字：多进程路径下它来自
+     * 库侧预占读到的"预占前已用"，单进程路径下它就是 {@code todayCoinsCache} 的值 ——
+     * 两处各写一遍 {@code getTodayCoinsEarned} 必然漂移成"提示说已得 100、实际库里 400"。
+     *
+     * <p>{@code {earned}} 刻意是<b>本次放行之前</b>的已用额度：改动前那条文案读的就是
+     * 尚未累加本次的 {@code getTodayCoinsEarned}，改成"放行后"会让所有既有提示的数字
+     * 整体偏大一笔 —— 那是没人要的副作用，会让"额度已满"的玩家看到 {@code earned > cap}。
+     */
+    private void notifyCapReached(Player player, int dailyCap, DailyCapHold hold) {
+        double earned = (hold != null && hold.earnedCents() >= 0)
+                ? hold.earnedBeforeCoins()
+                // 已用额度不可知 —— 回落内存值而不是渲染一个哨兵负数。
+                : getTodayCoinsEarned(player.getUniqueId());
+        String msg = plugin.getMessageUtil().getPlayerMessage(player,
+                "progress.daily-cap-reached",
+                "cap", String.valueOf(dailyCap),
+                "earned", formatCoins(earned));
+        if (msg != null && !msg.isEmpty()) {
+            player.sendMessage(msg);
+        }
+    }
+
+    /**
+     * 多进程路径的提示判定：只有真正"少发"才提示（{@code granted < requested}）。
+     *
+     * <p><b>为什么必须与单进程路径分开</b>：旧实现在"额度已满"分支<b>无条件</b>发提示，
+     * 而"部分发放"分支的条件是 {@code pay < requested}。多进程路径的 {@code granted}
+     * 来自库侧预占，语义上只有这两种情况，所以这里用"少发才提示"一条判据即可 ——
+     * 单进程路径则必须<b>逐字复刻</b>旧的两个分支，否则 {@code amount=0.004}
+     * （{@code amountCents==0}）撞上"额度已满"时会从"照旧提示"变成"静默"，
+     * 而那条路径在纯 JVM 里可达（{@code amount > 0} 但 {@code Math.round(amount*100)==0}）。
+     */
+    private void warnIfCapped(Player player, int dailyCap, DailyCapHold hold,
+                              long amountCents) {
+        if (hold == null || hold.grantedCents() >= amountCents) {
+            return; // 全额放行：与改动前一样静默
+        }
+        notifyCapReached(player, dailyCap, hold);
     }
 
     /**
@@ -962,17 +1517,8 @@ public class RewardEngine {
      * @return 实际入账金额（0 = 无 Vault / 金额非正 / cap 已满 / 转账失败，调用方以 &gt;0 视为已付）
      */
     public double depositCappedReward(Player player, double amount) {
-        Economy eco = getEconomy();
-        if (eco == null || amount <= 0) return 0;
-        double pay = clampToDailyCap(player, amount);
-        if (pay <= 0) return 0;
-        if (!depositSucceeded(eco, player, pay, "deposit capped reward")) {
-            return 0;
-        }
-        // R11：流水写失败只记日志并继续（钱已到账；见 recordCoinLedger 的失败方向说明）。
-        recordCoinLedger(player, player.getUniqueId(), pay, true);
-        addTodayCoinsEarned(player.getUniqueId(), pay);
-        return pay;
+        return payCappedReward(getEconomy(), player, amount, DEFAULT_PAYOUT_SOURCE,
+                "deposit capped reward");
     }
 
     /**
@@ -1006,16 +1552,12 @@ public class RewardEngine {
             amount = comboBonus ? Math.round(baseAmount * comboMultiplier * 100.0) / 100.0 : baseAmount;
         }
 
-        amount = clampToDailyCap(player, amount, CORRECT_ANSWER_SOURCE);
-        if (amount <= 0) return;
-
-        if (depositSucceeded(eco, player, amount, "deposit money")) {
-            // R11：流水写失败只记日志并继续（见 recordCoinLedger）。
-            recordCoinLedger(player, player.getUniqueId(), amount, true);
-            addTodayCoinsEarned(player.getUniqueId(), amount);
+        double paid = payCappedReward(eco, player, amount, CORRECT_ANSWER_SOURCE,
+                "deposit money");
+        if (paid > 0) {
             String msg = plugin.getMessageUtil().getPlayerMessage(player,
                     "progress.money-reward",
-                    "amount", eco.format(amount));
+                    "amount", eco.format(paid));
             if (msg != null && !msg.isEmpty()) {
                 player.sendMessage(msg);
             }
@@ -1048,16 +1590,12 @@ public class RewardEngine {
             totalAmount += maxComboBonus;
         }
 
-        totalAmount = clampToDailyCap(player, totalAmount, SESSION_BONUS_SOURCE);
-        if (totalAmount <= 0) return;
-
-        if (depositSucceeded(eco, player, totalAmount, "deposit session bonus")) {
-            // R11：流水写失败只记日志并继续（见 recordCoinLedger）。
-            recordCoinLedger(player, player.getUniqueId(), totalAmount, true);
-            addTodayCoinsEarned(player.getUniqueId(), totalAmount);
+        double paid = payCappedReward(eco, player, totalAmount, SESSION_BONUS_SOURCE,
+                "deposit session bonus");
+        if (paid > 0) {
             String msg = plugin.getMessageUtil().getPlayerMessage(player,
                     "progress.money-session-bonus",
-                    "amount", eco.format(totalAmount));
+                    "amount", eco.format(paid));
             if (msg != null && !msg.isEmpty()) {
                 player.sendMessage(msg);
             }
@@ -1100,16 +1638,12 @@ public class RewardEngine {
             }
         }
 
-        amount = clampToDailyCap(player, amount, REVIEW_CORRECT_SOURCE);
-        if (amount <= 0) return;
-
-        if (depositSucceeded(eco, player, amount, "deposit review money")) {
-            // R11：流水写失败只记日志并继续（见 recordCoinLedger）。
-            recordCoinLedger(player, player.getUniqueId(), amount, true);
-            addTodayCoinsEarned(player.getUniqueId(), amount);
+        double paid = payCappedReward(eco, player, amount, REVIEW_CORRECT_SOURCE,
+                "deposit review money");
+        if (paid > 0) {
             String msg = plugin.getMessageUtil().getPlayerMessage(player,
                     "progress.money-review-reward",
-                    "amount", eco.format(amount));
+                    "amount", eco.format(paid));
             if (msg != null && !msg.isEmpty()) {
                 player.sendMessage(msg);
             }
@@ -1223,18 +1757,14 @@ public class RewardEngine {
         double sessionBonus = plugin.getConfigManager().getMainConfig()
                 .getDouble("progress-system.rewards.types.money.session-complete-bonus", 50.0);
         double partial = Math.floor(sessionBonus * ratio * 100.0) / 100.0;
-        partial = clampToDailyCap(player, partial, STOPPED_SESSION_SOURCE);
-        if (partial <= 0) return;
-
-        if (depositSucceeded(eco, player, partial, "deposit stopped-session bonus")) {
-            // R11：流水写失败只记日志并继续（见 recordCoinLedger）。
-            recordCoinLedger(player, player.getUniqueId(), partial, true);
-            addTodayCoinsEarned(player.getUniqueId(), partial);
+        double paid = payCappedReward(eco, player, partial, STOPPED_SESSION_SOURCE,
+                "deposit stopped-session bonus");
+        if (paid > 0) {
             String msg = plugin.getMessageUtil().getPlayerMessage(player,
                     "word-learning-gui.stopped-partial-reward",
                     "answered", String.valueOf(answered),
                     "total", String.valueOf(total),
-                    "amount", eco.format(partial));
+                    "amount", eco.format(paid));
             if (msg != null && !msg.isEmpty()) {
                 player.sendMessage(msg);
             }

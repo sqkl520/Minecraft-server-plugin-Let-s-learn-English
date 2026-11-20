@@ -1501,8 +1501,14 @@ public class AIChatManager {
         // 缺陷（审计报告 + 独立复验）：本方法由 ScenarioSelectListener 的 click 处理器
         // 在主线程直接调用 → dispatchChat → PlayerDataStore.getTodayAiRound，而后者在
         // 「当天首次 / 跨日 / quit-rejoin 后」会在缓存 miss 时做一次<b>同步 SELECT</b>。
-        // 叠加 MySQL URL 缺 socketTimeout（见同批 Part B 结论），这一次读就可能把主线程
-        // 挂到 TCP 超时上 —— 与 endConversation 是同一个病，只是入口不同。
+        // 这一次读走的是 DatabaseManager 的单连接 + connectionLock。MySQL URL 上的
+        // socketTimeout=30s 是<b>存在</b>的（它经 Socket.setSoTimeout 生效，锁等待同样被它
+        // 封住），但它只把「无限期」压成「单次网络读最多 30 秒」，并不能让主线程的停顿变得
+        // 可接受：一次 JDBC 调用可以跨多次读，每次重新计 30 秒；而 connectionLock 是
+        // synchronized、不带超时，后来的访问者只能在前一个 30 秒之外继续排队 —— 单个
+        // 30 秒已足以让全服卡顿肉眼可见，排队叠加则能越过 Bukkit 看门狗（默认 60 秒）
+        // 变成一次杀服。与 endConversation 是同一个病，只是入口不同（这里发生得更早：
+        // 玩家点场景那一刻）。
         //
         // 为什么可以整段异步：dispatchChat 的 PLAYER_MESSAGE 通道<b>本来就</b>跑在
         // AsyncPlayerChatEvent 的异步线程上（ChatScenarioListener.onPlayerChat → chatAsync），
@@ -1651,11 +1657,14 @@ public class AIChatManager {
         //   → startConversation（同一调用栈，无 runTask 包裹）
         //   → 本方法（"覆盖即终结"分支：玩家不从 bye 退、直接点另一个场景）
         //   → 下面三行同步 JDBC。
-        // 而 DatabaseManager.initializeMySQL 的 URL 没有 socketTimeout / connectTimeout，
-        // 于是「MySQL 锁等待」或「TCP 连接断开后 autoReconnect 在握手中重试」会把主线程
-        // 卡在 JDBC 里直到 OS 级 TCP 超时（分钟级）甚至无限期 —— 全服 tick 停摆，
-        // Paper watchdog 杀服或反复刷 "Server thread stalled"。一个玩家点一个图标，
-        // 影响的是<b>所有人</b>。
+        // 而 DatabaseManager.initializeMySQL 的 URL 上虽有 socketTimeout=30s / connectTimeout=10s，
+        // 它们<b>不足以免除主线程</b>：那两个值封的是「单次网络读」与「单次 TCP 握手」，
+        // 不是「一次数据库操作」—— 下面是三笔串行 JDBC，每笔都可能跨多次读，各自重新计
+        // 30 秒；autoReconnect 的握手中重试还要在最坏情况下叠加
+        // maxReconnects×(connectTimeout+initialTimeout)=2×(10s+2s)=24 秒；
+        // 而 connectionLock 是 synchronized、不带超时，多个访问者会逐层排队。
+        // 于是主线程被钉住的量级是「数十秒起」，全服 tick 停摆、Paper watchdog 杀服
+        // 或反复刷 "Server thread stalled"。一个玩家点一个图标，影响的是<b>所有人</b>。
         //
         // 为什么不能只改调用方（ScenarioSelectListener 加 runTask）：
         //   ① 本方法还要写 {@code sessions} / {@code lastRequestTime} 内存态，整段丢到异步

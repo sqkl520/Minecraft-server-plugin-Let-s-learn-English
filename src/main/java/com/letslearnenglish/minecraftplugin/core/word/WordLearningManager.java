@@ -837,7 +837,8 @@ public class WordLearningManager implements Listener {
                 MessageUtil.getGuiMsg(messages, "word-learning-gui.session-complete")
                         .replace("{correct}", String.valueOf(result.correctCount))
                         .replace("{total}", String.valueOf(result.totalWords))
-                        .replace("{accuracy}", String.format("%.1f", result.accuracy * 100))
+                        .replace("{accuracy}", String.format(java.util.Locale.ROOT, "%.1f",
+                                result.accuracy * 100))
                         .replace("{score}", String.valueOf(result.score)));
         player.sendMessage(msg);
 

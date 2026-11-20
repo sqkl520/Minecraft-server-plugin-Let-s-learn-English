@@ -36,7 +36,29 @@ import java.util.logging.Logger;
  */
 public class ConfigManager {
 
-    private static final int MESSAGE_CONFIG_VERSION = 26;
+    /**
+     * {@code messages/*.yml} 的<b>迁移闸门版本</b>（不是插件版本）。
+     *
+     * <p>语义：磁盘上用户的语言文件 {@code config-version < MESSAGE_CONFIG_VERSION} 时，
+     * {@link #loadMessageConfig(String)} 才会调 {@link #migrateMessageConfig} 把 JAR 内新增的
+     * 键补进用户文件。等号意味着"已是最新，跳过合并"。</p>
+     *
+     * <p><b>R31 修复的真缺陷（存量服必现、全新安装不可见）</b>：本常量与
+     * {@code messages/*.yml} 头部的 {@code config-version} 都停在 26，而工作树相较已发布的
+     * 1.0.7 新增了 75 个叶子键（711 → 786）。于是 {@code version < MESSAGE_CONFIG_VERSION}
+     * 恒为 {@code false}（{@code 26 < 26}），迁移永不触发，<b>跑过 1.0.7 的服升级后语言文件
+     * 仍是 711 个键</b>，那 75 个新键全部缺失，玩家在对应场景看到 {@code [?key]} 字面量。
+     * 全新安装从 JAR 拷一份新 yml，因此单测（全新临时目录）跑不出这条。</p>
+     *
+     * <p><b>不变量（由 {@code I18nVersionGateTest} 钉住）</b>：本常量必须
+     * <b>严格大于</b>任何曾经发布过的语言文件 {@code config-version}，且必须<b>等于</b>
+     * 当前 JAR 内 {@code messages/zh.yml} 与 {@code messages/en.yml} 头部的
+     * {@code config-version}，并且与当前叶子键集合指纹匹配。三条缺一不可：
+     * 少了"大于已发布版本"，迁移不触发（就是本轮缺陷）；少了"等于 JAR 内头部"，用户文件
+     * 迁移后写回的版本号与 JAR 资源不一致，下次升级会重复合并；少了"键集合指纹"，
+     * 改了 yml 却忘了 bump 版本号时无人发现。</p>
+     */
+    private static final int MESSAGE_CONFIG_VERSION = 27;
 
     /** 受支持语言的两个 canonical 取值（也是 {@code messages/*.yml} 的文件名主干）。 */
     private static final String LANG_ZH = "zh";

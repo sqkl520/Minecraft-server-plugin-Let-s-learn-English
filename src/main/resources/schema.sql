@@ -190,6 +190,15 @@ CREATE TABLE IF NOT EXISTS {prefix}ai_chat_history (
 
 CREATE INDEX IF NOT EXISTS {prefix}idx_chat_player_time ON {prefix}ai_chat_history(player_uuid, timestamp);
 CREATE INDEX IF NOT EXISTS {prefix}idx_chat_session ON {prefix}ai_chat_history(session_id);
+-- Round 21：保留期清理（cleanupOldChatHistory 的 sql1）是
+--   DELETE FROM ai_chat_history WHERE timestamp < <30 天前>
+-- 上面两个索引的前导列分别是 player_uuid 与 session_id，都不以 timestamp 开头。
+-- SQLite 仍能靠「skip-scan」用上 (player_uuid, timestamp) —— 但那只在前导列
+-- 去重值很少时划算。50 万行实测（7 次取中位数，真 WAL 库）：
+--   40 名玩家 0.30 ms / 400 名 25.45 ms / 5000 名 205.80 ms。
+-- 加本索引后三种规模一律 0.1 ms。MySQL 侧没有 skip-scan，
+-- 过去是完全的索引全扫。专为时间范围清理建的索引，勿删。
+CREATE INDEX IF NOT EXISTS {prefix}idx_chat_timestamp ON {prefix}ai_chat_history(timestamp);
 
 -- US-FB §3.1（Wave 3 批次 3B）：会话级 AI 对话反馈
 -- 先本地统计（source='local'）兜底落库，AI 点评到达后 UPSERT 覆写为 source='ai' + ai_payload。

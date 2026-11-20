@@ -3,6 +3,7 @@ package com.letslearnenglish.minecraftplugin.data.repository;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
+import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,6 +58,11 @@ import static org.mockito.Mockito.when;
  *       <b>抛</b>，不能 {@code return false} —— 后者会把隐身玩家渲染成公开。</li>
  *   <li><b>表前缀现读</b>：R6-E 断言前缀不在构造期快照；本类用真实 {@code initialize()}
  *       换前缀来验证，而不是读注释。</li>
+ *   <li><b>快照 vs 当前值</b>（round28）：Q6 的 {@code checkin_data.streak_count} 是
+ *       "最后一次签到时"的历史快照，断签后不会被归零 —— 直接输出就是把历史当现状。
+ *       现按与写侧同构的规则折算（今天/昨天签过才算数）。</li>
+ *   <li><b>展示口径一致性</b>（round28）：Q5 必须套 {@code WRONG_BOOK_MIN_WRONG_COUNT}
+ *       这道错题本收录门槛，否则报告与 {@code WrongBookGUI} 对同一个词给出两种答案。</li>
  * </ol>
  *
  * <h2>契约边界（本类<b>不</b>负责）</h2>
@@ -381,49 +387,99 @@ class ReportRepositoryTest {
     }
 
     // ============================================================
-    //  5. Q6 连续签到：原样读 streak_count（含"过期不归零"的已知缺陷）
+    //  5. Q6 连续签到：断签快照折算成"当前连击"（round28 已修）
     // ============================================================
 
     @Test
-    @DisplayName("Q6：有行读 streak_count，无行读 0")
-    void checkinStreakReadsRawColumn() throws Exception {
-        insertCheckin(PLAYER, "2026-01-05", 5);
+    @DisplayName("Q6：今天/昨天签过 → 读出快照值；无行 → 真实 0 且不是读失败")
+    void checkinStreakReadsEffectiveValue() throws Exception {
+        insertCheckin(PLAYER, LocalDate.now().toString(), 5);
         ReportRepository.StreakValue r = repo.fetchCheckinStreakOrFail(PLAYER);
         assertTrue(r.complete());
-        assertEquals(5, r.value());
+        assertEquals(5, r.value(), "今天已签，连击快照就是当前值");
 
-        ReportRepository.StreakValue absent = repo.fetchCheckinStreakOrFail(OTHER);
+        insertCheckin(OTHER, LocalDate.now().minusDays(1).toString(), 4);
+        ReportRepository.StreakValue yesterday = repo.fetchCheckinStreakOrFail(OTHER);
+        assertTrue(yesterday.complete());
+        assertEquals(4, yesterday.value(),
+                "昨天签过 = 连击未断（今天签下去就是 5），必须原样读出");
+
+        ReportRepository.StreakValue absent =
+                repo.fetchCheckinStreakOrFail(UUID.fromString("00000000-0000-0000-0000-00000000a0ff"));
         assertTrue(absent.complete(), "无行 = 真实 0，不是读失败");
         assertEquals(0, absent.value());
     }
 
     /**
-     * <b>已知缺陷（MEDIUM，未修，等编排者派工）</b>：{@code checkin_data} 只存
-     * 「最后一次签到的 streak」，断签后<b>不会归零</b>（归零发生在<b>下一次</b>签到时，
-     * 见 {@code CheckInManager.checkInLocked} 的 {@code streakBroken} 分支）。本方法的
-     * SQL 只 {@code SELECT streak_count}，取不到 {@code last_checkin_date}，因此无法判断
-     * 这个连击是否已经断了。
+     * <b>round28 已修（原 MEDIUM 缺陷）</b>：{@code checkin_data} 只存「最后一次签到时
+     * 的 streak」，断签后<b>不会</b>被任何后台任务归零（归零发生在<b>下一次</b>签到时，
+     * 见 {@code CheckInManager.checkInLocked} 的 {@code streakBroken} 分支）。
      *
-     * <p><b>错误输出</b>：玩家 20 天前连签 5 天后彻底停学，今天生成的家长报告会写
-     * 「连续签到 5 天」（{@code report.cumulative-extra}）。家长据此以为孩子天天在学。
-     * {@code last_checkin_date} 就在同一行、同一张表，数据是现成的。
+     * <p>旧实现只 {@code SELECT streak_count}，把一个<b>历史快照</b>当成<b>当前值</b>
+     * 输出：玩家 20 天前连签 5 天后彻底停学，今天生成的家长报告仍写「连续签到 5 天」
+     * （{@code report.cumulative-extra}），家长据此以为孩子天天在学。
      *
-     * <p>按 {@code DailyCapCrossServerTest} 的约定，把<b>期望</b>写成 {@code @Disabled}：
-     * 摘掉注解即红，且红的信息带着真实取值。
+     * <p>现仓储改读 {@code last_checkin_date}（同一行、同一张表，数据现成），
+     * 按与写侧同构的判定折算：只有今天/昨天签过的快照还算数。
      */
     @Test
-    @Disabled("已知缺陷 MEDIUM：断签后 streak 不归零，报告会写「连续签到 N 天」。"
-            + "修法：SQL 增读 last_checkin_date，调用方按本地日判定是否已断签。"
-            + "本测试断言的是期望行为 —— 摘掉 @Disabled 即红。")
-    @DisplayName("Q6【期望】断签后连续天数应为 0，而不是上一次的残留值")
-    void checkinStreakShouldResetAfterLapse() throws Exception {
+    @DisplayName("Q6：断签后连续天数应为 0，而不是上一次的残留值")
+    void checkinStreakResetsAfterLapse() throws Exception {
         LocalDate lastCheckin = LocalDate.now().minusDays(20);
         insertCheckin(PLAYER, lastCheckin.toString(), 5);
 
         int reported = repo.fetchCheckinStreakOrFail(PLAYER).value();
         assertEquals(0, reported,
                 "最后一次签到是 " + lastCheckin + "（20 天前，连击早已中断），"
-                        + "报告却给出连续签到 " + reported + " 天");
+                        + "报告不得再写「连续签到 " + reported + " 天」");
+    }
+
+    @Test
+    @DisplayName("Q6：判定口径与写侧同构 —— 今天/昨天保留，前天后一律 0（含未来日期）")
+    void effectiveStreakMirrorsWriterRules() {
+        LocalDate today = LocalDate.of(2026, 5, 10);
+        assertEquals(7, ReportRepository.effectiveStreak(today, 7, today), "今天签过");
+        assertEquals(7, ReportRepository.effectiveStreak(today.minusDays(1), 7, today), "昨天签过");
+        assertEquals(0, ReportRepository.effectiveStreak(today.minusDays(2), 7, today),
+                "前天签过 = 已断一天，写侧下次签到会写 1，报告必须先显示 0");
+        assertEquals(0, ReportRepository.effectiveStreak(today.minusDays(400), 99, today), "长期停学");
+        assertEquals(0, ReportRepository.effectiveStreak(today.plusDays(1), 7, today),
+                "未来日期（跨服时区不一致）按写侧同样规则视为已断，不做特殊照顾");
+        assertEquals(0, ReportRepository.effectiveStreak(null, 7, today), "无快照");
+    }
+
+    @Test
+    @DisplayName("Q6：脏 last_checkin_date（非 ISO 字符串）→ complete=false，不猜一个数字")
+    void checkinStreakDirtyDateFlagsIncomplete() throws Exception {
+        // SQLite 的 DATE 列无类型约束：手工修库/老版本可能留下非 ISO 值。
+        insertCheckin(PLAYER, "2026-13-45", 5);
+
+        ReportRepository.StreakValue r = repo.fetchCheckinStreakOrFail(PLAYER);
+        assertFalse(r.complete(), "判不出是否断签就必须标记不完整（与 Q1 脏日期同一处置）");
+        assertEquals(0, r.value(), "不得把无法判定的快照原样当当前值输出");
+        assertTrue(logs.saw(Level.WARNING, "Failed to query check-in streak"));
+    }
+
+    @Test
+    @DisplayName("Q6：last_checkin_date 为 NULL → complete=false（不得 NPE 炸掉整份报告）")
+    void checkinStreakNullDateFlagsIncompleteInsteadOfNpe() throws Exception {
+        // 产品 DDL 声明的是 NOT NULL，为了造出这个"历史库脏行"必须重建一张等价老表
+        // （与 batchActiveDaysUsesCountStarNotDistinct 同款手法）。
+        // 为什么值得测：claimCheckIn 的 WHERE 里带 `last_checkin_date IS NULL` 防御 ——
+        // 本仓自己就把"历史库可能留 NULL"当既成假设。若此处让 LocalDate.parse(null)
+        // 抛 NPE，报告不是标"数据不完整"而是整份生成失败。
+        exec("DROP TABLE " + PREFIX + "checkin_data");
+        exec("CREATE TABLE " + PREFIX + "checkin_data ("
+                + " player_uuid VARCHAR(36) NOT NULL PRIMARY KEY,"
+                + " last_checkin_date DATE,"
+                + " streak_count INTEGER DEFAULT 1)");
+        exec("INSERT INTO " + PREFIX + "checkin_data (player_uuid, last_checkin_date,"
+                + " streak_count) VALUES ('" + PLAYER + "', NULL, 5)");
+
+        ReportRepository.StreakValue r = repo.fetchCheckinStreakOrFail(PLAYER);
+        assertFalse(r.complete(), "NULL 日期无法判定是否断签");
+        assertEquals(0, r.value());
+        assertTrue(logs.saw(Level.WARNING, "last_checkin_date is NULL"));
     }
 
     // ============================================================
@@ -523,7 +579,10 @@ class ReportRepositoryTest {
         insertWeakWord(PLAYER, "zebra", 5);
         insertWeakWord(PLAYER, "apple", 5);
         insertWeakWord(PLAYER, "mango", 9);
-        insertWeakWord(PLAYER, "kiwi", 1);
+        // round28：kiwi 从 1 改成 3 —— 阈值门槛（>=3）上线后，wrong_count=1 的词已被过滤，
+        // 若继续写 1 本用例就只剩 3 个候选，LIMIT 2 仍在测但少了"有第 4 个候选被 LIMIT 砍掉"
+        // 这层意义。改成 3 让它成为合法的第 4 个候选。
+        insertWeakWord(PLAYER, "kiwi", 3);
 
         ReportRepository.WeakWords top2 = repo.queryWeakWordsOrFail(PLAYER, 2);
         assertTrue(top2.complete());
@@ -535,8 +594,8 @@ class ReportRepositoryTest {
     }
 
     /**
-     * <b>已知缺陷（MEDIUM，未修）</b>：本查询<b>没有</b> {@code wrong_count >= 3} 门槛，
-     * 而错题本在别处有这道门槛 —— {@code PlayerDataStore.WRONG_BOOK_MIN_WRONG_COUNT = 3}
+     * <b>round28 已修（原 MEDIUM 缺陷）</b>：本查询此前<b>没有</b> {@code wrong_count >= 3}
+     * 门槛，而错题本在别处有这道门槛 —— {@code PlayerDataStore.WRONG_BOOK_MIN_WRONG_COUNT = 3}
      * （注释明写"展示侧必须按此阈值过滤"，{@code getWrongBookEntries} 与
      * {@code WrongBookGUI} 都照此过滤）。
      *
@@ -544,23 +603,35 @@ class ReportRepositoryTest {
      * 计数器"而不是"错题本"。于是家长报告会把只错 1 次的词写进【易错单词】节，而玩家在
      * 游戏里的错题本里看不到同一个词 —— 同一份数据两套口径，家长与孩子对不上账。
      *
-     * <p>严重性 MEDIUM 而非 HIGH：不涉及发钱/删数据，只是报告结论偏噪。修法一行：
-     * SQL 加 {@code AND wrong_count >= ?} 并绑定
-     * {@code PlayerDataStore.WRONG_BOOK_MIN_WRONG_COUNT}（或把阈值提为数据层常量）。
+     * <p>现 SQL 加 {@code AND wrong_count >= ?} 并绑定该常量（不硬编码 3）。
      */
     @Test
-    @Disabled("已知缺陷 MEDIUM：报告错题列表未套错题本收录阈值（wrong_count >= 3）。"
-            + "本测试断言的是期望行为 —— 摘掉 @Disabled 即红。")
-    @DisplayName("Q5【期望】低于错题本收录阈值的词不应出现在报告里")
-    void weakWordsShouldApplyWrongBookThreshold() throws Exception {
+    @DisplayName("Q5：低于错题本收录阈值（wrong_count >= 3）的词不出现在报告里")
+    void weakWordsApplyWrongBookThreshold() throws Exception {
         insertWeakWord(PLAYER, "barely-wrong", 1); // 首次答错：只是计数器，不是错题本条目
+        insertWeakWord(PLAYER, "twice-wrong", 2);
+        insertWeakWord(PLAYER, "at-threshold", 3);  // 边界：门槛含等号
         insertWeakWord(PLAYER, "really-wrong", 7);
 
         ReportRepository.WeakWords r = repo.queryWeakWordsOrFail(PLAYER, 10);
         assertTrue(r.complete());
-        assertEquals(List.of("really-wrong"),
+        assertEquals(List.of("really-wrong", "at-threshold"),
                 r.rows().stream().map(ReportRepository.WeakWordRow::word).toList(),
-                "报告错题列表含 wrong_count=1 的词，与 WrongBookGUI 的口径（>=3）不一致");
+                "报告错题列表必须与 WrongBookGUI 同口径（>= "
+                        + PlayerDataStore.WRONG_BOOK_MIN_WRONG_COUNT
+                        + "）：把 `>= ?` 改成 `> ?` 会漏掉 at-threshold，"
+                        + "去掉该条件会多出 barely-wrong/twice-wrong");
+    }
+
+    @Test
+    @DisplayName("Q5：全部词都低于阈值 → 空列表但 complete=true（不是「读失败」）")
+    void weakWordsBelowThresholdIsEmptyNotFailure() throws Exception {
+        insertWeakWord(PLAYER, "a", 1);
+        insertWeakWord(PLAYER, "b", 2);
+
+        ReportRepository.WeakWords r = repo.queryWeakWordsOrFail(PLAYER, 5);
+        assertTrue(r.complete(), "低于阈值 ≠ 读失败 —— 否则报告会误打「数据不完整」");
+        assertTrue(r.rows().isEmpty(), "报告据此省略【易错单词】整节");
     }
 
     @Test
@@ -794,7 +865,7 @@ class ReportRepositoryTest {
     //  ======== 第 12 节起：round20 独立复核新增（audit-specialist） ========
     //
     //  上面 27 例经独立复核后判定：断言手法全部合格（真 SQLite + 第二条 JDBC 连接造数，
-    //  无自证桩；两条 @Disabled 措辞诚实，断言期望值而非现状）。但有三处覆盖缺口需要在
+    //  无自证桩；@Disabled 措辞诚实，断言期望值而非现状）。但有三处覆盖缺口需要在
     //  这里补，它们不是"重新测一遍"，而是原套件按构造方式测不到的口径问题：
     //
     //   (1) 【D1】Q9 的 active_days 用 COUNT(*) 而不是 COUNT(DISTINCT)。原套件已把
@@ -867,33 +938,63 @@ class ReportRepositoryTest {
     }
 
     /**
-     * 【D2 口径钉桩 · 已 @Disabled 表达期望】Q8 的"本期完成每日挑战 done/all"分子把
-     * degradeStale 的"自动放弃"算成"完成"。
+     * 【D2 · round28 复核定级 LOW-MEDIUM，<b>不修</b>，理由已更新】
+     * Q8 的"本期完成每日挑战 done/all"分子把 {@code degradeStale} 的"自动放弃"算成"完成"。
      *
-     * <p>缺陷本体（ReportRepository:276-278）：
+     * <p>缺陷本体（{@code ReportRepository.countDailyChallengesOrFail}）：
      * <pre>
      *   SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) AS done,   -- 只认 completed=1
      *   COUNT(*) AS total                                          -- 窗口内全部行
      * </pre>
      * 分母 total 含所有已分配的挑战行（这本身是设计意图："本期发了 N 个任务、完成 M 个"），
-     * 但 DailyChallengeRepository.degradeStale（R-21 存量降级）会把既未完成也未领取的
-     * AI_CHAT_5 行直接写成 completed=1, claimed=1（"自动放弃，不发奖励"，见
-     * DailyChallengeManager:501-514）。降级行在报告里与"孩子真的完成了"同形。
+     * 但 {@code DailyChallengeRepository.degradeStale}（R-21 存量降级）会把既未完成也未
+     * 领取的 {@code AI_CHAT_5} 行直接写成 {@code completed=1, claimed=1}（"自动放弃，
+     * 不发奖励"，见 {@code DailyChallengeManager.degradeStaleChallenges}）。降级行在报告
+     * 里与"孩子真的完成了"同形。
      *
-     * <p>真实用户影响：AI Key 失效（或 ai-chat.enabled=false）的服上，每个进过挑战界面的
-     * 玩家当天都会有一条降级行。家长报告会写"本期完成每日挑战 3/3"，而孩子实际只完成 2 个。
-     * 方向是多报（把没做算成做了），金额面为零。
+     * <h2>round28 复核：<b>不是</b>死路径（原假设「AI 关了就不分配」不成立）</h2>
+     * 分配侧确实过滤不可用类型（{@code doCheckAndAssign} 只从 {@code isChallengeAvailable}
+     * 为真的集合里抽），所以<b>从未有过 AI Key 的服</b>抽不到 {@code AI_CHAT_5}。但
+     * {@code isChallengeAvailable(AI_CHAT_5)} 读的是<b>当下</b>的
+     * {@code ai-chat.enabled && AIChatManager.isAvailable()}，而可用性是会<b>当天翻转</b>的：
+     * <ul>
+     *   <li>{@code /lea reload} → {@code HotReloadManager} → {@code AIChatManager.reload()}
+     *       → {@code loadConfig()} <b>重读磁盘 {@code ai_config.yml} 的 api-key</b>。
+     *       Key 过期/被吊销/被清空后 reload 一次，可用性立刻从 true 变 false；</li>
+     *   <li>ScenarioSelectListener 的「重新加载 API」按钮走同一条 {@code reload()}；</li>
+     *   <li>当日曾正常、中途重启且此次启动 Key 失效 —— 玩家当天早些时候抽到的
+     *       {@code AI_CHAT_5} 行仍在库里（{@code newStreak}/{@code challenge_date} 都是
+     *       "今天"），下次打开挑战界面即被降级。</li>
+     * </ul>
+     * 结论：可达，但需要"当天先可用、后不可用"这个额外条件，正常服不触发。
      *
-     * <p>为什么定 LOW-MEDIUM 而不是更高：①不发钱、不删数据；②只在 AI 不可用且玩家当天
-     * 有 AI_CHAT_5 行时触发；③模板文案只说"本期完成"，未限定"孩子亲手完成"。
+     * <h2>为什么本轮<b>不修</b></h2>
+     * 修法必须是加列（{@code abandoned INTEGER DEFAULT 0}）而不是纯 SQL：
+     * {@code completed=1, claimed=1} 两态对"真完成"与"降级"完全相同，且 {@code progress=0}
+     * 不能当判据 —— {@code COMBO_5} 走 {@code completeChallenge} 二进制完成时 {@code progress}
+     * 同样是 0（见下一条测试）。而加列之后<b>必须由 {@code degradeStale} 写
+     * {@code abandoned=1}</b>，否则这一列永远是 0、Q8 一个字节都不会变 ——
+     * 那个写入点在 {@code DailyChallengeRepository}，<b>不在本轮可写范围</b>（本轮只授权
+     * {@code ReportRepository} / 本测试 / {@code schema.sql} / {@code DatabaseManager} 的加列 DDL）。
+     * 只改 schema 不改写入方 = 交付一个恒为 0 的死列，比不加更糟。
      *
-     * <p>修法：不是纯 SQL 能修的 —— 当前 schema 没有列能区分"完成"与"降级"
-     * （两者都是 completed=1, claimed=1；progress=0 也不可靠，COMBO_5 走二进制完成时
-     * progress 同样是 0）。需先加列。这正是本条留在 @Disabled 的理由。
+     * <p>影响面复核（决定"值不值"）：零下游自动消费 —— 报告只写 {@code exports/reports/*.txt}
+     * 给服主/管理员看（{@code /lea report}，{@code default: op}），无代码读这些 TXT、
+     * 统计服务不碰、无 PAPI 占位符。方向是<b>多报</b>（把没做算成做了），金额面为零。
+     *
+     * <p><b>下一轮若要修</b>：schema 加 {@code abandoned INTEGER DEFAULT 0} +
+     * {@code addColumnIfMissing} 迁移 + {@code degradeStale} 的 SET 增 {@code abandoned = 1}
+     * + 本方法分子改 {@code completed = 1 AND abandoned = 0}。其余写路径
+     * （{@code assignAll} 显式列、{@code complete} 只置 completed、
+     * {@code advanceChallengeProgress} 的 CASE、{@code markClaimedOrFail} 只置 claimed）
+     * 都是默认 0，且降级行的 {@code claimed=1} 会让所有"再完成"分支（均带 {@code claimed = 0}
+     * 护栏）永久失效，因此 {@code abandoned=1} 一旦写下不会被撤销 —— 迁移安全。
      */
     @Test
-    @Disabled("已知缺陷 LOW-MEDIUM：Q8 把 degradeStale 的'自动放弃'计入'本期完成'分子；"
-            + "当前 schema 无列可区分完成与降级，不是纯 SQL 能修。"
+    @Disabled("不修（LOW-MEDIUM，本轮越界）：需加 abandoned 列并由 degradeStale 写入，"
+            + "该写入点在 DailyChallengeRepository —— 不在本轮可写范围。"
+            + "只加列不改写入方会得到一个恒为 0 的死列。"
+            + "非死路径：/lea reload 重读 ai_config.yml，Key 中途失效时 AI_CHAT_5 当日即可被降级。"
             + "本测试断言的是期望行为 —— 摘掉 @Disabled 即红。")
     @DisplayName("【D2】【期望】自动放弃（degradeStale）的挑战不应计入'本期完成'")
     void d2AutoAbandonedChallengeShouldNotCountAsCompleted() throws Exception {

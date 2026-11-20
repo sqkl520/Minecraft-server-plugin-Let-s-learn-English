@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Listener for Privacy Settings, Word Bank Select, and Learning Calendar GUI interactions.
@@ -45,6 +46,47 @@ public class MiscGUIListener implements Listener {
      * 与 {@code ReportGenerator} 内自建仓储同一做法。
      */
     private final DailyChallengeRepository claimRepository;
+
+    /**
+     * 领奖慢操作告警阈值：<b>50 ms = 一个 tick</b>。
+     *
+     * <p><b>为什么是 50 而不是别的数</b>：行为挑战领取跑在<b>主线程</b>（{@code InventoryClickEvent}
+     * 处理器），而主线程每 tick 只有 50 ms 预算。一次领奖占掉超过一整个 tick，TPS 就会掉——
+     * 所以 50 ms 本身就是「玩家可能感觉到卡顿」的物理边界，而不是随手挑的魔法数。
+     * 稳态实测约 1–10 ms（三条 JDBC 语句都在本地/局域网库上，且已在 stripe lock 内串行化），
+     * 因此常规领奖<b>不会</b>刷这条日志；只有午夜窗口（跨天回填与领奖竞争
+     * {@code connectionLock}）或 MySQL 远程慢查询才会触发。
+     *
+     * <p><b>为什么这条观测值得存在</b>：本仓库反复出现「注释里写着一个已知风险，但线上没有任何
+     * 运行时证据」的形态——诊断为「午夜整点卡一下」时服主只能猜。有了这条 WARNING，日志直接
+     * 说明<b>哪个玩家、哪个挑战、等/用了多久</b>，把注释里的风险变成可观测的事实。
+     * 纯观测，零正确性风险：只读 {@link System#nanoTime()} 与写一行日志。
+     */
+    private static final long CLAIM_SLOW_THRESHOLD_MS = 50L;
+
+    /**
+     * 仅供上面那条慢操作 WARNING 使用的「本次领奖命中的挑战 id」。
+     *
+     * <p><b>为什么需要这个字段</b>：挑战 id（{@code cp.type.id}）只有在
+     * {@link #claimBehavioralChallenge} 里查过 {@code getTodayChallenges} 之后才知道，
+     * 而那一次查询本身就在 stripe lock 内；日志却必须留在锁外（锁内做 IO 会延长持锁）。
+     * 于是把 id 在锁内<b>记到字段上</b>（一次引用赋值，纳秒级，不构成新的 IO），
+     * 出锁后再连同耗时一起写日志。
+     *
+     * <p><b>线程与失效代价（刻意不追求绝对正确）</b>：正常路径上写与读都在<b>主线程</b>
+     * （{@code InventoryClickEvent} 处理器）的同一个 {@link #handleDailyChallenge}
+     * 调用栈内 —— 锁前清空、锁内赋值、出锁立刻读，所以常规情况下值一定是本次的。
+     * 但两个<b>不同玩家</b>并发放行时，他们可能落在<b>不同</b> stripe 上，锁并不能把他们
+     * 串行化；若真有第三方插件在异步线程里伪造 {@code InventoryClickEvent}，这两个
+     * 调用就可能交错，日志里偶尔会写错一个挑战 id。
+     *
+     * <p><b>为什么不为此加 volatile / ThreadLocal</b>：这条字段唯一的用途是给一行
+     * WARNING 提供上下文，最坏后果是某条慢操作日志的 {@code challenge=} 指到了同服另一个
+     * 玩家当次点的挑战（耗时、玩家名、下标仍然都是真的）。为消除这么小的诊断噪声而引入
+     * 同步或线程局部存储，反而给主线程热点路径添了新东西 —— 与「纯观测、零正确性风险」
+     * 的定位不符。这是个有意接受的取舍，不是遗漏。
+     */
+    private String lastClaimChallengeId;
 
     /**
      * R-02: behavioral-claim stripe locks. A fixed array of 32 monitors —
@@ -84,10 +126,81 @@ public class MiscGUIListener implements Listener {
      * 仍为 false —— 只要不禁，玩家再点一次就会<b>二次付款</b>。GUI 重开与否都不改变这一点。
      * 故在本进程内记住这一格，任何后续点击直接拒绝付款并提示联系管理员。
      *
-     * <p>有界性与生命周期：每个玩家每天最多被记 1 条；进程重启即清空（此前的欠账由 SEVERE
-     * 日志交给运维对账，本集合不承担持久化责任）。并发实现与 {@code dailyWordStateCache} 同款。
+     * <p>有界性与生命周期：进程重启即清空（此前的欠账由 SEVERE 日志交给运维对账，本集合
+     * 不承担持久化责任）。并发实现与 {@code dailyWordStateCache} 同款。
+     *
+     * <p><b>N10（跨天裁剪）：本集合过去只增不删。</b>键含日期只让它在<b>逻辑</b>上跨天失效
+     * （昨天的键今天不会再被 {@code contains} 命中），但条目<b>永不释放</b>：每天每个玩家
+     * 每个挑战都可能新增一条，跑几个月的服量级是「玩家数 × 挑战数 × 天数」。慢性 DB 写故障
+     * （{@code WRITE_FAILED} 反复命中）+ Vault 正常这个组合下它会无界增长。
+     * 现在由 {@link #prunePaidButUnmarkedForNewDay} 在跨天后的第一次领奖点击时整片裁掉
+     * 昨日及更早的条目（判据与触发时机的论证见该方法）。
+     *
+     * <p><b>为什么不在 {@code PlayerQuitEvent} 里按玩家清</b>：那会让守卫<i>反向</i>漏钱 ——
+     * 本集合保护的是「钱已到账、台账没写成」的格子。玩家下线重进后 {@code claimed} 仍是 0、
+     * 按钮仍可点，quit 时清掉他的键等于把<b>二次付款</b>重新打开（同一格里再付一次）。
+     * 只有「跨天」这个时间维度是真正无用的（昨天的挑战今天根本不在列表里，
+     * 见 {@code getTodayChallenges} 只读当日行），所以裁剪只能按日期做。
      */
     private final Set<String> paidButUnmarked = ConcurrentHashMap.newKeySet();
+
+    /**
+     * {@link #paidButUnmarked} 当前<b>已裁剪到</b>的自然日（口径与集合内的日期后缀一致）。
+     *
+     * <p>{@code null} = 从未裁剪过。写入/读取都只在主线程的领奖点击链上，但集合本身是并发
+     * 实现（第三方插件可能在别的线程伪造 {@code InventoryClickEvent}），故用 {@code volatile}
+     * 而不是裸字段 —— 只为一个「是否已裁剪」的判定付出一次可见性保证。
+     */
+    private volatile LocalDate paidButUnmarkedDay;
+
+    /**
+     * N10：跨天裁剪 —— 丢掉所有<b>不属于</b> {@code today} 的领取键。
+     *
+     * <h2>判据为什么是 {@code endsWith("|" + today)}</h2>
+     * 键的构造是 {@code uuid|challengeId|date}（见 {@code claimBehavioralChallenge}），日期
+     * 是<b>最后一段</b>。{@code LocalDate.toString()} 恒定是 10 字符零填充的 {@code yyyy-MM-dd}，
+     * 所以「以 {@code |yyyy-MM-dd} 结尾」与「最后一段等于今天」逐字等价。刻意连<b>竖线</b>
+     * 一起匹配，而不是只匹配 {@code endsWith(today)}：只比日期串时，判据依赖「任何
+     * {@code challengeId} 都不会以日期形态收尾」这个隐含前提；带上分隔符之后，
+     * 前缀歧义（{@code |2026-02-1} 与 {@code |2026-02-10}）在<b>结构上</b>不可能发生。
+     *
+     * <h2>触发时机为什么是「跨天后的第一次领奖点击」</h2>
+     * <ul>
+     *   <li><b>不在每次 add 前扫</b>：{@code removeIf} 是 O(集合大小) 的遍历，而本方法会在
+     *       同一自然日里被反复调用（每次领奖点击一次）。用 {@link #paidButUnmarkedDay}
+     *       做闸门后，实际扫描<b>每个自然日至多一次</b>，其余调用只付一次 volatile 读 +
+     *       一次 {@code LocalDate.equals}。</li>
+     *   <li><b>不挂在 {@code WRITE_FAILED} 分支</b>：集合只有 {@code WRITE_FAILED} 才写入，
+     *       所以「只在 add 时裁剪」意味着「DB 一直正常时永远不裁剪」。挂在点击入口则让
+     *       裁剪的触发面覆盖所有领奖点击，不依赖写失败是否再发生。</li>
+     *   <li><b>不在 {@code add} 里判 contains 之后</b>：裁剪必须在读之前（{@code contains}）
+     *       完成才自然 —— 顺序上「先裁 → 再判 → 后加」，同一自然日内的条目一条都不会被误删
+     *       （今天的键都带今天的后缀）。</li>
+     * </ul>
+     *
+     * <h2>能力边界（如实记录，别把「有界」读成「准点」）</h2>
+     * 触发面是<b>真实领奖点击</b>，且调用点在
+     * {@code if (!cp.completed || cp.claimed) return;} <b>之后</b> —— 所以本方法
+     * <b>不是</b>一个午夜定时任务：如果一个服从此再没有任何人点领奖，最后一天的条目会一直留着。
+     * 那仍然是有界状态（每天的新增都需要有人领奖才会发生，同一个前提），本缺陷要消灭的是
+     * 「<b>无界</b>增长」。若将来要求「即使无人领奖也准点释放」，那应该挂在
+     * {@code LetsLearnEnglish} 的午夜 rollover 上 —— 那是另一个改动，不在本条范围。
+     *
+     * <h2>并发与最坏情况</h2>
+     * {@code ConcurrentHashMap.newKeySet().removeIf(...)} 是并发安全的（逐键
+     * {@code remove}，不抛 {@code ConcurrentModificationException}）。两个线程同日同时进来
+     * 会重复扫一次 —— 幂等，只是多花一次遍历；跨午夜时若两个线程分别带着 day1 / day2
+     * 进来，最坏后果是「一条 day1 的键多留一天」，仍在「每天至多一次扫描」的有界范围内。
+     *
+     * @param today 本次领奖点击看到的「今天」；{@code null} 视为不可判定，直接跳过裁剪
+     */
+    private void prunePaidButUnmarkedForNewDay(LocalDate today) {
+        if (today == null || today.equals(paidButUnmarkedDay)) {
+            return;
+        }
+        paidButUnmarked.removeIf(key -> key == null || !key.endsWith("|" + today));
+        paidButUnmarkedDay = today;
+    }
 
     public MiscGUIListener(LetsLearnEnglish plugin) {
         this.plugin = plugin;
@@ -374,10 +487,37 @@ public class MiscGUIListener implements Listener {
         int idx = Arrays.binarySearch(DailyChallengeGUI.CHALLENGE_SLOTS, slot);
         if (idx >= 0) {
             SoundManager.playSound(player, "menu-click");
+            // ── 慢操作观测：计时起点必须在 synchronized <b>之前</b> ──────────────
+            // 要观测的是「等锁 + 锁内执行」的总时长，不只是锁内执行——因为「等锁」
+            // 正是玩家实际感受到的那一段：另一个线程（午夜回填、命令路径、同 stripe
+            // 的其它玩家）持着 connectionLock 或本 stripe 时，本线程就在下面的
+            // synchronized 上排队。从锁内开始计时会把这段排队整个漏掉，
+            // 而它恰是「午夜整点卡一下」最可能的成因。
+            //
+            // 用 System.nanoTime() 而非 currentTimeMillis()：后者是墙上时钟，
+            // 会跟着 NTP 校时 / 手动改时间往回跳，算出负数或离谱的耗时——
+            // 测时长的经典错误。nanoTime 单调，只用于求差。
+            long claimStartNanos = System.nanoTime();
+            String targetChallengeId;
             // R-02: run the whole claim under the player's stripe lock so two
             // rapid clicks of the same button can never interleave a double pay.
             synchronized (getClaimStripeLock(player.getUniqueId())) {
+                lastClaimChallengeId = null;
                 claimBehavioralChallenge(player, idx);
+                targetChallengeId = lastClaimChallengeId;
+            }
+            long claimElapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - claimStartNanos);
+            // 日志必须落在锁<b>之外</b>：写日志是 IO（控制台 + 日志文件 flush），
+            // 在锁内记会白白延长持锁时间，恰好是本条观测要防的那种退化。
+            if (claimElapsedMs >= CLAIM_SLOW_THRESHOLD_MS) {
+                plugin.getLogger().warning("Slow daily-challenge claim: player="
+                        + player.getName()
+                        + " challenge=" + (targetChallengeId == null ? "<none>" : targetChallengeId)
+                        + " index=" + idx
+                        + " elapsed=" + claimElapsedMs + "ms"
+                        + " (threshold " + CLAIM_SLOW_THRESHOLD_MS + "ms = 1 tick,"
+                        + " lock wait included)"
+                        + " — inspect connectionLock contention / slow database");
             }
         }
     }
@@ -396,6 +536,10 @@ public class MiscGUIListener implements Listener {
         var challenges = plugin.getDailyChallengeManager().getTodayChallenges(player.getUniqueId());
         if (idx < 0 || idx >= challenges.size()) return;
         var cp = challenges.get(idx);
+        // 纯观测：本次领奖命中的挑战 id，供 handleDailyChallenge 出锁后写慢操作日志用
+        //（挑战 id 只有在这里查过 getTodayChallenges 后才知道，而日志必须留在锁外）。
+        // 单字段赋值、无分支、不改变任何判定与付款顺序 —— 不是业务逻辑。
+        lastClaimChallengeId = cp.type.id;
         if (!cp.completed || cp.claimed) return;
         // M12: deposit-then-mark. Transfer first, mark claimed only
         // after money arrived. On failure the reward stays claimable
@@ -414,7 +558,12 @@ public class MiscGUIListener implements Listener {
         boolean moneyEnabled = plugin.getProgressManager().getRewardEngine().isMoneyEnabled();
         // round4 F2：本进程已为同一格子付过款但台账没写成 —— 再付一次就是重复发放。
         // 检查放在 stripe lock 内（调用方已持），键含日期，跨天自然失效。
-        String claimKey = player.getUniqueId() + "|" + cp.type.id + "|" + LocalDate.now();
+        LocalDate today = LocalDate.now();
+        // N10：跨天裁剪必须在所有读/写之前 —— 顺序是「先裁 → 再判 → 后加」。
+        // 同一自然日的键一条都不会被误删（今天的键都带今天的日期后缀），且本方法会因
+        // paidButUnmarkedDay 闸门而每个自然日至多真正遍历一次。
+        prunePaidButUnmarkedForNewDay(today);
+        String claimKey = player.getUniqueId() + "|" + cp.type.id + "|" + today;
         if (paidButUnmarked.contains(claimKey)) {
             // 不重开 GUI：重开只会把玩家送回一个仍显示"可领取"的按钮，形成点击循环。
             player.sendMessage(plugin.getMessageUtil().getPlayerMessage(player,

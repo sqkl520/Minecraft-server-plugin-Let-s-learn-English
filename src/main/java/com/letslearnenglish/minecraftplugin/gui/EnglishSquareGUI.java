@@ -917,7 +917,10 @@ public class EnglishSquareGUI {
             ItemStack head = new ItemStack(Material.PLAYER_HEAD);
             if (head.getItemMeta() instanceof SkullMeta meta) {
                 meta.setOwningPlayer(Bukkit.getOfflinePlayer(targetId));
-                meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', "&b" + targetName));
+                // D8 同源第三个落地点：targetName 优先取 rowEntry.playerName
+                //（player_data.player_name，DB 真值），与动态流 authorName 同源同风险。
+                meta.setDisplayName(ChatColor.translateAlternateColorCodes('&',
+                        "&b" + FeedTextFormatter.sanitizePlayerText(targetName)));
                 List<String> lore = new ArrayList<>();
 
                 // 14-S1：对错数字须过目标 showResults 门（同文件 FEED 分支已同口径；数据层 WHERE 只过滤 show_in_square）。
@@ -990,7 +993,10 @@ public class EnglishSquareGUI {
             ItemStack head = new ItemStack(Material.PLAYER_HEAD);
             if (head.getItemMeta() instanceof SkullMeta meta) {
                 meta.setOwningPlayer(Bukkit.getOfflinePlayer(item.authorId()));
-                meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', "&b" + item.authorName()));
+                // D8 同源第二个落地点：头像 displayName 也把 authorName 交给转码器。
+                // 统一走 FeedTextFormatter 的剥色口径（名字 → & 码 → 此处 translate）。
+                meta.setDisplayName(ChatColor.translateAlternateColorCodes('&',
+                        "&b" + FeedTextFormatter.sanitizePlayerText(item.authorName())));
                 List<String> lore = new ArrayList<>();
 
                 String eventLine = FeedTextFormatter.buildEventLine(item.type(), item.eventsCount(),

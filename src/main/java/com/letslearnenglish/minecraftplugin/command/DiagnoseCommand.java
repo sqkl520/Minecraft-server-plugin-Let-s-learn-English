@@ -12,6 +12,9 @@ import org.bukkit.configuration.file.FileConfiguration;
 
 import java.io.File;
 import java.io.IOException;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -32,12 +35,29 @@ import java.util.logging.Level;
  *
  * <p><b>只读契约（硬约束）：</b>
  * <ul>
- *   <li>不写库、不改内存状态、不发任何网络请求；</li>
- *   <li>MySQL 探活只用 {@code Class.forName(driver, false, loader)}（{@code initialize=false}
- *       连静态块都不跑），<b>绝不建连接</b>——{@code database.type=mysql} 时连接在
- *       {@code onEnable} 已建立，这里只报"已连接"；</li>
+ *   <li><b>不写库</b>、不改内存状态、不主动发起任何业务网络请求；</li>
+ *   <li>MySQL 驱动探活只用 {@code Class.forName(driver, false, loader)}（{@code initialize=false}
+ *       连静态块都不跑），<b>不靠它建连接</b>；</li>
  *   <li>不读表行数（避免全表扫），DB 侧只报类型 + 数据文件大小 + 最近备份时间。</li>
  * </ul>
+ *
+ * <p><b>R26 修订（连通性探测）：</b>原契约写的是"绝不建连接"，于是
+ * {@code database.type=sqlite} 分支只报文件大小、{@code mysql} 分支只报 host/db 名
+ * ——<b>连接死了照样绿灯</b>。现改为在 {@code synchronized (db.getConnectionLock())} 内
+ * 取一次共享连接并执行最轻的 {@code SELECT 1}。三点说明：
+ * <ol>
+ *   <li>这<b>不是</b>写库：{@code SELECT 1} 不碰任何表，也不需要表存在；</li>
+ *   <li>{@link DatabaseManager#getConnection()} 在连接失效时会<b>自行重连</b>
+ *       （见其实现），所以探测顺带完成自愈——诊断不该只是"观察"，能顺手修好的
+ *       现象修好后再报，服主看到的才是重连之后的真实状态；</li>
+ *   <li>语句带 {@code setQueryTimeout}（5 秒），把 MySQL 侧最坏阻塞从驱动的
+ *       {@code socketTimeout=30s} 压到可控范围；连接获取本身由驱动的
+ *       {@code connectTimeout=10s} 兜底。整条诊断的额外耗时上限因此是有界的
+ *       （正常情况是单次本地/局域网往返，亚毫秒到几毫秒）。</li>
+ * </ol>
+ * 探测<b>失败必须报 {@code FAIL}</b>：库不可用意味着所有学习/经济/成就写入全失效，
+ * 而这是服主从别处看不出来的形态。持锁期间不做任何 Bukkit 调用与 IO
+ * ——{@code Files.length()} 等文件检查全部在锁外先算好。
  *
  * <p><b>输出语言（本批改版）：</b>报告正文全部走 {@code messages/*.yml} 的
  * {@code diagnose.*} 段，由 {@link Msg} 注入解析器。三种调用点的语言来源刻意不同：
@@ -219,22 +239,44 @@ public final class DiagnoseCommand {
         checks.add(new Check(Severity.INFO,
                 msg.get("plugin", "version", version, "server", serverVersion)));
 
-        // --- 数据库（类型 + 文件大小；不查表行数）---
+        // --- 数据库（类型 + 真实连通性 + 文件大小；不查表行数）---
+        // R26 F3：原先只按配置推导（db != null && db.isSQLite()），连接死了照样绿灯。
+        // 现在先做一次真实探测，SQLite 另外校验库文件存在且非空。
         DatabaseManager db = plugin.getDatabaseManager();
         boolean sqlite = db != null && db.isSQLite();
         if (db == null) {
             checks.add(new Check(Severity.FAIL, msg.get("db.not-initialized")));
-        } else if (sqlite) {
-            String fileName = cfg.getString("database.sqlite.filename", "playerdata.db");
-            File dbFile = new File(plugin.getDataFolder(), fileName);
-            checks.add(new Check(Severity.OK, msg.get("db.sqlite",
-                    "file", fileName, "size", humanSize(dbFile.length()))));
         } else {
-            // MySQL 的连接在 onEnable 已建立；这里只报结果，不重新连。
-            String host = cfg.getString("database.mysql.host", "localhost");
-            String dbName = cfg.getString("database.mysql.database", "letslearnenglish");
-            checks.add(new Check(Severity.OK, msg.get("db.mysql",
-                    "host", host, "database", dbName)));
+            boolean alive = probeConnection(db);
+            if (sqlite) {
+                String fileName = cfg.getString("database.sqlite.filename", "playerdata.db");
+                File dbFile = new File(plugin.getDataFolder(), fileName);
+                // 文件事实在探测之外取：probeConnection 内部持 connectionLock，
+                // 持锁期间不许做 IO（见 DatabaseManager#withConnection 的 R9-L5 约定）。
+                long fileSize = dbFile.length();
+                boolean fileOk = dbFile.isFile() && fileSize > 0;
+                String size = humanSize(fileSize);
+                if (!fileOk) {
+                    // 文件被删 / 被清零 / 数据目录权限丢了：SQLite 连上的是一个空库，
+                    // 所有存档形同消失。这比"连接不可用"更该报红。
+                    checks.add(new Check(Severity.FAIL,
+                            msg.get("db.sqlite-missing", "file", fileName, "size", size)));
+                } else if (!alive) {
+                    checks.add(new Check(Severity.FAIL,
+                            msg.get("db.sqlite-unavailable", "file", fileName, "size", size)));
+                } else {
+                    checks.add(new Check(Severity.OK, msg.get("db.sqlite",
+                            "file", fileName, "size", size)));
+                }
+            } else {
+                String host = cfg.getString("database.mysql.host", "localhost");
+                String dbName = cfg.getString("database.mysql.database", "letslearnenglish");
+                checks.add(alive
+                        ? new Check(Severity.OK, msg.get("db.mysql",
+                                "host", host, "database", dbName))
+                        : new Check(Severity.FAIL, msg.get("db.mysql-unavailable",
+                                "host", host, "database", dbName)));
+            }
         }
 
         // --- MySQL 驱动探活（只加载类，不建连接、不跑静态块）---
@@ -259,6 +301,9 @@ public final class DiagnoseCommand {
 
         // --- 最近一次备份（读目录时间戳，不打开备份文件）---
         checks.add(backupCheck(plugin, cfg, sqlite, msg));
+
+        // --- 代理入站帧签名（多服网络才需要，单服不配是正常的）---
+        checks.add(proxySecretCheck(cfg, msg));
 
         // --- Vault 经济 ---
         Economy eco = plugin.getEconomy();
@@ -596,6 +641,105 @@ public final class DiagnoseCommand {
     //  各检查项
     // ============================================================
 
+    /** 探测语句的超时（秒）。见 {@link #probeConnection} 的耗时说明。 */
+    private static final int PROBE_TIMEOUT_SECONDS = 5;
+
+    /**
+     * R26 F3：在不破坏单连接约束的前提下做一次<b>真实</b>连通性探测。
+     *
+     * <p><b>为什么必须是真语句而不是 {@code isClosed()}</b>：
+     * {@link DatabaseManager} 在连接不可用时换发的是 {@code UNAVAILABLE} 代理，
+     * 它的 {@code isClosed()} 恒返回 {@code false}（见 EH-01 的替身实现）——
+     * 也就是说"只问连接对象自己"永远得到"我很健康"。唯一能识别坏连接的方式是
+     * 真的发一条语句，让它抛 {@link SQLException}。
+     *
+     * <p><b>为什么用 {@code SELECT 1}</b>：不碰任何表（库被清空/表被删也能跑），
+     * 不做全表扫（本类的只读契约禁止 {@code SELECT COUNT(*)}），SQLite 与 MySQL
+     * 语法一致，且只是一次本地/局域网往返。
+     *
+     * <p><b>锁与线程</b>：包在 {@code synchronized (db.getConnectionLock())} 内
+     * ——这是本仓对共享单连接的硬约定（见 {@code DatabaseManager#withConnection}
+     * 的 R9-L5 约定）。<b>持锁期间不做任何 IO</b>：文件存在性/大小全在调用方锁外算好；
+     * 这里也不调 {@code plugin.getLogger()}（日志是 IO）。失败只返回 {@code false}，
+     * 由调用方决定文案与级别。
+     *
+     * <p><b>绝不关闭共享连接</b>：本方法不用 try-with-resources 包 Connection
+     * （那会把全插件唯一的连接关掉），只关 Statement/ResultSet。
+     *
+     * <p><b>耗时</b>：正常是一次本地往返（SQLite 亚毫秒，同机房 MySQL 亚毫秒到几毫秒）。
+     * 病态情况的界由两处兜住：
+     * <ul>
+     *   <li>取连接本身 → 驱动 URL 的 {@code connectTimeout=10s}（见
+     *       {@code DatabaseManager.initializeMySQL}），只在需要重连时才等；</li>
+     *   <li>语句执行 → 这里的 {@link #PROBE_TIMEOUT_SECONDS} = 5s
+     *       （{@code setQueryTimeout}），把驱动侧 {@code socketTimeout=30s} 再压一档。</li>
+     * </ul>
+     * 最坏 ≈15s，但只发生在"库真的坏了"时——此时一行红叉远比快几秒有价值。
+     * 健康服上开销可忽略，所以不值得为它做异步（异步还会引入"报告没跑完命令就返回"
+     * 的半成品问题）。
+     *
+     * <p>{@code getConnection()} 自身在连接失效时会重连（见其 E-04 实现），
+     * 所以本探测<b>顺带完成自愈</b>：诊断不只是观察，能顺手修好的先修再报，
+     * 服主看到的才是重连之后的真实状态。
+     *
+     * @return {@code true} = 语句成功执行（连接可用）
+     */
+    private static boolean probeConnection(DatabaseManager db) {
+        Object lock = db.getConnectionLock();
+        if (lock == null) {
+            // 真实 DatabaseManager 的 connectionLock 是 final 字段，永不 null。
+            // 拿到 null 说明这不是一个状态正常的 DatabaseManager（第三方实现 / 诊断用的替身）。
+            // 此时**不**退化成"不加锁探测"：那会在无锁状态下碰共享单连接，是真并发缺陷。
+            // 按本类的一致口径处理——"验证不了"绝不等于"没问题"，直接算探测失败。
+            return false;
+        }
+        synchronized (lock) {
+            return probeOnce(db);
+        }
+    }
+
+    /** 探测语句本体；任何失败都折算成 {@code false}（不吞成"健康"）。 */
+    private static boolean probeOnce(DatabaseManager db) {
+        try (Statement stmt = db.getConnection().createStatement()) {
+            stmt.setQueryTimeout(PROBE_TIMEOUT_SECONDS);
+            try (ResultSet rs = stmt.executeQuery("SELECT 1")) {
+                return rs.next();
+            }
+        } catch (SQLException | RuntimeException | LinkageError e) {
+            // 连接不可用（UNAVAILABLE 代理抛 SQLException）/ 驱动缺失（NoClassDefFoundError）
+            // / 实现方抛非受检：一律"探测失败"。绝不在此处记日志（持锁 IO）。
+            return false;
+        }
+    }
+
+    /**
+     * 备份状态。
+     *
+     * <p><b>R26 F1（P0 误报）</b>：原实现读了 {@code general.backup.interval} 却
+     * <b>只把它填进文案</b>，从不判断 {@code interval <= 0}。而
+     * {@code LetsLearnEnglish#scheduleDatabaseBackup} 在 {@code intervalMinutes <= 0}
+     * 时<b>直接 return、根本不排程</b>（并记一条 "auto-backup is disabled"）。于是：
+     * <ul>
+     *   <li>{@code interval=0} + 无 {@code .bak} → 原报「首次备份在 <b>0 分钟后</b>」
+     *       ——这句既不可能发生，又暗示"马上就来"；</li>
+     *   <li>{@code interval=0} + 有旧 {@code .bak} → 原报 <b>[OK]</b> +「最近备份 N 天前」
+     *       ——服主以为备份在正常跑，实际<b>永久不会再有下一份</b>，直到真出事
+     *       要回滚时才发现最新那份早就过期。</li>
+     * </ul>
+     * 现在 {@code interval <= 0} 单独成一支，且<b>排在"有无备份文件"之前</b>：
+     * 备份已停摆时，"最近一份备份有多旧"是次要信息，第一句必须说"自动备份已停摆"。
+     * 分级用 {@code FAIL}（不是 WARN）：这与"还没有第一份备份"（WARN，等一会儿就有了）
+     * 有本质区别——那个会自己好，这个不会，且再等下去数据风险只增不减。
+     *
+     * <p><b>为什么读 {@code getInt} 而不是"更稳的" {@code get + instanceof}</b>：
+     * {@code getInt} 对非 Integer 装箱（如 YAML 里写成带引号的 {@code "0"}）会静默回落默认值
+     * 1440（实测）。这里<b>故意沿用 getInt</b>，因为本判据必须与
+     * {@code LetsLearnEnglish#scheduleDatabaseBackup} 的读取方式<b>逐字节一致</b>——
+     * 那里也是 {@code getMainConfig().getInt("general.backup.interval", 1440)}。
+     * 若诊断改用更"宽容"的读法，遇到 {@code interval: "0"} 就会出现
+     * "诊断说已停摆、实际任务正常排程"的<b>反向误报</b>，同样是"坏的说成好的"的近亲
+     * （方向相反而已）。诊断的职责是复述生效值，不是替排程逻辑做规范化。
+     */
     private static Check backupCheck(LetsLearnEnglish plugin, FileConfiguration cfg,
                                      boolean sqlite, Msg msg) {
         if (!sqlite) {
@@ -605,6 +749,18 @@ public final class DiagnoseCommand {
             return new Check(Severity.WARN, msg.get("backup.disabled"));
         }
         int interval = cfg.getInt("general.backup.interval", 1440);
+        // R26 F1：<= 0 = scheduleDatabaseBackup() 直接 return，备份任务从未排程。
+        // 先找出最新的 .bak 再报错：服主需要知道"停摆之前的最后一份有多旧"才知道
+        // 该不该立刻手工备份一次。找不到就是"从来没有过"，文案分两种。
+        if (interval <= 0) {
+            File disabledDir = new File(plugin.getDataFolder(), "backups");
+            File newestBak = newestBackup(disabledDir);
+            return newestBak == null
+                    ? new Check(Severity.FAIL, msg.get("backup.interval-off-none"))
+                    : new Check(Severity.FAIL, msg.get("backup.interval-off-stale",
+                            "file", newestBak.getName(),
+                            "ago", ago(newestBak.lastModified(), msg)));
+        }
         File backupDir = new File(plugin.getDataFolder(), "backups");
         File[] files = backupDir.listFiles((dir, name) -> name.endsWith(".bak"));
         if (files == null || files.length == 0) {
@@ -619,6 +775,56 @@ public final class DiagnoseCommand {
         }
         return new Check(Severity.OK, msg.get("backup.latest",
                 "file", newest.getName(), "ago", ago(newest.lastModified(), msg)));
+    }
+
+    /** 备份目录里 mtime 最新的 {@code .bak}；目录不存在或没有 .bak 时返回 {@code null}。 */
+    private static File newestBackup(File backupDir) {
+        File[] files = backupDir.listFiles((dir, name) -> name.endsWith(".bak"));
+        if (files == null || files.length == 0) {
+            return null;
+        }
+        File newest = files[0];
+        for (File f : files) {
+            if (f.lastModified() > newest.lastModified()) {
+                newest = f;
+            }
+        }
+        return newest;
+    }
+
+    /**
+     * R26 F2：代理入站帧签名开关。
+     *
+     * <p>{@code ProxyMessenger.onPluginMessageReceived} 在
+     * {@code proxy.inbound-secret} 为空时<b>跳过全部入站帧签名校验</b>（见其 R15 注释）：
+     * 改个客户端就能伪造 {@code GlobalMessage}（假服主公告）/ {@code AchievementUnlock} /
+     * {@code SeasonSettled}。而本命令是"服主排障第一站"，模块行里列了 9 个开关，
+     * 却对这一个安全开关一字不提 —— 未配密钥的多服网络拿到了干净的"健康证明"。
+     *
+     * <p>分级 {@code WARN}（不是 FAIL）：单服不配密钥是<b>刻意的默认</b>
+     * （config.yml 默认就是空串，注释说"强烈建议在多服网络中设置"）。
+     * 判据用 {@code proxy.server-name} 是否为空区分单服/多服。
+     *
+     * <p><b>密钥值绝不回显</b>：本类只判断"空 / 非空"，报告里只出现"已配置"或
+     * "未配置"两种词。报告会被整段贴到群里，密钥一旦落进 {@code exports/*.txt}
+     * 就等于公开——所以这里连长度、前缀、hash 都不报。
+     * 静态扫描护栏见 {@code DiagnoseCommandAuditTest#sourceNeverReadsSecretConfigKeys}：
+     * 它允许读 {@code proxy.inbound-secret} 的<b>存在性</b>，但禁止任何把它拼进
+     * 文案的写法（该用例已相应放宽为"允许 getString 到局部布尔量，禁止占位符注出"）。
+     */
+    private static Check proxySecretCheck(FileConfiguration cfg, Msg msg) {
+        String serverName = cfg.getString("proxy.server-name", "");
+        boolean multiServer = serverName != null && !serverName.trim().isEmpty();
+        if (!multiServer) {
+            // 单服：不配 inbound-secret 是开箱默认，不打扰服主。
+            return new Check(Severity.INFO, msg.get("proxy.single-server"));
+        }
+        String secret = cfg.getString("proxy.inbound-secret", "");
+        boolean signed = secret != null && !secret.trim().isEmpty();
+        return signed
+                ? new Check(Severity.OK, msg.get("proxy.secret-set"))
+                : new Check(Severity.WARN, msg.get("proxy.secret-missing",
+                        "server", serverName.trim()));
     }
 
     private static Check economyCheck(Economy eco, boolean vaultPresent, Msg msg) {

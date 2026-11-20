@@ -226,7 +226,7 @@ grep -rn "HttpClient\|HttpRequest\|openConnection\|new URL(\|new Socket" src/mai
 | `audio/*.wav` | TTS 缓存（当前版本不播放） |
 | `backups/*.bak` | 数据库自动备份，默认保留 7 份 |
 
-**数据库里存了什么**（23 张表，`schema.sql` 为权威）：
+**数据库里存了什么**（运行期 **24** 张表：`schema.sql` 里定义 **23** 张，第 24 张 `daily_coin_counters` 由 `RewardEngine.ensureDailyCoinsTable()` 首次发币时懒建，所以 `schema.sql` 不是完整权威）：
 
 | 数据 | 表 | 敏感度 |
 |---|---|---|

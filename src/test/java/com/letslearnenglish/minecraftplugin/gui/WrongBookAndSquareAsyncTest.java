@@ -350,10 +350,57 @@ class WrongBookAndSquareAsyncTest {
             assertTrue(Pattern.compile("\\.countActiveSquareEntries\\s*\\(")
                             .matcher(withoutAsyncRegions(mutated)).find(),
                     "把查询挪回主线程后 withoutAsyncRegions 仍报「干净」—— lint 抓不住最关键的回归");
+
+            // R20-GUI2 追加：<b>裸调用形态</b>（本类自己的包装方法）也必须被抓住。
+            // 实测旧断言/旧 lint 只认 `.name(`，于是把 `loadWrongBook(playerId);`
+            // 这种没有接收者的包装调用内联回主线程时判定恒绿 —— 这是本轮变异验证
+            // 抓出来的真缺口（M1 曾经 GREEN）。此处用同一个 helper 做正向自检：
+            // 裸调用必须被判为「主线程段里有禁用调用」，而没有该调用的串必须判干净。
+            String bareMutant = "{\n"
+                    + "  loadWrongBook(playerId);\n"
+                    + "  scheduler.runTaskAsynchronously(plugin, () -> { render(); });\n"
+                    + "}";
+            assertTrue(detectsForbidden(mutated, "countActiveSquareEntries")
+                            || detectsForbidden(mutated, "getActiveSquareEntries"),
+                    "self-check 失败：带点的同步查询未被判出");
+            assertTrue(detectsForbidden(bareMutant, "loadWrongBook"),
+                    "裸调用 loadWrongBook( 未被判出喵 —— 于是「把包装方法内联回主线程」这类"
+                            + "回归会静默通过（重写 assertNoForbiddenCall 的匹配形态）");
+            assertFalse(detectsForbidden("{\n  loadWrongBookSafe(playerId);\n}", "loadWrongBook"),
+                    "「更长标识符的尾部」被误判了喵 —— reLoadWrongBook/loadWrongBookSafe 这类"
+                            + "不同方法名不该命中，否则 lint 会因为同名后缀而误红");
         }
 
         /**
-         * 断言某方法体的<b>主线程段</b>内不存在对给定方法名的调用（形如 {@code .name(}）。
+         * 与 {@link #assertNoForbiddenCall} 同判据的纯查询版（供自检用，不抛断言）。
+         *
+         * @param body 方法体
+         * @param name 被禁方法名
+         * @return 主线程段里是否出现了该调用（带点或裸调用任一形态）
+         */
+        private boolean detectsForbidden(String body, String name) {
+            String mainThreadOnly = withoutAsyncRegions(body);
+            String quoted = Pattern.quote(name);
+            boolean dotted = Pattern.compile("\\." + quoted + "\\s*\\(")
+                    .matcher(mainThreadOnly).find();
+            boolean bare = Pattern.compile("(?<![\\w$.])" + quoted + "\\s*\\(")
+                    .matcher(mainThreadOnly).find();
+            return dotted || bare;
+        }
+
+        /**
+         * 断言某方法体的<b>主线程段</b>内不存在对给定方法名的调用。
+         *
+         * <p><b>匹配两种形态</b>：
+         * <ul>
+         *   <li>{@code .name(} —— 通过接收者调用（{@code store.getName()}）；</li>
+         *   <li><b>裸调用</b> {@code name(} —— 本类自己的包装方法（{@code loadWrongBook(...)}、
+         *       {@code loadSquareData(...)}）。</li>
+         * </ul>
+         * 后者是 R20-GUI2 实测抓出来的真缺口：变异体把 {@code loadWrongBook(playerId);}
+         * 内联回主线程时<b>没有前导点</b>，旧正则只看 {@code .name(} → 恒绿。
+         * 现在用 {@code (?<![\\w.])name\\s*\\(} 排除「更长标识符的尾部」
+         * （如 {@code reLoadWrongBook(} 不该命中），同时接受行首/空白/括号后的裸调用。
          *
          * <p><b>为什么必须先摘掉异步段</b>：本轮改造之后，这些查询就<b>应该</b>出现在
          * {@code open()} 里 —— 只不过在 {@code runTaskAsynchronously} 的 lambda 内。
@@ -368,10 +415,16 @@ class WrongBookAndSquareAsyncTest {
         private void assertNoForbiddenCall(String body, String where, String... forbidden) {
             String mainThreadOnly = withoutAsyncRegions(body);
             for (String name : forbidden) {
-                assertFalse(Pattern.compile("\\." + Pattern.quote(name) + "\\s*\\(")
-                                .matcher(mainThreadOnly).find(),
-                        where + " 的<b>主线程段</b>里出现了同步查库调用 ." + name + "( 喵 —— "
-                                + "这四个方法都会在主线程产生 JDBC 往返（见 FORBIDDEN_ON_MAIN 的注释）。"
+                String quoted = Pattern.quote(name);
+                // 形态一：`.name(` —— 接收者调用
+                boolean dotted = Pattern.compile("\\." + quoted + "\\s*\\(")
+                        .matcher(mainThreadOnly).find();
+                // 形态二：裸调用 `name(` —— 排除更长标识符的尾部（前面不能是字母/数字/_/$.
+                boolean bare = Pattern.compile("(?<![\\w$.])" + quoted + "\\s*\\(")
+                        .matcher(mainThreadOnly).find();
+                assertFalse(dotted || bare,
+                        where + " 的<b>主线程段</b>里出现了同步查库调用 " + name + "( 喵 —— "
+                                + "这些方法都会在主线程产生 JDBC 往返（见 FORBIDDEN_ON_MAIN 的注释）。"
                                 + "广场打开一次就是 COUNT + 取行 + 金币三条，玩家点一下全服卡顿。\n"
                                 + "修法：把它挪进 runTaskAsynchronously 的 lambda 里"
                                 + "（参考 openAsync 的既有形状），主线程段只渲染。\n"

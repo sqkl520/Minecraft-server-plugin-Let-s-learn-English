@@ -1,6 +1,7 @@
 package com.letslearnenglish.minecraftplugin.data.repository;
 
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
+import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -240,25 +241,91 @@ public class ReportRepository {
         return countAiConversationsOrFail(playerId, lowerBound, upperBound, exclusiveUpper).value();
     }
 
-    /** Q6：当前连续签到天数（checkin_data.streak_count）。无行或读失败返回 0。 */
+    /**
+     * Q6：<b>当前</b>连续签到天数。
+     *
+     * <p><b>round28 修正（原缺陷 MEDIUM）</b>：{@code checkin_data} 存的是
+     * <em>最后一次签到时</em>的连击快照（{@code last_checkin_date} + 当时的
+     * {@code streak_count}），断签后<b>不会</b>被任何后台任务归零 —— 归零只发生在
+     * <b>下一次</b>签到时（{@code CheckInManager.checkInLocked} 的 {@code streakBroken}
+     * 分支把 {@code newStreak} 写成 1）。旧实现只 {@code SELECT streak_count}，
+     * 取不到同一行里现成可用的 {@code last_checkin_date}，于是把一个<b>历史快照</b>
+     * 当成<b>当前值</b>输出：玩家 20 天前连签 5 天后彻底停学，家长报告仍写
+     * 「连续签到 5 天」。
+     *
+     * <p>判定口径与写侧<b>逐条对齐</b>（{@code CheckInManager.checkInLocked}）：
+     * <ul>
+     *   <li>最后签到是<b>今天</b> → 连击有效（当天已签，等明天续）；</li>
+     *   <li>最后签到是<b>昨天</b> → 连击仍有效（今天还没签，签了就是 +1）；</li>
+     *   <li>其它任何日期 → 已断签，当前连击为 0（与写侧"下次签到必然写 1"同义）。</li>
+     * </ul>
+     * 两侧都用 {@link LocalDate#now()}（服务器默认时区），与写侧同一时钟。
+     *
+     * <p>这是<b>读模型</b>缺陷而不是写侧缺陷：那一行同时带着判定所需的两个值，
+     * 写入侧如实记录了"最后一次签到时连击是多少"，无需（也不该）由报表去改写库。
+     *
+     * <p><b>残留</b>：{@code %lle_streak%}（{@code LLEPapiExpansion}）与签到 GUI 仍直读
+     * {@code streak_count}，因此断签玩家的 PAPI 占位符仍会给出陈旧值。彻底收口需要把
+     * {@link #effectiveStreak} 提为三个消费者共用的单一出口（涉及 expansion 与 GUI，
+     * 不在本批改动范围）。
+     *
+     * <p>脏 {@code last_checkin_date}（SQLite 无类型约束，手工修库可能留下非 ISO 值）
+     * 无法判定有效性 → 按 {@code complete=false} 上报（与 Q1 的脏日期同一处置），
+     * 由 {@code ReportGenerator} 打"数据不完整"标记，而不是猜一个数字。
+     * {@code NULL} 同此处置：列声明是 {@code NOT NULL}，但
+     * {@code DatabaseManager.claimCheckIn} 的 WHERE 里带 {@code last_checkin_date IS NULL}
+     * 防御，说明历史库被视为可能留 NULL —— 若在此让 {@code LocalDate.parse(null)} 抛
+     * {@code NullPointerException}，整份报告会因一行脏数据直接失败（不得如此）。
+     */
     public StreakValue fetchCheckinStreakOrFail(UUID playerId) {
-        String sql = "SELECT streak_count FROM " + prefix()
+        String sql = "SELECT last_checkin_date, streak_count FROM " + prefix()
                 + "checkin_data WHERE player_uuid = ?";
         synchronized (db.getConnectionLock()) {
             try (PreparedStatement stmt = db.getConnection().prepareStatement(sql)) {
                 stmt.setString(1, playerId.toString());
                 try (ResultSet rs = stmt.executeQuery()) {
                     if (rs.next()) {
-                        return new StreakValue(rs.getInt("streak_count"), true);
+                        int stored = rs.getInt("streak_count");
+                        String rawDate = rs.getString("last_checkin_date");
+                        if (rawDate == null) {
+                            logger.log(Level.WARNING, "checkin_data.last_checkin_date is NULL"
+                                    + " for " + playerId + " — cannot tell if the streak lapsed");
+                            return new StreakValue(0, false);
+                        }
+                        LocalDate last = LocalDate.parse(rawDate);
+                        return new StreakValue(effectiveStreak(last, stored, LocalDate.now()), true);
                     }
                     return new StreakValue(0, true); // 无行 = 从未签到过，真实 0
                 }
-            } catch (SQLException e) {
+            } catch (SQLException | DateTimeParseException e) {
                 logger.log(Level.WARNING,
                         "Failed to query check-in streak for report: " + playerId, e);
                 return new StreakValue(0, false);
             }
         }
+    }
+
+    /**
+     * 连击快照 → <b>当前</b>连击的判定（Q6 的语义核心，包内可见以便用固定日期做纯单测）。
+     *
+     * <p>口径与 {@code CheckInManager.checkInLocked} 的 {@code today.equals} /
+     * {@code yesterday.equals} / 其余分支逐一对应：只有"今天"或"昨天"签过的快照还算数。
+     * 未来日期（跨服时区不一致 / NTP 跳变）按写侧同样规则视为已断（写侧也会判 1），
+     * 不做特殊照顾 —— 两处口径必须同构，否则报告与下次签到的数字会打架。
+     *
+     * @param lastCheckinDate 库里最后一次签到日（{@code null} = 无有效快照）
+     * @param storedStreak    库里记录的连击快照值
+     * @param today           判定的"今天"（生产传 {@code LocalDate.now()}）
+     * @return 当前连击；已断签或无快照返回 0
+     */
+    static int effectiveStreak(LocalDate lastCheckinDate, int storedStreak, LocalDate today) {
+        if (lastCheckinDate == null || today == null) {
+            return 0;
+        }
+        if (lastCheckinDate.equals(today) || lastCheckinDate.equals(today.minusDays(1))) {
+            return storedStreak;
+        }
+        return 0;
     }
 
     /** Q6 旧签名：失败折叠为 {@code 0}。需要分流者改用 {@link #fetchCheckinStreakOrFail}。 */
@@ -340,15 +407,32 @@ public class ReportRepository {
     /**
      * Q5：当前错题本 Top N（按错误次数降序）。只返回库内原始列，
      * 中文义与难度由调用方查内存词库补充。
+     *
+     * <p><b>round28 修正（原缺陷 MEDIUM）</b>：本查询此前<b>没有</b>任何错题本门槛，
+     * 而 {@code difficult_words} 表在<b>首次答错</b>就建行（{@code wrong_count=1}）——
+     * 它是"累计错次计数器"，不是"错题本"。不加门槛就把只错 1 次的词写进家长报告的
+     * 【易错单词】节，而玩家游戏内的错题本看不到同一个词：同一份数据两套口径。
+     *
+     * <p>门槛来源是<b>单一真相</b>：{@code PlayerDataStore.WRONG_BOOK_MIN_WRONG_COUNT}，
+     * 其 javadoc 明写「展示侧必须按此阈值过滤」，{@code getWrongBookEntries}（GUI）与
+     * {@code WordLearningManager.trackWrongAnswer}（"第 3 次才提示已加入"文案）都用它。
+     * 报表是展示侧之一，故同样绑定该常量而<b>不</b>硬编码 3 —— 阈值若调整，
+     * GUI 与报告同时跟上。
+     *
+     * <p>为什么绑定在仓储而不是由调用方传参：{@code ReportGenerator} 的两个调用点
+     * （单报 + 批量逐人）目前都走本方法的两参签名，把阈值做成入参需要同步改调用方；
+     * 而阈值是"错题本是什么"的定义，不是每次查询各异的业务参数，放在这里语义不歪。
      */
     public WeakWords queryWeakWordsOrFail(UUID playerId, int limit) {
         List<WeakWordRow> out = new ArrayList<>();
         String sql = "SELECT word, wrong_count FROM " + prefix() + "difficult_words"
-                + " WHERE player_uuid = ? ORDER BY wrong_count DESC, word ASC LIMIT ?";
+                + " WHERE player_uuid = ? AND wrong_count >= ?"
+                + " ORDER BY wrong_count DESC, word ASC LIMIT ?";
         synchronized (db.getConnectionLock()) {
             try (PreparedStatement stmt = db.getConnection().prepareStatement(sql)) {
                 stmt.setString(1, playerId.toString());
-                stmt.setInt(2, limit);
+                stmt.setInt(2, PlayerDataStore.WRONG_BOOK_MIN_WRONG_COUNT);
+                stmt.setInt(3, limit);
                 try (ResultSet rs = stmt.executeQuery()) {
                     while (rs.next()) {
                         out.add(new WeakWordRow(rs.getString("word"), rs.getInt("wrong_count")));

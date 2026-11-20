@@ -420,7 +420,8 @@ public class SocialManager {
             case OK -> {
                 SoundManager.playSound(cheerer, "correct");
                 cheerer.sendMessage(plugin.getMessageUtil().getPlayerMessage(cheerer,
-                        "square.feed.cheer-success", "player", item.authorName()));
+                        "square.feed.cheer-success", "player",
+                        FeedTextFormatter.sanitizePlayerText(item.authorName())));
                 applyOptimisticCheerCount(item.id());
                 Player author = Bukkit.getPlayer(item.authorId());
                 if (author != null && author.isOnline()) {

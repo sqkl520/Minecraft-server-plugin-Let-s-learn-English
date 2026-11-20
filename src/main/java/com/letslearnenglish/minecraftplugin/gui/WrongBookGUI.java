@@ -156,7 +156,6 @@ public class WrongBookGUI {
         // 请求发起时记下玩家所在界面的 holder，回填前重取；不是同一个实例 = 玩家已离开
         // 那张屏幕（关掉 / 进了别的插件界面 / 回了自己背包），放弃本次打开。
         // 照 {@code AchievementWallGUI#stillOnRequestedScreen} 同式。
-        loadWrongBook(playerId); // MUTANT: 主线程同步查库
         final PluginGuiHolder arrivalHolder = pluginGuiHolderOf(player);
 
         BukkitScheduler scheduler = Bukkit.getScheduler();

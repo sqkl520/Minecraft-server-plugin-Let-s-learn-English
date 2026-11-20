@@ -246,7 +246,7 @@ All under `plugins/LetsLearnEnglish/`, **never uploaded**.
 | `audio/*.wav` | TTS cache (not played in the current version) |
 | `backups/*.bak` | Automatic database backups, keeping 7 by default |
 
-**What the database holds** (23 tables; `schema.sql` is authoritative):
+**What the database holds** (24 tables at runtime: 23 are defined in `schema.sql`, and the 24th, `daily_coin_counters`, is created lazily by `RewardEngine.ensureDailyCoinsTable()` on the first payout — so `schema.sql` is not the complete authority):
 
 | Data | Table | Sensitivity |
 |---|---|---|

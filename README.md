@@ -12,7 +12,7 @@
 ![Java](https://img.shields.io/badge/Java-21%2B%20%7C%2025%2B%20(mc26)-orange?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Paper-blue?style=flat-square)
 ![Words](https://img.shields.io/badge/word%20bank-1357%20words-success?style=flat-square)
-![Tests](https://img.shields.io/badge/tests-1341%20passing-brightgreen?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-1950%20passing-brightgreen?style=flat-square)
 ![License](https://img.shields.io/badge/license-GPL--3.0--only-blue?style=flat-square)
 
 **[⬇️ 下载最新版](https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/releases)** ·
@@ -101,6 +101,89 @@ api-key: "sk-你的密钥"
 
 改完用 `/lea reload` 热重载，不用重启。没配置时控制台会告警 `ai_config.yml not found!`，
 AI 对话不可用，**其余功能不受影响**。
+
+---
+
+## 🔄 升级
+
+已经跑过旧版本的服，照下面走一遍。**不需要手动执行 SQL，也不需要手动改配置** ——
+插件启动时会自己把持久化结构迁移到本版本。
+
+### 升级步骤
+
+1. **停服**。不要用 `/reload` 或插件热替换的方式换 JAR。
+2. **备份**（见下方「升级前请先备份」）。
+3. 把新 JAR 放进 `plugins/` 覆盖旧 JAR。注意选对构建：Paper 1.21.x 用普通包，Paper 26.x 用 `-mc26` 包。
+4. **启动服务端**，然后看日志确认迁移结果（见下方「怎么确认升级成功」）。
+
+### 启动时会自动做的事
+
+| 动作 | 你该知道什么 |
+|---|---|
+| **语言文件合并升级** | `messages/zh.yml` 与 `messages/en.yml` 分别按自己的 `config-version` 判断。落后时**只补缺失的键**，你改过的取值（措辞、颜色码、占位符）**一律保留**；官方已废弃的键也留在原处不删。 |
+| **语言文件自动备份** | 合并前把原文件存成同目录下的 `.bak`（即 `zh.yml.bak` / `en.yml.bak`）。这是**单槽**备份，只留最近一次升级前的版本，再次升级会被覆盖。 |
+| **语言文件格式变化** | 写回后是 Bukkit 的标准 YAML 序列化格式，你手写的注释和键顺序**不会保留**。原文在 `.bak` 里。 |
+| **数据库补表** | 缺失的表用 `CREATE TABLE IF NOT EXISTS` 直接建出来。本版本新增 `daily_answer_counters`（答题日限的持久计数，见下方「一次性变化」）。 |
+| **数据库补列** | `seasons` 表补 `claim_owner`、`ledger_pending` 两列（多子服赛季抢占与台账欠账标记）。 |
+| **数据库补索引** | `ai_chat_history` 上补 `idx_chat_timestamp`，让对话记录保留期清理不再随玩家数线性变慢。 |
+| **金币日限表（懒建）** | `daily_coin_counters` 不随启动创建，而是**第一次发放金币时**才建。如果你的服从没发过币，库里看不到这张表是正常的。 |
+| **内置词库整份替换** | 词库文件有实质更新时（本版本从 1025 词扩到 1357 词），启动时会**整份替换** `words/*.yml`，并把旧文件备份到 `words-backup-<旧版本>-<时间戳>/`。**你如果手工改过词库，改动会被替换掉** —— 从那个备份目录把改动并回新文件即可。 |
+
+补表、补列、补索引都是幂等的：已经存在就跳过。多子服共用同一个 MySQL 时，几台服首次同时启动补同一列，
+其中一台可能报 duplicate —— 这条是被吞掉的正常情况，不是故障。
+
+语言文件合并与词库替换在启动时跑，`/lea reload` 时也会重跑一遍；因为迁移完 `config-version` 已是最新，
+重复调用不会再动文件。**数据库的补表/补列/补索引只在启动时执行**，`/lea reload` 不会重新建表。
+
+### 升级前请先备份
+
+至少备份这两样，打包整个 `plugins/LetsLearnEnglish/` 最省事：
+
+- `plugins/LetsLearnEnglish/playerdata.db` —— 玩家全部学习数据。升级动作本身不改它的结构，
+  但**回滚只能靠备份**。
+- `plugins/LetsLearnEnglish/messages/` —— 你改过的全部文案。
+
+SQLite 是 WAL 模式，**热备份不要直接 `cp`** 数据库文件，用 `VACUUM INTO` 取快照（命令见
+[常见问题](#-常见问题) 里的折叠段）。
+
+### 一个预期内的一次性变化
+
+`daily_answer_counters` 是本版本新增的表。旧版本里「今天答了多少题」只存在于内存，**从来没有落过盘**，
+所以没有任何可回填的真源。结果是：
+
+> 升级当天，老玩家的当日答题计数一律从 0 起算，`word-system.daily-limit`（默认 50）
+> 在这一天等于**全满**。
+
+这是**一天的一次性影响，不是 bug**，跨过零点自然恢复正常。服务端侧没有补救手段 ——
+想让当天就准确，只能靠玩家重新做题把额度真实消耗掉。
+
+### 怎么确认升级成功
+
+**看日志。** 语言文件合并成功会打一条 INFO：
+
+```
+Merged messages/zh.yml (v26 -> v27): <保留数> user value(s) kept, <新增数> new key(s) added,
+<废弃数> obsolete key(s) kept, <冲突数> type conflict(s) resolved (pre-upgrade snapshot: messages/zh.yml.bak)
+```
+
+`en.yml` 会有一条同形的。括号里的 `v26 -> v27` 是**语言文件的 `config-version`**，不是插件版本；
+你从更老的版本升上来时，左边的数字会更小。关键是「`new key(s) added`」这一项要大于 0。
+
+词库被替换时会打一条 WARNING：`Built-in word banks upgraded to ...`。
+
+**再看文件。** 直接打开 `plugins/LetsLearnEnglish/messages/zh.yml`：
+
+- 头部的 `config-version` 已变成 `27`
+- 同目录下多出了 `zh.yml.bak`
+- 新增的键能搜到（例如搜 `answer-` 开头的键）
+
+`/lea info` 只打印插件版本、服务端兼容性和数据库类型，**不反映迁移结果**，别拿它当判据。
+
+### 关于 `config.yml`
+
+主配置**没有迁移机制** —— 它头部的 `config-version` 只是一个人类可读标记，改它不会触发任何动作。
+新版本新增的配置键走「读取时回落默认值」：你不在 `config.yml` 里加这些键也不会报错，插件用内置默认值；
+想自定义时再按需补上即可。
 
 ---
 
@@ -388,7 +471,7 @@ SQLite 的 `DELETE` / `UPDATE` 只把页面标记为可复用，**不会把空�
 | 语言 | Java 21（104 个源文件，约 57,500 行） |
 | 数据库 | SQLite（默认，shade 内置）／ MySQL（`mysql-connector-j` 已 shade 进 JAR） |
 | AI | DeepSeek API，`java.net.http.HttpClient`，异步 + 每玩家限流 |
-| 测试 | JUnit 5 + Mockito，**1341 条**测试 + JaCoCo 覆盖率门禁 |
+| 测试 | JUnit 5 + Mockito，**1950 条**测试 + JaCoCo 覆盖率门禁 |
 | 构建 | Maven，双 profile（默认 / `-Pmc26`） |
 
 ---

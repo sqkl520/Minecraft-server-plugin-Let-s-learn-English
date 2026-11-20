@@ -3,6 +3,7 @@ package com.letslearnenglish.minecraftplugin.gui;
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.duel.DuelStatsText;
+import com.letslearnenglish.minecraftplugin.core.social.FeedTextFormatter;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.gui.identity.GuiViewKey;
@@ -85,9 +86,12 @@ public class ProfileGUI {
                     MessageUtil.getGuiMsg(messages, "profile.title")
                             .replace("{player}", viewer.getName()));
         } else {
+            // D8 同源落地点：targetName 来自 player_data.player_name（DB 真值），
+            // 与动态流 authorName 同源同风险，故走同一套剥色口径再进转码器。
             title = ChatColor.translateAlternateColorCodes('&',
                     MessageUtil.getGuiMsg(messages, "profile.viewing-title")
-                            .replace("{name}", targetName));
+                            .replace("{name}",
+                                    FeedTextFormatter.sanitizePlayerText(targetName)));
         }
 
         // R5-4：挂结构身份 holder。payload.Target 记录「这张主页属于谁」——

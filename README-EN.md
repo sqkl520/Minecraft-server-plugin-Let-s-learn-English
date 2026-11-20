@@ -12,7 +12,7 @@ Vocabulary drills → spaced repetition → AI conversation practice → learnin
 ![Java](https://img.shields.io/badge/Java-21%2B%20%7C%2025%2B%20(mc26)-orange?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Paper-blue?style=flat-square)
 ![Words](https://img.shields.io/badge/word%20bank-1357%20words-success?style=flat-square)
-![Tests](https://img.shields.io/badge/tests-1341%20passing-brightgreen?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-1950%20passing-brightgreen?style=flat-square)
 ![License](https://img.shields.io/badge/license-GPL--3.0--only-blue?style=flat-square)
 
 **[⬇️ Download latest](https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/releases)** ·
@@ -107,6 +107,99 @@ api-key: "sk-your-key"
 
 Then `/lea reload` — no restart needed. Without it the console warns `ai_config.yml not found!`
 and AI conversation is unavailable; **everything else keeps working**.
+
+---
+
+## 🔄 Upgrading
+
+If your server has already run an older version, follow the steps below. **You do not need to run
+any SQL by hand, and you do not need to edit any config** — the plugin migrates its own persistent
+structures to this version on startup.
+
+### How to upgrade
+
+1. **Stop the server.** Do not swap the JAR via `/reload` or any plugin hot-swap mechanism.
+2. **Back up** (see "Back up before you upgrade" below).
+3. Drop the new JAR into `plugins/`, replacing the old one. Pick the right build: the standard JAR
+   for Paper 1.21.x, the `-mc26` JAR for Paper 26.x.
+4. **Start the server**, then check the log to confirm the migration (see "How to tell it worked").
+
+### What happens automatically on startup
+
+| Action | What you should know |
+|---|---|
+| **Message files are merged** | `messages/zh.yml` and `messages/en.yml` are each judged by their own `config-version`. When behind, **only missing keys are added**; values you changed (wording, colour codes, placeholders) are **always kept**; keys the plugin no longer uses are left in place, not deleted. |
+| **Message files are backed up** | Before merging, the original is saved next to it as `.bak` (i.e. `zh.yml.bak` / `en.yml.bak`). This is a **single slot** — only the most recent pre-upgrade copy is kept, and the next upgrade overwrites it. |
+| **Message file format changes** | The file is rewritten in Bukkit's standard YAML serialisation, so **your hand-written comments and key order are not preserved**. The original is in the `.bak`. |
+| **Missing tables are created** | Created with `CREATE TABLE IF NOT EXISTS`. This version adds `daily_answer_counters` (the persisted counter behind the daily answering limit — see "A one-time change to expect" below). |
+| **Missing columns are added** | The `seasons` table gains `claim_owner` and `ledger_pending` (season claim fencing and owed-ledger marking on multi-server networks). |
+| **Missing indexes are added** | `ai_chat_history` gains `idx_chat_timestamp`, so purging old conversation logs no longer slows down linearly with player count. |
+| **Coin cap table is created lazily** | `daily_coin_counters` is *not* created on startup — it is created the first time coins are actually paid out. If your server has never paid out coins, not seeing this table is normal. |
+| **Built-in word banks are replaced wholesale** | When the bundled word banks have substantive changes (this version went from 1025 to 1357 words), `words/*.yml` is **replaced as a whole** on startup, with the old files backed up to `words-backup-<old version>-<timestamp>/`. **If you edited the word files by hand, your edits will be replaced** — copy them back from that backup directory into the new files. |
+
+Creating tables, columns and indexes is idempotent: anything already present is skipped. If several
+servers share one MySQL database and all start at once, one of them may report a duplicate for the
+same column — that is an expected condition and is swallowed, not a failure.
+
+Message-file merging and word-bank replacement run on startup and are re-run on `/lea reload`. By
+then `config-version` is already current, so repeat calls leave the files untouched. **The database
+table/column/index creation runs on startup only** — `/lea reload` does not recreate tables.
+
+### Back up before you upgrade
+
+Back up at least these two; archiving the whole `plugins/LetsLearnEnglish/` folder is the simplest
+approach:
+
+- `plugins/LetsLearnEnglish/playerdata.db` — all player learning data. The upgrade itself does not
+  alter its structure, but **a backup is your only way back**.
+- `plugins/LetsLearnEnglish/messages/` — every message you have customised.
+
+SQLite runs in WAL mode, so **do not just `cp` the database file** for a hot backup. Take a snapshot
+with `VACUUM INTO` (the command is in the collapsible section under [FAQ](#-faq)).
+
+### A one-time change to expect
+
+`daily_answer_counters` is new in this version. In older versions, "how many questions answered
+today" existed only in memory and **was never written to disk**, so there is no source of truth to
+backfill from. The consequence:
+
+> On the day you upgrade, every existing player's daily answering counter starts from 0, which makes
+> `word-system.daily-limit` (default 50) effectively **full for that day**.
+
+This is **a one-day, one-time effect, not a bug**, and it clears itself at midnight. There is no
+server-side workaround — the only way to make that day accurate is for players to genuinely use up
+the quota by answering.
+
+### How to tell it worked
+
+**Check the log.** A successful merge prints one INFO line:
+
+```
+Merged messages/zh.yml (v26 -> v27): <n> user value(s) kept, <n> new key(s) added,
+<n> obsolete key(s) kept, <n> type conflict(s) resolved (pre-upgrade snapshot: messages/zh.yml.bak)
+```
+
+`en.yml` gets an identical line. The `v26 -> v27` in parentheses is the **message file's
+`config-version`**, not the plugin version; upgrading from an older release starts at a lower number.
+The number that matters is `new key(s) added` — it must be greater than 0.
+
+If the word banks were replaced, you also get a WARNING: `Built-in word banks upgraded to ...`.
+
+**Then check the file.** Open `plugins/LetsLearnEnglish/messages/zh.yml` directly:
+
+- its `config-version` is now `27`
+- a `zh.yml.bak` sits next to it
+- the new keys are searchable (try searching for keys starting with `answer-`)
+
+`/lea info` only prints the plugin version, server compatibility and database type — it does **not**
+reflect the migration result, so do not use it as your check.
+
+### About `config.yml`
+
+The main config has **no migration mechanism** — the `config-version` at the top is a human-readable
+marker only, and changing it triggers nothing. New config keys fall back to their built-in defaults
+when read: omitting them from `config.yml` is fine and no error is raised, the plugin just uses the
+default. Add them only when you want to customise them.
 
 ---
 
@@ -408,7 +501,7 @@ Player (no client mod needed)
 | Language | Java 21 (104 source files, ~57,500 lines) |
 | Database | SQLite (default, bundled) / MySQL (`mysql-connector-j` shaded into the JAR) |
 | AI | DeepSeek API via `java.net.http.HttpClient`, async with per-player rate limiting |
-| Tests | JUnit 5 + Mockito, **1341** tests plus a JaCoCo coverage gate |
+| Tests | JUnit 5 + Mockito, **1950** tests plus a JaCoCo coverage gate |
 | Build | Maven with two profiles (default / `-Pmc26`) |
 
 ---

@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 26
+config-version: 27
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -332,6 +332,10 @@ duel:
   opponent-correct: "{prefix}&e{player} &a答对了！对方得分！"
   opponent-wrong: "{prefix}&e{player} &c答错了！正确答案是 &e{word}&c，你得分！"
   round-ended: "{prefix}&e本题已结束，你的答案不再计分喵~"
+  # R24-A2：对手断线、30 秒宽限期停盘中收到的聊天被房间拒收时的说明。
+  # 不复用 not-in-duel —— 那条在宽限期内与事实相反（玩家就在对局里），
+  # 会诱发"我是不是掉出对局了"的误判，且会重复整整 30 秒。
+  paused-opponent-disconnected: "{prefix}&7对手断线中，对局已暂停 —— 你这条消息未计入本题，等待对手重连喵~"
   win: "{prefix}&6★ &a你赢得了对决！ &7比分: &e{score1}&7-&c{score2} &7对手: &e{opponent}"
   lose: "{prefix}&c你输掉了对决！ &7比分: &e{score1}&7-&c{score2} &7对手: &e{opponent}"
   forfeit: "{prefix}&c你放弃了这场对决喵~"
@@ -346,6 +350,9 @@ duel:
   #（duel.opponent-timeout 是给胜者的措辞，duel-already-over 已被 handleReconnect 占用，
   # 复用会混淆「比赛已结束」与「你被判负」两态），故独立成键。
   lost-by-disconnect: "{prefix}&c你因断线超时被判负，本场对决由 &e{player} &c获胜喵~"
+  # R23：你断线期间对手主动 /le duel quit 退出对决。不复用 cancelled-by-gm（那是
+  # 「管理员解散」，对玩家是谎话），也不复用 lost-by-disconnect（quit 不判负、不记战绩）。
+  opponent-quit-while-disconnected: "{prefix}&c你断线期间，对手 &e{player} &c退出了这场对决喵~"
   gui-title: "&6&l单词对决"
   scoreboard-title: "&6&l单词对决"
   scoreboard-title-grace: "&c&l对决 &7({seconds}s)"
@@ -896,6 +903,10 @@ diagnose:
     not-initialized: "数据库: 未初始化"
     sqlite: "数据库: SQLite（{file}，{size}）"
     mysql: "数据库: MySQL 已连接（{host}/{database}）"
+    # R26：连通性探测失败时的两条（探测方式见 DiagnoseCommand#probeConnection）。
+    sqlite-missing: "数据库: SQLite 库文件不存在或为空（{file}，{size}）—— 所有玩家数据都不在了，先别让玩家进服，检查 data 目录权限或从备份恢复"
+    sqlite-unavailable: "数据库: SQLite（{file}，{size}）但连接不可用 —— 读写全部会失败，请看启动日志里的 Database self-heal failed"
+    mysql-unavailable: "数据库: MySQL 连接不可用（{host}/{database}）—— 探测语句执行失败，读写全部会失败，请检查数据库服务是否在运行"
 
   driver:
     bundled: "MySQL 驱动: 已内置（{driver}）"
@@ -907,6 +918,15 @@ diagnose:
     disabled: "备份: 已关闭（general.backup.enabled=false）"
     none: "备份: 还没有（首次备份在 {minutes} 分钟后）"
     latest: "备份: {file}（{ago}）"
+    # R26：general.backup.interval <= 0 时启动阶段直接不排程，备份永久停摆。
+    interval-off-none: "备份: 自动备份已停摆（general.backup.interval 为 0 或负数，任务根本没有排程），且目前一份备份都没有 —— 改成 1440 并重启"
+    interval-off-stale: "备份: 自动备份已停摆（general.backup.interval 为 0 或负数，任务根本没有排程），最后一份是 {file}（{ago}）—— 改成 1440 并重启，在此之前请手工备份一次"
+
+  # R26：代理入站帧签名（proxy.inbound-secret）。只报「已配置/未配置」，绝不回显密钥值。
+  proxy:
+    single-server: "代理签名: 单服模式（proxy.server-name 为空），不需要 inbound-secret"
+    secret-set: "代理签名: 已配置 proxy.inbound-secret —— 入站帧会校验签名"
+    secret-missing: "代理签名: 子服 {server} 未配置 proxy.inbound-secret —— 入站帧不做签名校验，改过客户端的玩家可以伪造全服公告 / 成就 / 赛季播报"
 
   economy:
     no-provider: "Vault 经济: 装了 Vault 但没有经济提供者注册"

@@ -421,7 +421,17 @@ public class DuelManager {
                 // F1-18: 与 room==null 分支同款收口 —— 房间层拒收（题未就位等
                 // 窗口态）同样给答题者一句反馈，不静默吞输入。本分支在
                 // runTask 回调内（主线程），sendMessage 安全。
-                player.sendMessage(getMsg(player, "duel.not-in-duel"));
+                //
+                // R24-A2：DuelRoom.submitAnswer 对「!active / currentWord==null / paused」
+                // 三种情况一律返回 NOT_IN_DUEL（R4-07-logic-F01 的既定契约，见
+                // DuelRoomPauseTest 四条用例）。复用 duel.not-in-duel 只在后两种情形下
+                // 名副其实；而 paused（对手掉线、30 秒宽限期）时玩家明明就在对局里，
+                // 回「你当前不在对决中」与事实相反，且该文案会在这个窗口里对他重复
+                // 整整 30 秒 —— 玩家完全无法判断自己是掉出了对局还是消息丢了。
+                // 故按 paused 分流到一条说明「消息去哪了」的文案。
+                player.sendMessage(getMsg(player, room.isPaused()
+                        ? "duel.paused-opponent-disconnected"
+                        : "duel.not-in-duel"));
             }
         }
     }
@@ -854,6 +864,28 @@ public class DuelManager {
 
     /**
      * Quit a duel — forfeit.
+     *
+     * <p><b>R23（清理矩阵缺口）</b>：对手<b>离线</b>时也要给他一个交代。
+     *
+     * <p>原实现只对在线对手 {@code sendMessage("duel.opponent-forfeit")}，离线一方整段
+     * 跳过；而紧随其后的 {@code cleanup(room)} 会把双方的 {@code disconnectTimers} 条目
+     * 一并摘掉、并 cancel 掉离线方的宽限任务 —— 于是其重连时 {@code handleReconnect} 的
+     * {@code if (info == null) return;} 恒为 null 分支，<b>静默返回</b>。玩家看到的是：
+     * 对局界面消失、分数停在断线那一刻、聊天栏一句话都没有，无法区分「对手 quit」/
+     * 「GM 解散」/「自己超时判负」三种结局。
+     *
+     * <p>同一份代码的另外两条拆解路径都已补发（{@code cancelDuelByAdmin}：
+     * {@code duel.cancelled-by-gm}；宽限超时：{@code duel.lost-by-disconnect} /
+     * {@code duel.duel-already-over}），唯独这里漏了 —— 是缺口而非设计选择。
+     *
+     * <p><b>为什么不复用 {@code duel.cancelled-by-gm}</b>：那条文案说的是「管理员解散」，
+     * 在本场景是<b>谎话</b>。也不复用 {@code duel.lost-by-disconnect}（「你被判负，
+     * 对手获胜」）—— quit 路径不判负、不记战绩。故独立成
+     * {@code duel.opponent-quit-while-disconnected}。
+     *
+     * <p><b>在线对手不排队</b>：上面的 {@code sendMessage} 已经通知过了，再入队会在其
+     * 下次进服时重复播报一次（{@code consumeOfflineDuelNotice} 的读后即清挡不住这种
+     * 「先发后排队」）。
      */
     public void quitDuel(Player player) {
         UUID playerId = player.getUniqueId();
@@ -873,6 +905,12 @@ public class DuelManager {
             removeScoreboard(opponent);
             opponent.closeInventory();
             SoundManager.playSound(opponent, "complete");
+        } else {
+            // R23：对手离线 —— 排队一条「对手 X 退出了决斗」，下次进服由
+            // PlayerJoinListener 的离线通告链路投递。占位名取房间存量的名字字段
+            // （与 cancelDuelByAdmin / 宽限超时同源），不依赖可能已被回收的实体。
+            enqueueOfflineDuelNotice(opponentId, otherDuelistName(room, opponentId),
+                    "duel.opponent-quit-while-disconnected");
         }
 
         removeScoreboard(player);
@@ -986,6 +1024,10 @@ public class DuelManager {
             }
 
             Player opp = Bukkit.getPlayer(opponentId);
+            // R26：在线与否只读一次。原先该判据在本 tick 内被读三遍（判负分支、补排守卫、
+            // 倒计时/计分板各一遍）；三处都要求「同一刻的同一个事实」—— 主线程同一 tick 内
+            // 玩家状态不可能中途变化，故收敛成一个布尔，顺带让下面的判决与副作用读同一个值。
+            final boolean opponentOnline = opp != null && opp.isOnline();
             if (remainingSeconds[0] <= 0) {
                 // Grace period expired — forfeit
                 // 僵尸任务修复：照 R-26 模式自行摘登记并 cancel 任务本体 ——
@@ -995,54 +1037,83 @@ public class DuelManager {
                 selfCancelGrace(playerId, selfRef[0]);
                 disconnectTimers.remove(playerId);
 
-                if (opp != null && opp.isOnline()) {
-                    // R-86n: 文案改带 {seconds} 占位（秒数不再写死 30），
-                    // 与 GRACE_PERIOD_SECONDS 保持单一真相源。
-                    opp.sendMessage(getMsg(opp, "duel.opponent-timeout",
-                            "player", disconnectedName,
-                            "seconds", String.valueOf(GRACE_PERIOD_SECONDS)));
-                    removeScoreboard(opp);
-                    opp.closeInventory();
-                    SoundManager.playSound(opp, "complete");
-                }
+                // R26：判决抽成纯函数（{@link DuelGraceOutcome}）—— 它只回答「谁被判负 /
+                // 对手那一侧该发哪条文案」，发送、摘计分板、关界面、cleanup 等副作用
+                // 全部留在本方法。这样三档对手处理（在线直发胜者措辞 / 离线补排中性文案 /
+                // 已有通告不覆盖）从"两个 if + 一次 containsKey"的隐式约定变成可断言的值。
+                //
+                // 关于 `offlineNotices.containsKey(opponentId)` 的读取时机：原实现读在
+                // 「判负方通告已排队」之后，这里提到副作用之前。两者等价 —— 上面那次排队
+                // 写的键是 playerId，而 self-duel 在 sendDuelRequest:126 已被拒，
+                // playerId != opponentId 恒成立，故先读后读同值。
+                //
+                // 拆解（room.setActive(false) + cleanup）刻意留在 Forfeit 判定**之外**：
+                // 上游 :994 已保证此处房间必定 active 且本玩家是成员，故 decide 恒返回
+                // Forfeit；把它挪进分支只会让"将来某个 Defer 前提被放松"时多出一条
+                // 漏拆房（双方永久 busy）的路径，而这正是 R26 最不该引入的风险。
+                DuelGraceOutcome outcome = DuelGraceOutcome.decide(
+                        room, playerId, opponentOnline,
+                        offlineNotices.containsKey(opponentId));
 
-                // R14：判负方此前永远收不到任何反馈 —— 下面的 cleanup 会摘掉他的
-                // disconnectTimers 条目，重连时 handleReconnect 的
-                // `if (info == null) return;` 直接静默返回，连 duel-already-over 都没有。
-                // 故此处给他一条 duel.lost-by-disconnect（{player} = 对手名）：在线就
-                // 当场发（「已重连但 handleReconnect 尚未跑到」的极窄窗口），离线则
-                // 排队等进服补发。
-                String opponentName = otherDuelistName(room, playerId);
-                Player forfeiter = Bukkit.getPlayer(playerId);
-                if (forfeiter != null && forfeiter.isOnline()) {
-                    forfeiter.sendMessage(getMsg(forfeiter, "duel.lost-by-disconnect",
-                            "player", opponentName));
-                    removeScoreboard(forfeiter);
-                    forfeiter.closeInventory();
-                } else {
-                    enqueueOfflineDuelNotice(playerId, opponentName,
-                            "duel.lost-by-disconnect");
-                }
+                if (outcome instanceof DuelGraceOutcome.Forfeit forfeit) {
+                    // 1) 对手（本场胜者）那一侧
+                    // `opp != null` 与 Direct 的前提重复（Direct 只可能由 opponentOnline 推出，
+                    // 而 opponentOnline 恒等于 `opp != null && opp.isOnline()`）。保留它不是
+                    // 冗余防御，而是为了**逐字节保持**原实现「取不到实体就什么都不做」的失败
+                    // 模式：判决与副作用之间的耦合一旦被将来改动切断，这里退化成静默跳过，
+                    // 而不是 NPE。
+                    if (opp != null && forfeit.opponentNotice()
+                            instanceof DuelGraceOutcome.OpponentNotice.Direct direct) {
+                        // R-86n: 文案改带 {seconds} 占位（秒数不再写死 30），
+                        // 与 GRACE_PERIOD_SECONDS 保持单一真相源。
+                        // Direct 只可能由 opponentOnline 推出，故 opp 必非 null。
+                        opp.sendMessage(getMsg(opp, direct.key(),
+                                "player", disconnectedName,
+                                "seconds", String.valueOf(GRACE_PERIOD_SECONDS)));
+                        removeScoreboard(opp);
+                        opp.closeInventory();
+                        SoundManager.playSound(opp, "complete");
+                    }
 
-                // R14（双掉线）：对手此刻也离线时（X 掉线 → Y 掉线 → X 的计时先到点），
-                // 下面的 cleanup 会连 Y 的宽限任务一并 cancel —— Y 的计时永远跑不到
-                // 自己的分支，Y 进服后同样毫无说明。注意 Y 的语义与判负方相反：判负的是
-                // X，Y 是这个宽限超时的受益方，故不能复用 lost-by-disconnect（那会说
-                // 「你被判负，X 获胜」，与事实颠倒），改用中性的 duel-already-over
-                // （「你断线期间对决已经结束了」）—— 该键无占位符，多传的名字无害。
-                // 用"已有通告不覆盖"：GM 解散等更具体的交代必须留住（overwrite 语义
-                // 是给同一原因重复排队用的，不该吃掉另一条链路的原因）。
-                if ((opp == null || !opp.isOnline())
-                        && !offlineNotices.containsKey(opponentId)) {
-                    enqueueOfflineDuelNotice(opponentId,
-                            otherDuelistName(room, opponentId), "duel.duel-already-over");
+                    // 2) 判负方：R14 —— 此前他永远收不到任何反馈，下面的 cleanup 会摘掉他的
+                    // disconnectTimers 条目，重连时 handleReconnect 的
+                    // `if (info == null) return;` 直接静默返回，连 duel-already-over 都没有。
+                    // 故此处给他一条 duel.lost-by-disconnect（{player} = 对手名）：在线就
+                    // 当场发（「已重连但 handleReconnect 尚未跑到」的极窄窗口），离线则
+                    // 排队等进服补发。
+                    String opponentName = otherDuelistName(room, playerId);
+                    Player forfeiter = Bukkit.getPlayer(playerId);
+                    if (forfeiter != null && forfeiter.isOnline()) {
+                        forfeiter.sendMessage(getMsg(forfeiter, forfeit.forfeiterKey(),
+                                "player", opponentName));
+                        removeScoreboard(forfeiter);
+                        forfeiter.closeInventory();
+                    } else {
+                        enqueueOfflineDuelNotice(playerId, opponentName,
+                                forfeit.forfeiterKey());
+                    }
+
+                    // 3) 对手离线时的补偿：R14（双掉线）—— 对手此刻也离线时（X 掉线 → Y 掉线
+                    // → X 的计时先到点），下面的 cleanup 会连 Y 的宽限任务一并 cancel，Y 的
+                    // 计时永远跑不到自己的分支，Y 进服后同样毫无说明。注意 Y 的语义与判负方
+                    // 相反：判负的是 X，Y 是这个宽限超时的受益方，故不能复用
+                    // lost-by-disconnect（那会说「你被判负，X 获胜」，与事实颠倒），改用中性的
+                    // duel-already-over（「你断线期间对决已经结束了」）—— 该键无占位符，
+                    // 多传的名字无害。「已有通告不覆盖」由 PreserveExisting 表达：
+                    // GM 解散等更具体的交代必须留住（overwrite 语义是给同一原因重复排队用的，
+                    // 不该吃掉另一条链路的原因）。
+                    if (forfeit.opponentNotice()
+                            instanceof DuelGraceOutcome.OpponentNotice.QueueNeutral neutral) {
+                        enqueueOfflineDuelNotice(opponentId,
+                                otherDuelistName(room, opponentId), neutral.key());
+                    }
                 }
 
                 room.setActive(false);
                 cleanup(room);
             } else if (remainingSeconds[0] <= 5 || remainingSeconds[0] % 10 == 0) {
                 // Notify remaining player
-                if (opp != null && opp.isOnline()) {
+                if (opponentOnline) {
                     opp.sendMessage(getMsg(opp, "duel.grace-countdown",
                             "seconds", String.valueOf(remainingSeconds[0]),
                             "player", disconnectedName));
@@ -1050,7 +1121,7 @@ public class DuelManager {
             }
 
             // Update sidebar scoreboard with countdown
-            if (opp != null && opp.isOnline()) {
+            if (opponentOnline) {
                 updateScoreboardWithGrace(opp, room, remainingSeconds[0]);
             }
         }, 20L, 20L); // every second
@@ -1430,6 +1501,52 @@ public class DuelManager {
         // path funnels through cleanup, so this is the single release point.
         BossBar bar = duelBars.remove(p1);
         if (bar != null) bar.removeAll();
+    }
+
+    // ==================== Per-player unload (quit) ====================
+
+    /**
+     * D2 / R4-07-sec-F02 收尾：移除该玩家的<b>邀请冷却</b>条目（由 quit 编排点
+     * {@code PlayerJoinListener#onPlayerQuit} 调用）。
+     *
+     * <p><b>缺陷本体</b>：{@code lastInviteAt} 原先<b>唯一</b>的清理点是
+     * {@link #shutdown()} 里的 {@code clear()}。单服长期不重启时，这张表的键集合等于
+     * 「本服历史上出现过的<b>所有</b>邀请者」，只增不减（与 {@code F2-10} / {@code F1-24} /
+     * {@code R7-B} 记录的只增不删是同一类内存卫生问题）。同仓其它 per-player 缓存
+     * （{@code unloadPlayerData} / {@code AchievementManager#unloadPlayer} /
+     * {@code CheckInManager#unloadPlayer} / {@code SocialManager#unloadPlayer} …）都已在
+     * quit 收口，唯独这张表漏了一格。（这一行刻意不写数据层类名：{@code DuelManagerAuditTest}
+     * 的「决斗不得碰学习数据」lint 读的是<b>原始源码</b>、不剥注释，写全名会被误报。）
+     *
+     * <p><b>为什么可以无条件移除（哪怕该玩家正在对决中）</b>：{@code lastInviteAt} 只被
+     * {@link #sendDuelRequest} 读一处 —— 冷却判定（{@code nowMs - lastAt < 5s} 则静默返回），
+     * 它<b>不参与</b>任何对决生命周期判定：
+     * <ul>
+     *   <li>「是否在局中」读的是 {@code activeDuels}（{@link #isBusy} /
+     *       {@link #isInDuel}），与冷却表无关；</li>
+     *   <li>写入点在 {@code isBusy} 检查<b>之前</b>，所以冷却表的状态从不承载「谁在局中」
+     *       的信息 —— 删掉条目损失的信息量严格为 0；</li>
+     *   <li>最坏情况只是「重置了一次 5 秒冷却」：玩家刚 quit（人已不在线），若他在宽限期内
+     *       重连并立刻发邀请，则少挨一次静默丢弃 —— 而那时他仍在 {@code activeDuels} 里，
+     *       {@code sendDuelRequest} 会照常回 {@code duel.already-in-duel}。反过来若只在
+     *       「非对决状态」下移除，就会给「quit 时正在宽限期」的玩家留下一条<b>永不回收</b>
+     *       的条目，正是本缺陷要修的东西。</li>
+     * </ul>
+     * 故语义取<b>无条件移除</b>，不做状态分支。
+     *
+     * <p>线程契约：调用点全部在 Bukkit 主线程（quit 事件）；表本身是
+     * {@link ConcurrentHashMap}，即便被并发调用也只会少删/不删，不会破坏结构。
+     * 幂等：条目不存在时 {@code remove} 是无操作。
+     *
+     * @param playerId 下线玩家的 UUID
+     */
+    public void unloadPlayer(UUID playerId) {
+        if (playerId == null) {
+            // 纵深防御：调用点传 null 说明 quit 编排里有别的问题，这里不制造 NPE
+            // 去截断整条清理链（ConcurrentHashMap#remove(null) 会抛 NPE）。
+            return;
+        }
+        lastInviteAt.remove(playerId);
     }
 
     // ==================== Shutdown ====================
