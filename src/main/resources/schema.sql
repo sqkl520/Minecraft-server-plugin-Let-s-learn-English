@@ -261,6 +261,10 @@ CREATE TABLE IF NOT EXISTS {prefix}social_feed (
 
 CREATE INDEX IF NOT EXISTS {prefix}idx_feed_order ON {prefix}social_feed(feed_date, updated_at);
 CREATE INDEX IF NOT EXISTS {prefix}idx_feed_player ON {prefix}social_feed(player_uuid, feed_date);
+-- getFeedCacheRows 的 ORDER BY updated_at DESC + LIMIT 依赖这条单列索引才能把 LIMIT 下推。
+-- (feed_date, updated_at) 在 feed_date 是范围谓词时满足不了全局 updated_at 序，
+-- 没有这条就会退化成全表扫 + 临时 B 树排序。
+CREATE INDEX IF NOT EXISTS {prefix}idx_feed_updated ON {prefix}social_feed(updated_at);
 
 -- Square social: cheers (one per feed row per cheerer)
 CREATE TABLE IF NOT EXISTS {prefix}social_cheers (

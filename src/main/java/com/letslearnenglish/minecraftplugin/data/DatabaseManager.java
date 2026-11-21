@@ -904,6 +904,11 @@ public class DatabaseManager {
                 "social_feed(feed_date, updated_at)");
         createIndexIfMissing("idx_feed_player",
                 "social_feed(player_uuid, feed_date)");
+        // getFeedCacheRows 的 ORDER BY updated_at DESC + LIMIT：没有这条单列索引时，
+        // (feed_date, updated_at) 满足不了全局 updated_at 序（范围谓词下索引序 ≠ 全局序），
+        // 必须全扫 + 临时 B 树排序。有了它，倒序扫到 LIMIT 行即停。
+        createIndexIfMissing("idx_feed_updated",
+                "social_feed(updated_at)");
         createIndexIfMissing("idx_cheers_feed",
                 "social_cheers(feed_id)");
         createIndexIfMissing("idx_cheers_cheerer",
@@ -3547,22 +3552,30 @@ public class DatabaseManager {
      */
     public List<FeedRow> getFeedCacheRows(int retentionDays, int limit) {
         List<FeedRow> rows = new ArrayList<>();
-        StringBuilder sql = new StringBuilder("SELECT f.id, f.player_uuid, MAX(p.player_name) AS player_name,"
+        // 两个 LEFT JOIN 的关联列都是各自表的主键（player_data.uuid / player_profiles.uuid
+        // 均为 PRIMARY KEY），因此是严格的 1:1，不会产生行乘数 —— 既不需要 MAX() 去重，
+        // 也不需要 GROUP BY 收敛。
+        //
+        // 为什么不写 GROUP BY f.id（看着更短）：MariaDB 没有实现函数依赖检测，
+        // 在 ONLY_FULL_GROUP_BY 下 `GROUP BY 主键 + 取其他非聚合列` 会直接报
+        // ERROR 1055 'xxx isn't in GROUP BY'（本机 MariaDB 13.0.2 实测）。而写成
+        // 全列 GROUP BY 会让 SQLite 把执行计划从「覆盖索引范围扫」降级成「全表扫」。
+        // 两条路都更差，所以直接不写 GROUP BY。
+        String sql = "SELECT f.id, f.player_uuid, p.player_name,"
                 + " f.event_type, f.events_count, f.sum_correct, f.sum_total, f.last_mode,"
                 + " f.last_streak, f.achievement_id, f.cheer_count, f.updated_at"
                 + " FROM " + tablePrefix + "social_feed f"
                 + " LEFT JOIN " + tablePrefix + "player_data p ON p.uuid = f.player_uuid"
                 + " LEFT JOIN " + tablePrefix + "player_profiles pf ON pf.uuid = f.player_uuid"
-                + " WHERE COALESCE(pf.show_in_square, 1) <> 0");
+                + " WHERE COALESCE(pf.show_in_square, 1) <> 0";
         if (retentionDays > 0) {
-            sql.append(" AND f.feed_date >= ?");
+            sql += " AND f.feed_date >= ?";
         }
-        // GROUP BY 全列列表（不依赖 MySQL 函数依赖检测，SQLite/MySQL/MariaDB 全兼容）
-        sql.append(" GROUP BY f.id, f.player_uuid, f.event_type, f.events_count, f.sum_correct,"
-                + " f.sum_total, f.last_mode, f.last_streak, f.achievement_id, f.cheer_count, f.updated_at"
-                + " ORDER BY f.updated_at DESC LIMIT ?");
+        // 加 f.id 做 tie-break：updated_at 大量重复时顺序不定，会让分页/快照出现
+        // 同一行出现两次或漏行。带 id 后仍走 idx_feed_updated（已实测不退化）。
+        sql += " ORDER BY f.updated_at DESC, f.id DESC LIMIT ?";
         synchronized (connectionLock) {
-            try (PreparedStatement stmt = getConnection().prepareStatement(sql.toString())) {
+            try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
                 int idx = 1;
                 if (retentionDays > 0) {
                     stmt.setString(idx++, feedRetentionCutoff(retentionDays));
