@@ -12,7 +12,7 @@ Vocabulary drills → spaced repetition → AI conversation practice → learnin
 ![Java](https://img.shields.io/badge/Java-21%2B%20%7C%2025%2B%20(mc26)-orange?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Paper-blue?style=flat-square)
 ![Words](https://img.shields.io/badge/word%20bank-1357%20words-success?style=flat-square)
-![Tests](https://img.shields.io/badge/tests-1950%20passing-brightgreen?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-1969%20passing-brightgreen?style=flat-square)
 ![License](https://img.shields.io/badge/license-GPL--3.0--only-blue?style=flat-square)
 
 **[⬇️ Download latest](https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/releases)** ·
@@ -175,11 +175,11 @@ the quota by answering.
 **Check the log.** A successful merge prints one INFO line:
 
 ```
-Merged messages/zh.yml (v26 -> v27): <n> user value(s) kept, <n> new key(s) added,
+Merged messages/zh.yml (v26 -> v28): <n> user value(s) kept, <n> new key(s) added,
 <n> obsolete key(s) kept, <n> type conflict(s) resolved (pre-upgrade snapshot: messages/zh.yml.bak)
 ```
 
-`en.yml` gets an identical line. The `v26 -> v27` in parentheses is the **message file's
+`en.yml` gets an identical line. The `v26 -> v28` in parentheses is the **message file's
 `config-version`**, not the plugin version; upgrading from an older release starts at a lower number.
 The number that matters is `new key(s) added` — it must be greater than 0.
 
@@ -187,7 +187,7 @@ If the word banks were replaced, you also get a WARNING: `Built-in word banks up
 
 **Then check the file.** Open `plugins/LetsLearnEnglish/messages/zh.yml` directly:
 
-- its `config-version` is now `27`
+- its `config-version` is now `28`
 - a `zh.yml.bak` sits next to it
 - the new keys are searchable (try searching for keys starting with `answer-`)
 
@@ -207,7 +207,7 @@ default. Add them only when you want to customise them.
 
 | Symptom | Fix |
 |---|---|
-| Installed, but `/le` does nothing | Run `/lea info` to confirm it loaded, then check `general.enabled` in `config.yml` — on multi-server networks, survival/PvP servers are often set to `false`. See [WIKI 5.1](DEPLOYMENT_WIKI.md) |
+| Installed, but `/le` does nothing | Run `/lea info` to confirm it loaded, then check `server.enabled` in `config.yml` — on multi-server networks, survival/PvP servers are often set to `false`. See [WIKI 5.1](DEPLOYMENT_WIKI.md) |
 | `Unsupported class file major version` | You put the standard build on a 26.x server. Switch to `-mc26` and run the server on Java 25 |
 | AI never replies | Almost always a missing/invalid `ai_config.yml`. Check the console for `ai_config.yml not found!` or `Invalid API key`, fix it, then `/lea reload`. See [WIKI 5.8.1](DEPLOYMENT_WIKI.md) |
 | On a multi-server network, check-in pays out twice / coins double | **JVM timezones differ.** The plugin books by plain `yyyy-MM-dd` dates, so two servers with different day boundaries each count their own. Pin it in the startup args (before `-jar`) — see the collapsible section below |
@@ -498,10 +498,10 @@ Player (no client mod needed)
 | Layer | What's used |
 |---|---|
 | Server | Paper 1.21.4 – 1.21.11 (Java 21) / Paper 26.1+ (Java 25) |
-| Language | Java 21 (104 source files, ~57,500 lines) |
+| Language | Java 21 (105 source files, ~59,600 lines) |
 | Database | SQLite (default, bundled) / MySQL (`mysql-connector-j` shaded into the JAR) |
 | AI | DeepSeek API via `java.net.http.HttpClient`, async with per-player rate limiting |
-| Tests | JUnit 5 + Mockito, **1950** tests plus a JaCoCo coverage gate |
+| Tests | JUnit 5 + Mockito, **1969** tests plus a JaCoCo coverage gate (55.39% line coverage, 11264/20334) |
 | Build | Maven with two profiles (default / `-Pmc26`) |
 
 ---

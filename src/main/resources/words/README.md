@@ -67,6 +67,10 @@ words:                       # 词条列表
   - 新增 332 词的**音标来自 CMUdict 美式发音转写**（本库其余部分是英式 IPA），
     **例句来自 Tatoeba**（CC BY 2.0 FR）。两者均**未经逐词人工核验**，发现不当可直接
     修改 YAML 后 `/lea reload`。
+  - 新增 332 词的**中文释义与词性初值来自 ECDICT**（`ecdict.csv`，MIT，Copyright 2025
+    Linwei，上游 <https://github.com/skywind3000/ECDICT>）。同样未经逐词人工核验 ——
+    词性与义项的对应由数据源决定，人工只订正了其中 16 个明显教错的词（见
+    `docs/RELEASE-1.0.7-r2.md`）。完整第三方组件声明见仓库根 `THIRD-PARTY-NOTICES.md`。
 - **`difficulty_level` 当前是人工标注，且运行时尚未被消费。** `WordBank` 会把该字段
   读进 `Word`（缺省 1，见 `WordBank.java` 的 `difficultyLevel` 解析），`Word` 也提供了
   `getDifficultyLevel()`，但全仓仅 `AdminCommandHandler` 在**导出词库**时把它写回 YAML

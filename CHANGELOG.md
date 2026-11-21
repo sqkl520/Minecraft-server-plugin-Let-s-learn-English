@@ -495,14 +495,90 @@
 
   **测试断言刻意收窄**：原来那条 `@Disabled` 用例的断言是 `keysSent.contains("general.extra-arguments") || keysSent.contains("word.usage")` —— 两个键名任意一个都算过。改成只认实际使用的 `word.extra-arguments`。**保留那个 `||` 等于护栏松了一半**：将来谁误发了另一个键也会绿。新断言还额外钉了三件事：`startQuiz` 从未被调用、答题 GUI 从未构造、`{extra}` 正确回显玩家敲的 token
 
+- **[修复 / D9 `abandoned` 列：把「系统自动放弃」从「玩家真完成」里分出来]** `daily_challenges` 缺 `abandoned` 列，而 `degradeStale` 的 SQL 是 `SET completed = 1, claimed = 1` —— **系统自动放弃的挑战和玩家真完成的挑战在数据里完全同形**。报表 Q8 的分子是 `SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END)`，于是家长看到的「本期完成挑战数」系统性偏高：孩子只做了 2 个，报告写「完成 3/3」（第 3 个是跨天被系统降级的）。
+
+  **四步全做了**：① `schema.sql` + `createTables()` 加 `abandoned INT DEFAULT 0`（用 INT 而非 BOOLEAN，与 `seasons.ledger_pending` 等标记列同款，MySQL/SQLite 双后端默认值口径统一）；② **`addColumnIfMissing` 补迁移** —— 这一步是重点，本仓历史上踩过「加了 schema 但存量库报 `no such column`」的坑，不补则升级服第一次跑 `degradeStale` / 报表就在 prepare 阶段炸；③ `degradeStale` 的 SET 增 `abandoned = 1`；④ 报表分子改 `completed = 1 AND COALESCE(abandoned, 0) = 0`（`COALESCE` 兜存量 NULL）。
+
+  **变异验证的过程里，我自己的一个判断被判错了，如实记录**：我做了两组变异 —— 去掉报表分子的 `COALESCE` 条件 → **2 例红**（有效）；去掉 `degradeStale` 的 `abandoned = 1` → **36 例全绿**，我据此判定「写入侧是假绿」。**这个判定是错的。** 补测试的 Agent 指出：「36」恰好等于 `ReportRepositoryTest` 的用例总数 —— 我那次变异只跑了这一个类（`-Dtest=ReportRepositoryTest`），**根本没跑写入侧的那一半链路**。我按它给的线索复跑验证：同一个变异，用 `-Dtest=DailyChallengeClaimMarkTest,DailyChallengeDegradeStaleReportChainTest,ReportRepositoryTest` 跑 → **2 例红**，其中 `DailyChallengeClaimMarkTest.degradeStaleWritesAbandonedFlag:741` **是上个 commit 就存在的测试**，它一直在真跑 `degradeStale` 并断言 `abandoned = 1`。
+
+  **所以真正的缺口比我原先说的更窄、也更精确**：不是「没人测写入侧」，而是**两个类各自只覆盖链路的一半，且从不在同一次运行里**（`ClaimMarkTest` 不读报表、`ReportRepositoryTest` 不调 `degradeStale`）。任何单个类的变异都不会暴露这处断点 —— 这恰恰是「变异验证必须跑全量或正确范围」的实证。新增的 `DailyChallengeDegradeStaleReportChainTest`（4 例）是**唯一在同一次运行里同时触达写入端和读取端**的用例，并额外覆盖了 `COALESCE` 兜 NULL、反向配对（合法完成必须计入）、`WHERE` 护栏（`completed=1/claimed=0` 的待领行不得被降级）。Agent 用 4 组变异实测（M-A/B/C/D）确认每条都各有一个专属杀点
+
+- **[回退 / D3 的隐私过滤是过度解读，按产品裁决撤销]** 这条要明确记下**我改错了**。我此前把 `loadCheerers`（「谁鼓励了我」名单）加上 `LEFT JOIN player_profiles + COALESCE(show_in_square,1) <> 0` 过滤，理由是「隐身玩家的名字不该出现在别人的鼓励名单里」。**用户裁决推翻了它**，原话是：**「隐身管的是其动态可不可见，不是其（比如鼓励）操作」**。
+
+  也就是说 `showInSquare` 的语义边界是 **「我的动态（我在广场上发的那条 feed）要不要展示」**，**不表示**「我的一切行为痕迹都不许出现」。鼓励是一次**操作**，不是一条**动态** —— 所以鼓励者的名字**应该**出现在名单里，`notify-online` 带鼓励者名字**也是对的**。
+
+  现回退 SQL 到原状，并把新 javadoc 写成**明确的设计决策记录**（引用上面那句原话），避免下一个读到的人再把它当缺陷修一遍。这份 javadoc 现在写的是「**刻意不** JOIN player_profiles」，并说明理由。
+
+  **这个错误的性质值得记**：我当时从「隐私四层模型」和「GUI 文案」推出「隐身该遮蔽一切」，但**没有去问语义边界在哪**，就把一个看起来合理的推断当成了缺陷。推断链条本身没错，错在**把「可以这样解释」当成了「就是这样」**。产品语义的边界只能由产品方定，代码里读不出来
+
+- **[记录 / `ReportGenerator` 把 `showInSquare` 读作「全面隐身」，与 R31 裁决可能不一致（本轮不改，按用户指示只登记）]** 审计全仓 46 处 `show_in_square` 用法时发现这一处：`core/manager/ReportGenerator.java` 的 `isHiddenInSquare(UUID)`（读 `ReportRepository.isHiddenInSquare`，`:527-548`）在 `respect-privacy=true` 时把**整份家长报告**里该玩家的数据全部排除。
+
+  按 R31 裁决「`showInSquare` 只管动态可见性」，这**可能也是过度解读** —— 家长报告看的是「孩子的学习数据」（答对多少、学了多少词），不是「孩子在广场上的动态」。但**反过来也有理**：报告是监护通道，比广场更敏感，孩子关掉广场展示的动机可能正是「不想被看到」。
+
+  **用户明确表示本轮不改，只登记**。所以保留现状，等后续裁决。注意这与 D3 的处理**不同**：D3 是明确的错（我推断错了），这里是**两种解释都成立、需要产品方定**，不该由我判定
+
+- **[改进 / D1 补上第三个补写触发点：进服时也补，不必等玩家答对（N9 本身仍未修）]** **先说清这条没有做什么**：N9 的核心缺陷 —— 「钱已发、台账没写」的欠账只存在内存里、进程重启即丢 —— **仍然成立，`InMemoryStateDurabilityTest` 那条仍是 `@Disabled`**。我评估了四条修法后判定**不值得修**，理由在下面。
+
+  **为什么 N9 不修**：本缺陷的本质是「DB 写不进去时，无法用 DB 记录这件事」，用数据库当载体属**逻辑自指**。四条路逐个否决：
+  - **A1「失败后立刻重试一次」**：`DatabaseManager.getConnection()` 的自愈条件是 `connection == null || connection.isClosed()`，而 `UNAVAILABLE` 代理（`:1090-1099`）的 `isClosed()` **恒返回 `false`** —— 连接坏成代理后自愈永远不会触发，第二次拿到的是同一个「一碰就抛」的死代理，必然再失败。**收益接近于零。**
+  - **A3「先写台账、后发钱」**：`hasPendingWordRewardForDate` 只要台账有行就判「已付、无 pending」。若台账写成功而发钱失败（Vault 挂 / 超日限 cap），这笔钱**永久拿不到且玩家无从知道** —— 把现在的「可能多给一次」翻成「该给的不给」，是**更严重的倒退**。现有 `:1207-1216` 那段「Vault 瞬时失败 → 保留 pending、不标记已领」正是为防这个而写的。
+  - **A2「落本地文件」**：引入第二个真相源，需要仔细处理「文件说欠账、DB 其实已写成功」的对账，复杂度与收益不成比例。
+  - **不改**：当前已有 SEVERE 日志，且**文案里直接给了可执行的人工修复 SQL**（`INSERT OR IGNORE INTO daily_word_reward_claims ...`），运维能照做。
+
+  **实际改动（便宜且真实有效）**：补写的**触发点**原本只有两个，都要玩家**主动答题**才走得到（`onWordCorrect` 入口、`hasPendingWordRewardForDate` 补发前）。于是「领完奖就下线、重启后再也没答过题」的玩家，欠账永远补不上 —— 而那正是重启后重复领钱的入口。现在 `doCheckAndAssign`（玩家每次进服的必经路径，已在 stripe lock 内）也先补写一次，把「再也不答题」这个窗口关上，代价是稳态下一次 map miss。
+
+  **测试用源码断言而非行为断言**，理由写在用例 javadoc 里：`checkAndAssign` 走 `DailyChallengeRepository.countAssigned` → 真实 JDBC，要跑通得 mock 整条连接链（含 `getConnectionLock()` 返回非 null），而本用例真正要钉的只有「那一行调用在不在」。断言还钉了**顺序**：补写必须在方法里任何 `return` 之前 —— 否则 `countAssigned` 读失败（返回 -1）时方法立刻 return，补写永远走不到，而读失败正是最该补写的时刻。**变异实测**：删掉那行 → 3 例红
+
+- **[文档 / 全量文档同步到当前真实状态，并修掉两处**实质性错误**（不是数字过期）]** 把 7 份文档对齐到本轮实测值（测试 **1969**、行覆盖 **55.39%**、i18n 叶子键 **788**、消息配置版本 **28**、源码 105 文件 / 59572 行、测试 170 文件、词库 1357 词）。中英结构完全对齐（README 14 个二级标题 / 92 行表格 / 18 个代码块，两份逐项相同；SECURITY 15 个标题对 15）。
+
+  **两处错误比数字过期严重得多**：
+
+  ① **README 的排障表把总开关写成了 `general.enabled`，实际是 `server.enabled`**。`config.yml` 的 `general:` 段里**根本没有 `enabled` 这个键**（`:72-75` 只有默认语言设置）；真正的子服总开关在 `server.enabled`（`:67`），代码里 `AdminCommand:59/63/213`、`LetsLearnEnglishAPI:62` 多处引用。**这条错误的后果是实打实的**：服主按 README 排查「装上了但 `/le` 没反应」，会去 `config.yml` 找一个不存在的键，然后以为自己配置错了 —— 而真正该改的那行就在同一文件的上面十几行。中英两份同错。
+
+  ② **`THIRD-PARTY-NOTICES.md` 声明了 ECDICT，但随插件分发的 `words/README.md` 完全没提**。ECDICT（MIT，Copyright 2025 Linwei）为新增的 332 个高频词提供了**中文释义与词性初值** —— 那是词库的实质内容，不是边缘工具。而 `words/README.md` 里 NGSL 提了 10 次、CMUdict 和 Tatoeba 各 1 次，**唯独 ECDICT 0 次**。**MIT 许可证要求保留版权声明**，缺失属合规问题而非措辞问题。已补上完整署名（含上游 URL 与「未经逐词人工核验」的说明），并确认它随 JAR 发布（`unzip -p <jar> words/README.md | grep -c ECDICT` = 2）
+
+  **`SECURITY.md` / `SECURITY-EN.md` 补的是安全语义而非流水账**：新增段落说明「**表结构由插件启动时自动迁移**」这件事的**安全含义** —— `createTables()` 在 `onEnable` 阶段对存量库执行幂等补列（`addColumnIfMissing` 先查元数据再 `ALTER TABLE`），因此**旧备份的库文件在新版插件首次启动时会被就地改写**。若服主要保留升级前的可比对快照，必须停服后**连 `-wal` / `-shm` 副文件一起复制**，不能只拷 `.db`。这一条此前文档里一个字都没有。
+
+  **`DEPLOYMENT_WIKI.md` 补了「表清单与自动迁移」小节**，并**自己发现了一个我给的指示里没有的设计点**：`daily_challenges.abandoned` 只进**分子**不进**分母** —— 分母 `COUNT(*)` 刻意不变，因为降级行代表「当天系统确实给过他这张挑战」，从分母剔除会把 1/3 粉饰成 1/1。这个判断我核实过实际 SQL（`ReportRepository:359-361`），是对的。还补充说明 `COALESCE` 是给存量行兜底的（旧库 `ADD COLUMN` 后老行可能为 `NULL`）。
+
+  **没改的文档及理由**：`CONTRIBUTING.md` / `CONTRIBUTING-EN.md` —— 逐条核过，里面没有会过期的数字，技术栈（JDK 21 / Maven 3.9+）、命令（`mvn verify` 与 jacoco 门禁的关系）、脚本路径（`scripts/audit-i18n-keys.js`，完整路径正确）都对，CI 也确实跑这些。`docs/RELEASE-1.0.7-r2.md` —— 那是 1.0.7-r2 的历史发布说明，其数字（1357 词 / 487/355/515 三档 / 各项实测耗时）与当前实际完全吻合，属归档文档不该改写
+
 ### 未修复缺陷台账（Round 31 收尾补登）
 
 > 下面 6 条此前只存在于测试文件的 `@Disabled` 注解里，`CHANGELOG.md` 用关键词 `grep -c` 全部为 0，`tasks/` 也无第二载体 —— 对下一个接手的人等于断链。现逐条补成可查、可复现、带现场证据的条目。**每条都写明「文件:行号 + 缺陷本体 + 触发条件 + 为什么没修」**，不写「已登记」这种自我指涉的话。
 
-- **[未修 / D1 每日挑战补写台账是纯内存，重启即丢 → 同一挑战日可重复发钱]** `core/DailyChallengeManager.java:180` 是 `private final Map<UUID, Set<String>> pendingClaimLedgerWrites = new ConcurrentHashMap<>()`，全类**零持久化读写**。写入点 `:1307-1311`（数据库写台账失败时登记），`clear()` 在 `:1526`，quit 时 `:1084` 移除。**缺陷本体**：进程重启后这张表清空，「钱已发、台账没写」的欠账只剩一条 SEVERE 日志，玩家可在同一挑战日再领一次。**为什么没修**：修法要么把补写清单落库（要新表或给 `daily_word_reward_claims` 加状态列），要么改成「先写台账后发钱」的幂等顺序 —— 两者都动发钱主链，**风险是改变发放语义**，属独立派工。**最讽刺的一点**：`CHANGELOG:102` 描述过这套三层补写机制，但从没说过这张表是内存的 —— 已登记的是「机制」，不是「残留缺陷」
-- **[未修 / D6 亚币奖励在 `total_coins_earned` 的累计里丢失]** `core/progress/RewardEngine.java:976` 是 `long cents = Math.round(amount * 100.0)` —— 以「分」为粒度的整型。小于 0.005 元的奖励四舍五入到 0 分，**钱没发、但累计量也没记账**，两条路径（实际发放 / 生涯累计）对同一个极小金额给出不同的处理。**缺陷本体**：`total_coins_earned` 是生涯统计，长期累积下与「玩家实际拿到的总额」产生系统性偏差（方向是偏少）。**为什么没修**：真实影响极小（需要单笔奖励 < 0.005 元），且修法涉及金额表示粒度的全链路（分 → 更高精度），属架构级改动
-- **[未修 / D9 `/lea reset` 后条目数不确定，`abandoned` 列缺失导致「自动放弃」被算成「完成」]** `data/repository/ReportRepository.java` 的 `countDailyChallengesOrFail`（`:343-345`）分子是 `SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END)`，而 `DailyChallengeRepository.degradeStale`（`:227-240`）的 SQL 是 `SET completed = 1, claimed = 1` —— 也就是说**系统自动放弃的挑战和玩家真完成的挑战在报表里长得一模一样**。报表是给家长看的，这一项会系统性偏高。**为什么没修**：需要在 `daily_challenges` 加 `abandoned` 列（`schema.sql:103-111` 当前只有 `uuid/challenge_date/challenge_id/progress/completed/claimed`）+ `createTables()` + `addColumnIfMissing` 迁移 + `degradeStale` 写入 + 报表分子改成 `completed = 1 AND abandoned = 0`，**3 个主源文件 + 1 资源 + 1 测试，约 25~35 行**，且写入点在 `DailyChallengeRepository`（本轮零改动）。只加列不改写入方会得到一个恒为 0 的死列，故必须整批做
-- **[未修 / D10 `notify-online` 与 `loadCheerers` 的隐身口径矛盾：同一个名字，名单里隐藏、通知里点名]** 先更正我自己此前对这条的定性 —— **它不是「泄露给第三方」**。`loadCheerers`（名单）与 `notify-online`（在线通知）**接收者都是作者本人**，`plan-social.md:72` 说的「不向任何第三方泄露」在这里并不成立。真正的缺陷是**两条路径口径不一致**：隐身鼓励者的名字在「谁鼓励了我」名单里**被过滤掉**（D3 修完后的行为），却在作者在线时的那条聊天通知里**照常出现**（`SocialManager:427-428`，文案 `zh.yml:559` 是 `{player} 鼓励了你的学习动态！`）。同一个作者、同一件事，点开名单看不到人、聊天栏里却点了名。
+- **[未修 / D1(N9) 挑战奖励补写台账是纯内存，进程重启即丢 → 同一挑战日可重复发钱]** `core/DailyChallengeManager.java:180` 是 `Map<UUID, Set<String>> pendingClaimLedgerWrites = new ConcurrentHashMap<>()`，全类零持久化。写入点 `:1318`（台账写失败时登记），清理点是 `clearAllWordChallengeClaims`（午夜 rollover）与 `resetPlayer`（reset）。**缺陷本体**：进程重启后这张表清空，「钱已发、台账没写」的欠账只剩一条 SEVERE 日志，该日期在 `daily_word_reward_claims` 里没有行 → 玩家可在同一挑战日**再领一次**。
+
+  **已做的改善（见上方「改进 / D1」条目）**：补上第三个补写触发点（进服）。**未做的是根治**。
+
+  **为什么判断不值得修**：缺陷本质是「DB 写不进去时无法用 DB 记录这件事」，用数据库当载体属自指。四条路都否决过：A1 立刻重试（`UNAVAILABLE` 代理 `isClosed()` 恒 false → 自愈永不触发，第二次还是死代理）；A3 先写台账后发钱（会让「台账写了钱没发」变成永久损失，比现缺陷更糟）；A2 落本地文件（第二个真相源，对账复杂度不值）。**当前保留 SEVERE 日志 + 文案里直接给出可执行的人工修复 SQL**，运维可照做。
+
+  **复核触发条件**：若将来出现「生产环境真的发生过同一挑战日重复发钱」的实例，再重新评估 —— 那时可以考虑引入本地文件载体或给台账表加「已承诺未发放」状态列。**在那之前，改动风险大于收益。**
+- **[评估后不修 / D6 `total_coins_earned` 的整币取整偏差 —— 偏差是双向的，比原登记说的「亚币丢失」更复杂，但只在非默认配置下触发]** 我先把这个缺陷**重新描述准确**，原登记说「亚币奖励的钱进了 Vault、却不进 lifetime 流水」，听起来是单向偏少。**实测是双向的**：
+
+  `DatabaseManager.adjustCoins` 写 `stmt.setLong(2, Math.round(amount))` —— **每笔独立四舍五入**。而金额在 `RewardEngine:1555` 已经被截到分精度（`Math.round(baseAmount * comboMultiplier * 100.0) / 100.0`）。所以漂移不是「丢分」，是**每笔的舍入误差逐年累加**。实测（`javac` 跑真 JVM）：
+
+  | 场景 | 真值 | 流水累计 | 偏差方向 |
+  |---|---|---|---|
+  | 每笔 0.4 元 × 10 | 4.0 | **0** | 偏少 4.0 |
+  | 每笔 0.6 元 × 10 | 6.0 | **10** | **偏多** 4.0 |
+  | 每笔 0.5 元 × 10 | 5.0 | **10** | **偏多** 5.0 |
+
+  **偏多**这一点尤其重要 —— 原登记只说了「少记」，而实际上生涯累计可能比真值**高出一倍**。
+
+  **但默认配置下零偏差**：`config.yml` 的 `base-amount: 10.0`，连击倍率表是 `{1.0, 1.5, 2.0, 2.5, 3.0}`（`WordLearningManager:33`），`review-multiplier: 1.2` —— 六种组合全部落在整币上（10/15/20/25/30/12），`Math.round` 不丢任何精度。**服主只把 `base-amount` 改成 `12.5`，偏差立刻出现**：单笔最大 0.5 元（1.0x 记 13 元、2.5x 记 31 元、3.0x 记 38 元）。
+
+  **为什么最终不做**：彻底修法是让 `total_coins_earned` 记「分」（改成记 `Math.round(amount*100)`，展示时 `/100`）。但那**不是改一行** —— 该列有 **24 处读写、跨 5 个文件**（`DatabaseManager` 排行榜/统计、`SeasonManager` 赛季记账、`Leaderboard` 缓存、`StatisticsHttpServer` HTTP 面板、`LLEPapiExpansion` 的 PAPI 占位符含异步补读缓存），且**存量数据要迁移**（旧值是整币，新值是它的 100 倍，不迁移就是全服生涯金币凭空 ×100）。而收益只在「服主改了非整数 `base-amount`」时存在。**风险远大于收益。**
+  
+  **另有一条已有的设计取向佐证不必急**：`SeasonManager:2185` 的注释里，作者已经把「`total_coins_earned` 少记」定性为**可接受** —— 「钱已经通过 Vault 发出去了，失败方向是『统计偏少』而不是『玩家没拿到』，所以不阻断、不回滚」。这条缺陷危害的确实是统计面板，不是玩家的钱包。
+
+  **复核触发条件**：若将来要修，正确做法是「列语义改为分 + 一次性迁移 `UPDATE ... SET total_coins_earned = total_coins_earned * 100` + 全部读取点 `/100`」，属独立架构批次。**另一个更便宜的选择**：在 `adjustCoins` 里按玩家维护「未计入的分余数」累加器，攒够 1 元记一次 —— 但这要引入跨重启的状态，复杂度与前者相当
+
+
+
+- **[关闭 / D10 不是缺陷 —— `notify-online` 带鼓励者名字是对的，按 R31 裁决撤销该条登记]** 我此前把 `notify-online`（`SocialManager:427-428`，文案 `{player} 鼓励了你的学习动态！`）登记为「与隐身口径矛盾」，理由是「名单里过滤了、聊天栏里却点名」。**这个定性被用户裁决推翻**：`showInSquare` 只管「我的**动态**可不可见」，不管「我的**鼓励操作**留下的痕迹」—— 所以带名字是对的，名单不过滤也是对的，**两条路径本来就没有矛盾**。
+
+  **但这一条里有一个独立的小问题仍然成立、仍该修**（且与本条被撤销的定性无关）：那行 `"player", cheererName` 传的是裸名，**没走 `FeedTextFormatter.sanitizePlayerText`** —— D8 修的另外五处都过了净化，唯独这里漏了，属**口径不统一**。虽然 `cheererName` 来源是 `Player#getName()`（账号名，`&` 进不来，实际不可达），但同一个类里对同一类数据用两种处理方式本身就是维护负担。**这条并入 D8 的口径统一范畴，不单独跟踪。**
 
   **还有一个横向对照能佐证这是实现不一致而非设计**：`notify-join`（离线摘要，`SocialManager:507`）**只传 `count`、不带任何名字**。于是同一个功能的两条时间路径 —— 离线来的匿名只报数、在线来的点名道姓。规格 `plan-social.md` 里对这两条路径的措辞是分开写的（`:283` 在线「立刻发 notify-online」，`§2.2` 摘要「只给计数」），**没有一处论证过「为什么在线这条要带名字」**，看起来是各自实现时随手定的。
 

@@ -246,6 +246,8 @@ plugins/LetsLearnEnglish/
 │   ├── beginner.yml              ← 初级词库（487 词）
 │   ├── intermediate.yml          ← 中级词库（355 词）
 │   └── advanced.yml              ← 高级词库（515 词）
+├── words-version.txt             ← 内置词库已安装版本（WORD_BANK_VERSION 闸门，勿手改）
+├── words-backup-v<旧版本>-<时间戳>/  ← 词库升级前的自动备份（只在升级触发时生成）
 ├── player_scenarios/             ← 玩家个人 AI 场景（按 UUID 落盘，导入分享码时生成）
 │   └── <uuid>.yml
 ├── exports/                      ← 导出目录（管理员导出/报告落盘）
@@ -351,6 +353,27 @@ database:
 > ```sql
 > CREATE DATABASE letslearnenglish DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 > ```
+
+**表清单与自动迁移**
+
+运行期共 **24** 张表：`src/main/resources/schema.sql` 定义了 **23** 张，第 24 张
+`daily_coin_counters` 由 `RewardEngine.ensureDailyCoinsTable()` 在首次发币时懒建，
+所以 `schema.sql` 不是完整权威。**表与列全部由插件自动创建/补齐**，你不需要手工执行任何
+`CREATE TABLE` 或 `ALTER TABLE`：
+
+- `createTables()` 在 `databaseManager.initialize()` 里执行（`onEnable` 阶段），建表一律 `CREATE TABLE IF NOT EXISTS`，SQLite/MySQL 共用同一份 DDL，仅 `AUTOINCREMENT`/`AUTO_INCREMENT` 与个别类型按后端分支；
+- 存量库缺列时走 `addColumnIfMissing()`：先查元数据（SQLite `PRAGMA table_info`、MySQL `information_schema.columns`）再决定是否 `ALTER TABLE ... ADD COLUMN`，因此重复启动幂等；
+- 索引走 `createIndexIfMissing()`（MySQL 8 不支持 `CREATE INDEX IF NOT EXISTS`，`schema.sql` 里的同名语句只是文档镜像）。
+
+最新一轮新增的列是 `daily_challenges.abandoned`（`INT DEFAULT 0`）。语义：`degradeStale`
+把因 AI 不可用而作废的挑战写成 `completed=1/claimed=1` 时一并置 1；学习报告的
+"每日挑战完成度"分子改为 `completed = 1 AND COALESCE(abandoned, 0) = 0`，剔除这些
+系统自动放弃的行（否则"玩家没做完被降级"与"玩家真完成"在列值上同形，完成数会系统性偏高）。
+分母刻意不变——降级行代表"当天系统确实给过他这张挑战"，从分母剔除会把 1/3 粉饰成 1/1。
+`COALESCE` 是给存量行兜底的：旧库 `ADD COLUMN` 补列后老行可能为 `NULL`。
+
+> 因此**升级插件会就地改写现有库文件**。若你需要保留升级前的可比对快照，请停服后连
+> `-wal` / `-shm` 副文件一起复制，而不是只拷 `.db`（见 6.6 节）。
 
 #### 5.1.4 单词学习系统 (word-system)
 
@@ -532,7 +555,7 @@ achievements:
 
 ### 5.4 语言文件: `messages/zh.yml` 和 `messages/en.yml`
 
-语言文件支持 PlaceholderAPI 变量和颜色代码。版本标识为 `config-version: 17`。
+语言文件支持 PlaceholderAPI 变量和颜色代码。版本标识为 `config-version: 28`（两份官方文件当前都是 28，叶子键共 **788** 个；`zh.yml` 与 `en.yml` 键集必须完全一致，由 `I18nVersionGateTest` 的版本→数量映射表钉死）。
 
 > 版本升级机制：启动时若检测到本地语言文件的 `config-version` 低于插件内置版本，会执行**合并式升级**（不会覆盖你的自定义内容）：
 > - 你已存在的键：**保留你的取值**（改过的措辞、颜色码、占位符都优先于官方默认值）；
@@ -542,6 +565,8 @@ achievements:
 > - 升级前会自动生成单槽备份 `messages/zh.yml.bak`（只保留最近一次升级前的版本，每次升级覆盖）。
 >
 > 注意：写回后会变成 Bukkit 的标准 YAML 序列化格式——**你手写的注释与键顺序不会保留**（原文在 `.bak` 里）。若你重度依赖注释，升级后可从 `.bak` 手工比对。合并只在版本落后时触发一次，版本已是最新的文件不会被改写。
+>
+> **存量服升级时会自动迁移，不需要你手工加键。** 上一轮从 27 升到 28 时新增了两个键：`word.usage`（`/le word` 的用法行）与 `word.extra-arguments`（参数多敲时的拒绝提示，内部把 `word.usage` 作为 `{usage}` 实参嵌入）。这两条就是 786 → 788 的全部差异；服主改过的其余取值保持不变。`word.usage` 刻意不带 `{prefix}`——带上会出现两个前缀。
 
 **新增英文翻译**（以 `en.yml` 为例）：
 
@@ -585,6 +610,8 @@ words:
 4. 玩家即可在词库选择 GUI 中看到新词库
 
 > 词库显示名优先查语言文件 `word-bank.difficulty-<词库名>` 键；缺失时回落为「首字母大写化」的词库名。JAR 内置自动释放的只有 `beginner.yml` / `intermediate.yml` / `advanced.yml` 三个固定名，其余词库文件按 `*.yml` 自动发现。
+>
+> **改过内置三份词库的服主请读 7.1 步骤 3。** 这三个固定名受 `WORD_BANK_VERSION` 闸门管理：插件启动时若 `words-version.txt` 记录的版本低于 JAR 内的 `WORD_BANK_VERSION`，它们会被**整份覆盖**（覆盖前自动备份到 `words-backup-v<旧版本>-<时间戳>/`）。判据只看这一个版本号，与插件版本号无关。自定义命名的词库文件不受影响。当前内置词库版本为 `1`。
 
 ### 5.6 对话文件: `dialogues/*.yml`（已废弃）
 
@@ -697,6 +724,14 @@ daily-challenges:
 ```
 
 > 挑战奖励走 `money.daily-cap` 与金币总闸（无经济时不发币，界面提示 economy-disabled）。
+>
+> **自动放弃语义**：`ai-chat` 不可用时（未配 `api-key`、Key 失效，或 `ai-chat.enabled: false`），
+> 已分配给玩家的 `ai_chat_5` 挑战会被 `degradeStale` 标记为「已完成 + 已领取」且**不发任何奖励**，
+> 以免一个打不了的任务卡死当天整组挑战。这类行在 `daily_challenges.abandoned` 上记 `1`，学习报告的
+> "每日挑战完成度"分子会剔除它们——所以报告里的完成数反映的是玩家真正做完的挑战，
+> 不含系统代放弃的。AI 恢复后不再降级，次日随跨天重抽恢复正常。
+> 注：`isChallengeAvailable` 据此把 `ai_chat_5` 从新一日的分配池里剔除，所以没有 Key 的服务器
+> 根本抽不到它，上面的降级只影响「先有 Key、后失效」的存量行。
 
 #### 5.8.5 每日签到 (checkin)
 
@@ -760,6 +795,8 @@ report:
 ```
 
 > 报告文件为纯文本 TXT（UTF-8 + BOM + CRLF），落 `plugins/LetsLearnEnglish/exports/reports/`，由老师/服主自行转发给家长。命令：`/lea report <玩家|all> [week|lastweek|<N>d]`。
+>
+> **报告里的「每日挑战完成度」不含系统自动放弃的行。** 因 AI 不可用被 `degradeStale` 代放弃的挑战（`daily_challenges.abandoned = 1`）会从分子里剔除，但**仍计入分母**——降级行代表"当天系统确实给过他这张挑战"，从分母剔除会把 1/3 粉饰成 1/1。所以完成率不会因某个模块关掉而虚高。
 
 #### 5.8.9 赛季系统 (season)
 
@@ -861,6 +898,7 @@ progress-system:
 | 台账 | 配置键 | 表 / 列 |
 |------|--------|---------|
 | 每日签到 | `checkin.enabled` | `checkin_data.last_checkin_date` |
+| 每日行为挑战 | `daily-challenges` | `daily_challenges.challenge_date`（含 `abandoned` 标记） |
 | 每日单词挑战 | `daily-challenges` | `daily_challenge_words.challenge_date`、`daily_word_reward_claims.challenge_date` |
 | 答题日限 | `word-system.daily-limit` | `daily_answer_counters.answer_date` |
 | 金币日限 | `money.daily-cap` | `daily_coin_counters.coin_date` |
@@ -1170,6 +1208,32 @@ cp ~/downloads/"Let's Learn English!"-1.0.7.jar plugins/
 #### 步骤 3: 检查配置文件
 
 每次更新后，检查 `config.yml` 中的 `config-version` 是否与新版兼容（当前为 `2`）。主 config 采用「读取时回落默认值」策略，新增键无需手动迁移；语言文件（`messages/*.yml`）版本落后时会执行**合并式升级**（保留你的取值、补齐新增键、保留废弃键、升级前生成 `.bak`），不会覆盖你的自定义内容——但仍建议升级前自行备份。另注意部分历史键的默认值发生过反转（如 `review-multiplier` / `review-penalty`），存量文件建议手动对齐新默认。
+
+**三类配置资产的升级行为并不相同，别混为一谈**：
+
+| 资产 | 升级时会发生什么 | 你改过的内容 |
+|---|---|---|
+| `config.yml` / `ai_config.yml` | 不迁移。缺键在读取时回落默认值 | 完整保留 |
+| `messages/*.yml` | 版本落后时**合并式升级**（`mergeMissing`），升级前生成单槽 `.bak` | 完整保留（注释与键顺序会丢，原文在 `.bak`） |
+| `words/{beginner,intermediate,advanced}.yml` | **整份覆盖**（`WORD_BANK_VERSION` 闸门） | **会被冲掉，但有回滚点** |
+
+**词库为什么会被覆盖**：`saveResourceIfNotExists` 只在文件**缺失**时释放内置词库，所以
+新版词库对存量服永远是旧文件——玩家感知到的就是「说好的新词没了」，日志里却毫无提示。
+`ConfigManager.upgradeWordBanksIfNeeded()` 因此按 `words-version.txt` 的版本号做一次
+「备份 + 替换」：磁盘版本 < `WORD_BANK_VERSION`（当前为 `1`）时，先把现有三份词库复制到
+`words-backup-v<旧版本>-<时间戳>/`，再整份写入新版；全部三档都成功才把
+`words-version.txt` 盖章为新版本，任一档失败则保持旧版本号、下次启动重试（避免部分成功
+被当成完成）。**它不做逐条合并**——"服主删掉的词要不要加回来""改过的释义以谁为准"没有
+正确答案，备份 + 整体替换至少是可解释、可回滚的。
+
+> 若你改过内置三份词库：升级后请从 `words-backup-v*/` 取回你的版本，把改动重新合并到
+> 新文件里。想跳过这次覆盖，就在启动前把当前版本号写进 `words-version.txt`（例如写入
+> `1`）——闸门判据是 `磁盘版本 >= WORD_BANK_VERSION`，写够版本号即早退（**删掉该文件**是
+> 反效果：读不出内容按 0 处理，反而触发升级）。更省事的做法是把自定义词库另存为新文件名
+> （`words/` 下任意 `*.yml` 都会被自动发现，只有 `beginner` / `intermediate` / `advanced`
+> 三个固定名会被覆盖）。备份失败时插件**不会替换**（宁可升级不生效，也不让你在没有回滚点
+> 的情况下丢改动），控制台会打 SEVERE，提示你手工备份后删除 `words-version.txt` 再重启：
+> 删文件等于把磁盘版本按 0 处理，从而**强制升级路径重跑**（在备份能成功之后）。
 
 #### 步骤 4: 重启服务器
 
@@ -1543,6 +1607,8 @@ plugins/LetsLearnEnglish/
 │   ├── beginner.yml           ← 初级词库 487 词 (可自定义添加新词库文件)
 │   ├── intermediate.yml       ← 中级词库 355 词
 │   └── advanced.yml           ← 高级词库 515 词
+├── words-version.txt          ← 内置词库已安装版本 (升级闸门, 勿手改)
+├── words-backup-v*            ← 词库升级前的自动备份 (仅升级时生成)
 ├── player_scenarios/          ← 玩家个人 AI 场景 (uuid.yml, 导入分享码时生成)
 ├── exports/                   ← 导出目录
 │   ├── <difficulty>_export_<时间戳>.yml    ← /lea exportwordbank 词库导出

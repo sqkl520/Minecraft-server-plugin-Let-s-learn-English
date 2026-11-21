@@ -237,6 +237,15 @@ grep -rn "HttpClient\|HttpRequest\|openConnection\|new URL(\|new Socket" src/mai
 
 **任何表都不存玩家密码或邮箱。** 插件不收集这些。玩家名与 UUID 来自 Minecraft 本身。
 
+**表结构由插件在启动时自动迁移。** `DatabaseManager.initialize()`（`onEnable` 阶段）里的
+`createTables()` 会对存量库执行幂等补列（`addColumnIfMissing`，先查元数据再
+`ALTER TABLE ADD COLUMN`），不需要你手工执行任何 `ALTER TABLE`。最新一例是
+`daily_challenges.abandoned`（`INT DEFAULT 0`）：`degradeStale`
+把因 AI 不可用而作废的挑战行写成 `completed=1/claimed=1` 的同时置 1，报表的"完成挑战数"
+据此剔除这些自动放弃行，避免家长看到的完成度虚高。这件事的安全含义是：
+**旧备份的库文件在新版插件首次启动时会被就地改写** —— 若你需要保留"升级前"可比对的快照，
+请在停服后先复制 `.db` 连同 `-wal` / `-shm` 副文件，不要指望升级后还能拿回原结构。
+
 > 报告与游戏内输出确实包含玩家名与学习数据 —— 这正是工具的用途。把导出的报告贴到公开
 > issue 前，请先自己过一遍。
 

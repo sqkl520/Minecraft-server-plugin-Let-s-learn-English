@@ -258,6 +258,18 @@ All under `plugins/LetsLearnEnglish/`, **never uploaded**.
 **No table stores player passwords or email addresses.** The plugin does not collect them.
 Player names and UUIDs come from Minecraft itself.
 
+**The schema migrates itself at startup.** `createTables()` inside `DatabaseManager.initialize()`
+(during `onEnable`) applies idempotent column additions to existing databases
+(`addColumnIfMissing`, which checks the metadata first and then runs `ALTER TABLE ADD COLUMN`), so
+you never need to run `ALTER TABLE` by hand. The most
+recent example is `daily_challenges.abandoned` (`INT DEFAULT 0`): `degradeStale` sets it to 1 in
+the same write that marks a challenge `completed=1/claimed=1` after AI becomes unavailable, and
+the report's "challenges completed" count excludes those auto-abandoned rows so the figure parents
+see is not inflated. The security consequence is that **an old database file is modified in place
+the first time a newer plugin version starts against it** — if you need a pre-upgrade snapshot for
+comparison, copy the `.db` together with its `-wal` / `-shm` sidecars after stopping the server,
+because the original structure will not come back afterwards.
+
 > Reports and in-game output do contain player names and learning data — that is the tool's purpose.
 > Review an exported report before pasting it into a public issue.
 

@@ -12,7 +12,7 @@
 ![Java](https://img.shields.io/badge/Java-21%2B%20%7C%2025%2B%20(mc26)-orange?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Paper-blue?style=flat-square)
 ![Words](https://img.shields.io/badge/word%20bank-1357%20words-success?style=flat-square)
-![Tests](https://img.shields.io/badge/tests-1950%20passing-brightgreen?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-1969%20passing-brightgreen?style=flat-square)
 ![License](https://img.shields.io/badge/license-GPL--3.0--only-blue?style=flat-square)
 
 **[⬇️ 下载最新版](https://github.com/sqkl520/Minecraft-server-plugin-Let-s-learn-English/releases)** ·
@@ -162,18 +162,18 @@ SQLite 是 WAL 模式，**热备份不要直接 `cp`** 数据库文件，用 `VA
 **看日志。** 语言文件合并成功会打一条 INFO：
 
 ```
-Merged messages/zh.yml (v26 -> v27): <保留数> user value(s) kept, <新增数> new key(s) added,
+Merged messages/zh.yml (v26 -> v28): <保留数> user value(s) kept, <新增数> new key(s) added,
 <废弃数> obsolete key(s) kept, <冲突数> type conflict(s) resolved (pre-upgrade snapshot: messages/zh.yml.bak)
 ```
 
-`en.yml` 会有一条同形的。括号里的 `v26 -> v27` 是**语言文件的 `config-version`**，不是插件版本；
+`en.yml` 会有一条同形的。括号里的 `v26 -> v28` 是**语言文件的 `config-version`**，不是插件版本；
 你从更老的版本升上来时，左边的数字会更小。关键是「`new key(s) added`」这一项要大于 0。
 
 词库被替换时会打一条 WARNING：`Built-in word banks upgraded to ...`。
 
 **再看文件。** 直接打开 `plugins/LetsLearnEnglish/messages/zh.yml`：
 
-- 头部的 `config-version` 已变成 `27`
+- 头部的 `config-version` 已变成 `28`
 - 同目录下多出了 `zh.yml.bak`
 - 新增的键能搜到（例如搜 `answer-` 开头的键）
 
@@ -191,7 +191,7 @@ Merged messages/zh.yml (v26 -> v27): <保留数> user value(s) kept, <新增数>
 
 | 问题 | 解法 |
 |---|---|
-| 装上了但 `/le` 没反应 | 先 `/lea info` 看插件是否启用；再查 `config.yml` 的 `general.enabled`（多子服时**生存服/PVP 服**常被设成 `false`）。详见 [WIKI 5.1](DEPLOYMENT_WIKI.md) |
+| 装上了但 `/le` 没反应 | 先 `/lea info` 看插件是否启用；再查 `config.yml` 的 `server.enabled`（多子服时**生存服/PVP 服**常被设成 `false`）。详见 [WIKI 5.1](DEPLOYMENT_WIKI.md) |
 | 提示版本不兼容 / 报 `Unsupported class file major version` | 你装了普通包但要跑 26.x。换成 `-mc26` 那个包，并把服务端升到 Java 25 |
 | AI 对话一直不回话 | 99% 是 `ai_config.yml` 缺失或密钥无效。看控制台有没有 `ai_config.yml not found!` / `Invalid API key`；补好后 `/lea reload`。详见 [WIKI 5.8.1](DEPLOYMENT_WIKI.md) |
 | 多子服时签到能领两次 / 金币翻倍 | **JVM 时区不一致**。插件按 `yyyy-MM-dd` 纯日期记账，两个子服日界不同就各算各的。必须在启动参数里钉死（写在 `-jar` **之前**），见下方折叠段 |
@@ -468,10 +468,10 @@ SQLite 的 `DELETE` / `UPDATE` 只把页面标记为可复用，**不会把空�
 | 层 | 用了什么 |
 |---|---|
 | 服务端 | Paper 1.21.4 – 1.21.11（Java 21）／ Paper 26.1+（Java 25） |
-| 语言 | Java 21（104 个源文件，约 57,500 行） |
+| 语言 | Java 21（105 个源文件，约 59,600 行） |
 | 数据库 | SQLite（默认，shade 内置）／ MySQL（`mysql-connector-j` 已 shade 进 JAR） |
 | AI | DeepSeek API，`java.net.http.HttpClient`，异步 + 每玩家限流 |
-| 测试 | JUnit 5 + Mockito，**1950 条**测试 + JaCoCo 覆盖率门禁 |
+| 测试 | JUnit 5 + Mockito，**1969 条**测试 + JaCoCo 覆盖率门禁（当前行覆盖 55.39%，11264/20334） |
 | 构建 | Maven，双 profile（默认 / `-Pmc26`） |
 
 ---

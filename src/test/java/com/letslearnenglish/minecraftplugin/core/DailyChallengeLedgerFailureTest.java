@@ -22,6 +22,7 @@ import java.util.UUID;
 import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -216,5 +217,60 @@ class DailyChallengeLedgerFailureTest {
 
         verify(databaseManager, times(2)).markDailyWordRewardClaimed(PLAYER_ID, YESTERDAY);
         verify(databaseManager, never()).markDailyWordRewardClaimed(PLAYER_ID, TODAY);
+    }
+
+    // ------------------------------------------------------------------
+    // 用例 4：进服也是补写触发点（D1 收尾）
+    // ------------------------------------------------------------------
+
+    /**
+     * <b>这是一个「补上遗漏触发点」的护栏，不是 N9 的修复。</b>
+     *
+     * <p>N9（{@code InMemoryStateDurabilityTest}）记录的缺陷是「欠账信息只存在内存，
+     * 进程重启即丢」—— 那一条<b>仍然成立、仍然 {@code @Disabled}</b>，本用例不改变它。
+     *
+     * <p>本用例钉的是另一件事：补写的<b>触发点</b>原本只有两个，都要玩家<b>主动答题</b>
+     * 才会走到（{@code onWordCorrect} 入口、{@code hasPendingWordRewardForDate} 补发前）。
+     * 于是「领完奖就下线、重启后再也没答过题」的玩家，欠账永远补不上 —— 而那条欠账
+     * 正是「重启后同日重复领钱」的入口。
+     *
+     * <p>现在 {@code doCheckAndAssign}（玩家每次进服的必经路径）也会先补写一次。
+     * 这不能根治重启丢失（内存态本来就是内存态），但把「再也不答题」这个窗口关上了。
+     *
+     * <h2>为什么用源码断言而不是行为断言</h2>
+     * <p>{@code checkAndAssign} 走 {@code DailyChallengeRepository.countAssigned} →
+     * 真实 JDBC（{@code db.getConnection().prepareStatement}）。要让它跑通得 mock
+     * 一整条连接链（含 {@code getConnectionLock()} 返回非 null 的锁对象），
+     * 而本用例真正要钉的只有「那一行调用在不在」。用源码断言既直接又不会被
+     * 无关的 JDBC 细节干扰 —— 本仓 {@code MainThreadIoContractTest} 等 lint 同此风格。
+     */
+    @Test
+    @DisplayName("D1：doCheckAndAssign（进服必经路径）必须触发欠账补写，不必等玩家答对")
+    void joinAlsoRetriesPendingLedgerWrites() throws Exception {
+        String src = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/com/letslearnenglish/minecraftplugin/core/DailyChallengeManager.java"),
+                java.nio.charset.StandardCharsets.UTF_8);
+
+        int doCheckAt = src.indexOf("private void doCheckAndAssign(");
+        assertTrue(doCheckAt > 0, "找不到 doCheckAndAssign 方法喵 —— 源码结构变了，请更新本用例");
+
+        // 取方法体的前 40 行（足够覆盖方法开头的几行初始化）。
+        int bodyEnd = Math.min(src.length(), doCheckAt + 4000);
+        String body = src.substring(doCheckAt, bodyEnd);
+
+        int retryAt = body.indexOf("retryPendingClaimLedgerWrites(playerId)");
+        assertTrue(retryAt > 0,
+                "doCheckAndAssign 里没有 retryPendingClaimLedgerWrites(playerId) 喵 —— "
+                        + "补写的触发点就只剩「玩家答对」和「有 pending 判定」两个，"
+                        + "「领完奖就下线、重启后再也不答题」的欠账永远补不上，"
+                        + "那正是重启后同日重复领钱的入口（N9 的触发条件）");
+
+        // 顺序也要钉：补写必须在任何 return 之前，否则读失败短路（countAssigned < 0）
+        // 会让补写被跳过 —— 而「DB 读失败」恰恰是最需要补写的时刻。
+        int firstReturn = body.indexOf("return;");
+        assertTrue(firstReturn < 0 || retryAt < firstReturn,
+                "retryPendingClaimLedgerWrites 必须在方法里任何 return 之前喵 —— "
+                        + "否则 countAssigned 读失败（返回 -1）时方法立刻 return，"
+                        + "补写永远走不到，而读失败正是最该补写的时刻");
     }
 }

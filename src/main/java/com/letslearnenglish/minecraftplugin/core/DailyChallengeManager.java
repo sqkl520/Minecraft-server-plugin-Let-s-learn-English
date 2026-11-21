@@ -337,6 +337,19 @@ public class DailyChallengeManager {
 
     /** checkAndAssign 的 stripe 锁内体（F2-11 收口拆出）。 */
     private void doCheckAndAssign(UUID playerId) {
+        // D1（R31 收尾）：进服是「钱已发、台账没写」的第三个回访点。
+        //
+        // 原有两个触发点都要玩家**主动答题**才会走到：onWordCorrect 的入口、
+        // hasPendingWordRewardForDate 的补发前。于是「领完奖就下线、重启后再也没答过题」
+        // 的玩家，那条欠账永远不会被补写 —— 而它就是重启后同日重复领钱的入口。
+        // checkAndAssign 是玩家每次进服的必经路径（且已在 stripe lock 内），
+        // 挂在这里能把「再也不答题」这个窗口关上，代价是一次 map miss（稳态零开销）。
+        //
+        // 注意这**不能**根治「重启前欠账信息只存在内存」这件事本身（见
+        // InMemoryStateDurabilityTest 的 N9 登记）—— 它只保证：只要玩家再进一次服，
+        // 欠账就会被补上，不必等他答对。真正的修复需要跨重启的持久化载体，
+        // 而「数据库写不进去」正是本缺陷本身，用数据库记录它属自指，故本轮不做。
+        retryPendingClaimLedgerWrites(playerId);
         String today = LocalDate.now().toString();
         // COUNT 预检（仓储内锁内取连接）。仓储以 -1 表示"读失败"：原实现在此记 WARNING
         // 后直接 return（不补单词挑战、不 INSERT），故读失败必须单独短路，不能落到 INSERT。
