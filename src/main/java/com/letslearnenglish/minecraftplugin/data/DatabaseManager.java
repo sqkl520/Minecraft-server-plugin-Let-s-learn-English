@@ -1048,8 +1048,15 @@ public class DatabaseManager {
         // answered_count 的复合索引。顺序是刻意的：反过来的话那 5 万行的 UPDATE 要为每一行
         // 维护一次刚建好的索引（纯浪费），而且索引里会先写进一批全是 0 的版本。
         if (answeredCountColumnJustAdded) {
-            answeredCountColumnJustAdded = false;
-            backfillAnsweredCount();
+            // 只有回填<b>成功</b>才清标记。原实现在调用前就置 false，于是回填一旦因
+            // 数据库抖动失败（表锁、只读挂载、连接刚重连），重启后列已存在 →
+            // addColumnIfMissing 返回 false → 标记不再置位 → <b>永远不再尝试回填</b>。
+            // 而失败后果是所有老玩家的 answered_count 停在 0，从广场和 %lle_rank%
+            // 整批消失，只有一条 SEVERE 日志能提示服主手工执行 SQL。
+            // 改成「成功才清」后，下次启动会自动重试（回填本身是绝对值重算，幂等）。
+            if (backfillAnsweredCount()) {
+                answeredCountColumnJustAdded = false;
+            }
         }
 
         // R-48：index 选择依据实测（不是猜的）。见 schema.sql 里该索引上方的完整测量。
@@ -1088,7 +1095,14 @@ public class DatabaseManager {
      * 但也不能静默 —— 失败时记 SEVERE 并在日志里写清楚后果（老玩家的广场/名次会缺席），
      * 且下次重启不会自动重试（列已存在）。要人工修可执行日志里那条 SQL。
      */
-    private void backfillAnsweredCount() {
+    /**
+     * 回填 {@code player_data.answered_count}。
+     *
+     * @return {@code true} 表示回填成功（调用方可据此清「待回填」标记）；
+     *         {@code false} 表示失败且已记 SEVERE —— 调用方<b>必须保留</b>标记，
+     *         让下次启动重试。回填是绝对值重算，重放不变。
+     */
+    private boolean backfillAnsweredCount() {
         String sql = "UPDATE " + tablePrefix + "player_data SET answered_count = ("
                 + "SELECT COUNT(*) FROM " + tablePrefix + "word_progress wp"
                 + " WHERE wp.uuid = " + tablePrefix + "player_data.uuid"
@@ -1098,12 +1112,15 @@ public class DatabaseManager {
             executeUpdate(sql);
             plugin.getLogger().info("Backfilled " + tablePrefix + "player_data.answered_count in "
                     + (System.currentTimeMillis() - startedAt) + " ms (one-time migration).");
+            return true;
         } catch (SQLException e) {
             plugin.getLogger().log(Level.SEVERE,
                     "Failed to backfill " + tablePrefix + "player_data.answered_count. "
                             + "Players whose rows keep answered_count = 0 will be missing from the "
                             + "English Square and from %lle_rank% until this is fixed. "
-                            + "Re-run this statement manually after the database recovers: " + sql, e);
+                            + "This will be retried on the next server start; you can also run it "
+                            + "manually after the database recovers: " + sql, e);
+            return false;
         }
     }
 
