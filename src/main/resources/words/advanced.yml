@@ -59,7 +59,7 @@ words:
     freq_rank: 368
 
   - english: "clear"
-    chinese: "澄清"
+    chinese: "清除（把障碍物移开或清空）"
     part_of_speech: "verb"
     phonetic: "/klɪr/"
     example_sentence: "We cleared a path through the woods."
@@ -159,7 +159,7 @@ words:
     freq_rank: 378
 
   - english: "involve"
-    chinese: "包括"
+    chinese: "涉及（牵连到某人或某事）"
     part_of_speech: "verb"
     phonetic: "/ˌɪˈnvɑːlv/"
     example_sentence: "Whichever way we choose will involve danger."
@@ -399,7 +399,7 @@ words:
     freq_rank: 407
 
   - english: "individual"
-    chinese: "人"
+    chinese: "个体（单个的人或事物）"
     part_of_speech: "noun"
     phonetic: "/ˌɪndəˈvɪdʒəwəl/"
     example_sentence: "The community is made up of individuals."
@@ -429,7 +429,7 @@ words:
     freq_rank: 412
 
   - english: "perhaps"
-    chinese: "也许"
+    chinese: "或许（表示不确定的推测）"
     part_of_speech: "adverb"
     phonetic: "/pəˈhæps/"
     example_sentence: "Perhaps you'd like to sleep on it."
@@ -539,7 +539,7 @@ words:
     freq_rank: 425
 
   - english: "position"
-    chinese: "位置"
+    chinese: "职位（工作或社会地位）"
     part_of_speech: "noun"
     phonetic: "/pəˈzɪʃən/"
     example_sentence: "Finally she attained a position of power."
@@ -549,7 +549,7 @@ words:
     freq_rank: 426
 
   - english: "human"
-    chinese: "人"
+    chinese: "人类（人这一物种的总称）"
     part_of_speech: "noun"
     phonetic: "/ˈhjuːmən/"
     example_sentence: "Pigs share certain characteristics with human beings."
@@ -669,7 +669,7 @@ words:
     freq_rank: 440
 
   - english: "design"
-    chinese: "设计"
+    chinese: "设计（构思并画出图样或方案）"
     part_of_speech: "verb"
     phonetic: "/dɪˈzaɪn/"
     example_sentence: "The park was designed for small children."
@@ -819,7 +819,7 @@ words:
     freq_rank: 460
 
   - english: "rise"
-    chinese: "升起"
+    chinese: "上升（不及物：自身升高）"
     part_of_speech: "verb"
     phonetic: "/raɪz/"
     example_sentence: "The smoke is rising in the air."
@@ -829,7 +829,7 @@ words:
     freq_rank: 462
 
   - english: "maybe"
-    chinese: "也许"
+    chinese: "说不定（口语化的可能）"
     part_of_speech: "adverb"
     phonetic: "/ˈmeɪbiː/"
     example_sentence: "Maybe I'll go, and maybe I won't."
@@ -1009,7 +1009,7 @@ words:
     freq_rank: 485
 
   - english: "raise"
-    chinese: "升起"
+    chinese: "抬起（及物：把某物举高）"
     part_of_speech: "verb"
     phonetic: "/reɪz/"
     example_sentence: "Raise your hand if you understand it."
@@ -1069,7 +1069,7 @@ words:
     freq_rank: 493
 
   - english: "site"
-    chinese: "位置"
+    chinese: "地点（建筑或事件所在的场地）"
     part_of_speech: "noun"
     phonetic: "/saɪt/"
     example_sentence: "This is the site of a castle."
@@ -1179,7 +1179,7 @@ words:
 
 
   - english: "guarantee"
-    chinese: "保证"
+    chinese: "担保（承诺质量或结果一定实现）"
     part_of_speech: "verb"
     phonetic: "/ˌɡær.ənˈtiː/"
     example_sentence: "We guarantee good service."
@@ -1230,7 +1230,7 @@ words:
 
 
   - english: "breath"
-    chinese: "呼吸"
+    chinese: "气息（名词：一次吸入或呼出的气）"
     part_of_speech: "noun"
     phonetic: "/breθ/"
     example_sentence: "Take a deep breath and relax."
@@ -1505,7 +1505,7 @@ words:
 
 
   - english: "breathe"
-    chinese: "呼吸"
+    chinese: "呼吸（动词：吸入和呼出空气）"
     part_of_speech: "verb"
     phonetic: "/briːð/"
     example_sentence: "It is hard to breathe on the top."
@@ -1530,7 +1530,7 @@ words:
 
 
   - english: "comfort"
-    chinese: "安慰"
+    chinese: "慰藉（使心里感到安宁和舒服）"
     part_of_speech: "noun"
     phonetic: "/ˈkʌm.fət/"
     example_sentence: "Her words gave me comfort."
@@ -1684,7 +1684,7 @@ words:
 
 
   - english: "assure"
-    chinese: "保证"
+    chinese: "使确信（让某人放心）"
     part_of_speech: "verb"
     phonetic: "/əˈʃɔːr/"
     example_sentence: "The pilot assured us that the flight was safe."
@@ -1747,7 +1747,7 @@ words:
 
 
   - english: "disaster"
-    chinese: "灾难"
+    chinese: "灾祸（造成重大损失的意外事件）"
     part_of_speech: "noun"
     phonetic: "/dɪˈzɑː.stər/"
     example_sentence: "The flood was a big disaster."
@@ -1759,7 +1759,7 @@ words:
 
 
   - english: "devote"
-    chinese: "奉献"
+    chinese: "倾注（把时间精力用于某事）"
     part_of_speech: "verb"
     phonetic: "/dɪˈvəʊt/"
     example_sentence: "She devotes time to reading."
@@ -2193,7 +2193,7 @@ words:
 
 
   - english: "dedicate"
-    chinese: "奉献"
+    chinese: "献身（郑重地把一生献给某事业）"
     part_of_speech: "verb"
     phonetic: "/ˈded.ɪ.keɪt/"
     example_sentence: "She dedicated her life to teaching."
@@ -2492,7 +2492,7 @@ words:
 
 
   - english: "comprise"
-    chinese: "包括"
+    chinese: "由…构成（整体包含若干部分）"
     part_of_speech: "verb"
     phonetic: "/kəmˈpraɪz/"
     example_sentence: "The team comprises players from six schools."
@@ -2931,7 +2931,7 @@ words:
 
 
   - english: "calamity"
-    chinese: "灾难"
+    chinese: "浩劫（造成巨大不幸的严重灾难）"
     part_of_speech: "noun"
     phonetic: "/kəˈlæm.ə.ti/"
     example_sentence: "The flood was a great calamity for the village."
@@ -3072,7 +3072,7 @@ words:
 
 
   - english: "chaos"
-    chinese: "混乱"
+    chinese: "大乱（完全无序的混乱状态）"
     part_of_speech: "noun"
     phonetic: "/ˈkeɪ.ɒs/"
     example_sentence: "The strike caused chaos at the train station."
@@ -3118,7 +3118,7 @@ words:
 
 
   - english: "clarify"
-    chinese: "澄清"
+    chinese: "阐明（把意思讲清楚）"
     part_of_speech: "verb"
     phonetic: "/ˈklær.ɪ.faɪ/"
     example_sentence: "Could you clarify what you mean by that?"
@@ -3458,7 +3458,7 @@ words:
 
 
   - english: "concise"
-    chinese: "简明的"
+    chinese: "简练的（用很少的话说清意思）"
     part_of_speech: "adjective"
     phonetic: "/kənˈsaɪs/"
     example_sentence: "Write a concise summary of the article."
@@ -3470,7 +3470,7 @@ words:
 
 
   - english: "condemn"
-    chinese: "谴责"
+    chinese: "责难（严厉指责或判定有罪）"
     part_of_speech: "verb"
     phonetic: "/kənˈdem/"
     example_sentence: "The world condemned the bombing of the school."
@@ -3640,7 +3640,7 @@ words:
 
 
   - english: "console"
-    chinese: "安慰"
+    chinese: "安抚（安慰悲伤或失望的人）"
     part_of_speech: "verb"
     phonetic: "/kənˈsəʊl/"
     example_sentence: "She consoled the crying child with kind words."
@@ -3753,7 +3753,7 @@ words:
 
 
   - english: "contort"
-    chinese: "扭曲"
+    chinese: "扭歪（使身体或面容扭曲变形）"
     part_of_speech: "verb"
     phonetic: "/kənˈtɔːt/"
     example_sentence: "Pain contorted the old man's face."
@@ -4491,7 +4491,7 @@ words:
 
 
   - english: "deficient"
-    chinese: "缺乏的"
+    chinese: "欠缺的（某方面不足或不够用）"
     part_of_speech: "adjective"
     phonetic: "/dɪˈfɪʃ.ənt/"
     example_sentence: "The diet is deficient in fresh fruit."
@@ -4559,7 +4559,7 @@ words:
 
 
   - english: "defy"
-    chinese: "违抗"
+    chinese: "违抗（公然反抗权威或规则）"
     part_of_speech: "verb"
     phonetic: "/dɪˈfaɪ/"
     example_sentence: "The workers defy the unfair order bravely."
@@ -4715,7 +4715,7 @@ words:
 
 
   - english: "denounce"
-    chinese: "谴责"
+    chinese: "声讨（公开谴责或检举）"
     part_of_speech: "verb"
     phonetic: "/dɪˈnaʊns/"
     example_sentence: "Citizens denounced the rise in prices."
@@ -5005,7 +5005,7 @@ words:
 
 
   - english: "devise"
-    chinese: "设计"
+    chinese: "筹划（想出办法或发明装置）"
     part_of_speech: "verb"
     phonetic: "/dɪˈvaɪz/"
     example_sentence: "Engineers devised a new water filter."
@@ -5016,7 +5016,7 @@ words:
 
 
   - english: "devoid"
-    chinese: "缺乏的"
+    chinese: "全无的（与 of 连用：完全没有某事物）"
     part_of_speech: "adjective"
     phonetic: "/dɪˈvɔɪd/"
     example_sentence: "The room was devoid of furniture."
@@ -5235,7 +5235,7 @@ words:
 
 
   - english: "disarray"
-    chinese: "混乱"
+    chinese: "凌乱（东西散乱而秩序被打乱）"
     part_of_speech: "noun"
     phonetic: "/dɪs.əˈreɪ/"
     example_sentence: "The room was in complete disarray."
@@ -5371,7 +5371,7 @@ words:
 
 
   - english: "disobey"
-    chinese: "违抗"
+    chinese: "不服从（不听从命令或指示）"
     part_of_speech: "verb"
     phonetic: "/ˌdɪs.əˈbeɪ/"
     example_sentence: "The boy disobeyed his mother and ran out."
@@ -5460,7 +5460,7 @@ words:
 
 
   - english: "distort"
-    chinese: "扭曲"
+    chinese: "歪曲（使形状变形或使事实失实）"
     part_of_speech: "verb"
     phonetic: "/dɪˈstɔːt/"
     example_sentence: "The mirror distorts my face strangely."
@@ -5731,7 +5731,7 @@ words:
 
 
   - english: "succinct"
-    chinese: "简明的"
+    chinese: "精炼的（措辞紧凑而无多余字句）"
     part_of_speech: "adjective"
     phonetic: "/səkˈsɪŋkt/"
     example_sentence: "He gave a succinct report of the trip."

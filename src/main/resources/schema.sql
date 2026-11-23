@@ -17,6 +17,14 @@ CREATE TABLE IF NOT EXISTS {prefix}player_data (
     conversation_count INT DEFAULT 0,
     onboarding_step INT DEFAULT 0,
     wrong_book_cleared INT DEFAULT 0,
+    -- R-48 去规范化列：该玩家「答过题的词数」= word_progress 里
+    -- correct_count + incorrect_count > 0 的行数（绝对值，全量重算）。
+    -- 读侧：广场 countActiveSquareEntries / getActiveSquareEntries / getAuthoritativeRank
+    -- 用它替代原来的 O(N) EXISTS 相关子查询（5 万玩家实测 1594 ms → 百毫秒级）。
+    -- 写侧：PlayerDataStore.savePlayerDataInternal 在写完 word_progress 之后按 uuid 重算
+    -- 一次（单玩家最多 1357 词，实测 0.2 ms，且在同一事务内）。
+    -- 老库由 DatabaseManager 的 addColumnIfMissing + 一次性回填补齐（新列默认 0 = 没答过题）。
+    answered_count INT DEFAULT 0,
     -- 历史遗留列（unv-config-F4，round1 遗留 LOW）：零写入、恒 0，读侧已改走
     -- checkin_data.streak_count。保留不删（删列有 schema 变更风险），但不要用它做连击统计。
     current_streak INT DEFAULT 0,
@@ -355,3 +363,27 @@ CREATE INDEX IF NOT EXISTS {prefix}idx_player_data_score ON {prefix}player_data(
 CREATE INDEX IF NOT EXISTS {prefix}idx_player_data_coins ON {prefix}player_data(total_coins_earned);
 CREATE INDEX IF NOT EXISTS {prefix}idx_player_data_words ON {prefix}player_data(total_words_learned);
 CREATE INDEX IF NOT EXISTS {prefix}idx_player_data_streak ON {prefix}player_data(longest_streak);
+
+-- R-48：广场/名次的过滤+排序列复合索引。三条查询（countActiveSquareEntries /
+-- getActiveSquareEntries 阶段 1 / getAuthoritativeRank）形状相同：
+--   WHERE COALESCE(p.show_in_square,1) <> 0 AND d.answered_count > 0
+--   ORDER BY d.total_score DESC, d.uuid ASC LIMIT ? OFFSET ?
+-- 列序 (total_score, answered_count) 是实测选出来的，不是顺手写的：
+--   5 万玩家 / 100 万 word_progress 行 / 两类选择性（0.2% 与 67% 答过题）各 9 次取中位数：
+--     · 无此索引：COUNT 28~91 ms，PAGE 0.3~1.1 ms（走既有 idx_player_data_score）
+--     · (total_score, answered_count)：COUNT 32~98 ms，PAGE 0.3~0.4 ms  ← 选中
+--     · (answered_count)：COUNT 27~89 ms，PAGE <b>30~123 ms</b>  ← 反而劣化 100 倍
+--     · (answered_count, total_score)：与上面同病（前导列一样是 answered_count）
+-- 原因：answered_count 只有两个有效值（0 / >0），选择性极低，planner 一旦改走它就必须
+-- 为排序建临时 B 树（EXPLAIN 的 "USE TEMP B-TREE FOR ORDER BY"）；反过来保留
+-- total_score 在前导位则排序段可以直接沿索引走（仅剩 uuid 的 "RIGHT PART OF ORDER BY"
+-- 临时 B 树，那是 tie-break 列，代价恒定且极小）。所以：
+--   · <b>不要</b>单独给 answered_count 建索引，也不要把它放在复合索引的第一位；
+--   · COUNT 拿不到索引收益（要数 3 万行，怎么都得扫），保持现状即可 —— 它的成本形状
+--     由「答过题的行数」决定，不是由索引决定。
+-- MySQL 侧同一组用例的结论一致（实测 0.2 s 量级），故两方言共用这一条。
+-- 跨方言注意：SQLite 不支持仅 MySQL 的 DESC 索引语法混用，这里一律升序定义 ——
+-- SQLite 与 MySQL 8 都能反向扫描满足 ORDER BY ... DESC（同既有四条排行榜索引的惯例）。
+-- 运行时由 DatabaseManager.createIndexIfMissing 兼容建立（MySQL 8 不支持
+-- CREATE INDEX IF NOT EXISTS），此处为文档镜像。
+CREATE INDEX IF NOT EXISTS {prefix}idx_player_data_score_answered ON {prefix}player_data(total_score, answered_count);

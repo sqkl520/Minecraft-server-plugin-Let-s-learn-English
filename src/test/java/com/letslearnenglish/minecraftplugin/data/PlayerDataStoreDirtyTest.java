@@ -216,6 +216,14 @@ class PlayerDataStoreDirtyTest {
      * 对两条 SQL 都返回同一个 {@code ps}，于是 {@code setInt(4, x)} 会同时收到
      * "词行 correct_count" 与 "player_data total_sessions" 两个值 —— 列号断言会互相污染，
      * 无法钉死"第 4 位到底是哪一列"。按 SQL 分派后，每条语句的实参可独立断言。
+     *
+     * <p><b>R-48 修正：分派判据从「包含 word_progress」改成「以 INSERT ... word_progress
+     * 开头 / 包含 player_data」。</b>去规范化列 {@code answered_count} 让 player_data 的
+     * UPSERT 里也带了一段 {@code (SELECT COUNT(*) FROM ...word_progress ...)} 子查询，
+     * 于是旧的 {@code contains("word_progress")} 会把<b>两条语句都判成词行语句</b>
+     * —— statsPs 从此收不到任何调用，所有 {@code setInt(3, words)} 断言静默变空断言。
+     * 判据改成看<b>写入目标表名</b>（{@code INTO ...word_progress} vs {@code INTO ...player_data}），
+     * 这才是"这条语句写哪张表"的真正含义。
      */
     private PreparedStatement wordPs;
     private PreparedStatement statsPs;
@@ -224,7 +232,8 @@ class PlayerDataStoreDirtyTest {
         wordPs = mock(PreparedStatement.class);
         statsPs = mock(PreparedStatement.class);
         when(connection.prepareStatement(anyString())).thenAnswer(inv ->
-                ((String) inv.getArgument(0)).contains("word_progress") ? wordPs : statsPs);
+                ((String) inv.getArgument(0)).contains("word_progress (uuid")
+                        ? wordPs : statsPs);
         when(wordPs.executeBatch()).thenReturn(new int[0]);
         when(statsPs.executeUpdate()).thenReturn(1);
     }

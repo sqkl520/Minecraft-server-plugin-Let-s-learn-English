@@ -99,7 +99,7 @@ words:
     freq_rank: 232
 
   - english: "result"
-    chinese: "结果"
+    chinese: "结果（最终的成效或产物）"
     part_of_speech: "noun"
     phonetic: "/rɪˈzʌlt/"
     example_sentence: "You have to account for the result."
@@ -229,7 +229,7 @@ words:
     freq_rank: 251
 
   - english: "cost"
-    chinese: "花费"
+    chinese: "耗资（主语为物：某物需花费多少钱）"
     part_of_speech: "verb"
     phonetic: "/kɑːst/"
     example_sentence: "The holidays are costing me a lot."
@@ -289,7 +289,7 @@ words:
     freq_rank: 257
 
   - english: "spend"
-    chinese: "花费"
+    chinese: "花费（主语为人：花钱或花时间）"
     part_of_speech: "verb"
     phonetic: "/spend/"
     example_sentence: "All the money was spent on clothes."
@@ -729,7 +729,7 @@ words:
     freq_rank: 314
 
   - english: "effect"
-    chinese: "结果"
+    chinese: "效果（产生的作用或影响）"
     part_of_speech: "noun"
     phonetic: "/ɪˈfekt/"
     example_sentence: "It has had no effect on him."
@@ -779,7 +779,7 @@ words:
     freq_rank: 320
 
   - english: "deal"
-    chinese: "处理"
+    chinese: "应付（处理难题或与人打交道）"
     part_of_speech: "verb"
     phonetic: "/diːl/"
     example_sentence: "We must deal with the problem instantly."
@@ -989,7 +989,7 @@ words:
     freq_rank: 346
 
   - english: "stop"
-    chinese: "停止"
+    chinese: "停下（不再继续动作）"
     part_of_speech: "verb"
     phonetic: "/stɑːp/"
     example_sentence: "Stop it! You're making her feel uncomfortable!"
@@ -1736,7 +1736,7 @@ words:
 
 
   - english: "complain"
-    chinese: "抱怨"
+    chinese: "诉苦（向别人诉说自己的不满）"
     part_of_speech: "verb"
     phonetic: "/kəmˈpleɪn/"
     example_sentence: "He likes to complain about tests."
@@ -1884,7 +1884,7 @@ words:
 
 
   - english: "convenient"
-    chinese: "方便的"
+    chinese: "便利的（省事而便于使用）"
     part_of_speech: "adjective"
     phonetic: "/kənˈviː.ni.ənt/"
     example_sentence: "The subway is very convenient."
@@ -1997,7 +1997,7 @@ words:
 
 
   - english: "damp"
-    chinese: "潮湿的"
+    chinese: "微湿的（有点潮而还没干透）"
     part_of_speech: "adjective"
     phonetic: "/dæmp/"
     example_sentence: "The clothes feel damp today."
@@ -2245,7 +2245,7 @@ words:
 
 
   - english: "dispose"
-    chinese: "处理"
+    chinese: "处置（把废弃物处理掉）"
     part_of_speech: "verb"
     phonetic: "/dɪˈspəʊz/"
     example_sentence: "Please dispose of rubbish properly."
@@ -3325,7 +3325,7 @@ words:
 
 
   - english: "grumble"
-    chinese: "抱怨"
+    chinese: "嘟囔（低声不停地发牢骚）"
     part_of_speech: "verb"
     phonetic: "/ˈɡrʌm.bəl/"
     example_sentence: "He likes to grumble about work."
@@ -3357,7 +3357,7 @@ words:
 
 
   - english: "halt"
-    chinese: "停止"
+    chinese: "中止（使行进或进程暂停）"
     part_of_speech: "verb"
     phonetic: "/hɔːlt/"
     example_sentence: "The bus halted at the gate."
@@ -3369,7 +3369,7 @@ words:
 
 
   - english: "handy"
-    chinese: "方便的"
+    chinese: "顺手的（工具好用或位置近便）"
     part_of_speech: "adjective"
     phonetic: "/ˈhæn.di/"
     example_sentence: "This handy tool saves time."
@@ -3722,7 +3722,7 @@ words:
 
 
   - english: "humid"
-    chinese: "潮湿的"
+    chinese: "湿润的（多指空气湿度大）"
     part_of_speech: "adjective"
     phonetic: "/ˈhjuː.mɪd/"
     example_sentence: "Summers here are hot and humid."

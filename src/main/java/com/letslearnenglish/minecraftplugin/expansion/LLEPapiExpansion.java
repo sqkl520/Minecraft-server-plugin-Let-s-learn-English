@@ -13,6 +13,7 @@ import me.clip.placeholderapi.expansion.Relational;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.IllegalPluginAccessException;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.LocalDate;
@@ -62,10 +63,20 @@ import java.util.concurrent.ConcurrentHashMap;
  * fills it from an async task, returning "" (unknown) on a miss instead of
  * blocking on a SELECT under the shared connection lock.
  *
+ * R-47: %lle_rank% follows exactly the same shape for a different reason —
+ * its read is not a fast key lookup but an O(player-count) COUNT(*) with a
+ * correlated EXISTS subquery (measured 350ms at 10k players, 2.5s at 50k).
+ * It used to run on the PAPI calling thread (the scoreboard's main thread),
+ * and its 30s cache is keyed per player, so a 20-player scoreboard produced
+ * 20 main-thread O(N) queries every 30 seconds. It now keeps its own
+ * 30s value cache filled from an async task, returning "" (unknown) on a miss
+ * — not "unranked", because "unranked" is a confirmed conclusion while a
+ * cache miss is merely "not known yet". See {@link #RANK_UNKNOWN}.
+ *
  * <h2>「值已缓存，计分板刷新不碰 DB」这条不变量的真实边界</h2>
  *
  * <p>上面这条承诺只对<b>缓存命中</b>成立，而且只覆盖 {@link #cache} 与
- * {@link #coinsCache} 两级 TTL。TTL 过期后的首个刷新<b>必然</b>走一次
+ * {@link #coinsCache} / {@link #rankCache} 这几级 TTL。TTL 过期后的首个刷新<b>必然</b>走一次
  * {@link #resolveRequest}，而它在三种情况下会同步查库：
  * <ol>
  *   <li>隐私开关 {@code loadProfileSettingsForDisplay} 的 miss（一行 player_profiles）；</li>
@@ -73,6 +84,11 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>PlayerStats 族的 {@code getPlayerStats} —— 它 miss 时会同步
  *       {@code loadPlayerData}（两条 SELECT + difficult_words，全抢 connectionLock）。</li>
  * </ol>
+ *
+ * <p>R-47 之后 {@code rank} 已从这条「同步查库」清单里移出（改走
+ * {@link #getRankCached} 的异步补读，见类顶部说明）；它对外层缓存的写入由
+ * {@link #shouldCacheOuter} 约束 —— 只有拿到确定性结论（名次 / 已确认未上榜）才缓存，
+ * 暂态空串不缓存。
  *
  * <p><b>R22-D1 的处置正是把第 3 条收敛到「真的需要才读」</b>：{@code coins_earned} /
  * {@code rank} / {@code streak} / {@code longest_streak} / {@code achievements}
@@ -160,6 +176,26 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
     private final Map<UUID, CoinsEntry> coinsCache = new ConcurrentHashMap<>();
 
     /**
+     * R-47（性能）：{@code %lle_rank%} 的独立值缓存 —— 与 {@link #coinsCache} 同构的
+     * 「异步补读 + 短窗口去重」模式，只是值域是名次而不是金币。
+     *
+     * <p><b>为什么必须异步</b>：{@code %lle_rank%} 走
+     * {@code Leaderboard.getPlayerRank} → {@code PlayerDataStore.getAuthoritativeRank}，
+     * 那是一条 {@code SELECT COUNT(*) ... AND EXISTS (SELECT 1 FROM word_progress ...)}
+     * 的逐行相关子查询 —— 成本 O(玩家数)，实测 1 万玩家 <b>350ms</b>、5 万玩家 <b>2.5s</b>。
+     * 而 PAPI 的 {@link #onRequest} 由计分板插件在<b>主线程</b>求值，外层 30s 缓存又是
+     * 「按玩家分键」的：一块挂 20 人的计分板 = 每 30 秒 20 次主线程 O(N) 查询，
+     * 每次都可能让整个 tick 停住几秒。
+     *
+     * <p>外层 {@link #cache} 拦不住它：它缓存的是「已经算出来的字符串」，缓存 miss 时
+     * 仍要同步算一遍。所以这条路径必须像金币一样把「拿到值」与「用值」拆开。
+     *
+     * <p>键只有 UUID：名次是玩家级标量，「未上榜」文案的语言差异在处理时渲染
+     * （见 {@link RankEntry} 的说明），所以缓存本身与视角/语言无关。
+     */
+    private final Map<UUID, RankEntry> rankCache = new ConcurrentHashMap<>();
+
+    /**
      * R-16：{@link #coinsCache} 的条目上限。与 {@link #CACHE_MAX_ENTRIES} 同理超限淘汰，
      * 但键是玩家 UUID（数量级远小于「玩家 × 占位符 × 视角 × 语言」），故上限取小得多。
      * 不设上限的话，一个长期运行的服会为每个曾解析过该占位符的玩家留一条永久条目。
@@ -205,6 +241,74 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
         final long expiresAt;
 
         CachedValue(String value, long expiresAt) {
+            this.value = value;
+            this.expiresAt = expiresAt;
+        }
+    }
+
+    /**
+     * R-47（性能）：{@code %lle_rank%} 专用缓存 TTL（毫秒）—— 与 {@link #CACHE_TTL_MILLIS} 一致。
+     *
+     * <p>名次是榜单类数字，30s 陈旧在计分板上无害；而每一次刷新都要付一次
+     * O(玩家数) 的 {@code COUNT(*)} + 相关子查询（实测 1 万玩家 350ms、5 万玩家 2.5s），
+     * 所以「同一玩家 30s 内最多一次后台读」是这条路径的核心收益。
+     */
+    private static final long RANK_CACHE_TTL_MILLIS = CACHE_TTL_MILLIS;
+
+    /** R-47：名次读失败后的退避 TTL —— 与 {@link #COINS_RETRY_TTL_MILLIS} 同口径。 */
+    private static final long RANK_RETRY_TTL_MILLIS = 15_000L;
+
+    /**
+     * R-47：名次「在途/未知」窗口的短 TTL（毫秒）—— 补读去重闸门（同 {@link RankEntry}）。
+     *
+     * <p><b>为什么不是照抄 {@link #COINS_SENTINEL_TTL_MILLIS} 的 1s</b>：名次查询本身就是
+     * 那个慢查询（1 万玩家 350ms、5 万玩家 2.5s，且与大服的写入抢同一把
+     * {@code connectionLock}）。1s 窗口在 2.5s 的读面前会失效 —— 计分板每秒刷新一次，
+     * 同一玩家的请求会在首个读还没回来时再排两个<b>同量级的 O(N) 查询</b>，
+     * 把「主线程卡 2.5s」换成「异步池里堆叠三份 2.5s」。窗口必须覆盖一次读的耗时才叫去重。
+     *
+     * <p>10s 的代价：一次慢读失败/卡住后，同一玩家最多 10s 才重排一次，期间占位符为空串
+     * （诚实表达「还不知道」）。这个方向是安全的 —— 宁可少读，不可堆读。
+     */
+    private static final long RANK_SENTINEL_TTL_MILLIS = 10_000L;
+
+    /**
+     * R-47：{@link #rankCache} 的条目上限，取与 {@link #COINS_CACHE_MAX_ENTRIES} 相同的量级。
+     *
+     * <p>键是玩家 UUID（不是「玩家 × 占位符 × 视角 × 语言」），数量级由在线/近期玩家数决定，
+     * 故上限远小于 {@link #CACHE_MAX_ENTRIES} 的 5000。复用的是同一套淘汰逻辑
+     * （{@link #trimToCap}），只换上限值。
+     */
+    private static final int RANK_CACHE_MAX_ENTRIES = 2000;
+
+    /**
+     * R-47：{@code %lle_rank%} 缓存未命中 / 读失败时的返回值 —— 空串，<b>不是</b>「未上榜」。
+     *
+     * <p><b>两者不能合并</b>：「未上榜」是一个<b>已确认的结论</b>（查过，这个人确实不在榜上：
+     * 没答过题 / 隐身 / 无行），而缓存未命中只是<b>还不知道</b>。把「还不知道」渲染成
+     * 「未上榜」等于在计分板上发布一条编造的事实 —— 玩家会以为自己的名次掉了。
+     * 空串在计分板上只是个暂时的空位，下一轮刷新（异步读回来之后）就填上。
+     *
+     * <p>同文件先例：{@link #COINS_UNKNOWN}（{@code "0"} 是可信的假数，空串才是诚实表达）。
+     */
+    private static final String RANK_UNKNOWN = "";
+
+    /**
+     * R-47：名次值缓存条目 —— 结构同 {@link CoinsEntry}（{@code ConcurrentHashMap} + 过期时刻，
+     * 「在途」状态就是 {@code value == null} 且过期时刻未到，不再引入第二套状态位）。
+     *
+     * <p><b>为什么存数字而不存渲染好的字符串</b>：本缓存的键只有 UUID，而「未上榜」文案随
+     * <b>查看者语言</b>变化（见 {@link #getUnrankedText}，R22-D6 的既有口径）。若把
+     * {@code "未上榜"} 冻结进这个与语言无关的缓存，第一个 fill 的人是谁，之后所有语言的
+     * 查看者就都看到谁的语言 —— 正是 D5 用例钉住的那个缺陷的翻版。故这里只存<b>结论</b>
+     * （名次 / 已确认未上榜），文案在 {@link #renderRank} 里按当次查看者渲染。
+     */
+    private static final class RankEntry {
+        /** {@code null} = 读失败或尚未读到（未知）；非 null = 已确认的库内结论。 */
+        final Integer value;
+        final long expiresAt;
+
+        RankEntry(Integer value, long expiresAt) {
             this.value = value;
             this.expiresAt = expiresAt;
         }
@@ -348,11 +452,51 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
             // + 后台补读」），再套一层 30s 会把「首轮暂态空串」冻上整整 30 秒：异步读
             // 毫秒级就回来了，玩家却要盯着空位半分钟。它的解析成本只有一次
             // ConcurrentHashMap 查询，不需要外层兜底。
-            if (!params.equals("coins_earned")) {
+            //
+            // R-47：rank 只在<b>拿到确定性结论</b>时才进本缓存（见 shouldCacheOuter）——
+            // 同理不能把「还不知道」的暂态空串冻 30s；但拿到 "#5" /「未上榜」之后仍要缓存，
+            // 否则每次计分板刷新都会重走 resolveRequest（含一次
+            // loadProfileSettingsForDisplay，它在隐私缓存 miss 时是<b>同步</b> SELECT，
+            // 正是本类要避免的形状）。
+            if (shouldCacheOuter(params, resolved)) {
                 cache.put(cacheKey, new CachedValue(resolved, now + CACHE_TTL_MILLIS));
             }
         }
         return resolved;
+    }
+
+    /**
+     * R-16 / R-47：本次解析结果是否该进 30s 外层缓存 {@link #cache}。
+     *
+     * <p><b>为什么要有这条谓词</strong>（而不是在 resolveCached 里堆 {@code if}）：
+     * 两条「异步补读」路径（coins / rank）都有同一个形状 —— 它们自己持有一份
+     * 「值 + TTL + 在途去重」的缓存，且未命中时会返回一个<b>暂态占位值</b>。
+     * 把那个暂态值冻进外层 30s 缓存，等于让异步读回来的真值再等一个完整 TTL 才可见。
+     *
+     * <ul>
+     *   <li>{@code coins_earned}：<b>一律</b>不入外层缓存。它每次解析的成本只有一次
+     *       ConcurrentHashMap 查询，不需要兜底（反例见 {@link #getCoinsCached}）。</li>
+     *   <li>{@code rank}：<b>只在拿到确定性结论时</b>入缓存。暂态占位值是空串
+     *       （{@link #RANK_UNKNOWN}），而确定性结论是 {@code "#5"} 或「未上榜」文案 ——
+     *       后者非空，故用「是否为空串」就能区分，不必在渲染层再传一个布尔。
+     *       拿到结论后仍必须缓存：否则每次刷新都会重走 {@link #resolveRequest}，
+     *       而它开头是一次 {@code loadProfileSettingsForDisplay}（隐私缓存 miss 时是
+     *       同步 SELECT），正好抵消异步化的收益。</li>
+     * </ul>
+     *
+     * @param params   占位符参数名（非 null）
+     * @param resolved 本次解析出的字符串（非 null）
+     * @return {@code true} = 可以写入外层 30s 缓存
+     */
+    private static boolean shouldCacheOuter(@NotNull String params, @NotNull String resolved) {
+        if (params.equals("coins_earned")) {
+            return false;
+        }
+        if (params.equals("rank")) {
+            // 空串 = 还不知道（异步读在途/失败），不能冻 30s；非空 = 名次或「未上榜」，可缓存。
+            return !resolved.isEmpty();
+        }
+        return true;
     }
 
     /**
@@ -467,8 +611,13 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
                 return getCoinsCached(playerId);
             }
             case "rank" -> {
-                int rank = plugin.getProgressManager().getLeaderboard().getPlayerRank(playerId);
-                return rank > 0 ? "#" + rank : getUnrankedText(viewer);
+                // R-47（性能）：原实现同步调 Leaderboard.getPlayerRank —— 那是一条
+                // O(玩家数) 的 COUNT(*) + 相关子查询（1 万玩家 350ms、5 万玩家 2.5s），
+                // 却跑在 PAPI 的调用线程（计分板 = 主线程）上，30s 缓存又按玩家分键，
+                // 于是每块挂 N 人的计分板每 30 秒产生 N 次主线程慢查询。
+                // 改走 getRankCached：命中零 IO，未命中/在途返回空串并在后台补读。
+                // 注意未命中返回空串而<b>不是</b>「未上榜」—— 两者语义不同，见 RANK_UNKNOWN。
+                return renderRank(getRankCached(playerId), viewer);
             }
             case "streak" -> {
                 // P3-03：签到连击（checkin_data.streak_count），与 PlayerStats 无关。
@@ -623,6 +772,170 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
     }
 
     /**
+     * R-47（性能）：{@code %lle_rank%} 的缓存读取入口 —— <b>调用线程永不碰 DB</b>。
+     *
+     * <p>结构与 {@link #getCoinsCached} 同构（本仓已验证的形态）：
+     * <ol>
+     *   <li>命中且未过期 → 直接返回缓存结论（零 IO）；</li>
+     *   <li>未命中 / 已过期 → 抢占一个短 TTL 的「未知」条目（{@link #RANK_SENTINEL_TTL_MILLIS}），
+     *       抢到的这个线程排<b>一次</b>异步读，然后返回 {@code null}（= 还不知道）；</li>
+     *   <li>异步读完成后用真结论 + 正常 TTL 覆写，下一次刷新自然拿到真值。</li>
+     * </ol>
+     *
+     * <p><b>抢占用 {@code putIfAbsent} + {@code replace(旧, 新)}</b>，不是裸 {@code put}：
+     * 并发下另一个线程可能刚好把<b>真结论</b>写进来，裸 put 会把它盖成「未知」，
+     * 凭空多一次空串展示。{@code replace} 只在「旧条目还是我看到的那个」时才生效。
+     *
+     * <p><b>为什么代价可以接受</b>：一次 30s 周期内首个刷新会看到空串。这是刻意的交换 ——
+     * 空串是「还没有」的诚实表达，而同步查库换来的是主线程 350ms~2.5s 的停摆。
+     *
+     * @param playerId 目标玩家（非 null，由调用链保证）
+     * @return {@code null} = 还不知道（应渲染空串）；{@code >0} = 名次；
+     *         {@code <=0} = <b>已确认</b>不在榜上（应渲染「未上榜」）
+     */
+    private Integer getRankCached(UUID playerId) {
+        long now = System.currentTimeMillis();
+        RankEntry entry = rankCache.get(playerId);
+        if (entry != null && now < entry.expiresAt) {
+            // 命中窗口内：null = 上一轮读失败（退避未到），仍是「还不知道」。
+            return entry.value;
+        }
+        // 从未读过 / 已过期：抢占「在途」窗口（短 TTL 的未知条目）。
+        RankEntry claiming = new RankEntry(null, now + RANK_SENTINEL_TTL_MILLIS);
+        RankEntry prev = rankCache.putIfAbsent(playerId, claiming);
+        if (prev != null) {
+            if (now < prev.expiresAt) {
+                // 别人先一步占了窗口（或填了真结论）：不重复排队。
+                return prev.value;
+            }
+            // 已过期 → 本次抢到补读权。用 replace 防覆盖并发写入的真结论（见 javadoc）。
+            if (!rankCache.replace(playerId, prev, claiming)) {
+                return null; // 被别人抢先换了条目 —— 下一轮刷新再读
+            }
+        }
+        scheduleRankLoad(playerId);
+        return null;
+    }
+
+    /**
+     * R-47：异步补读名次 —— 唯一一处真正执行那条 O(玩家数) 查询的代码。
+     *
+     * <p>用 {@code runTaskAsynchronously}：读取是阻塞 JDBC（且是慢查询），
+     * 放主线程就是把计分板刷新变成 tick 卡顿源。写 {@link #rankCache} 是无锁的
+     * {@code ConcurrentHashMap.put}，跨线程安全。
+     *
+     * <p><b>失败口径</b>（与金币刻意不同，见下方理由）：失败落
+     * {@code value = null} + {@link #RANK_RETRY_TTL_MILLIS} 退避，<b>并记一次 WARNING</b>。
+     * 金币那条路径不记日志是因为 {@code DatabaseManager.getCoinsEarnedWithStatus} 内部
+     * 已经按行记过；而名次的<b>读失败</b>（三态 {@code readFailed}）本身没有旁路日志，
+     * 静默的话服主永远看不到「计分板名次一直是空」的原因。频率是「每玩家每 15s 最多一条」
+     * （失败会写退避条目，期间不再排队），不会刷屏。
+     *
+     * <p><b>绝不把失败折成「未上榜」</b>：{@code -1} / {@code 0} 是<b>已确认不在榜上</b>的
+     * 结论（查过、确实没有），把「不知道」写成它就是编造事实。三态版
+     * {@link PlayerDataStore.AuthoritativeRankLoad#readFailed()} 正是为此存在。
+     */
+    private void scheduleRankLoad(UUID playerId) {
+        if (!scheduleAsync(() -> loadRankIntoCache(playerId))) {
+            // 无调度器 / 调度器已关：保持未知，等退避后重试。
+            // 占位符解析绝不能因为「排不上任务」而抛给 PAPI 调用方。
+            rankCache.put(playerId, new RankEntry(null,
+                    System.currentTimeMillis() + RANK_RETRY_TTL_MILLIS));
+        }
+    }
+
+    /**
+     * R-47：排一次异步任务，返回是否成功投递。
+     *
+     * <p><b>为什么单开一个方法</b>：{@code SchedulerRejectionCatchTest} 的检查规则是
+     * 「catch 往上 8 行内出现 {@code runTask} / {@code getScheduler()} 就必须接住
+     * {@link IllegalPluginAccessException}」。把派发与守卫放在一起，这条规则才真的<b>看得见</b>
+     * 这段代码；塞在 {@link #scheduleRankLoad} 里（中间隔着一个长 lambda）会让守卫
+     * 落在规则的扫描窗口之外 —— 于是一条本该被钉住的契约在 lint 眼里根本不存在。
+     *
+     * <p>与 {@code RewardEngine.scheduleAsync} 同姿态：不只 catch ISE。
+     * {@link IllegalPluginAccessException} 才是 Paper 的 {@code CraftScheduler.validate}
+     * 在插件已禁用时真正抛的类型（extends {@link RuntimeException}，<b>不是</b>
+     * {@link IllegalStateException} 的子类）；ISE 留给纯 JVM 夹具的调度器替身。
+     *
+     * @return {@code true} = 已投递到异步线程；{@code false} = 排不上（调用方落退避条目）
+     */
+    private boolean scheduleAsync(Runnable task) {
+        try {
+            org.bukkit.Server server = plugin.getServer();
+            if (server == null || server.getScheduler() == null) {
+                return false;
+            }
+            server.getScheduler().runTaskAsynchronously(plugin, task);
+            return true;
+        } catch (IllegalPluginAccessException | IllegalStateException e) {
+            // 关服/停用窗口，或 mock 调度器拒收：调用方据 false 落退避条目，不冒泡。
+            return false;
+        }
+    }
+
+    /**
+     * R-47：异步任务本体 —— 读一次名次并写回 {@link #rankCache}。
+     *
+     * <p>拆出来是为了让 {@link #scheduleAsync} 的 lambda 只有一行，上面的守卫规则才站得住。
+     *
+     * <p><b>失败口径</b>（与金币刻意不同，见 {@link #RANK_RETRY_TTL_MILLIS} 与文档）：
+     * 失败落 {@code value = null} + 退避 TTL，<b>并记一次 WARNING</b> —— 名次的读失败
+     * （三态 {@code readFailed}）没有旁路日志，静默的话服主永远看不到「计分板名次一直是空」
+     * 的原因。频率是「每玩家每 15s 最多一条」（失败会写退避条目，期间不再排队），不会刷屏。
+     * <b>绝不把失败折成「未上榜」</b>：那是编造结论。
+     */
+    private void loadRankIntoCache(UUID playerId) {
+        Integer value = null;
+        boolean failed = false;
+        try {
+            PlayerDataStore.AuthoritativeRankLoad load =
+                    plugin.getPlayerDataStore().getAuthoritativeRankWithStatus(playerId);
+            if (load == null || load.readFailed()) {
+                failed = true;
+            } else {
+                // rank <= 0 = 已确认不在榜上（结论），不是失败。
+                value = load.rank();
+            }
+        } catch (RuntimeException e) {
+            // 连接层运行期异常（重连失败等）：保持未知，等退避后重试。
+            failed = true;
+        } finally {
+            // 先写缓存再记日志：日志本身若失败（getLogger 为 null 的夹具）不能把
+            // 「写回退避条目」这一步跳掉 —— 那会让同一玩家每次刷新都重排一次慢查询，
+            // 正好退化成本次要修的那个形状。
+            long ttl = value != null ? RANK_CACHE_TTL_MILLIS : RANK_RETRY_TTL_MILLIS;
+            maybeEvictRanks();
+            rankCache.put(playerId, new RankEntry(value, System.currentTimeMillis() + ttl));
+            if (failed) {
+                java.util.logging.Logger logger = plugin.getLogger();
+                if (logger != null) {
+                    logger.log(java.util.logging.Level.WARNING,
+                            "Failed to read rank for " + playerId
+                                    + " — placeholder stays empty until the next retry");
+                }
+            }
+        }
+    }
+
+    /**
+     * R-47：把 {@link #getRankCached} 的三态结论渲染成占位符文本。
+     *
+     * <p>文案在这里（而不是缓存里）渲染：结论与查看者无关，<b>语言</b>与查看者有关 ——
+     * 见 {@link RankEntry} 的说明（R22-D6 已把语言口径钉成「查看者」，不能因为加了缓存
+     * 又退回「第一个谁 fill 就用谁的语言」）。
+     *
+     * @param rank   {@code null} = 还不知道 → {@link #RANK_UNKNOWN}（空串，<b>不是</b>未上榜）
+     * @param viewer 查看者（null = plain 入口，回落服务端默认语言）
+     */
+    private String renderRank(Integer rank, Player viewer) {
+        if (rank == null) {
+            return RANK_UNKNOWN;
+        }
+        return rank > 0 ? "#" + rank : getUnrankedText(viewer);
+    }
+
+    /**
      * R-16（隐私）：这个 params 是否属于「学习成绩」族 —— 即非本人查看时是否要
      * 叠加目标 {@code showResults} 门禁。
      *
@@ -705,15 +1018,41 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
      * （弱一致迭代器，多线程下安全；不精确计数，够用即可）。
      */
     private void maybeEvictCoins() {
-        if (coinsCache.size() < COINS_CACHE_MAX_ENTRIES) {
+        trimToCap(coinsCache, COINS_CACHE_MAX_ENTRIES);
+    }
+
+    /**
+     * R-47：{@link #rankCache} 超限时淘汰一批。
+     *
+     * <p><b>复用 {@link #trimToCap} 而不是再抄一份循环</b>：两处淘汰逻辑若各写一遍，
+     * 将来改「一次淘汰多少 / 怎么判上限」就会只改到一处 —— 本类已经因为「同一件事两处
+     * 各判一遍」踩过隐私口径不一致的坑（见 {@code RESULTS_GATED} 的注释）。上限值本身
+     * 仍是各自独立的常量（{@link RANK_CACHE_MAX_ENTRIES}），因为键的量级不同。
+     */
+    private void maybeEvictRanks() {
+        trimToCap(rankCache, RANK_CACHE_MAX_ENTRIES);
+    }
+
+    /**
+     * R-47：把任意 {@code UUID -> 条目} 缓存修剪到给定上限之下。
+     *
+     * <p>ConcurrentHashMap 的 keySet 迭代器是<b>弱一致</b>的，多线程下迭代安全；
+     * 淘汰不精确计数（并发 remove 可能少删几条），够用即可 —— 这不是 LRU，
+     * 目标是「长期运行的服不会为每个曾查询过的玩家留一条永久条目」。
+     *
+     * @param map 目标缓存（非 null）
+     * @param cap 条目上限；{@code map.size() < cap} 时零动作
+     */
+    private static <V> void trimToCap(Map<UUID, V> map, int cap) {
+        if (map.size() < cap) {
             return;
         }
         int removed = 0;
-        for (UUID key : coinsCache.keySet()) {
+        for (UUID key : map.keySet()) {
             if (removed >= CACHE_EVICT_BATCH) {
                 break;
             }
-            if (coinsCache.remove(key) != null) {
+            if (map.remove(key) != null) {
                 removed++;
             }
         }

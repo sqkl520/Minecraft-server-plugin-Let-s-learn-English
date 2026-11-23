@@ -600,10 +600,12 @@ class LLEPapiExpansionTest {
     @DisplayName("B10b：rank/streak/longest_streak/achievements 同样不碰 getPlayerStats")
     void nonStatsPlaceholdersDoNotReadPlayerStats() {
         when(db.getCheckInData(TARGET_ID)).thenReturn(new CheckInData("2026-01-20", 5));
-        when(leaderboard.getPlayerRank(TARGET_ID)).thenReturn(3);
+        // R-47：rank 改成异步补读，首轮返回空串；这里只需要它不碰 getPlayerStats。
+        when(store.getAuthoritativeRankWithStatus(TARGET_ID))
+                .thenReturn(PlayerDataStore.AuthoritativeRankLoad.ranked(3));
         when(achievements.getUnlockedCount(TARGET_ID)).thenReturn(3);
 
-        assertEquals("#3", plain("rank"));
+        assertEquals("", plain("rank"), "R-47：首轮在途 → 空串（不是「未上榜」）");
         assertEquals("5", plain("streak"));
         assertEquals("0", plain("longest_streak"), "无行 → 0（见 E6/E7）");
         assertEquals("3/" + Achievement.values().length, plain("achievements"));
@@ -652,6 +654,42 @@ class LLEPapiExpansionTest {
         assertTrue(coinsCacheSize() <= 2_000,
                 "coinsCache 上界 2000（COINS_CACHE_MAX_ENTRIES），实际 " + coinsCacheSize()
                         + " —— 长期运行的服会为每个玩家留永久条目");
+    }
+
+    @Test
+    @DisplayName("B12b（R-47）：名次条目超上限后被淘汰，不会无限增长")
+    void rankCacheEvictsBeyondCap() {
+        runInline = true;
+        when(store.getAuthoritativeRankWithStatus(any(UUID.class)))
+                .thenReturn(PlayerDataStore.AuthoritativeRankLoad.ranked(1));
+
+        for (int i = 0; i < 2_100; i++) {
+            Player p = onlinePlayer(new UUID(0x5A5A5A5AL, i));
+            expansion.onPlaceholderRequest(p, p, "rank");
+        }
+        assertTrue(cacheFieldSize("rankCache") <= 2_000,
+                "rankCache 上界 2000（RANK_CACHE_MAX_ENTRIES），实际 " + cacheFieldSize("rankCache")
+                        + " —— 长期运行的服会为每个玩家留永久条目");
+    }
+
+    @Test
+    @DisplayName("B12c（R-47）：名次缓存 30s 内只补读一次（去重闸门生效）")
+    void rankLoadDeduplicatedWithinTtl() {
+        when(store.getAuthoritativeRankWithStatus(TARGET_ID))
+                .thenReturn(PlayerDataStore.AuthoritativeRankLoad.ranked(7));
+
+        for (int i = 0; i < 5; i++) {
+            assertEquals("", plain("rank"), "在途窗口内一律空串");
+        }
+        // 5 次刷新只排 1 次读 —— 否则计分板每秒刷新会把异步池堆满 O(玩家数) 查询。
+        verify(scheduler, times(1)).runTaskAsynchronously(any(Plugin.class), any(Runnable.class));
+
+        drainAsync();
+        assertEquals("#7", plain("rank"));
+        for (int i = 0; i < 5; i++) {
+            assertEquals("#7", plain("rank"), "命中窗口内直接返回结论，零 IO");
+        }
+        verify(scheduler, times(1)).runTaskAsynchronously(any(Plugin.class), any(Runnable.class));
     }
 
     // ======================================================== C. 三道隐私门
@@ -807,10 +845,18 @@ class LLEPapiExpansionTest {
                 .thenReturn("未上榜");
         when(messages.getPlayerMessage(eq(enViewer), eq("placeholder.rank-unranked")))
                 .thenReturn("Unranked");
-        when(leaderboard.getPlayerRank(TARGET_ID)).thenReturn(0);
+        when(store.getAuthoritativeRankWithStatus(TARGET_ID))
+                .thenReturn(PlayerDataStore.AuthoritativeRankLoad.notRanked());
 
         // 修复前 getUnrankedText 按「目标」语言取，而缓存键里的 lang 按「查看者」取 ——
         // 同一次调用里两套口径，英文客户端在计分板上看到中文「未上榜」。
+        //
+        // R-47：rank 改异步补读后，首轮是在途（空串），要先放行异步读拿到结论再断言文案。
+        // 这恰好也是「文案必须按当次查看者渲染」的证明：同一个缓存结论（已确认未上榜）
+        // 被两种语言的查看者先后读到，各拿各的文案 —— 若把文案冻进 rankCache 就会红。
+        runInline = true;
+        assertEquals("", expansion.onPlaceholderRequest(enViewer, zhTarget, "rank"),
+                "R-47：首轮在途 → 空串");
         assertEquals("Unranked", expansion.onPlaceholderRequest(enViewer, zhTarget, "rank"),
                 "未上榜文案是渲染在查看者屏幕上的，必须随查看者语言");
         assertEquals("未上榜", expansion.onPlaceholderRequest(zhTarget, zhTarget, "rank"),
@@ -839,9 +885,12 @@ class LLEPapiExpansionTest {
     @Test
     @DisplayName("D5c：plain 入口（无查看者上下文）退回服务端默认语言")
     void plainEntryUnrankedFallsBackToServerLanguage() {
-        when(leaderboard.getPlayerRank(TARGET_ID)).thenReturn(0);
+        when(store.getAuthoritativeRankWithStatus(TARGET_ID))
+                .thenReturn(PlayerDataStore.AuthoritativeRankLoad.notRanked());
         // getMessage（非 getPlayerMessage）就是「服务端默认语言」的取值口。
         when(messages.getMessage("placeholder.rank-unranked")).thenReturn(UNRANKED);
+        runInline = true; // R-47：先放行异步补读，否则拿到的是在途空串
+        assertEquals("", plain("rank"), "R-47：首轮在途 → 空串");
         assertEquals(UNRANKED, plain("rank"));
         verify(messages, never()).getPlayerMessage(any(Player.class), eq("placeholder.rank-unranked"));
     }
@@ -916,14 +965,48 @@ class LLEPapiExpansionTest {
     }
 
     @Test
-    @DisplayName("E3：rank —— 有名次加 #，无名次回落未上榜")
+    @DisplayName("E3：rank —— 有名次加 #，已确认不在榜上回落未上榜，未知是空串")
     void rankPlaceholder() {
-        when(leaderboard.getPlayerRank(TARGET_ID)).thenReturn(3);
+        when(store.getAuthoritativeRankWithStatus(TARGET_ID))
+                .thenReturn(PlayerDataStore.AuthoritativeRankLoad.ranked(3));
+        // R-47：首轮在途 → 空串（绝不显示「未上榜」，那会把「还不知道」说成结论）。
+        assertEquals("", plain("rank"), "在途 → 空串");
+        // 放行异步补读后，同一格才拿到真名次。
+        drainAsync();
         assertEquals("#3", plain("rank"));
 
         OfflinePlayer other = offlinePlayer(OTHER_ID);
+        when(store.getAuthoritativeRankWithStatus(OTHER_ID))
+                .thenReturn(PlayerDataStore.AuthoritativeRankLoad.notRanked());
+        assertEquals("", expansion.onRequest(other, "rank"), "在途 → 空串");
+        drainAsync();
         assertEquals(UNRANKED, expansion.onRequest(other, "rank"),
-                "NOT_RANKED(<=0) → 未上榜文本");
+                "已确认不在榜上（<=0）→ 未上榜文本");
+    }
+
+    @Test
+    @DisplayName("E3b（R-47）：rank 读失败 → 空串 + WARNING，绝不显示「未上榜」")
+    void rankReadFailureStaysUnknown() {
+        when(store.getAuthoritativeRankWithStatus(TARGET_ID))
+                .thenReturn(PlayerDataStore.AuthoritativeRankLoad.failed());
+        assertEquals("", plain("rank"), "在途 → 空串");
+        drainAsync();
+        assertEquals("", plain("rank"),
+                "读失败 = 还不知道 = 空串。显示「未上榜」是在计分板上发布一条编造的结论");
+    }
+
+    @Test
+    @DisplayName("E3c（R-47）：rank 走异步线程，调用线程不碰 DB（PAPI 主线程安全的唯一保证）")
+    void rankReadsOffTheCallingThread() {
+        when(store.getAuthoritativeRankWithStatus(TARGET_ID))
+                .thenReturn(PlayerDataStore.AuthoritativeRankLoad.ranked(3));
+        // runInline 默认 false：异步任务只入队不执行。
+        assertEquals("", plain("rank"));
+        // 调用线程上一次都没读过 —— 变红说明有人把同步查询搬回来了（主线程 2.5s 卡顿）。
+        verify(store, never()).getAuthoritativeRankWithStatus(any(UUID.class));
+        verify(scheduler, times(1)).runTaskAsynchronously(any(Plugin.class), any(Runnable.class));
+        drainAsync();
+        verify(store, times(1)).getAuthoritativeRankWithStatus(TARGET_ID);
     }
 
     @Test

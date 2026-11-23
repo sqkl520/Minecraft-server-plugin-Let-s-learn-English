@@ -874,7 +874,9 @@ progress-system:
 - **成就系统 (achievement-system)**：`unlock-sound`（解锁音效，留空/"none" 静音）。
 - **TTS 发音 (tts)**：`enabled`、`cache-days`（音频缓存保留天数）、`voicerss-api-key`（留空仅显示音标不下载音频）、`pronounce-cooldown-seconds`（发音按钮冷却）。音频缓存落 `audio/` 目录。**`enabled` / `cache-days` / `voicerss-api-key` 为启动快照（`TtsManager` 构造函数读取），改动需重启**；`pronounce-cooldown-seconds` 每次点击点读，reload 即时生效。
 - **难度等级 (difficulty-settings)**：当前无读取点——难度列表由 `words/` 目录自动发现，显示名走语言文件 `word-bank.difficulty-*` 键，改动本段无实际效果。
-- **统计仪表盘 (statistics-server)**：`enabled`（默认 false）、`bind-address`、`port`（默认 8080）、`ip-whitelist`（支持 CIDR）、`auth.username` / `auth.password`（HTTP Basic Auth，默认 admin/changeme，务必修改）。
+- **统计仪表盘 (statistics-server)**：`enabled`（默认 false）、`bind-address`、`port`（默认 8080）、`ip-whitelist`（支持 CIDR）、`auth.username` / `auth.password`（HTTP Basic Auth，默认 admin/changeme，务必修改）、`cache-seconds`（面板统计结果的缓存时长，秒，默认 **120**，夹在 60~3600）。
+
+  `cache-seconds` 是性能键，不是显示偏好：面板每次刷新要跑 5 条全表聚合（其中 `COUNT(DISTINCT word)` 在 5 万玩家库上实测约 4.8 s，5 条合计约 5.5 s），且这 5 条**全程持**数据库唯一连接锁 —— 浏览器每 60 秒自动拉一次，不缓存就等于每 60 秒让全服所有数据库操作排队。缓存把「每 60 秒算一次」变成「每 `cache-seconds` 算一次」。行为：① 首次计算在面板启动时于 `lle-stats-refresh-dashboard` 后台线程预热，**不占主线程也不占 HTTP 工作线程**；② 缓存过期**不会让请求卡住**，先返回上一次的结果、后台重算；③ 重算失败保留旧结果并记 WARNING，不清空缓存；④ `/lea reload` 会重建统计服务，缓存随新实例重来（所以 reload 后不会读到旧数字）。面板显示的是累计量，缓存越久越与游戏内实时数值有差距 —— 想尽量实时就设 60，玩家量大（10 万行以上）且只看趋势可设 300。
 - **数据库版本 (config-version)**：主 config 当前为 `2`；插件对缺失的新键采用「读取时回落默认值」策略，无需迁移。
 
 > **发音功能的真实行为**：仓库内没有 `sounds.json` / `pack.mcmeta`，也没有任何资源包；点击发音按钮实际播放的是 `BLOCK_NOTE_BLOCK_PLING`（回落 `ENTITY_EXPERIENCE_ORB_PICKUP`）音符盒提示音（`TtsManager.playPronunciationCue`，`TtsManager.java:210-220`），**不会播放下载的 `.wav` 语音**。配置 VoiceRSS 密钥后，插件只在后台把音频下载到 `audio/` 作缓存（为未来资源包预留），当前版本无任何播放路径；不配密钥时只显示音标。

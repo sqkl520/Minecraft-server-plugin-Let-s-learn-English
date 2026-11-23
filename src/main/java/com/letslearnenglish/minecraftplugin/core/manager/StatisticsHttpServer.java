@@ -42,12 +42,56 @@ public class StatisticsHttpServer {
      */
     private static final int MAX_DISCARD_BYTES = 64 * 1024;
 
+    /**
+     * 面板聚合查询的缓存 TTL 下限/上限（秒）。
+     *
+     * <p>下限 60 的理由：浏览器自身的刷新间隔就是 60 s（{@code setInterval(fetchStats, 60000)}），
+     * TTL 小于它就等于"每次请求都过期"，缓存退化成"每次都返回上一轮的值"，
+     * 面板永久落后一轮，反而比不做缓存更难解释。
+     * 上限 3600 的理由：这是"最后防线"而不是"推荐值" —— 面板显示的是累计量，
+     * 服主若把 TTL 调到小时级，看到的数字会明显与游戏内对不上。
+     */
+    private static final int MIN_CACHE_SECONDS = 60;
+    private static final int MAX_CACHE_SECONDS = 3600;
+
+    /** 默认 120 s：覆盖 2 个刷新周期。见 {@link #cacheSeconds} 处的取舍说明。 */
+    private static final int DEFAULT_CACHE_SECONDS = 120;
+
+    /**
+     * 冷启动时 HTTP 线程最多等首次计算这么久。
+     *
+     * <p>取值远大于实测的 5.5 s（5 万玩家库）—— 它是"卡死检测"而不是"性能预算"：
+     * 正常时首次计算远早于此返回，超时只在库不可达/表异常巨大时触发，
+     * 那时宁可回 503 也不要让 2 线程的 worker 池被一条永不返回的查询占满。
+     */
+    private static final long FIRST_COMPUTE_WAIT_NANOS = TimeUnit.SECONDS.toNanos(20);
+
     private final LetsLearnEnglish plugin;
     private final DatabaseManager databaseManager;
     private HttpServer server;
     private volatile boolean running;
     private ExecutorService executor;
     private final Gson gson;
+
+    /**
+     * {@code /api/stats} 的<b>聚合结果快照缓存</b>。
+     *
+     * <p>存在的唯一理由：这 5 条查询在 5 万玩家库上合计 5.5 s，且<b>全程持</b>
+     * {@code DatabaseManager} 的唯一连接锁 —— 而浏览器每 60 s 就拉一次。
+     * 缓存把"每 60 秒算一次"变成"每 TTL 算一次"，卡顿从"周期性"变成"稀疏"。
+     *
+     * <p><b>语义不变</b>：缓存里存的就是 {@link #computeStatsSnapshot()} 原样算出的
+     * 5 个数字与 7 天曲线，不换口径、不做近似、不本地推算。
+     *（特别地：{@code totalWords} 仍是 {@code COUNT(DISTINCT word) FROM word_progress}
+     * —— "被玩家答过的不同单词数"，<b>不是</b>词库总词数；换成读内存词库会改变面板含义。）
+     *
+     * <p>缓存的并发/过期/失败语义全部在 {@link TtlSnapshotCache} 内，这里只负责
+     * 提供 loader 与把快照摊平成 JSON。
+     */
+    private final TtlSnapshotCache<StatsSnapshot> statsCache;
+
+    /** 生效的缓存 TTL（秒）；仅用于启动日志与诊断。 */
+    private final int cacheSeconds;
 
     // Config values — read once at construction
     private final int port;
@@ -67,6 +111,24 @@ public class StatisticsHttpServer {
         this.ipWhitelist = config.getStringList("statistics-server.ip-whitelist");
         this.authUsername = config.getString("statistics-server.auth.username", "admin");
         this.authPassword = config.getString("statistics-server.auth.password", "changeme");
+
+        // 缓存配置在构造器读取（与其它 config 值同口径：reload 靠
+        // restartStatisticsServerIfNeeded() 重建本对象来生效）。
+        this.cacheSeconds = clampCacheSeconds(
+                config.getInt("statistics-server.cache-seconds", DEFAULT_CACHE_SECONDS));
+        this.statsCache = new TtlSnapshotCache<>(
+                this::computeStatsSnapshot,
+                TimeUnit.SECONDS.toNanos(cacheSeconds),
+                plugin.getLogger(),
+                "dashboard");
+    }
+
+    /** 把配置里的 TTL 夹到 [{@value #MIN_CACHE_SECONDS}, {@value #MAX_CACHE_SECONDS}]。 */
+    private static int clampCacheSeconds(int raw) {
+        if (raw < MIN_CACHE_SECONDS) {
+            return MIN_CACHE_SECONDS;
+        }
+        return Math.min(raw, MAX_CACHE_SECONDS);
     }
 
     /**
@@ -115,8 +177,12 @@ public class StatisticsHttpServer {
             // 先于 start() 置位，否则 accept 已开而标志为 false 的窗口全判 503。
             running = true;
             server.start();
+            // 启动即预热：首次那 5.5 s 在后台线程上跑掉，而不是等第一个浏览器请求
+            // （首次计算永不发生在 HTTP 工作线程上，见 TtlSnapshotCache 契约 2）。
+            statsCache.warmUp();
             plugin.getLogger().info("Statistics HTTP dashboard started on " + bindAddress + ":" + port
-                    + " (whitelist: " + ipWhitelist.size() + " entries)");
+                    + " (whitelist: " + ipWhitelist.size() + " entries, stats cache "
+                    + cacheSeconds + "s)");
         } catch (IOException e) {
             plugin.getLogger().log(Level.SEVERE,
                     "Failed to start statistics HTTP server on port " + port, e);
@@ -211,6 +277,10 @@ public class StatisticsHttpServer {
      * Stop the HTTP server gracefully.
      */
     public void stop() {
+        // 缓存线程池独立于 HTTP worker 池：即使本组件的 server 从未起来（端口被占/拒启），
+        // 构造器也已经建过它，所以这里无条件收 —— 否则每轮 /lea reload 泄漏一条
+        // lle-stats-refresh-dashboard 线程。
+        statsCache.shutdown();
         if (server != null) {
             // 08-c-C1：先置关闭位再停 server 并等 handler 退出，避免其在 shutdown() 后重开库。
             running = false;
@@ -641,6 +711,12 @@ public class StatisticsHttpServer {
 
             try {
                 JsonObject stats = buildStatsJson();
+                if (stats == null) {
+                    // 冷启动首次计算超时或失败：明确报错，不用 0 顶替 ——
+                    // "面板暂时查不到"与"全服学习数据是 0"必须是两种可区分的表现。
+                    sendError(exchange, 503, "Statistics not ready yet, retry shortly");
+                    return;
+                }
                 sendJson(exchange, 200, gson.toJson(stats));
             } catch (Exception e) {
                 plugin.getLogger().log(Level.WARNING,
@@ -654,20 +730,76 @@ public class StatisticsHttpServer {
     //  JSON building
     // ============================================================
 
-    private JsonObject buildStatsJson() {
-        JsonObject root = new JsonObject();
+    /**
+     * 一次面板刷新的全部聚合结果（不可变快照）。
+     *
+     * <p>字段与 {@code /api/stats} 的响应一一对应，语义与加缓存前<b>完全相同</b> ——
+     * 这个 record 只是把"5 条查询的结果"收成一个可整体缓存/整体替换的值，
+     * 不引入任何计算或近似。
+     *
+     * @param totalWords      被玩家答过的不同单词数（{@code COUNT(DISTINCT word)}）
+     * @param todayActivePlayers 今日有学习记录的玩家数
+     * @param totalSessions   累计学习日次（player_sessions 行数，非局数口径）
+     * @param totalCoinsEarned 累计获得金币
+     * @param totalCoinsSpent  累计消费金币
+     * @param last7Days       最近 7 天曲线（含今天，缺数据的日子补 0）
+     */
+    private record StatsSnapshot(int totalWords,
+                                 int todayActivePlayers,
+                                 int totalSessions,
+                                 long totalCoinsEarned,
+                                 long totalCoinsSpent,
+                                 List<DatabaseManager.DailyStats> last7Days) {
+        StatsSnapshot {
+            // 纵深防御，不是语义变更：生产实现 getLast7DaysStats() 永远 returns 一个
+            // 补零后的 7 元素列表（从不返回 null）。这里防的是"某次重构/替身让它返回 null"
+            // —— 那种情况下 List.copyOf(null) 会抛 NPE 并把整块快照算废，而降级成空曲线
+            // 至少面板还能显示 5 个汇总数字。
+            last7Days = last7Days == null ? List.of() : List.copyOf(last7Days);
+        }
+    }
 
-        root.addProperty("totalWords", databaseManager.getTotalWordCount());
-        root.addProperty("todayActivePlayers", databaseManager.getTodayActivePlayers());
+    /**
+     * 真正跑那 5 条聚合查询。<b>只由 {@link TtlSnapshotCache} 的后台线程调用</b>
+     * （首次预热 / TTL 过期后的刷新），绝不在 HTTP 工作线程上执行。
+     *
+     * <p>这是加缓存<b>唯一</b>改动 DB 交互的地方：方法体就是原 {@code buildStatsJson} 的
+     * 查询序列，原样搬过来，<b>没有</b>改任何一条 SQL、顺序或返回值口径。
+     */
+    private StatsSnapshot computeStatsSnapshot() {
+        int totalWords = databaseManager.getTotalWordCount();
+        int todayActive = databaseManager.getTodayActivePlayers();
         // P3-02：口径 = 累计学习日次（player_sessions 每人每日一行；原 learning_log 零写入已弃用）
-        root.addProperty("totalLearningSessions", databaseManager.getTotalSessions());
-        root.addProperty("totalCoinsEarned", databaseManager.getTotalCoinsEarned());
-        root.addProperty("totalCoinsSpent", databaseManager.getTotalCoinsSpent());
-
+        int totalSessions = databaseManager.getTotalSessions();
+        long totalCoinsEarned = databaseManager.getTotalCoinsEarned();
+        long totalCoinsSpent = databaseManager.getTotalCoinsSpent();
         // P3-02：7 天曲线亦来自 player_sessions；sessions = 当日学习日次（每人每日一行）
         List<DatabaseManager.DailyStats> last7Days = databaseManager.getLast7DaysStats();
+        return new StatsSnapshot(totalWords, todayActive, totalSessions,
+                totalCoinsEarned, totalCoinsSpent, last7Days);
+    }
+
+    /**
+     * 把（可能来自缓存的）快照摊平成 JSON。
+     *
+     * @return 快照；冷启动首次计算失败/超时时为 {@code null} —— 调用方必须报错，
+     *         <b>不得</b>用 0 顶替（那会让"面板查不到"伪装成"全服零数据"）
+     */
+    private JsonObject buildStatsJson() {
+        StatsSnapshot snapshot = statsCache.get(FIRST_COMPUTE_WAIT_NANOS);
+        if (snapshot == null) {
+            return null;
+        }
+
+        JsonObject root = new JsonObject();
+        root.addProperty("totalWords", snapshot.totalWords());
+        root.addProperty("todayActivePlayers", snapshot.todayActivePlayers());
+        root.addProperty("totalLearningSessions", snapshot.totalSessions());
+        root.addProperty("totalCoinsEarned", snapshot.totalCoinsEarned());
+        root.addProperty("totalCoinsSpent", snapshot.totalCoinsSpent());
+
         JsonArray daysArray = new JsonArray();
-        for (DatabaseManager.DailyStats day : last7Days) {
+        for (DatabaseManager.DailyStats day : snapshot.last7Days()) {
             JsonObject dayObj = new JsonObject();
             dayObj.addProperty("date", day.date());
             dayObj.addProperty("sessions", day.sessions());

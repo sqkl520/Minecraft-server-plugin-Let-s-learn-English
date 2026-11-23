@@ -1346,6 +1346,10 @@ public class PlayerDataStore {
                 // 保存玩家统计数据到 player_data 表
                 // R7-A：全量与增量都写这一行（只有一行，增量写它没有任何额外代价；
                 // 不写就会让 total_words_learned / total_sessions / total_score 永久滞后）。
+                // R-48：这一行现在同时携带去规范化的 answered_count —— 由 SQL 内的
+                // 相关子查询按 uuid 重算，因此必须在 executeBatch() <b>之后</b>执行
+                // （语句按调用顺序生效，此时本轮词行已落库，子查询才看得到新值）。
+                // 见 buildPlayerDataUpsertSql 的长注释（含"为什么不用内存 map 数"）。
                 if (snap != null) {
                     String statsSql = buildPlayerDataUpsertSql(tablePrefix);
                     try (PreparedStatement statsStmt = conn.prepareStatement(statsSql)) {
@@ -1355,6 +1359,8 @@ public class PlayerDataStore {
                         statsStmt.setInt(4, snap.sessions);
                         statsStmt.setLong(5, snap.score);
                         statsStmt.setLong(6, System.currentTimeMillis());
+                        // 第 7 位是 answered_count 子查询里的 uuid 谓词（同一个人）
+                        statsStmt.setString(7, playerId.toString());
                         statsStmt.executeUpdate();
                     }
                 }
@@ -1473,11 +1479,58 @@ public class PlayerDataStore {
      * R7-A：{@code player_data} 行 UPSERT SQL —— 从原 {@code savePlayerData} 内联串
      * 原样抽出，全量路径与增量路径共用同一字符串（避免两套语义分叉）。
      * H10：UPSERT 携带 player_name；COALESCE 保证缓存缺失（null）时不覆盖已有名字。
+     *
+     * <p><b>R-48：{@code answered_count} 就地重算，不另起语句。</b>第 7 个占位符是
+     * {@code answered_count}，绑的是<b>同一条 SQL 里的相关子查询</b>
+     * （{@code SELECT COUNT(*) FROM word_progress WHERE uuid = ? AND correct+incorrect > 0}），
+     * 第 8 个占位符就是这个子查询的 uuid。
+     *
+     * <p><b>为什么是"重算"而不是"内存 map 数一数"</b>（两种算法都评估过）：
+     * <ul>
+     *   <li><b>重算（选中）</b>：真源是 DB，天然无漂移。增量保存只写
+     *       {@code dirtyWords} 里的词，而内存 map 里还留着<b>这一轮没写</b>的词 ——
+     *       若用内存 map 数，得到的是"内存认为答过多少"，不是"库里现在答过多少"；
+     *       两者在 {@code loadPlayerData} 读失败（{@code statsUnloaded}）、
+     *       {@code evictOfflinePlayerCaches} 摘过缓存、或某轮只写了部分词时都会分叉，
+     *       而分叉的后果是"广场上多一个/少一个人"，没有任何日志。代价已实测：
+     *       单玩家全量 COUNT 走 {@code UNIQUE(uuid,word)} 的 uuid 前缀索引，
+     *       1M 行库、30 词/人的玩家 <b>0.2 ms</b>（最坏 1357 词也仍在亚毫秒级）。</li>
+     *   <li><b>内存计数（否决）</b>：零查询，但正确性依赖"5 张 map 恒为 DB 的超集且
+     *       恒一致"。本类恰恰有多处会打破这个前提（见上）——本仓反复裁过"不拿内存镜像
+     *       当真源"（F3 裁决：广场数据源 = DB 真值，非内存统计镜像）。</li>
+     * </ul>
+     *
+     * <p><b>为什么塞进同一条语句（而不是 executeBatch 之后再发一条 UPDATE）</b>：
+     * <ol>
+     *   <li>同一事务内可见：子查询在 {@code executeBatch()} <b>之后</b>才执行（语句按
+     *       调用顺序执行），所以它算的是"本轮词行已落"之后的值，不是旧值。
+     *       （已实证：同事务先 UPSERT 词行再跑本语句，读到的就是新词。）</li>
+     *   <li>不新增往返：每个保存轮次本来就是"1 次 executeBatch + 1 次 executeUpdate"，
+     *       塞进去不改变条数（{@code PlayerStatsDirtyHookTest} 的
+     *       "应恰好准备一条 player_data 写入语句" 仍然成立）。</li>
+     *   <li>原子：两者在同一事务里，不会出现"词行写了、计数没写"的中间态。</li>
+     * </ol>
+     *
+     * <p><b>方言</b>：SQLite 与 MySQL 的 INSERT 头部完全相同（含子查询），只有冲突子句
+     * 不同；{@code excluded.answered_count} / {@code VALUES(answered_count)} 都指向
+     * "本该插入的那一行"的值，即上面子查询的结果。两方言各自实证过（重跑幂等、
+     * 新玩家首行正确）。刻意不用 {@code ON CONFLICT ... DO UPDATE ... WHERE} 之类
+     * 只有单方言认的写法。
+     *
+     * <p><b>已知残余窗口（不是缺陷，是既有 fail-closed 语义的自然结果）</b>：
+     * {@code snapshotPlayerData} 返回 null（该玩家统计读失败 / 缓存已清）时本语句整条
+     * 不执行，于是 {@code answered_count} 也不会刷新 —— 与 {@code total_score} 等列
+     * 的处理完全一致（本类从不拿零值假象覆写真值，见 EH-02）。下一次成功保存会补上。
      */
     private String buildPlayerDataUpsertSql(String tablePrefix) {
+        String head = "INSERT INTO " + tablePrefix + "player_data (uuid, player_name, "
+                + "total_words_learned, total_sessions, total_score, updated_at, answered_count) "
+                + "VALUES (?, ?, ?, ?, ?, ?, (SELECT COUNT(*) FROM " + tablePrefix
+                + "word_progress wp WHERE wp.uuid = ? "
+                + "AND wp.correct_count + wp.incorrect_count > 0)) ";
         return databaseManager.isSQLite()
-                ? "INSERT INTO " + tablePrefix + "player_data (uuid, player_name, total_words_learned, total_sessions, total_score, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(uuid) DO UPDATE SET player_name=COALESCE(excluded.player_name, player_name), total_words_learned=excluded.total_words_learned, total_sessions=excluded.total_sessions, total_score=excluded.total_score, updated_at=excluded.updated_at"
-                : "INSERT INTO " + tablePrefix + "player_data (uuid, player_name, total_words_learned, total_sessions, total_score, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE player_name=COALESCE(VALUES(player_name), player_name), total_words_learned=VALUES(total_words_learned), total_sessions=VALUES(total_sessions), total_score=VALUES(total_score), updated_at=VALUES(updated_at)";
+                ? head + "ON CONFLICT(uuid) DO UPDATE SET player_name=COALESCE(excluded.player_name, player_name), total_words_learned=excluded.total_words_learned, total_sessions=excluded.total_sessions, total_score=excluded.total_score, updated_at=excluded.updated_at, answered_count=excluded.answered_count"
+                : head + "ON DUPLICATE KEY UPDATE player_name=COALESCE(VALUES(player_name), player_name), total_words_learned=VALUES(total_words_learned), total_sessions=VALUES(total_sessions), total_score=VALUES(total_score), updated_at=VALUES(updated_at), answered_count=VALUES(answered_count)";
     }
 
     private int getIntValue(Map<String, Integer> map, String key) {
@@ -2836,33 +2889,71 @@ public class PlayerDataStore {
      * （全仓唯一调用点），而该分支上一行已经在同步查库取 stats；PAPI 侧另有 30s 值缓存
      * 吸收并发。因此**不引入新的 IO 压力**。
      *
+     * <p>R-47 之后上述成本论证只适用于「非 PAPI 调用方」：{@code %lle_rank%} 已改为
+     * <b>异步补读</b>（见 {@code LLEPapiExpansion.getRankCached}），它调的是三态版
+     * {@link #getAuthoritativeRankWithStatus(UUID)} 且只从异步线程发起。本方法保留原签名与
+     * 原语义（{@code -1} = 不在榜上，也是读失败时的退化值），并委托给三态版实现 ——
+     * 两条路径的 SQL 与门条件只有一份。
+     *
      * @return 1-based 名次；玩家不在榜上（未答题 / 隐身 / 无行）返回 {@code -1}
      */
     public int getAuthoritativeRank(UUID playerId) {
+        return getAuthoritativeRankWithStatus(playerId).rank();
+    }
+
+    /**
+     * R-47：{@link #getAuthoritativeRank(UUID)} 的<b>三态</b>版 —— 「读失败」不再与
+     * 「确实不在榜上」同形（照 {@link RankedPlayersLoad} / {@code CoinsEarnedRead} 范式）。
+     *
+     * <h2>为什么必须三态</h2>
+     * 两态版把两种完全不同的结论折成同一个 {@code -1}：
+     * <ul>
+     *   <li><b>已确认不在榜上</b>（查过，没答题 / 隐身 / 无行）—— 这是一个<b>结论</b>，
+     *       展示层应当输出「未上榜」；</li>
+     *   <li><b>读失败</b>（SQLException / 连接不可用）—— 这是<b>还不知道</b>，
+     *       展示层输出「未上榜」就是一条编造的结论：玩家会以为自己的名次掉了，
+     *       而真相是这次查询根本没成功。</li>
+     * </ul>
+     * {@code %lle_rank%} 改成异步补读后，第一次失败会被写进 PAPI 侧缓存并持续一个窗口 ——
+     * 把「不知道」冻成「未上榜」正是本仓反复修过的那类缺陷（见
+     * {@code CoinsEarnedFailureDirectionTest} 对 {@code getCoinsEarned} 的同类裁定）。
+     *
+     * <h2>异常口径</h2>
+     * {@code SQLException} 由 {@link DatabaseManager#withConnection} 记 WARNING 后返回
+     * {@code fallback} —— 这里传 {@link AuthoritativeRankLoad#failed()}，于是失败可被调用方
+     * 识别，而不会退化成 {@code -1}。连接层<b>运行期</b>异常（重连失败等，{@code getConnection}
+     * 抛出）保持原行为原样上抛：本方法不吞，由调用方决定降级。
+     *
+     * @param playerId 目标玩家；{@code null} 按「不在榜上」处理（与两态版逐字一致）
+     * @return 三态结果，非 null
+     */
+    public AuthoritativeRankLoad getAuthoritativeRankWithStatus(UUID playerId) {
         if (playerId == null) {
-            return -1;
+            return AuthoritativeRankLoad.notRanked();
         }
         String tablePrefix = databaseManager.getTablePrefix();
         // 先把「我的分数」取出来（同一套门条件），拿不到就说明不在榜上。
+        // R-48：答题门从 EXISTS(word_progress) 改为读去规范化列 d.answered_count。
+        // 判据逐行等价：answered_count = 「该玩家 correct+incorrect > 0 的词行数」，
+        // 所以 answered_count > 0 ⟺ 原来那个 EXISTS 成立（写侧与回填都按这个口径算）。
         String myScoreSql = "SELECT d.total_score FROM " + tablePrefix + "player_data d "
                 + "LEFT JOIN " + tablePrefix + "player_profiles p ON p.uuid = d.uuid "
                 + "WHERE d.uuid = ? AND COALESCE(p.show_in_square, 1) <> 0 "
-                + "AND EXISTS (SELECT 1 FROM " + tablePrefix + "word_progress wp "
-                + "WHERE wp.uuid = d.uuid AND wp.correct_count + wp.incorrect_count > 0)";
+                + "AND d.answered_count > 0";
         String rankSql = "SELECT COUNT(*) FROM " + tablePrefix + "player_data d "
                 + "LEFT JOIN " + tablePrefix + "player_profiles p ON p.uuid = d.uuid "
                 + "WHERE COALESCE(p.show_in_square, 1) <> 0 "
-                + "AND EXISTS (SELECT 1 FROM " + tablePrefix + "word_progress wp "
-                + "WHERE wp.uuid = d.uuid AND wp.correct_count + wp.incorrect_count > 0) "
+                + "AND d.answered_count > 0 "
                 + "AND (d.total_score > ? OR (d.total_score = ? AND d.uuid < ?))";
         String id = playerId.toString();
-        Integer rank = databaseManager.withConnection(conn -> {
+        AuthoritativeRankLoad load = databaseManager.withConnection(conn -> {
             long myScore;
             try (PreparedStatement stmt = conn.prepareStatement(myScoreSql)) {
                 stmt.setString(1, id);
                 try (ResultSet rs = stmt.executeQuery()) {
                     if (!rs.next()) {
-                        return (Integer) null; // 不在榜上（未答题 / 隐身 / 无行）
+                        // 不在榜上（未答题 / 隐身 / 无行）—— 这是<b>结论</b>，不是失败。
+                        return AuthoritativeRankLoad.notRanked();
                     }
                     myScore = rs.getLong(1);
                 }
@@ -2872,11 +2963,47 @@ public class PlayerDataStore {
                 stmt.setLong(2, myScore);
                 stmt.setString(3, id);
                 try (ResultSet rs = stmt.executeQuery()) {
-                    return rs.next() ? (int) (rs.getLong(1) + 1) : (Integer) null;
+                    return rs.next()
+                            ? AuthoritativeRankLoad.ranked((int) (rs.getLong(1) + 1))
+                            : AuthoritativeRankLoad.notRanked();
                 }
             }
-        }, null);
-        return rank == null ? -1 : rank;
+        }, AuthoritativeRankLoad.failed());
+        // withConnection 在 fn==null 或 SQLException 时返回 fallback；两条路径都是「失败」。
+        return load == null ? AuthoritativeRankLoad.failed() : load;
+    }
+
+    /**
+     * R-47：{@link #getAuthoritativeRankWithStatus(UUID)} 的三态结果。
+     *
+     * <p>形状照 {@link RankedPlayersLoad}(entries, readFailed) 与
+     * {@code DatabaseManager.CoinsEarnedRead}(result, value)：<b>读失败时 {@code rank}
+     * 不可信</b>，调用方必须先看 {@link #readFailed()} 再看 {@link #rank()}，不得把它
+     * 当成「不在榜上」使用。
+     *
+     * @param rank       1-based 名次；{@code <=0} = 已确认不在榜上。{@code readFailed=true}
+     *                   时该值恒定 {@code -1}，<b>只</b>是可观察的占位，不构成结论
+     * @param readFailed {@code true} = 查询/连接失败，结果未知
+     */
+    public record AuthoritativeRankLoad(int rank, boolean readFailed) {
+
+        /** 读失败的共享实例（PAPI 侧可能每秒读多次，失败时不必每次新建对象）。 */
+        private static final AuthoritativeRankLoad FAILED = new AuthoritativeRankLoad(-1, true);
+
+        /** 已确认上榜。 */
+        public static AuthoritativeRankLoad ranked(int rank) {
+            return new AuthoritativeRankLoad(rank, false);
+        }
+
+        /** 已确认<b>不在榜上</b>（查过，确实没有）。 */
+        public static AuthoritativeRankLoad notRanked() {
+            return new AuthoritativeRankLoad(-1, false);
+        }
+
+        /** 读失败（结果未知，不得当成「不在榜上」）。 */
+        public static AuthoritativeRankLoad failed() {
+            return FAILED;
+        }
     }
 
     /**
@@ -3014,14 +3141,23 @@ public class PlayerDataStore {
         // 各列都是非负计数，所以"和 > 0" ⟺ "存在至少一行其 correct+incorrect > 0"。
         // 两者在非负数据上完全等价；若将来出现负值（不该有），EXISTS 会与聚合分叉——
         // 这正是 ActiveSquarePagingTest 用真库钉住"计数 == 全量行数"的原因。
+        //
+        // 【R-48：答题门改为去规范化列】EXISTS 那一步虽然能短路，但它仍然是"每个候选行
+        // 一次 word_progress seek"：5 万玩家实测 COUNT 1594 ms（MySQL 实测 3.4 s），
+        // 而广场每次打开都要跑 COUNT + 取页两条，全程独占全局 connectionLock。
+        // 加任何索引都消不掉它（见 schema.sql 的索引测量）。
+        // 现在改成读 player_data.answered_count（同一行内的列，零额外 seek）。
+        // 判据等价性：answered_count 的定义就是「correct+incorrect > 0 的词行数」，
+        // 由写侧 savePlayerDataInternal 每次写完词行后按 uuid 重算、老库由
+        // DatabaseManager.backfillAnsweredCount 一次性回填。因此
+        // answered_count > 0 ⟺ 原来的 EXISTS 成立，逐行一致。
+        // （守护网：ActiveSquarePagingTest 用真库同时断言"计数 == 全量行数"与实际成员集合。）
         String pageSql = "SELECT d.uuid AS uuid, d.player_name AS player_name, "
                 + "d.total_score AS total_score, d.total_sessions AS total_sessions "
                 + "FROM " + tablePrefix + "player_data d "
                 + "LEFT JOIN " + tablePrefix + "player_profiles p ON p.uuid = d.uuid "
                 + "WHERE COALESCE(p.show_in_square, 1) <> 0 "
-                + "AND EXISTS (SELECT 1 FROM " + tablePrefix + "word_progress wp "
-                + "WHERE wp.uuid = d.uuid "
-                + "AND wp.correct_count + wp.incorrect_count > 0) "
+                + "AND d.answered_count > 0 "
                 // uuid tie-break：分页正确性前提（同分跨页漂移 = 漏人/重人），见方法 javadoc
                 + "ORDER BY d.total_score DESC, d.uuid ASC LIMIT ? OFFSET ?";
 
@@ -3102,14 +3238,21 @@ public class PlayerDataStore {
      * P-SQ-PAGE：广场"全部玩家"总行数 —— 供 GUI 算总页数（分页后行数不再等于总数）。
      *
      * <p><b>WHERE 必须与 {@link #getActiveSquareEntries(int, int)} 阶段 1 逐字一致</b>
-     *（{@code show_in_square} 隐身门 + {@code EXISTS} 答题门）。两处若漂移，
+     *（{@code show_in_square} 隐身门 + {@code answered_count > 0} 答题门）。两处若漂移，
      * 页数会比实际内容多（尾页空白、下一页按钮指向空页）或少（最后几页永远翻不到）。
      * 测试 {@code ActiveSquarePagingTest} 用真 SQLite 钉住"计数 == 全量取行的行数"。
      *
-     * <p><b>为什么也用 EXISTS 而不是聚合子查询</b>：与取页同一个理由（见
+     * <p><b>为什么用 EXISTS 而不是聚合子查询</b>：与取页同一个理由（见
      * {@code getActiveSquareEntries} 的长注释）。用聚合子查询做 COUNT 会在每次打开
      * 广场时把整张 {@code word_progress} 物化一遍（EXPLAIN 的 {@code MATERIALIZE w}），
      * 实测 1000 玩家/20 万行要 249 ms；换成 EXISTS 后降到 57 ms，且页数语义不变。
+     *
+     * <p><b>R-48：EXISTS 又换成了去规范化列</b>。EXISTS 仍需为每个候选行做一次
+     * {@code word_progress} seek（5 万玩家实测 1594 ms），而 {@code answered_count > 0}
+     * 是同一行内的列，零额外 seek。判据等价性与写侧维护见
+     * {@code getActiveSquareEntries(int, int)} 阶段 1 的注释。
+     * <b>注意 COUNT 的剩余成本不是索引能解决的</b>：它要把所有"答过题且未隐身"的行数出来，
+     * 索引省掉的只是 seek，不是计数本身（实测加索引前后都在几十毫秒量级）。
      *
      * <p>失败返回 0（与取行方法"失败返回空列表"同款：广场最坏显示"暂无玩家"，
      * 不伪造行）。0 页由调用方 {@code Math.max(1, ...)} 兜成 1 页。
@@ -3120,9 +3263,7 @@ public class PlayerDataStore {
                 + "FROM " + tablePrefix + "player_data d "
                 + "LEFT JOIN " + tablePrefix + "player_profiles p ON p.uuid = d.uuid "
                 + "WHERE COALESCE(p.show_in_square, 1) <> 0 "
-                + "AND EXISTS (SELECT 1 FROM " + tablePrefix + "word_progress wp "
-                + "WHERE wp.uuid = d.uuid "
-                + "AND wp.correct_count + wp.incorrect_count > 0)";
+                + "AND d.answered_count > 0";
 
         // 同取行方法：连接获取纳入 try（重连失败是 RuntimeException），catch Exception。
         synchronized (databaseManager.getConnectionLock()) {

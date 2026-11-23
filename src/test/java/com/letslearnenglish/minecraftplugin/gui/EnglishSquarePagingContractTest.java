@@ -434,11 +434,17 @@ class EnglishSquarePagingContractTest {
         //
         // 现在改为：把搜索范围收进两个**具体方法体**，各自断言门恰好出现 1 次。
         // 删任一侧 → 该方法体里变成 0 次 → 立刻变红。
+        //
+        // R-48：答题门的<b>形状换了</b>（EXISTS(word_progress) → answered_count > 0，
+        // 理由见 PlayerDataStore 的注释与 schema.sql 的索引测量），所以锚点同步改了。
+        // 换形状时最容易犯的错是「把门改成恒真」（例如 `AND 1=1`、`AND d.answered_count >= 0`），
+        // 那样广场会列出没答过题的人 —— 因此断言钉的是<b>严格大于 0 的列谓词</b>，
+        // 不是"包含 answered_count"。
         String countBody = methodBody(store, "int countActiveSquareEntries()");
-        String existsGate = "AND wp.correct_count + wp.incorrect_count > 0";
-        assertEquals(1, occurrences(countBody, existsGate).size(),
+        String answeredGate = "AND d.answered_count > 0";
+        assertEquals(1, occurrences(countBody, answeredGate).size(),
                 "countActiveSquareEntries 的 SQL 里答题门出现 "
-                        + occurrences(countBody, existsGate).size() + " 次，期望恰好 1 次喵。\n"
+                        + occurrences(countBody, answeredGate).size() + " 次，期望恰好 1 次喵。\n"
                         + "0 次 = 计数不再过滤「没答过题的人」，页数会比实际内容多 —— "
                         + "广场尾页空白、翻页翻不到人，且没有任何日志。\n"
                         + "注意本断言只在 countActiveSquareEntries() 方法体内搜索："
@@ -447,20 +453,28 @@ class EnglishSquarePagingContractTest {
                         + "方法体原文：\n" + countBody);
 
         String pageBody = methodBody(store, "List<LeaderboardEntry> getActiveSquareEntries(int limit, int offset)");
-        assertEquals(1, occurrences(pageBody, existsGate).size(),
+        assertEquals(1, occurrences(pageBody, answeredGate).size(),
                 "getActiveSquareEntries 的取页 SQL 里答题门出现 "
-                        + occurrences(pageBody, existsGate).size() + " 次，期望恰好 1 次喵。\n"
+                        + occurrences(pageBody, answeredGate).size() + " 次，期望恰好 1 次喵。\n"
                         + "0 次 = 广场会列出从没答过题的人（旧行为里的明确业务约束被破坏）。\n"
                         + "方法体原文：\n" + pageBody);
 
-        // EXISTS 必须真的挂在 word_progress 上（否则"答过题"判据失效）。
-        // 同样收进方法体：全文件搜会被 getAuthoritativeRank 兜住。
-        assertTrue(pageBody.contains("EXISTS (SELECT 1 FROM \" + tablePrefix + \"word_progress wp"),
-                "取页 SQL 的 EXISTS 子查询没有查 word_progress —— 答题门失效，"
-                        + "广场会列出没答过题的人");
-        assertTrue(countBody.contains("EXISTS (SELECT 1 FROM \" + tablePrefix + \"word_progress wp"),
-                "计数 SQL 的 EXISTS 子查询没有查 word_progress —— 计数与取行口径漂移，"
-                        + "页数与内容不符");
+        // 门必须仍然是「严格 > 0」，而不是 >= 0 / != -1 之类恒真改法。
+        // 这一条与上面互为补角：上面数次数，这里管形状。
+        for (String body : new String[] {countBody, pageBody}) {
+            assertFalse(body.contains("answered_count >= 0") || body.contains("answered_count <>"),
+                    "广场的答题门被改成了恒真谓词（>= 0 / <>）—— 那会让从没答过题的人"
+                            + "出现在广场上。必须保持 answered_count > 0。方法体原文：\n" + body);
+        }
+
+        // 答题门不得再退回 O(N) 的 EXISTS 相关子查询：它就是 R-48 修的那条缺陷
+        // （5 万玩家实测 1594 ms，全程占着全局 connectionLock）。
+        // 这条 lint 的价值在于「性能回退没有任何功能症状，只有 EXPLAIN 能看见」。
+        for (String body : new String[] {countBody, pageBody}) {
+            assertFalse(body.contains("EXISTS (SELECT 1 FROM \" + tablePrefix + \"word_progress"),
+                    "广场查询又退回了 EXISTS(word_progress) 答题门 —— 那是每候选行一次索引 seek，"
+                            + "5 万玩家实测 1594 ms 且独占 connectionLock。必须读 answered_count。");
+        }
 
         // 阶段 2 必须按 uuid 批量聚合（而不是逐人查库 = N+1）
         //

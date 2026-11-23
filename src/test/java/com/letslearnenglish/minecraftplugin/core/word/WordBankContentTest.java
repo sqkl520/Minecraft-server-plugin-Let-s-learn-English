@@ -12,6 +12,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -440,6 +441,67 @@ class WordBankContentTest {
                     "所有词都有 freq_rank 是可疑的：NGSL 只覆盖 2809 个通用高频词，"
                             + "apple/banana/pencil 这类具象名词本就不在表内");
             assertFalse(with == 0, "一个 freq_rank 都没有 —— WordBank 的解析或重建没生效");
+        }
+    }
+
+    @Nested
+    @DisplayName("释义唯一性 — 拼写题面不能有歧义")
+    class DefinitionUniqueness {
+
+        @Test
+        @DisplayName("同一档内不允许两条词的 chinese 原文完全相同")
+        void noTwoWordsInSameTierShareTheSameChineseText() throws IOException {
+            // 为什么这条是**玩家可见**的缺陷而不是内容洁癖：
+            // spelling 模式的题面是 messages/zh.yml:503 的 `answer-prompt: 请拼写: {chinese}`
+            // —— 只显示中文原文，不带音标、不带例句、不带首字母。玩家看到「学习」时，
+            // 如果词库里 study 与 learn 都标「学习」，他输入 learn 会被判错，
+            // 而题面里<b>没有任何信息</b>能让他知道系统要的是 study。
+            //
+            // 实测暴露概率（10 词一局）：beginner 23.9% / intermediate 33.5% / advanced 51.9%。
+            // 2026-11-21 修掉 31 组 / 63 词后归零，本用例防它退回去。
+            //
+            // 口径说明：**只比原文（trim 后）**，不用 AnswerChecker 的归一化。
+            // 理由——玩家看到的就是原文；归一化会把「他们（宾格）」与「他们」判成撞车，
+            // 可这两条题面玩家看得出差别。归一化口径是给 choice 干扰项剔除用的，
+            // 与「题面是否可区分」不是同一个问题。
+            for (String tier : TIERS) {
+                Map<String, List<String>> byChinese = new LinkedHashMap<>();
+                for (Entry e : load(tier)) {
+                    String zh = e.fields().get("chinese");
+                    if (zh == null) {
+                        continue;
+                    }
+                    byChinese.computeIfAbsent(zh.trim(), k -> new ArrayList<>()).add(e.english());
+                }
+                List<String> collisions = new ArrayList<>();
+                for (Map.Entry<String, List<String>> g : byChinese.entrySet()) {
+                    if (g.getValue().size() > 1) {
+                        collisions.add("「" + g.getKey() + "」-> " + String.join(" / ", g.getValue()));
+                    }
+                }
+                assertTrue(collisions.isEmpty(),
+                        "档 " + tier + " 里有 " + collisions.size()
+                                + " 组词的 chinese 原文完全相同。spelling 模式的题面只有中文"
+                                + "（messages/zh.yml 的 answer-prompt 直接插 {chinese}），"
+                                + "玩家无法区分该拼哪个。把每组里的释义改窄成互不重叠的主释义"
+                                + "（不能只加括号注释——判分时会剥掉括号）：\n  "
+                                + String.join("\n  ", collisions));
+            }
+        }
+
+        @Test
+        @DisplayName("自检：检查器能认出同释义（证明上一条不是永远为真的空断言）")
+        void detectorFlagsDuplicateDefinition() {
+            // 用与上面完全相同的口径造一段人造数据，确保「撞车」真的会被数出来。
+            // 不加这条，上面那条的『零碰撞』可能只是因为比较逻辑写错了（比如键取了 english）。
+            List<String> names = List.of("study", "learn");
+            List<String> chinese = List.of("学习", "学习");
+            Map<String, List<String>> byChinese = new LinkedHashMap<>();
+            for (int i = 0; i < names.size(); i++) {
+                byChinese.computeIfAbsent(chinese.get(i).trim(), k -> new ArrayList<>()).add(names.get(i));
+            }
+            long dup = byChinese.values().stream().filter(v -> v.size() > 1).count();
+            assertEquals(1L, dup, "检查器必须把两条同释义的词数成 1 组，否则主用例的零碰撞是假的");
         }
     }
 }

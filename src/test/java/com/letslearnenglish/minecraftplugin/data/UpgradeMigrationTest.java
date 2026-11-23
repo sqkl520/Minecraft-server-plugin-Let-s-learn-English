@@ -65,6 +65,10 @@ import com.letslearnenglish.minecraftplugin.data.DatabaseManager.CheckInClaim;
  * {@code player_sessions.review_words} / {@code player_profiles.sounds_enabled} /
  * {@code player_profiles.reminders_enabled}）与全部 11 张后加的表。
  *
+ * <p>R-48 起再加一个 {@code player_data.answered_count}（去规范化列）：它同样刻意不在
+ * 旧库 DDL 里，且<b>比别的补列多一道要求</b> —— 补完还必须回填真值，见
+ * {@code DataPreservation.answeredCountIsBackfilledOnUpgrade}。
+ *
  * <p><b>刻意手写而不是「从今天的 schema 里减掉 addColumnIfMissing 覆盖的列」</b>：
  * 后者是自证 —— 用迁移清单去生成旧库，再断言迁移清单把旧库补齐，恒真。
  * 手写的那一份与生产代码零耦合，因此「旧库 → 新库」的收敛是<b>实测</b>出来的。
@@ -339,6 +343,80 @@ class UpgradeMigrationTest {
                  ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM " + PREFIX + "player_data")) {
                 assertTrue(rs.next());
                 assertEquals(0, rs.getInt(1), "空旧库升级后仍必须是 0 行");
+            }
+        }
+
+        /**
+         * <b>R-48：{@code answered_count} 补列后必须按 {@code word_progress} 回填真实值。</b>
+         *
+         * <h3>为什么这是整个改造里最危险的一步</h3>
+         * <p>新列的 DDL 默认值是 0，而读侧（广场 + 权威名次）已经把 {@code > 0} 当作
+         * 「答过题」。如果只补列不回填，<b>每一个存量玩家</b>升级后都会被判定成从没答过题
+         * —— 广场瞬间清空、{@code %lle_rank%} 全员"未上榜"。没有异常、没有报错，
+         * 只有"人不见了"，而且看起来像"数据丢了"。
+         *
+         * <p>所以这条用例刻意<b>不</b>只断言"列存在"（那样默认值 0 也能过），而是：
+         * 在旧库里给同一玩家写 2 条真正答过题的词行 + 1 条 <b>correct=0/incorrect=0</b> 的词行，
+         * 升级后要求 {@code answered_count == 2} —— 那个 0/0 的行是关键：
+         * 用 {@code COUNT(*)} 而不是 {@code COUNT(... WHERE correct+incorrect>0)} 的实现会得到 3，
+         * 于是本断言同时钉住「口径」与「是否回填」。
+         *
+         * <p>同时断言<b>幂等</b>：再启动一次不得让改过的值继续变化（绝对值重算，不是累加）。
+         */
+        @Test
+        @DisplayName("R-48：answered_count 补列后按 word_progress 回填（0/0 行不计入），且重启幂等")
+        void answeredCountIsBackfilledOnUpgrade(@TempDir Path dir) throws Exception {
+            newLegacyDb(dir);
+            seedLegacyPlayer(dir);
+
+            // 2 条真答过 + 1 条 0/0（未作答的残留行）→ 期望 answered_count = 2
+            try (Connection c = open(dir, LEGACY_DB);
+                 PreparedStatement ps = c.prepareStatement(
+                         "INSERT INTO " + PREFIX + "word_progress (uuid, word, mastery,"
+                                 + " correct_count, incorrect_count) VALUES (?, ?, ?, ?, ?)")) {
+                String[] words = {"apple", "banana", "cherry"};
+                int[][] counts = {{2, 0}, {0, 1}, {0, 0}};
+                for (int i = 0; i < words.length; i++) {
+                    ps.setString(1, PLAYER.toString());
+                    ps.setString(2, words[i]);
+                    ps.setDouble(3, 0.5);
+                    ps.setInt(4, counts[i][0]);
+                    ps.setInt(5, counts[i][1]);
+                    ps.executeUpdate();
+                }
+            }
+
+            DatabaseManager first = boot(dir, LEGACY_DB);
+            first.shutdown();
+
+            try (Connection c = open(dir, LEGACY_DB);
+                 PreparedStatement ps = c.prepareStatement(
+                         "SELECT answered_count FROM " + PREFIX + "player_data WHERE uuid = ?")) {
+                ps.setString(1, PLAYER.toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    assertTrue(rs.next(), "旧玩家的 player_data 行必须还在");
+                    assertEquals(2, rs.getInt("answered_count"),
+                            "R-48 回填错误：answered_count 应为 2（两条 correct+incorrect>0 的词行）。\n"
+                                    + "  · 得到 0  = 根本没跑回填（或回填在列刚补上时没被触发）——\n"
+                                    + "             后果是升级后所有老玩家从广场/名次里<b>整批消失</b>；\n"
+                                    + "  · 得到 3  = 回填用了 COUNT(*) 而不是 COUNT(... WHERE correct+incorrect>0)，\n"
+                                    + "             把「未作答的残留词行」也算成了答过题。");
+                }
+            }
+
+            // 幂等：第二次启动不得让值继续变化（绝对值重算，重放不变）
+            DatabaseManager second = boot(dir, LEGACY_DB);
+            second.shutdown();
+            try (Connection c = open(dir, LEGACY_DB);
+                 PreparedStatement ps = c.prepareStatement(
+                         "SELECT answered_count FROM " + PREFIX + "player_data WHERE uuid = ?")) {
+                ps.setString(1, PLAYER.toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    assertTrue(rs.next());
+                    assertEquals(2, rs.getInt("answered_count"),
+                            "重启后 answered_count 变了 —— 回填必须是绝对值重算（幂等），"
+                                    + "任何「累加」写法重放一次就翻倍。");
+                }
             }
         }
 
@@ -1212,7 +1290,8 @@ class UpgradeMigrationTest {
                         + " total_sessions INT DEFAULT 0,"
                         + " total_score BIGINT DEFAULT 0,"
                         // 刻意不含 total_coins_earned / total_coins_spent / conversation_count /
-                        // onboarding_step / wrong_book_cleared —— 5 条 addColumnIfMissing 的目标
+                        // onboarding_step / wrong_book_cleared / answered_count ——
+                        // addColumnIfMissing 的目标（answered_count 另有回填，见 R-48）
                         + " current_streak INT DEFAULT 0,"
                         + " longest_streak INT DEFAULT 0,"
                         + " last_login BIGINT,"

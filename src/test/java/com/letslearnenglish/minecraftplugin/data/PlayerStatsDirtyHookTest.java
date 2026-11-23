@@ -461,10 +461,13 @@ class PlayerStatsDirtyHookTest {
             int wordProgressStatements = 0;
             int playerDataStatements = 0;
             for (String sql : sqlCaptor.getAllValues()) {
-                if (sql.contains("lle_word_progress")) {
+                // R-48：判据必须是「写入目标表」，不能是"包含 word_progress" ——
+                // player_data 的 UPSERT 现在带一段 answered_count 的相关子查询，
+                // 里面就有 word_progress，旧判据会把两条语句都算成词表语句。
+                if (sql.contains("INTO lle_word_progress (uuid")) {
                     wordProgressStatements++;
                 }
-                if (sql.contains("lle_player_data")) {
+                if (sql.contains("INTO lle_player_data (uuid")) {
                     playerDataStatements++;
                 }
             }
@@ -494,7 +497,7 @@ class PlayerStatsDirtyHookTest {
             PreparedStatement wordStmt = mock(PreparedStatement.class);
             PreparedStatement statsStmt = mock(PreparedStatement.class);
             when(connection.prepareStatement(anyString())).thenAnswer(inv ->
-                    ((String) inv.getArgument(0)).contains("word_progress") ? wordStmt : statsStmt);
+                    ((String) inv.getArgument(0)).contains("word_progress (uuid") ? wordStmt : statsStmt);
             when(wordStmt.executeBatch()).thenReturn(new int[0]);
             when(statsStmt.executeUpdate()).thenReturn(1);
 

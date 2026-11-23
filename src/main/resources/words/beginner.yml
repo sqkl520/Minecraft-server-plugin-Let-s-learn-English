@@ -1471,7 +1471,7 @@ words:
     freq_rank: 119
 
   - english: "problem"
-    chinese: "问题"
+    chinese: "难题（需要解决的问题）"
     part_of_speech: "noun"
     phonetic: "/ˈprɑːbləm/"
     example_sentence: "I have some appreciation of your problems."
@@ -1513,7 +1513,7 @@ words:
     freq_rank: 123
 
   - english: "great"
-    chinese: "大的"
+    chinese: "伟大的（也表示极好的）"
     part_of_speech: "adjective"
     phonetic: "/ɡreɪt/"
     example_sentence: "Slight inattention can cause a great disaster."
@@ -1641,7 +1641,7 @@ words:
     freq_rank: 135
 
   - english: "start"
-    chinese: "开始"
+    chinese: "启动（使机器运转或使活动开始）"
     part_of_speech: "verb"
     phonetic: "/stɑːrt/"
     example_sentence: "Hurry up, or it will start raining."
@@ -1673,7 +1673,7 @@ words:
     freq_rank: 138
 
   - english: "put"
-    chinese: "放"
+    chinese: "放置（用手把东西放到某处）"
     part_of_speech: "verb"
     phonetic: "/pʊt/"
     example_sentence: "You have put everything out of order."
@@ -1747,7 +1747,7 @@ words:
 
 
   - english: "each"
-    chinese: "每个"
+    chinese: "各自（强调逐个个体）"
     part_of_speech: "adverb"
     phonetic: "/iːtʃ/"
     example_sentence: "Each of them carried their own pack."
@@ -2121,7 +2121,7 @@ words:
     freq_rank: 179
 
   - english: "every"
-    chinese: "每个"
+    chinese: "每一个（整体中的全部成员）"
     part_of_speech: "determiner"
     phonetic: "/ˈev.ri/"
     example_sentence: "Every child loves ice cream."
@@ -2132,7 +2132,7 @@ words:
 
 
   - english: "question"
-    chinese: "问题"
+    chinese: "疑问（需要回答的问题）"
     part_of_speech: "noun"
     phonetic: "/ˈkwes.tʃən/"
     example_sentence: "Please answer my question."
@@ -2166,7 +2166,7 @@ words:
 
 
   - english: "big"
-    chinese: "大的"
+    chinese: "庞大的（指体积或块头大）"
     part_of_speech: "adjective"
     phonetic: "/bɪɡ/"
     example_sentence: "They live in a big house."
@@ -2181,7 +2181,7 @@ words:
 
 
   - english: "set"
-    chinese: "放"
+    chinese: "安放（把东西放到指定位置）"
     part_of_speech: "verb"
     phonetic: "/set/"
     example_sentence: "A strong wind began to set in."
@@ -2204,7 +2204,7 @@ words:
 
 
   - english: "study"
-    chinese: "学习"
+    chinese: "钻研（系统地学习或研究）"
     part_of_speech: "verb"
     phonetic: "/ˈstʌdiː/"
     example_sentence: "I'm going to France to study painting."
@@ -2224,7 +2224,7 @@ words:
     freq_rank: 188
 
   - english: "begin"
-    chinese: "开始"
+    chinese: "着手（开始做某事）"
     part_of_speech: "verb"
     phonetic: "/bɪˈɡɪn/"
     example_sentence: "To begin with, you must be honest."
@@ -2450,7 +2450,7 @@ words:
 
 
   - english: "large"
-    chinese: "大的"
+    chinese: "大型的（指数量或规模大）"
     part_of_speech: "adjective"
     phonetic: "/lɑːrdʒ/"
     example_sentence: "Examinations play a large part in education."
@@ -2694,7 +2694,7 @@ words:
 
 
   - english: "learn"
-    chinese: "学习"
+    chinese: "学会（获得知识或技能）"
     part_of_speech: "verb"
     phonetic: "/lɜːn/"
     example_sentence: "We learn English at school."

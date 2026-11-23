@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -235,6 +236,81 @@ class ActiveSquarePagingTest {
             assertEquals(3, store.countActiveSquareEntries());
         }
 
+        /**
+         * <b>R-48 语义等价的核心守护：{@code answered_count > 0} 必须与原来的
+         * {@code EXISTS(word_progress ... correct+incorrect > 0)} 逐行一致。</b>
+         *
+         * <p>这条缺陷的修法是「把一道 O(N) 的子查询换成一列」，代价是<b>两处判据可能分叉</b>：
+         * 列写错了值（或某条路径忘了维护它），广场就会静默多一个人/少一个人 ——
+         * 没有异常、没有日志，只有"人数对不上"。而上面那些用例全绿也证明不了这件事：
+         * 它们用同一套播种（列与词行一起写），两边一起错照样绿。
+         *
+         * <p>所以这里用<b>两条独立的 SQL 各自算一遍</b>再逐行比对：
+         * {@code answered_count > 0}（生产用的新判据）vs {@code EXISTS(...)}（改造前的旧判据）。
+         * 任何一侧被改坏、任何一行漂移，本用例立刻红。
+         */
+        @Test
+        @DisplayName("R-48：answered_count>0 与 EXISTS(word_progress) 的成员集合逐行一致")
+        void answeredCountColumnMatchesWordProgressExists() throws SQLException {
+            // 0 词 / 1 词 / 5 词 + 1 个隐身 —— 覆盖"没答过""答过""隐身但答过"
+            seedOne(UUID.randomUUID(), "zero", 10L, 1, 0);
+            seedOne(UUID.randomUUID(), "one", 20L, 1, 1);
+            seedOne(UUID.randomUUID(), "five", 30L, 1, 5);
+            seedOne(UUID.randomUUID(), "hidden5", 40L, 0, 5);
+
+            String oldGate = "SELECT d.uuid FROM " + PREFIX + "player_data d "
+                    + "LEFT JOIN " + PREFIX + "player_profiles p ON p.uuid = d.uuid "
+                    + "WHERE COALESCE(p.show_in_square, 1) <> 0 "
+                    + "AND EXISTS (SELECT 1 FROM " + PREFIX + "word_progress wp "
+                    + "WHERE wp.uuid = d.uuid AND wp.correct_count + wp.incorrect_count > 0) "
+                    + "ORDER BY d.uuid";
+            String newGate = "SELECT d.uuid FROM " + PREFIX + "player_data d "
+                    + "LEFT JOIN " + PREFIX + "player_profiles p ON p.uuid = d.uuid "
+                    + "WHERE COALESCE(p.show_in_square, 1) <> 0 AND d.answered_count > 0 "
+                    + "ORDER BY d.uuid";
+
+            Set<String> oldMembers = new HashSet<>();
+            Set<String> newMembers = new HashSet<>();
+            synchronized (databaseManager.getConnectionLock()) {
+                Connection conn = databaseManager.getConnection();
+                oldMembers.addAll(queryUuids(conn, oldGate));
+                newMembers.addAll(queryUuids(conn, newGate));
+            }
+
+            assertEquals(oldMembers, newMembers,
+                    "R-48 语义漂移：answered_count>0 与 EXISTS(word_progress) 选出的人不一样。\n"
+                            + "  旧判据(EXISTS)=" + oldMembers + "\n  新判据(列)=" + newMembers + "\n"
+                            + "少人 = 写侧/回填漏维护该列（玩家会静默从广场消失）；\n"
+                            + "多行 = 该列被写成了非真值（广场会列出没答过题的人）。");
+
+            // 顺带钉住"列值与真值相等"（不只是 >0 的布尔口径）：
+            // 写侧维护用的就是整数值，偏大/偏小同样会让将来的消费方出错。
+            try (PreparedStatement ps = databaseManager.getConnection().prepareStatement(
+                    "SELECT "
+                            + "(SELECT COUNT(*) FROM " + PREFIX + "word_progress wp"
+                            + "  WHERE wp.uuid = d.uuid AND wp.correct_count + wp.incorrect_count > 0)"
+                            + " - d.answered_count FROM " + PREFIX + "player_data d")) {
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        assertEquals(0, rs.getInt(1),
+                                "answered_count 与 word_progress 的真实计数不等（差值非 0）—— "
+                                        + "本类的播种把两者一起写，差 0 才说明口径一致");
+                    }
+                }
+            }
+        }
+
+        private List<String> queryUuids(Connection conn, String sql) throws SQLException {
+            List<String> out = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(sql);
+                 ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    out.add(rs.getString(1));
+                }
+            }
+            return out;
+        }
+
         // -------------------------------------------------------------- 造数
 
         /** 公开玩家播种（{@code scoreStep=0} 即全员同分，用来压 tie-break）。 */
@@ -270,15 +346,28 @@ class ActiveSquarePagingTest {
 
         private void seedOne(UUID id, String name, long score, int showInSquare, int words)
                 throws SQLException {
+            // R-48：广场的答题门已改为读去规范化列 player_data.answered_count。
+            // 播种必须把它一起写上，否则本类全部用例会退化成「全员未答题 → 广场空」
+            // （那正是 ActiveSquareCountMatchesWordProgress 要单独钉住的那种漂移形态：
+            //  计数与内容同口径，但两者都不是真的）。
+            // answered_count = 答过题的词数（这里每词 correct=2 → 每词都算答过）。
+            seedOne(id, name, score, showInSquare, words, words > 0 ? words : 0);
+        }
+
+        /** 显式指定 answered_count 的播种（用于构造「列与真值漂移」的用例）。 */
+        private void seedOne(UUID id, String name, long score, int showInSquare, int words,
+                             int answeredCount) throws SQLException {
             synchronized (databaseManager.getConnectionLock()) {
                 Connection conn = databaseManager.getConnection();
                 try (PreparedStatement ps = conn.prepareStatement(
                         "INSERT INTO " + PREFIX + "player_data"
-                                + " (uuid, player_name, total_score, total_sessions) VALUES (?, ?, ?, ?)")) {
+                                + " (uuid, player_name, total_score, total_sessions, answered_count)"
+                                + " VALUES (?, ?, ?, ?, ?)")) {
                     ps.setString(1, id.toString());
                     ps.setString(2, name);
                     ps.setLong(3, score);
                     ps.setInt(4, 1);
+                    ps.setInt(5, answeredCount);
                     ps.executeUpdate();
                 }
                 try (PreparedStatement ps = conn.prepareStatement(

@@ -93,6 +93,20 @@ public class DatabaseManager {
     private final AtomicBoolean seasonLedgerPendingJustAdded = new AtomicBoolean(false);
 
     /**
+     * R-48：本次启动是否<b>刚刚</b>给 {@code player_data} 补上 {@code answered_count} 列。
+     *
+     * <p>只用于「老库升级」这一个场景：CREATE TABLE 里已含该列的新库不会置位，
+     * 重启也不会置位（列已存在 → {@code addColumnIfMissing} 返回 false）。置位后由
+     * {@code createTables()} 末尾调 {@link #backfillAnsweredCount()} 回填并在同一处清掉。
+     *
+     * <p>用普通 {@code boolean} 而不是 {@code AtomicBoolean}：读写都在
+     * {@code initialize()} 的 {@code connectionLock} 临界区内、同一个线程、同一次调用里，
+     * 没有跨线程可见性需求（与 {@code seasonLedgerPendingJustAdded} 不同 —— 那个要跨
+     * 生命周期被外部消费）。
+     */
+    private boolean answeredCountColumnJustAdded;
+
+    /**
      * R-16：本进程的<b>实例标识</b>（每个 {@code DatabaseManager} 一个新 UUID）。
      *
      * <p><b>R-16 后续修正：它已不再写进数据库。</b>原来 {@code seasons.claim_owner} 存的是
@@ -563,6 +577,10 @@ public class DatabaseManager {
                         "  conversation_count INT DEFAULT 0," +
                         "  onboarding_step INT DEFAULT 0," +
                         "  wrong_book_cleared INT DEFAULT 0," +
+                        // R-48：去规范化列 —— 该玩家「答过题的词数」（word_progress 里
+                        // correct_count + incorrect_count > 0 的行数）。广场/权威名次用它
+                        // 替代 O(N) 的 EXISTS 相关子查询，见 schema.sql 与该列上方的注释。
+                        "  answered_count INT DEFAULT 0," +
                         // P3-03 收口：current_streak 为历史遗留列、零写入恒 0。
                         // 真源是 checkin_data.streak_count（每日签到连击）；本列保留不删
                         //（删列有 schema 变更风险），读侧已改走 checkin_data。
@@ -585,6 +603,19 @@ public class DatabaseManager {
         addColumnIfMissing(tablePrefix + "player_data", "onboarding_step", "INT DEFAULT 0");
         // Phase 3 S-A：错题本累计攻克词数（WRONG_BOOK_CLEARED 成就，绝对值 UPSERT 写）
         addColumnIfMissing(tablePrefix + "player_data", "wrong_book_cleared", "INT DEFAULT 0");
+        // R-48：去规范化列「答过题的词数」。补列后必须<b>立刻回填</b>存量数据 ——
+        // 新列默认 0，若只补列不回填，所有存量玩家都会在广场/名次里被判定成
+        // 「从没答过题」而整批消失（静默的、影响每一个老玩家）。
+        // addColumnIfMissing 的返回值正是「本次是不是真的补了列」，据此只跑一次
+        // （回填本身也是幂等的绝对值重算，重复执行不出错，只是没必要多一次全表 UPDATE）。
+        //
+        // 回填<b>不在这里执行</b>：下面的 word_progress 建表还没跑，而回填要读它。
+        // 新库在 CREATE TABLE 里已含该列（addColumnIfMissing 返回 false），只有「老库补列」
+        // 这一条路才会置位；真跑到这里时 word_progress 一定存在，但把顺序写死成
+        // 「先建完所有表再回填」比依赖这个论证更稳。见 createTables 末尾。
+        if (addColumnIfMissing(tablePrefix + "player_data", "answered_count", "INT DEFAULT 0")) {
+            answeredCountColumnJustAdded = true;
+        }
 
         executeUpdate(
                 "CREATE TABLE IF NOT EXISTS " + tablePrefix + "word_progress (" +
@@ -1012,6 +1043,68 @@ public class DatabaseManager {
                 "player_data(total_words_learned)");
         createIndexIfMissing("idx_player_data_streak",
                 "player_data(longest_streak)");
+
+        // R-48：老库刚补了 answered_count 列 → 先回填存量数据，<b>再</b>建下面那条带
+        // answered_count 的复合索引。顺序是刻意的：反过来的话那 5 万行的 UPDATE 要为每一行
+        // 维护一次刚建好的索引（纯浪费），而且索引里会先写进一批全是 0 的版本。
+        if (answeredCountColumnJustAdded) {
+            answeredCountColumnJustAdded = false;
+            backfillAnsweredCount();
+        }
+
+        // R-48：index 选择依据实测（不是猜的）。见 schema.sql 里该索引上方的完整测量。
+        // 一句话：广场/名次的三条查询都是「answered_count > 0 过滤 + total_score 排序」，
+        // 唯一被 planner 用上且<b>不劣化</b>的形状是 (total_score, answered_count) ——
+        // 它让 ORDER BY 段免掉一次 filesort；单独 answered_count 索引反而让 SQLite 的
+        // 广场取页从 0.3 ms 掉到 122 ms（改走 answered_count 索引后必须临时 B 树排序）。
+        // 所以这里只加这一条，<b>不要</b>再加 idx_player_data_answered。
+        createIndexIfMissing("idx_player_data_score_answered",
+                "player_data(total_score, answered_count)");
+    }
+
+    /**
+     * R-48：{@code player_data.answered_count} 的一次性回填 —— 只在「本次启动刚补出该列」时跑。
+     *
+     * <p><b>为什么必须有它</b>：新列 DDL 默认值是 0，而读侧改走 {@code answered_count > 0}
+     * 之后，0 = 「从没答过题」= 排在广场/名次之外。不跑回填，升级后的第一秒所有存量玩家
+     * 就集体从广场上消失了 —— 无报错、无日志、只是"人不见了"。
+     *
+     * <p><b>重新加列即重新回填</b>：{@link #addColumnIfMissing} 的返回值是「这一次真的补了列」，
+     * 因此本方法天然只在升级那一次执行（重启时列已存在 → 返回 false → 不跑）。
+     * 回填语句本身也是<b>幂等</b>的（绝对值重算，不是累加），重放不会跑偏；这一点是刻意
+     * 选的：任何"增量"写法在重复执行时都会翻倍。
+     *
+     * <p><b>方言</b>：整条是相关子查询 UPDATE，<b>刻意不写成 UPDATE ... JOIN (派生表)</b> ——
+     * 派生表那种写法在 MySQL/MariaDB 上同量级（实测 7.0 s vs 6.4 s），但 SQLite
+     * 既不支持 {@code UPDATE ... JOIN} 也不支持对派生表做 UPDATE，于是它需要两份 SQL 而不是
+     * 一份。而<b>本语句文法是三方言（SQLite / MySQL / MariaDB）唯一的交集</b>，且刻意不用
+     * {@code GROUP BY}（本仓刚踩过 MariaDB 1055 ONLY_FULL_GROUP_BY 的坑）。
+     * 目标表用<b>不带别名的全名限定</b>（{@code wp.uuid = <prefix>player_data.uuid}）：
+     * SQLite 不接受 {@code UPDATE t alias ... WHERE wp.uuid = t.uuid} 里的别名前缀，
+     * 而全名限定三家都认。已在本机 MariaDB 13.0 与 sqlite-jdbc 3.45 上分别实证
+     * （5 万玩家 / 100 万词行：MariaDB 6.4 s、SQLite 1.5 s）。
+     *
+     * <p><b>失败不阻断启动</b>：回填是"修复存量"，跑不动（磁盘满/超时）不该让整个插件起不来。
+     * 但也不能静默 —— 失败时记 SEVERE 并在日志里写清楚后果（老玩家的广场/名次会缺席），
+     * 且下次重启不会自动重试（列已存在）。要人工修可执行日志里那条 SQL。
+     */
+    private void backfillAnsweredCount() {
+        String sql = "UPDATE " + tablePrefix + "player_data SET answered_count = ("
+                + "SELECT COUNT(*) FROM " + tablePrefix + "word_progress wp"
+                + " WHERE wp.uuid = " + tablePrefix + "player_data.uuid"
+                + " AND wp.correct_count + wp.incorrect_count > 0)";
+        long startedAt = System.currentTimeMillis();
+        try {
+            executeUpdate(sql);
+            plugin.getLogger().info("Backfilled " + tablePrefix + "player_data.answered_count in "
+                    + (System.currentTimeMillis() - startedAt) + " ms (one-time migration).");
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.SEVERE,
+                    "Failed to backfill " + tablePrefix + "player_data.answered_count. "
+                            + "Players whose rows keep answered_count = 0 will be missing from the "
+                            + "English Square and from %lle_rank% until this is fixed. "
+                            + "Re-run this statement manually after the database recovers: " + sql, e);
+        }
     }
 
     /**

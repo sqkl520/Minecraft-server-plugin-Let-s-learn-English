@@ -458,8 +458,15 @@ public final class AnswerChecker {
     /**
      * R2：把中文释义拆成"义项集合"（按分号切分，每段各自归一化，丢弃空段）。
      * 单义释义返回单元素集合；释义缺失返回空集。
+     *
+     * <p><b>包内可见（非 private）的原因</b>：{@code WordBank.selectWordsForSession} 的
+     * 「同一次会话内不出现两个同释义词」去重必须与本题的最大干扰项约束<b>同一口径</b> ——
+     * 若那边另写一套切分/归一化（哪怕只差「斜杠要不要切」），就会出现
+     * 「choice 认为撞车、开局抽词认为不撞车」的分叉：玩家在同一会话里拿到
+     * study / learn 两道 spelling 题，而选项生成那边却把它们当同义词排除了。
+     * 因此本方法提升为包级私有，作为释义切分的<b>唯一真相</b>，禁止复制。
      */
-    private static Set<String> definitionSegments(String chinese) {
+    static Set<String> definitionSegments(String chinese) {
         String full = normalizeDefinition(chinese);
         Set<String> segments = new HashSet<>();
         if (full.isEmpty()) {

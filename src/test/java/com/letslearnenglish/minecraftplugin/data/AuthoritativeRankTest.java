@@ -87,11 +87,20 @@ class AuthoritativeRankTest {
              Statement st = c.createStatement()) { st.executeUpdate(sql); }
     }
 
-    /** 建一个玩家：分数 + 是否答过题 + 是否隐身。 */
+    /**
+     * 建一个玩家：分数 + 是否答过题 + 是否隐身。
+     *
+     * <p>R-48：答题门已从 {@code EXISTS(word_progress)} 改为读去规范化列
+     * {@code player_data.answered_count}，所以播种必须同时维护那一列 —— 否则本类会
+     * 退化成"全员未答题 → 谁都排不上名"，且所有断言都会以"符合预期"的方式变绿
+     * （{@code -1} 恰好是 {@code neverAnsweredIsNotRanked} 期望的值）。
+     * {@code answered_count} 与 {@code word_progress} 一起写，正是为了不让这种假绿发生。
+     */
     private void seed(String uuid, long score, boolean answered, boolean hidden) throws Exception {
         exec("INSERT OR REPLACE INTO lle_player_data (uuid, player_name, total_sessions,"
-                + " total_score, conversation_count, wrong_book_cleared)"
-                + " VALUES ('" + uuid + "', 'p', 0, " + score + ", 0, 0)");
+                + " total_score, conversation_count, wrong_book_cleared, answered_count)"
+                + " VALUES ('" + uuid + "', 'p', 0, " + score + ", 0, 0, "
+                + (answered ? 1 : 0) + ")");
         if (hidden) {
             exec("INSERT OR REPLACE INTO lle_player_profiles (uuid, age, show_answers,"
                     + " show_results, show_in_square, sounds_enabled, reminders_enabled)"
