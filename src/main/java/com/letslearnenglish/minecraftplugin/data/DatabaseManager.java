@@ -92,19 +92,6 @@ public class DatabaseManager {
      */
     private final AtomicBoolean seasonLedgerPendingJustAdded = new AtomicBoolean(false);
 
-    /**
-     * R-48：本次启动是否<b>刚刚</b>给 {@code player_data} 补上 {@code answered_count} 列。
-     *
-     * <p>只用于「老库升级」这一个场景：CREATE TABLE 里已含该列的新库不会置位，
-     * 重启也不会置位（列已存在 → {@code addColumnIfMissing} 返回 false）。置位后由
-     * {@code createTables()} 末尾调 {@link #backfillAnsweredCount()} 回填并在同一处清掉。
-     *
-     * <p>用普通 {@code boolean} 而不是 {@code AtomicBoolean}：读写都在
-     * {@code initialize()} 的 {@code connectionLock} 临界区内、同一个线程、同一次调用里，
-     * 没有跨线程可见性需求（与 {@code seasonLedgerPendingJustAdded} 不同 —— 那个要跨
-     * 生命周期被外部消费）。
-     */
-    private boolean answeredCountColumnJustAdded;
 
     /**
      * R-16：本进程的<b>实例标识</b>（每个 {@code DatabaseManager} 一个新 UUID）。
@@ -606,16 +593,9 @@ public class DatabaseManager {
         // R-48：去规范化列「答过题的词数」。补列后必须<b>立刻回填</b>存量数据 ——
         // 新列默认 0，若只补列不回填，所有存量玩家都会在广场/名次里被判定成
         // 「从没答过题」而整批消失（静默的、影响每一个老玩家）。
-        // addColumnIfMissing 的返回值正是「本次是不是真的补了列」，据此只跑一次
-        // （回填本身也是幂等的绝对值重算，重复执行不出错，只是没必要多一次全表 UPDATE）。
-        //
         // 回填<b>不在这里执行</b>：下面的 word_progress 建表还没跑，而回填要读它。
-        // 新库在 CREATE TABLE 里已含该列（addColumnIfMissing 返回 false），只有「老库补列」
-        // 这一条路才会置位；真跑到这里时 word_progress 一定存在，但把顺序写死成
-        // 「先建完所有表再回填」比依赖这个论证更稳。见 createTables 末尾。
-        if (addColumnIfMissing(tablePrefix + "player_data", "answered_count", "INT DEFAULT 0")) {
-            answeredCountColumnJustAdded = true;
-        }
+        // 真正调用在 createTables() 末尾（那里所有表都已建好）。
+        addColumnIfMissing(tablePrefix + "player_data", "answered_count", "INT DEFAULT 0");
 
         executeUpdate(
                 "CREATE TABLE IF NOT EXISTS " + tablePrefix + "word_progress (" +
@@ -1044,20 +1024,22 @@ public class DatabaseManager {
         createIndexIfMissing("idx_player_data_streak",
                 "player_data(longest_streak)");
 
-        // R-48：老库刚补了 answered_count 列 → 先回填存量数据，<b>再</b>建下面那条带
-        // answered_count 的复合索引。顺序是刻意的：反过来的话那 5 万行的 UPDATE 要为每一行
-        // 维护一次刚建好的索引（纯浪费），而且索引里会先写进一批全是 0 的版本。
-        if (answeredCountColumnJustAdded) {
-            // 只有回填<b>成功</b>才清标记。原实现在调用前就置 false，于是回填一旦因
-            // 数据库抖动失败（表锁、只读挂载、连接刚重连），重启后列已存在 →
-            // addColumnIfMissing 返回 false → 标记不再置位 → <b>永远不再尝试回填</b>。
-            // 而失败后果是所有老玩家的 answered_count 停在 0，从广场和 %lle_rank%
-            // 整批消失，只有一条 SEVERE 日志能提示服主手工执行 SQL。
-            // 改成「成功才清」后，下次启动会自动重试（回填本身是绝对值重算，幂等）。
-            if (backfillAnsweredCount()) {
-                answeredCountColumnJustAdded = false;
-            }
-        }
+        // R-48：回填 player_data.answered_count，把存量玩家从「答过题」认出来。
+        //
+        // 顺序是刻意的：先回填、再建下面那条带 answered_count 的复合索引。反过来的话
+        // 那 5 万行的 UPDATE 要为每一行维护一次刚建好的索引（纯浪费），而且索引里会
+        // 先写进一批全是 0 的版本。
+        //
+        // <b>为什么每次都跑，而不是用内存标记「只跑一次」</b>：标记是实例字段，重启后
+        // 新实例里它又是 false；而此时列已存在、addColumnIfMissing 返回 false，
+        // 标记再也不会被置位 —— 于是「回填失败 → 服主重启 → 自动重试」这条路<b>根本
+        // 不存在</b>，只有一条 SEVERE 日志在承诺一件不会发生的事。而失败的后果是所有
+        // 老玩家 answered_count 停在 0，被读侧判成「从没答过题」，整批从英语广场与
+        // %lle_rank% 消失。
+        //
+        // 改成无条件调用后，代价由 SQL 自身的 WHERE 限定 —— 只碰 answered_count 仍是 0
+        // 的行（升级那一刻是全部，之后是 0 行，UPDATE 扫一遍索引即返回），既幂等又便宜。
+        backfillAnsweredCount();
 
         // R-48：index 选择依据实测（不是猜的）。见 schema.sql 里该索引上方的完整测量。
         // 一句话：广场/名次的三条查询都是「answered_count > 0 过滤 + total_score 排序」，
@@ -1096,31 +1078,44 @@ public class DatabaseManager {
      * 且下次重启不会自动重试（列已存在）。要人工修可执行日志里那条 SQL。
      */
     /**
-     * 回填 {@code player_data.answered_count}。
+     * 回填 {@code player_data.answered_count}。每次启动都调用——幂等，且被 SQL 自身的
+     * {@code WHERE answered_count = 0} 限定成「只碰还没填过的行」，稳态下是 0 行。
      *
-     * @return {@code true} 表示回填成功（调用方可据此清「待回填」标记）；
-     *         {@code false} 表示失败且已记 SEVERE —— 调用方<b>必须保留</b>标记，
-     *         让下次启动重试。回填是绝对值重算，重放不变。
+     * <p><b>为什么不用内存标记做「只跑一次」</b>：标记是实例字段，重启即丢；而那时列已存在、
+     * {@code addColumnIfMissing} 返回 false，标记再不会被置位。于是「回填失败 → 重启 → 重试」
+     * 这条路根本不存在，而失败后果是所有老玩家从广场与 {@code %lle_rank%} 整批消失。
+     *
+     * <p>SQL 不带表别名 —— 实测 SQLite 对 {@code UPDATE ... 别名} 直接语法错
+     * （{@code near "d": syntax error}），所以用全名限定，一份语法跑三方言。
      */
-    private boolean backfillAnsweredCount() {
+    private void backfillAnsweredCount() {
         String sql = "UPDATE " + tablePrefix + "player_data SET answered_count = ("
                 + "SELECT COUNT(*) FROM " + tablePrefix + "word_progress wp"
                 + " WHERE wp.uuid = " + tablePrefix + "player_data.uuid"
-                + " AND wp.correct_count + wp.incorrect_count > 0)";
+                + " AND wp.correct_count + wp.incorrect_count > 0)"
+                // 只处理「该填但还空着」的行：answered_count 是 0，且确实存在答过的词。
+                //
+                // 少了 EXISTS 这半句会变成一个隐蔽的性能陷阱：所有「真的答过 0 个词」的
+                // 玩家（新玩家、只上线没答题的）answered_count 本来就是 0，`= 0` 条件
+                // 却仍然匹配它们，每次启动都把这些行重写一遍 0 —— 值不变、结果正确，
+                // 但在大服上这是一次常态全表扫（实测：1000 人里 999 个是 0 行）。
+                + " WHERE " + tablePrefix + "player_data.answered_count = 0"
+                + " AND EXISTS (SELECT 1 FROM " + tablePrefix + "word_progress wp2"
+                + " WHERE wp2.uuid = " + tablePrefix + "player_data.uuid"
+                + " AND wp2.correct_count + wp2.incorrect_count > 0)";
         long startedAt = System.currentTimeMillis();
         try {
             executeUpdate(sql);
             plugin.getLogger().info("Backfilled " + tablePrefix + "player_data.answered_count in "
-                    + (System.currentTimeMillis() - startedAt) + " ms (one-time migration).");
-            return true;
+                    + (System.currentTimeMillis() - startedAt) + " ms"
+                    + " (only rows whose answered_count was still 0; steady state touches none).");
         } catch (SQLException e) {
             plugin.getLogger().log(Level.SEVERE,
                     "Failed to backfill " + tablePrefix + "player_data.answered_count. "
                             + "Players whose rows keep answered_count = 0 will be missing from the "
-                            + "English Square and from %lle_rank% until this is fixed. "
-                            + "This will be retried on the next server start; you can also run it "
-                            + "manually after the database recovers: " + sql, e);
-            return false;
+                            + "English Square and from %lle_rank% until this succeeds. "
+                            + "It runs again on every server start (idempotent); you can also run it "
+                            + "manually now: " + sql, e);
         }
     }
 
