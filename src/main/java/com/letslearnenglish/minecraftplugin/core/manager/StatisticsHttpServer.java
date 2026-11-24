@@ -15,6 +15,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -120,7 +121,11 @@ public class StatisticsHttpServer {
                 this::computeStatsSnapshot,
                 TimeUnit.SECONDS.toNanos(cacheSeconds),
                 plugin.getLogger(),
-                "dashboard");
+                "dashboard",
+                // R-TTL-3：loader 自己把 SQL 失败折成 0 时<b>不会抛异常</b>，所以缓存必须
+                // 能识别「这个值算降级」。没有这条谓词，库抖一下的结果就会被当成成功值
+                // 冻住整个 TTL（默认 120 s），服主看到「全服数据是 0」的假结论。
+                StatsSnapshot::degraded);
     }
 
     /** 把配置里的 TTL 夹到 [{@value #MIN_CACHE_SECONDS}, {@value #MAX_CACHE_SECONDS}]。 */
@@ -734,8 +739,19 @@ public class StatisticsHttpServer {
      * 一次面板刷新的全部聚合结果（不可变快照）。
      *
      * <p>字段与 {@code /api/stats} 的响应一一对应，语义与加缓存前<b>完全相同</b> ——
-     * 这个 record 只是把"5 条查询的结果"收成一个可整体缓存/整体替换的值，
+     * 这个 record 只是把"6 条查询的结果"收成一个可整体缓存/整体替换的值，
      * 不引入任何计算或近似。
+     *
+     * <p><b>{@code degraded} / {@code failedFields}（R-TTL-3）</b>：这 6 条聚合读各自在
+     * {@code DatabaseManager} 里把 {@code SQLException} 折成 {@code 0}，所以一次库抖
+     * 能让本 record 带着<b>六个看起来完全合法的 0</b> 返回。{@code degraded=true} 表明
+     * 「这些数字里有读失败的，别当真值发布」—— {@link TtlSnapshotCache} 据此走
+     * 「保留旧值 + 不推进时间戳」路径，而不是把假 0 冻住整个 TTL。
+     *
+     * <p>这两个字段<b>不改变 JSON 结构</b>：{@code /api/stats} 的响应里<b>永远</b>不出现它们，
+     * 因为降级快照永远不会被发布进缓存（见 {@link TtlSnapshotCache} 契约「降级值等同失败」）。
+     * 冷启动就降级时 {@code get()} 返回 {@code null} → 走既有的 503 分支，
+     * 同样不会发出一份假 0。它们只服务于日志与诊断。
      *
      * @param totalWords      被玩家答过的不同单词数（{@code COUNT(DISTINCT word)}）
      * @param todayActivePlayers 今日有学习记录的玩家数
@@ -743,40 +759,103 @@ public class StatisticsHttpServer {
      * @param totalCoinsEarned 累计获得金币
      * @param totalCoinsSpent  累计消费金币
      * @param last7Days       最近 7 天曲线（含今天，缺数据的日子补 0）
+     * @param degraded        {@code true} = 至少一个子项读失败，数字不可信
+     * @param failedFields    读失败的子项名（日志与降级 JSON 用；成功时为空列表）
      */
     private record StatsSnapshot(int totalWords,
                                  int todayActivePlayers,
                                  int totalSessions,
                                  long totalCoinsEarned,
                                  long totalCoinsSpent,
-                                 List<DatabaseManager.DailyStats> last7Days) {
+                                 List<DatabaseManager.DailyStats> last7Days,
+                                 boolean degraded,
+                                 List<String> failedFields) {
         StatsSnapshot {
             // 纵深防御，不是语义变更：生产实现 getLast7DaysStats() 永远 returns 一个
             // 补零后的 7 元素列表（从不返回 null）。这里防的是"某次重构/替身让它返回 null"
             // —— 那种情况下 List.copyOf(null) 会抛 NPE 并把整块快照算废，而降级成空曲线
             // 至少面板还能显示 5 个汇总数字。
             last7Days = last7Days == null ? List.of() : List.copyOf(last7Days);
+            failedFields = failedFields == null ? List.of() : List.copyOf(failedFields);
         }
     }
 
     /**
-     * 真正跑那 5 条聚合查询。<b>只由 {@link TtlSnapshotCache} 的后台线程调用</b>
+     * 真正跑那 6 条聚合查询。<b>只由 {@link TtlSnapshotCache} 的后台线程调用</b>
      * （首次预热 / TTL 过期后的刷新），绝不在 HTTP 工作线程上执行。
      *
-     * <p>这是加缓存<b>唯一</b>改动 DB 交互的地方：方法体就是原 {@code buildStatsJson} 的
-     * 查询序列，原样搬过来，<b>没有</b>改任何一条 SQL、顺序或返回值口径。
+     * <p>SQL、顺序、返回值口径一条都没改。改动只有一处：<b>收值方式</b>从「调 6 个两态
+     * 方法」换成「调 6 个三态方法」，把 {@code readFailed} 汇总进
+     * {@link StatsSnapshot#degraded()}。
+     *
+     * <p><b>为什么不能靠抛异常</b>：这 6 个读方法自己 {@code catch (SQLException)} 后
+     * 返回 0，异常根本到不了这里 —— 这也是本缺陷的成因。所以「失败」只能从返回值里带上来。
+     * 而「至少一条失败」就足以判整块降级：6 个数字同屏展示，其中 1 个是假 0
+     * 已经足以让服主得出错误结论（例如「今日在线 0 人」）。
      */
     private StatsSnapshot computeStatsSnapshot() {
-        int totalWords = databaseManager.getTotalWordCount();
-        int todayActive = databaseManager.getTodayActivePlayers();
+        List<String> failed = new ArrayList<>(2);
+
+        // null 也按「读失败」处理（纵深防御）：生产实现从不返回 null，但
+        // 一次重构/替身让它返回 null 时，直接 .value() 会抛 NPE 把整块快照算废 ——
+        // 那时缓存看到的是异常（也能保旧值），但日志会变成一条无用的 NPE 堆栈，
+        // 而服主更想知道的是「哪个聚合读挂了」。
+        DatabaseManager.StatsCountRead words = databaseManager.getTotalWordCountWithStatus();
+        if (isFailed(words)) {
+            failed.add("totalWords");
+        }
+        DatabaseManager.StatsCountRead todayActive = databaseManager.getTodayActivePlayersWithStatus();
+        if (isFailed(todayActive)) {
+            failed.add("todayActivePlayers");
+        }
         // P3-02：口径 = 累计学习日次（player_sessions 每人每日一行；原 learning_log 零写入已弃用）
-        int totalSessions = databaseManager.getTotalSessions();
-        long totalCoinsEarned = databaseManager.getTotalCoinsEarned();
-        long totalCoinsSpent = databaseManager.getTotalCoinsSpent();
+        DatabaseManager.StatsCountRead sessions = databaseManager.getTotalSessionsWithStatus();
+        if (isFailed(sessions)) {
+            failed.add("totalLearningSessions");
+        }
+        DatabaseManager.StatsCountRead coinsEarned = databaseManager.getTotalCoinsEarnedWithStatus();
+        if (isFailed(coinsEarned)) {
+            failed.add("totalCoinsEarned");
+        }
+        // totalCoinsSpent 不在缺陷单的 5 个方法里，但它同在快照里 —— 留着两态就仍能
+        // 造出「半假快照」。失败判定必须覆盖快照的每一个字段。
+        DatabaseManager.StatsCountRead coinsSpent = databaseManager.getTotalCoinsSpentWithStatus();
+        if (isFailed(coinsSpent)) {
+            failed.add("totalCoinsSpent");
+        }
         // P3-02：7 天曲线亦来自 player_sessions；sessions = 当日学习日次（每人每日一行）
-        List<DatabaseManager.DailyStats> last7Days = databaseManager.getLast7DaysStats();
-        return new StatsSnapshot(totalWords, todayActive, totalSessions,
-                totalCoinsEarned, totalCoinsSpent, last7Days);
+        DatabaseManager.Last7DaysStatsRead last7Days = databaseManager.getLast7DaysStatsWithStatus();
+        if (last7Days == null || last7Days.readFailed()) {
+            failed.add("last7Days");
+        }
+
+        StatsSnapshot snapshot = new StatsSnapshot(
+                (int) readValue(words),
+                (int) readValue(todayActive),
+                (int) readValue(sessions),
+                readValue(coinsEarned),
+                readValue(coinsSpent),
+                last7Days == null ? List.of() : last7Days.days(),
+                !failed.isEmpty(),
+                failed);
+        if (snapshot.degraded()) {
+            // 这里只记一条汇总 WARNING（细节在 DatabaseManager 各自的 SQLException 里）。
+            // 升级为 SEVERE 的判断留给 TtlSnapshotCache —— 它才看得见「连续第几次」。
+            plugin.getLogger().warning("Dashboard stats snapshot is DEGRADED: failed aggregate read(s) "
+                    + failed + ". The numbers in this snapshot are NOT trustworthy; the cache will"
+                    + " keep serving the previous good snapshot.");
+        }
+        return snapshot;
+    }
+
+    /** {@code null} 或 {@code readFailed} 都算这次读失败（见 {@link #computeStatsSnapshot()}）。 */
+    private static boolean isFailed(DatabaseManager.StatsCountRead read) {
+        return read == null || read.readFailed();
+    }
+
+    /** 读失败时取 0（仅用于构造降级快照的占位值，该快照不会被发布）。 */
+    private static long readValue(DatabaseManager.StatsCountRead read) {
+        return read == null ? 0L : read.value();
     }
 
     /**

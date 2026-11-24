@@ -1111,4 +1111,84 @@ class LLEPapiExpansionTest {
         assertEquals("42", self("coins_earned"),
                 "补读跑完后必须看到真值 —— 否则说明哨兵/写回没生效");
     }
+
+    // ================================================ F. R-47 名次缓存的 stale-while-revalidate
+
+    /**
+     * 名次条目<b>过期后必须返回旧结论</b>，不能换成「未知」。
+     *
+     * <p>这条守的是一个玩家可见的故障：外层 30s 字符串缓存 {@code cache} 是在
+     * {@code resolveRequest} 返回<b>之后</b>才写的，于是它总比内层 {@code rankCache}
+     * 晚一点过期。内层过期那次如果返回空串，外层重解析就拿不到确定性结论，
+     * 而 {@code shouldCacheOuter} 又会因空串拒绝写外层 —— 结果是计分板那一格
+     * <b>每 30 秒规律性空一次</b>（1 万玩家空 0.35s、5 万玩家空 2.5s，每个玩家各一次），
+     * 而不是只空一次。
+     *
+     * <p>变异验证：把过期分支从「返回 stale」改回「返回 null」，本用例必须变红。
+     */
+    @Test
+    @DisplayName("F1：名次条目过期但仍有值 → 返回旧值而不是空串（否则计分板每 30s 空一次）")
+    void expiredRankEntryReturnsStaleValue() {
+        // 第一轮：冷启动，未知 → 空串，并排一次异步读
+        when(store.getAuthoritativeRankWithStatus(TARGET_ID))
+                .thenReturn(PlayerDataStore.AuthoritativeRankLoad.ranked(5));
+        assertEquals("", self("rank"), "冷启动时还没有结论，应为空串");
+        drainAsync();
+        assertEquals("#5", self("rank"), "补读完成后应拿到 #5");
+
+        // 把内层条目伪造成「已过期但值仍是 5」——30s 真等不起。
+        installExpiredRankEntry(5);
+        // 必须同时清掉外层字符串缓存：上一轮 drainAsync 之后 #5 已经进了外层 cache，
+        // 不清的话第二次取值直接命中外层、根本走不到内层，本用例就成了空断言
+        // （第一版就是这么假绿的，变异验证当场抓到）。
+        clearOuterCache();
+
+        // 关键断言：过期后第一次取值应该是旧结论 #5，而不是空串。
+        assertEquals("#5", self("rank"),
+                "名次条目过期时应返回旧结论（stale-while-revalidate）。"
+                        + "返回空串会让计分板每 30 秒规律性空一次 —— 外层缓存比内层"
+                        + "晚过期，内层返回空串后外层因 shouldCacheOuter 拒绝缓存空串，"
+                        + "于是每轮 TTL 都重演一次空窗。");
+    }
+
+    /** 清空私有 {@code cache}（外层 30s 字符串缓存），让下一次取值必然走到内层。 */
+    private void clearOuterCache() {
+        try {
+            java.lang.reflect.Field f = LLEPapiExpansion.class.getDeclaredField("cache");
+            f.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) f.get(expansion);
+            map.clear();
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError("清不掉外层缓存（cache 被改名了？请同步本用例）", e);
+        }
+    }
+
+    /**
+     * 往私有 {@code rankCache} 里塞一个「已过期但仍有值」的条目。
+     *
+     * <p>{@code RankEntry} 的字段是 {@code final}，只能反射构造新实例覆写同一个键。
+     * 两层反射都带可读的失败信息 —— 实现一改就报「请同步本用例」。
+     */
+    private void installExpiredRankEntry(int staleValue) {
+        try {
+            Class<?> entryClass = Class.forName(
+                    "com.letslearnenglish.minecraftplugin.expansion.LLEPapiExpansion$RankEntry");
+            java.lang.reflect.Constructor<?> ctor =
+                    entryClass.getDeclaredConstructor(Integer.class, long.class);
+            ctor.setAccessible(true);
+            // 过期时刻 = 很久以前，确保 now >= expiresAt
+            Object expired = ctor.newInstance(Integer.valueOf(staleValue),
+                    System.currentTimeMillis() - 60_000L);
+
+            java.lang.reflect.Field f = LLEPapiExpansion.class.getDeclaredField("rankCache");
+            f.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Map<UUID, Object> map = (Map<UUID, Object>) f.get(expansion);
+            map.put(TARGET_ID, expired);
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError("装不进过期的名次条目（RankEntry/rankCache 被改名了？"
+                    + "请同步本用例）", e);
+        }
+    }
 }

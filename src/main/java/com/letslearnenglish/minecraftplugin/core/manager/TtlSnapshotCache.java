@@ -8,6 +8,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -40,6 +41,18 @@ import java.util.logging.Logger;
  *       丢弃本次结果，旧快照<b>原样保留</b>且时间戳<b>不推进</b>（下次请求会再试）。
  *       绝不清空缓存 —— 清空会把一次偶发故障放大成"下一个请求同步冷算"，
  *       正好落在最该避免的 5.5 s 上。</li>
+ *   <li><b>「降级值」等同失败</b>（R-TTL-3）：{@code loader} 有两种方式报告失败 ——
+ *       抛异常，或<b>正常返回一个自己标记为降级的对象</b>（见构造器
+ *       {@code degradedTester}）。后者是统计面板的真实形态：5 条聚合各自把
+ *       {@code SQLException} 折成 {@code 0}，于是 loader 会「成功地」交出一个全 0 快照。
+ *       若只认异常，库抖一下就会被冻成「全服数据是 0」并持续整个 TTL ——
+ *       比改造前（只影响一次请求）更糟。降级值走<b>与异常完全相同</b>的路径：
+ *       不发布、不推进时间戳、保留上一轮真值。</li>
+ *   <li><b>连续失败升级为 SEVERE</b>（R-TTL-3）：面板是可选的低优先级功能，所以单次失败
+ *       只记 WARNING；但「永远是旧值 + 一串 WARNING」这种形态在日志里很难被注意到，
+ *       而它意味着<b>面板已经永久停止更新</b>。因此连续
+ *       {@value #SEVERE_AFTER_CONSECUTIVE_FAILURES} 次失败后升级为 SEVERE，并在下一次
+ *       成功后打一条 INFO 表示已恢复（否则服主无法判断"现在好了没有"）。</li>
  *   <li><b>时刻用 {@link System#nanoTime()}</b>：单调时钟，不受 NTP 校时 / 时区 / 夏令时
  *       跳变影响。本仓有过用 {@code currentTimeMillis()} 判超时、被墙上时钟跳变造成
  *       假过期的缺陷记录，这里刻意沿用 {@code nanoTime} 口径（跨调用只能做差值，
@@ -57,6 +70,16 @@ final class TtlSnapshotCache<T> {
 
     /** 重算线程名前缀。daemon：不拖住关服，但仍要在 {@link #shutdown()} 里收，免得 reload 攒线程。 */
     private static final String WORKER_NAME_PREFIX = "lle-stats-refresh-";
+
+    /**
+     * 连续失败多少次后把日志从 WARNING 升级为 SEVERE。
+     *
+     * <p>取 3 而不是 1 的理由：单次 {@code SQLException}（SQLite busy / MySQL
+     * {@code socketTimeout}）是<b>噪声</b>，这类失败本来就不该淹没日志；取 3 而不是 10
+     * 的理由：一次刷新就是整个 TTL（默认 120 s），3 次 ≈ 6 分钟面板数字一动不动 ——
+     * 那时已经不该再是 WARNING 了。
+     */
+    static final int SEVERE_AFTER_CONSECUTIVE_FAILURES = 3;
 
     /** 单线程池 = 天然串行，也保证"最多一个查询在飞"。 */
     private final ExecutorService refreshExecutor;
@@ -76,12 +99,30 @@ final class TtlSnapshotCache<T> {
     /** 飞行中那次计算的结果载体，供冷启动的等待者做<b>带超时</b>等待。 */
     private CompletableFuture<T> inFlight;
 
+    /**
+     * 连续失败次数（异常<b>或</b>降级值都计数）。
+     *
+     * <p>成功一次即清零。只在日志升级判定里读，不需要对外暴露；但
+     * {@link #consecutiveFailures()} 给测试用（否则「连续 N 次升级 SEVERE」这条
+     * 只能靠数日志行猜，而日志由后台线程异步写）。
+     */
+    private int consecutiveFailures;
+
     /** TTL，纳秒。 */
     private final long ttlNanos;
 
     private final Supplier<T> loader;
     private final Logger logger;
     private final String label;
+
+    /**
+     * 「这个值算降级吗」的判据；{@code null} = 只认异常（纯值缓存，无降级概念）。
+     *
+     * <p>为什么用 {@link Predicate} 而不是让 {@code T} 实现某个接口：本类是泛型工具，
+     * 宿主 {@code StatisticsHttpServer} 的快照是 private record，为了给缓存提供判据
+     * 而让它实现公共接口是泄漏。谓词由宿主提供，泛型保持不变。
+     */
+    private final Predicate<T> degradedTester;
 
     /** shutdown() 之后置真：不再提交后台任务。 */
     private volatile boolean closed;
@@ -93,12 +134,24 @@ final class TtlSnapshotCache<T> {
      * @param label    日志里标识是哪块快照（如 {@code "stats"}）
      */
     TtlSnapshotCache(Supplier<T> loader, long ttlNanos, Logger logger, String label) {
+        this(loader, ttlNanos, logger, label, null);
+    }
+
+    /**
+     * 带降级判据的重载。
+     *
+     * @param degradedTester 返回 {@code true} 表示该值<b>不可作为成功值发布</b>
+     *                       （不推进时间戳、保留上一轮真值）；{@code null} = 无此概念
+     */
+    TtlSnapshotCache(Supplier<T> loader, long ttlNanos, Logger logger, String label,
+                     Predicate<T> degradedTester) {
         if (ttlNanos <= 0) {
             throw new IllegalArgumentException("ttlNanos must be positive, got " + ttlNanos);
         }
         this.loader = Objects.requireNonNull(loader, "loader");
         this.logger = Objects.requireNonNull(logger, "logger");
         this.label = Objects.requireNonNull(label, "label");
+        this.degradedTester = degradedTester;
         this.ttlNanos = ttlNanos;
         this.refreshExecutor = Executors.newSingleThreadExecutor(runnable -> {
             Thread thread = new Thread(runnable, WORKER_NAME_PREFIX + label);
@@ -202,24 +255,81 @@ final class TtlSnapshotCache<T> {
     /** 后台重算任务体（跑在 lle-stats-refresh-* 线程上）。 */
     private void runRefresh(CompletableFuture<T> future) {
         T value = null;
+        Throwable failure = null;
         try {
             value = loader.get();
         } catch (Throwable t) {
-            logger.log(Level.WARNING, "Failed to compute " + label + " snapshot;"
-                    + " keeping the previous value (the dashboard may show stale numbers)", t);
+            failure = t;
         }
+
+        // 两态判定：抛异常，或（有判据时）返回了一个自标记为降级的值。
+        // 降级走与异常完全相同的路径 —— 这是 R-TTL-3 的核心：loader「成功地返回假 0」
+        // 不能被当成成功值发布，否则库抖一次就被冻住整个 TTL。
+        boolean degraded = failure != null
+                || (value != null && degradedTester != null && degradedTester.test(value));
+        String reason = failure != null
+                ? null
+                : (degraded ? "loader returned a degraded snapshot (its aggregate reads failed)" : null);
+        int failuresAfter;
+        boolean hasSnapshot;
+        int recoveredAfter = 0;
+
         synchronized (stateLock) {
-            if (value != null) {
+            if (degraded) {
+                // 不发布、不推进 stampNanos —— 保留上一轮真值，下次请求会再试。
+                consecutiveFailures++;
+            } else if (value != null) {
+                if (consecutiveFailures > 0) {
+                    // 恢复信号：没有它，服主只能从"数字动了"反推，而日志里只剩一串 WARNING。
+                    // 记下次数，日志留到锁外打（见 logRefreshOutcome 的理由）。
+                    recoveredAfter = consecutiveFailures;
+                }
+                consecutiveFailures = 0;
                 snapshot = value;
                 stampNanos = System.nanoTime();
             }
-            // value == null：不动 snapshot / stampNanos —— 保留旧值，下次请求会再试。
+            // value == null 且无异常：loader 主动放弃（无值可发布），按失败计一次但不刷屏。
+            else {
+                consecutiveFailures++;
+            }
+            failuresAfter = consecutiveFailures;
+            hasSnapshot = snapshot != null;
             refreshInFlight = false;
             if (inFlight == future) {
                 inFlight = null;
             }
         }
-        future.complete(value);
+        if (recoveredAfter > 0) {
+            logger.info("Recovered after " + recoveredAfter + " consecutive failed "
+                    + label + " snapshot refresh(es); publishing fresh numbers again.");
+        }
+        logRefreshOutcome(failure, failuresAfter, hasSnapshot, reason);
+        future.complete(degraded ? null : value);
+    }
+
+    /**
+     * 按「连续失败次数」决定日志级别并落一条日志。
+     *
+     * <p><b>为什么不在锁内打日志</b>：日志 handler 可能很慢（文件 flush / 服主接的
+     * Discord 转发插件），在 {@code stateLock} 里做就等于让所有请求线程陪它等 ——
+     * 这个类的锁只允许做状态转移。所以失败次数与「有没有旧值」由调用方在锁内取出后传进来。
+     *
+     * <p><b>为什么要把连续次数写进消息</b>：单看一条「Failed to compute dashboard snapshot」
+     * 无法判断这是偶发抖动还是已经死了半小时；「连续 7 次」一眼可判。
+     */
+    private void logRefreshOutcome(Throwable failure, int failures, boolean hasSnapshot,
+                                   String degradedReason) {
+        if (failures == 0) {
+            return; // 成功路径：不刷日志（每个 TTL 一条 INFO 会淹没日志）
+        }
+        boolean escalated = failures >= SEVERE_AFTER_CONSECUTIVE_FAILURES;
+        Level level = escalated ? Level.SEVERE : Level.WARNING;
+        String message = (escalated ? "Still failing" : "Failed") + " to compute " + label
+                + " snapshot (consecutive failures: " + failures
+                + "); keeping the previous value"
+                + (hasSnapshot ? "" : " (none yet — the dashboard will report 503)")
+                + (degradedReason == null ? "" : ": " + degradedReason);
+        logger.log(level, message, failure);
     }
 
     /** 调用方须持 {@link #stateLock}。 */
@@ -271,6 +381,19 @@ final class TtlSnapshotCache<T> {
     T peekSnapshot() {
         synchronized (stateLock) {
             return snapshot;
+        }
+    }
+
+    /**
+     * 仅供测试/诊断：当前连续失败次数（成功一次即清零）。
+     *
+     * <p>为什么需要它：「连续 3 次失败升级 SEVERE」这条只能用日志验证，而日志是
+     * 后台线程异步写的 —— 靠 sleep 猜时机会让「计数被错误清零」这类变异逃走
+     * （与 {@link #isRefreshInFlight()} 同一个理由）。
+     */
+    int consecutiveFailures() {
+        synchronized (stateLock) {
+            return consecutiveFailures;
         }
     }
 }

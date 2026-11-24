@@ -196,6 +196,37 @@ class WordBankContentTest {
     }
 
     /**
+     * 找出「chinese 原文（trim 后）完全相同」的词条组，每组返回一行描述。
+     *
+     * <p><b>为什么抽成方法</b>：主用例与自检用例必须调<b>同一个</b>检查器。
+     * 之前自检用例把「按 chinese 分组找重复」的逻辑重写了一遍，于是主用例的口径一改
+     * （例如以后改成剥括号后再比较），自检仍按旧口径绿着 —— 这就是本仓记录过的
+     * 「自证桩」形态：自检证明的是副本，不是真正的检查器。
+     *
+     * <p>口径：<b>只比原文（trim 后）</b>，不用 AnswerChecker 的归一化。理由见
+     * {@code noTwoWordsInSameTierShareTheSameChineseText} 的注释。
+     *
+     * @return 每组格式为 {@code 「释义」-> 词1 / 词2}；无障碍时返回空列表
+     */
+    private static List<String> findDefinitionCollisions(List<Entry> entries) {
+        Map<String, List<String>> byChinese = new LinkedHashMap<>();
+        for (Entry e : entries) {
+            String zh = e.fields().get("chinese");
+            if (zh == null) {
+                continue;
+            }
+            byChinese.computeIfAbsent(zh.trim(), k -> new ArrayList<>()).add(e.english());
+        }
+        List<String> collisions = new ArrayList<>();
+        for (Map.Entry<String, List<String>> g : byChinese.entrySet()) {
+            if (g.getValue().size() > 1) {
+                collisions.add("「" + g.getKey() + "」-> " + String.join(" / ", g.getValue()));
+            }
+        }
+        return collisions;
+    }
+
+    /**
      * 例句是否真的包含目标词。
      *
      * <p><b>短词必须只做精确匹配</b>（红队 F1）：{@code a} 的规则屈折会生成
@@ -464,21 +495,10 @@ class WordBankContentTest {
             // 理由——玩家看到的就是原文；归一化会把「他们（宾格）」与「他们」判成撞车，
             // 可这两条题面玩家看得出差别。归一化口径是给 choice 干扰项剔除用的，
             // 与「题面是否可区分」不是同一个问题。
+            //
+            // 比较逻辑在 findDefinitionCollisions（自检用例调的是同一个方法）。
             for (String tier : TIERS) {
-                Map<String, List<String>> byChinese = new LinkedHashMap<>();
-                for (Entry e : load(tier)) {
-                    String zh = e.fields().get("chinese");
-                    if (zh == null) {
-                        continue;
-                    }
-                    byChinese.computeIfAbsent(zh.trim(), k -> new ArrayList<>()).add(e.english());
-                }
-                List<String> collisions = new ArrayList<>();
-                for (Map.Entry<String, List<String>> g : byChinese.entrySet()) {
-                    if (g.getValue().size() > 1) {
-                        collisions.add("「" + g.getKey() + "」-> " + String.join(" / ", g.getValue()));
-                    }
-                }
+                List<String> collisions = findDefinitionCollisions(load(tier));
                 assertTrue(collisions.isEmpty(),
                         "档 " + tier + " 里有 " + collisions.size()
                                 + " 组词的 chinese 原文完全相同。spelling 模式的题面只有中文"
@@ -492,16 +512,18 @@ class WordBankContentTest {
         @Test
         @DisplayName("自检：检查器能认出同释义（证明上一条不是永远为真的空断言）")
         void detectorFlagsDuplicateDefinition() {
-            // 用与上面完全相同的口径造一段人造数据，确保「撞车」真的会被数出来。
-            // 不加这条，上面那条的『零碰撞』可能只是因为比较逻辑写错了（比如键取了 english）。
-            List<String> names = List.of("study", "learn");
-            List<String> chinese = List.of("学习", "学习");
-            Map<String, List<String>> byChinese = new LinkedHashMap<>();
-            for (int i = 0; i < names.size(); i++) {
-                byChinese.computeIfAbsent(chinese.get(i).trim(), k -> new ArrayList<>()).add(names.get(i));
-            }
-            long dup = byChinese.values().stream().filter(v -> v.size() > 1).count();
-            assertEquals(1L, dup, "检查器必须把两条同释义的词数成 1 组，否则主用例的零碰撞是假的");
+            // 对一段人造 Entry 列表调**同一个** findDefinitionCollisions，确保「撞车」真的会被数出来。
+            // 不能在这里重写一遍分组逻辑 —— 那只能证明副本对，证明不了主用例用的检查器对。
+            List<Entry> fabricated = List.of(
+                    new Entry("study", Map.of("chinese", "学习")),
+                    new Entry("learn", Map.of("chinese", "学习")),
+                    new Entry("apple", Map.of("chinese", "苹果")));
+            List<String> collisions = findDefinitionCollisions(fabricated);
+            assertEquals(1, collisions.size(),
+                    "检查器必须把两条同释义的词数成 1 组（第三词释义不同，不算），"
+                            + "否则主用例的零碰撞是假的；实际：" + collisions);
+            assertTrue(collisions.get(0).contains("study") && collisions.get(0).contains("learn"),
+                    "报出的那一组必须同时含 study 与 learn，实际：" + collisions.get(0));
         }
     }
 }

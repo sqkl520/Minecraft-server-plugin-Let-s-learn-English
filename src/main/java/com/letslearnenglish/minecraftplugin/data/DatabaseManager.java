@@ -2915,28 +2915,89 @@ public class DatabaseManager {
     public record DailyStats(String date, int sessions, int players, int wordsLearned) {}
 
     /**
+     * 面板聚合读（{@code COUNT}/{@code SUM} 那一档）的<b>三态</b>结果 ——
+     * 照 {@link CoinsEarnedRead} / {@link OnboardingLoad} 范式。
+     *
+     * <h2>为什么这几个聚合读必须三态</h2>
+     * {@code /api/stats} 的六个聚合值由 {@code StatisticsHttpServer} 的
+     * {@code TtlSnapshotCache} 缓存 {@code statistics-server.cache-seconds}（默认 120 s）。
+     * 两态版在 {@code SQLException} 时 {@code return 0}，于是「库抖了一下」
+     * （SQLite 长 COUNT 撞上写事务的 busy、MySQL {@code socketTimeout} 被慢查询踩中）
+     * 与「全服确实零数据」在缓存眼里<b>逐字节同形</b>：
+     * {@code computeStatsSnapshot()} 正常返回一个「全 0 快照」，缓存把它当成功值
+     * <b>冻住 2 分钟</b>，服主看到「全服数据是 0」这个看起来可信的假结论。
+     *
+     * <p>改造前同类故障只影响<b>一次请求</b>；缓存把影响窗口放大成整个 TTL。
+     * 所以失败必须能被缓存识别 —— 识别之后缓存走「保留旧值 + 不推进时间戳」那条既有契约
+     * （见 {@code TtlSnapshotCache} 契约 5），而不是发布一个假 0。
+     *
+     * <p><b>为什么是 boolean 而不是 enum</b>：与 {@link CoinsEarnedRead} 不同，这里没有
+     * 「无行 ≡ 0」这一档需要区分 —— 聚合查询恒返回一行，{@code 0} 就是真值。
+     * 唯一需要区分的是「读到了」与「读失败」。
+     *
+     * @param value      库内值；{@code readFailed=true} 时恒 {@code 0} 且<b>不可信</b>
+     * @param readFailed {@code true} = 本次查询失败（已记 WARNING），结果<b>未知</b>，不得当作 0
+     */
+    public record StatsCountRead(long value, boolean readFailed) {
+
+        /** 读失败的共享实例（一次刷新可能连吃 6 次失败，不必每次新建对象）。 */
+        public static final StatsCountRead FAILED = new StatsCountRead(0L, true);
+
+        /** 已确认值（{@code 0} 是<b>真值</b>，不是失败）。 */
+        public static StatsCountRead present(long value) {
+            return new StatsCountRead(value, false);
+        }
+    }
+
+    /**
      * Count distinct words that have been learned by any player.
+     *
+     * <p>本方法保留原签名与原语义（读失败仍返回 {@code 0}），实现委托给三态版
+     * {@link #getTotalWordCountWithStatus()} —— SQL 与异常处理只有一份。
+     * <b>需要区分「失败」与「真的是 0」的新调用方</b>（统计面板缓存）请走三态版。
      */
     public int getTotalWordCount() {
+        return (int) getTotalWordCountWithStatus().value();
+    }
+
+    /**
+     * {@link #getTotalWordCount()} 的三态版。
+     *
+     * <p>失败时返回 {@link StatsCountRead#FAILED} 而不是一个看起来可信的 0；
+     * {@code COUNT(...)} 恒返回一行，所以「没有行」同样按失败处理（驱动/语句异常），
+     * 而不当成「0 个单词」。
+     */
+    public StatsCountRead getTotalWordCountWithStatus() {
         String sql = "SELECT COUNT(DISTINCT word) FROM " + tablePrefix + "word_progress";
         synchronized (connectionLock) {
             Connection conn = getConnection();
             try (PreparedStatement stmt = conn.prepareStatement(sql);
                  ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
-                    return rs.getInt(1);
+                    return StatsCountRead.present(rs.getInt(1));
                 }
+                plugin.getLogger().warning(
+                        "Total word count query returned no row; treating it as a failed read");
+                return StatsCountRead.FAILED;
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING, "Failed to query total word count", e);
+                return StatsCountRead.FAILED;
             }
         }
-        return 0;
     }
 
     /**
      * Count distinct players who were active today (have a session record for today).
+     *
+     * <p>保留原签名与原语义（读失败仍返回 {@code 0}），委托给三态版
+     * {@link #getTodayActivePlayersWithStatus()}。
      */
     public int getTodayActivePlayers() {
+        return (int) getTodayActivePlayersWithStatus().value();
+    }
+
+    /** {@link #getTodayActivePlayers()} 的三态版（失败 → {@link StatsCountRead#FAILED}）。 */
+    public StatsCountRead getTodayActivePlayersWithStatus() {
         String today = LocalDate.now().toString();
         String sql = "SELECT COUNT(DISTINCT uuid) FROM " + tablePrefix
                 + "player_sessions WHERE session_date = ?";
@@ -2946,14 +3007,17 @@ public class DatabaseManager {
                 stmt.setString(1, today);
                 try (ResultSet rs = stmt.executeQuery()) {
                     if (rs.next()) {
-                        return rs.getInt(1);
+                        return StatsCountRead.present(rs.getInt(1));
                     }
+                    plugin.getLogger().warning(
+                            "Today active players query returned no row; treating it as a failed read");
+                    return StatsCountRead.FAILED;
                 }
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING, "Failed to query today active players", e);
+                return StatsCountRead.FAILED;
             }
         }
-        return 0;
     }
 
     /**
@@ -2970,52 +3034,90 @@ public class DatabaseManager {
      * 两值同屏展示（如 ProfileGUI 与统计面板）数值可不同，属既定口径差，非缺陷。
      */
     public int getTotalSessions() {
+        return (int) getTotalSessionsWithStatus().value();
+    }
+
+    /**
+     * {@link #getTotalSessions()} 的三态版（失败 → {@link StatsCountRead#FAILED}）。
+     *
+     * <p>只改失败可辨识性，口径与 SQL 逐字不变（仍是 {@code player_sessions} 行数 = 天数口径）。
+     */
+    public StatsCountRead getTotalSessionsWithStatus() {
         String sql = "SELECT COUNT(*) FROM " + tablePrefix + "player_sessions";
         synchronized (connectionLock) {
             Connection conn = getConnection();
             try (PreparedStatement stmt = conn.prepareStatement(sql);
                  ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
-                    return rs.getInt(1);
+                    return StatsCountRead.present(rs.getInt(1));
                 }
+                plugin.getLogger().warning(
+                        "Total sessions query returned no row; treating it as a failed read");
+                return StatsCountRead.FAILED;
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING, "Failed to query total sessions", e);
+                return StatsCountRead.FAILED;
             }
         }
-        return 0;
     }
 
     /**
      * Sum lifetime coins earned from all players.
+     *
+     * <p>保留原签名与原语义（读失败仍返回 {@code 0L}），委托给三态版
+     * {@link #getTotalCoinsEarnedWithStatus()}。
      */
     public long getTotalCoinsEarned() {
+        return getTotalCoinsEarnedWithStatus().value();
+    }
+
+    /** {@link #getTotalCoinsEarned()} 的三态版（失败 → {@link StatsCountRead#FAILED}）。 */
+    public StatsCountRead getTotalCoinsEarnedWithStatus() {
         String sql = "SELECT COALESCE(SUM(total_coins_earned), 0) FROM " + tablePrefix + "player_data";
         synchronized (connectionLock) {
             Connection conn = getConnection();
             try (PreparedStatement stmt = conn.prepareStatement(sql);
                  ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
-                    return rs.getLong(1);
+                    return StatsCountRead.present(rs.getLong(1));
                 }
+                plugin.getLogger().warning(
+                        "Total coins earned query returned no row; treating it as a failed read");
+                return StatsCountRead.FAILED;
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING, "Failed to query total coins earned", e);
+                return StatsCountRead.FAILED;
             }
         }
-        return 0L;
     }
 
     /**
      * Sum coin spending recorded by this plugin.
+     *
+     * <p>保留原签名与原语义（读失败仍返回 {@code 0L}），委托给三态版
+     * {@link #getTotalCoinsSpentWithStatus()}。
+     *
+     * <p><b>为什么本方法也要三态</b>：它不在缺陷单列出的 5 个方法里，但
+     * {@code computeStatsSnapshot()} 是<b>同一批</b>聚合读的一部分 —— 只要它还折成 0，
+     * 「全 0 假快照」就仍然能被构造出来（{@code totalCoinsSpent} 单格是假的），
+     * 只是少了 1/6 的假象。快照的失败判定必须覆盖快照里的<b>每一个</b>字段。
      */
     public long getTotalCoinsSpent() {
+        return getTotalCoinsSpentWithStatus().value();
+    }
+
+    /** {@link #getTotalCoinsSpent()} 的三态版（失败 → {@link StatsCountRead#FAILED}）。 */
+    public StatsCountRead getTotalCoinsSpentWithStatus() {
         String sql = "SELECT COALESCE(SUM(total_coins_spent), 0) FROM " + tablePrefix + "player_data";
         synchronized (connectionLock) {
             try (PreparedStatement stmt = getConnection().prepareStatement(sql);
                  ResultSet rs = stmt.executeQuery()) {
-                return rs.next() ? rs.getLong(1) : 0L;
+                return rs.next()
+                        ? StatsCountRead.present(rs.getLong(1))
+                        : StatsCountRead.FAILED;
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING, "Failed to query total coins spent", e);
-                return 0L;
+                return StatsCountRead.FAILED;
             }
         }
     }
@@ -3278,10 +3380,46 @@ public class DatabaseManager {
      * 全库零写入，不再参与统计）：players/wordsLearned 按 uuid/words_count 聚合；
      * sessions 按 session_date 分组计数。session 口径为"学习日次"——player_sessions
      * 每人每日一行，故每日 sessions 数值上等于当日 players。
+     *
+     * <p>本方法保留原签名与原语义（读失败仍返回补零的 7 天曲线），实现委托给三态版
+     * {@link #getLast7DaysStatsWithStatus()}。
      */
     public List<DailyStats> getLast7DaysStats() {
+        return getLast7DaysStatsWithStatus().days();
+    }
+
+    /**
+     * 7 天曲线的<b>三态</b>结果（照 {@link CoinsEarnedRead} 范式）。
+     *
+     * @param days       7 个元素，含今天，缺数据的日子补 0；
+     *                   {@code readFailed=true} 时它是<b>补零的假曲线</b>，仅供展示兜底，
+     *                   不得作为「这 7 天确实零数据」的证据
+     * @param readFailed {@code true} = 两条聚合里至少一条失败（已记 WARNING）
+     */
+    public record Last7DaysStatsRead(List<DailyStats> days, boolean readFailed) {
+
+        /** 防御性复制：调用方持有的可变列表不会反向影响结果。 */
+        public Last7DaysStatsRead {
+            days = days == null ? List.of() : List.copyOf(days);
+        }
+    }
+
+    /**
+     * {@link #getLast7DaysStats()} 的三态版。
+     *
+     * <p>原实现有<b>两条</b>独立聚合（players+words、sessions 计数），各自 {@code catch}
+     * 后什么都不做 —— 于是「一条挂了」与「两条都挂了」与「真的零数据」三种情况
+     * 返回逐字节相同的全 0 曲线。<b>任一条失败即 {@code readFailed=true}</b>：
+     * 曲线是整体的，半条真半条假比整条假更难被识破。
+     *
+     * <p>失败时仍然交出补零曲线（{@code days} 非空）：展示层可以直接渲染，
+     * 但必须<b>不</b>把它当作成功值发布到缓存。这是本仓一贯的方向 ——
+     * 宁可显示「上一轮的真数字」，也不要显示「这一轮的假 0」。
+     */
+    public Last7DaysStatsRead getLast7DaysStatsWithStatus() {
         Map<String, int[]> dailyData = new LinkedHashMap<>();
         LocalDate today = LocalDate.now();
+        boolean readFailed = false;
 
         // Initialize all 7 days (including today) with zeros
         for (int i = 6; i >= 0; i--) {
@@ -3313,6 +3451,7 @@ public class DatabaseManager {
                 }
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING, "Failed to query daily player stats", e);
+                readFailed = true;
             }
         }
 
@@ -3339,6 +3478,7 @@ public class DatabaseManager {
                 }
             } catch (SQLException e) {
                 plugin.getLogger().log(Level.WARNING, "Failed to query daily session counts", e);
+                readFailed = true;
             }
         }
 
@@ -3347,7 +3487,7 @@ public class DatabaseManager {
             int[] d = entry.getValue();
             result.add(new DailyStats(entry.getKey(), d[0], d[1], d[2]));
         }
-        return result;
+        return new Last7DaysStatsRead(result, readFailed);
     }
 
     // ============================================================

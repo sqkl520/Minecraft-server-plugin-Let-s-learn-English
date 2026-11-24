@@ -63,15 +63,23 @@ import java.util.concurrent.ConcurrentHashMap;
  * fills it from an async task, returning "" (unknown) on a miss instead of
  * blocking on a SELECT under the shared connection lock.
  *
- * R-47: %lle_rank% follows exactly the same shape for a different reason —
+ * R-47: %lle_rank% follows the same shape for a different reason —
  * its read is not a fast key lookup but an O(player-count) COUNT(*) with a
  * correlated EXISTS subquery (measured 350ms at 10k players, 2.5s at 50k).
  * It used to run on the PAPI calling thread (the scoreboard's main thread),
  * and its 30s cache is keyed per player, so a 20-player scoreboard produced
  * 20 main-thread O(N) queries every 30 seconds. It now keeps its own
- * 30s value cache filled from an async task, returning "" (unknown) on a miss
+ * 30s value cache filled from an async task. On a miss it returns "" (unknown)
  * — not "unranked", because "unranked" is a confirmed conclusion while a
  * cache miss is merely "not known yet". See {@link #RANK_UNKNOWN}.
+ *
+ * <p>Differs from coins on the <b>expired</b> path: a value that is merely
+ * stale is still a value, so rank is <b>stale-while-revalidate</b> — it returns
+ * the last confirmed conclusion and refreshes in the background, returning ""
+ * only when no value was ever read. Returning "" on every expiry would leave
+ * the scoreboard cell blank for the length of one O(N) query every 30s per
+ * player, because the outer 30s string cache expires slightly after this one
+ * and refuses to cache the temporary "". See {@link #getRankCached}.
  *
  * <h2>「值已缓存，计分板刷新不碰 DB」这条不变量的真实边界</h2>
  *
@@ -88,7 +96,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>R-47 之后 {@code rank} 已从这条「同步查库」清单里移出（改走
  * {@link #getRankCached} 的异步补读，见类顶部说明）；它对外层缓存的写入由
  * {@link #shouldCacheOuter} 约束 —— 只有拿到确定性结论（名次 / 已确认未上榜）才缓存，
- * 暂态空串不缓存。
+ * 暂态空串不缓存。「过期但仍有值」现在也属于确定性结论，所以过期那条路径也不会
+ * 再把外层缓存搅成空串。
  *
  * <p><b>R22-D1 的处置正是把第 3 条收敛到「真的需要才读」</b>：{@code coins_earned} /
  * {@code rank} / {@code streak} / {@code longest_streak} / {@code achievements}
@@ -267,8 +276,9 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
      * 同一玩家的请求会在首个读还没回来时再排两个<b>同量级的 O(N) 查询</b>，
      * 把「主线程卡 2.5s」换成「异步池里堆叠三份 2.5s」。窗口必须覆盖一次读的耗时才叫去重。
      *
-     * <p>10s 的代价：一次慢读失败/卡住后，同一玩家最多 10s 才重排一次，期间占位符为空串
-     * （诚实表达「还不知道」）。这个方向是安全的 —— 宁可少读，不可堆读。
+     * <p>10s 的代价：一次慢读失败/卡住后，同一玩家最多 10s 才重排一次。期间占位符
+     * <b>不是</b>空串 —— 闸门条目带着上一次的旧结论（见 {@link #getRankCached} 的
+     * {@code claiming}），只有「从未读到过」才空串。这个方向是安全的 —— 宁可少读，不可堆读。
      */
     private static final long RANK_SENTINEL_TTL_MILLIS = 10_000L;
 
@@ -282,12 +292,17 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
     private static final int RANK_CACHE_MAX_ENTRIES = 2000;
 
     /**
-     * R-47：{@code %lle_rank%} 缓存未命中 / 读失败时的返回值 —— 空串，<b>不是</b>「未上榜」。
+     * R-47：{@code %lle_rank%} <b>从未读到过</b>（冷启动）/ 读失败时的返回值 —— 空串，
+     * <b>不是</b>「未上榜」。
      *
-     * <p><b>两者不能合并</b>：「未上榜」是一个<b>已确认的结论</b>（查过，这个人确实不在榜上：
-     * 没答过题 / 隐身 / 无行），而缓存未命中只是<b>还不知道</b>。把「还不知道」渲染成
-     * 「未上榜」等于在计分板上发布一条编造的事实 —— 玩家会以为自己的名次掉了。
-     * 空串在计分板上只是个暂时的空位，下一轮刷新（异步读回来之后）就填上。
+     * <p>注意<b>过期</b>不在此列：条目过期但仍有值时返回的是那个值（stale-while-revalidate，
+     * 见 {@link #getRankCached}）—— 「旧」与「未知」是两件事，把后者也当成后者会让计分板
+     * 每 30 秒空一次。
+     *
+     * <p><b>「不知道」与「未上榜」不能合并</b>：「未上榜」是一个<b>已确认的结论</b>（查过，
+     * 这个人确实不在榜上：没答过题 / 隐身 / 无行），而「不知道」只是<b>还没有结论</b>。
+     * 把「还不知道」渲染成「未上榜」等于在计分板上发布一条编造的事实 —— 玩家会以为自己的
+     * 名次掉了。空串在计分板上只是个暂时的空位，下一轮刷新（异步读回来之后）就填上。
      *
      * <p>同文件先例：{@link #COINS_UNKNOWN}（{@code "0"} 是可信的假数，空串才是诚实表达）。
      */
@@ -617,6 +632,8 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
                 // 于是每块挂 N 人的计分板每 30 秒产生 N 次主线程慢查询。
                 // 改走 getRankCached：命中零 IO，未命中/在途返回空串并在后台补读。
                 // 注意未命中返回空串而<b>不是</b>「未上榜」—— 两者语义不同，见 RANK_UNKNOWN。
+                // 已过期但<b>有值</b>不算未命中：返回上次结论并在后台补读（stale-while-revalidate），
+                // 否则计分板会每 30 秒规律性空一次（见 getRankCached 的 javadoc）。
                 return renderRank(getRankCached(playerId), viewer);
             }
             case "streak" -> {
@@ -774,20 +791,37 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
     /**
      * R-47（性能）：{@code %lle_rank%} 的缓存读取入口 —— <b>调用线程永不碰 DB</b>。
      *
-     * <p>结构与 {@link #getCoinsCached} 同构（本仓已验证的形态）：
+     * <p>过期方向是 <b>stale-while-revalidate</b>（先给旧结论，再异步补读）：
      * <ol>
      *   <li>命中且未过期 → 直接返回缓存结论（零 IO）；</li>
-     *   <li>未命中 / 已过期 → 抢占一个短 TTL 的「未知」条目（{@link #RANK_SENTINEL_TTL_MILLIS}），
-     *       抢到的这个线程排<b>一次</b>异步读，然后返回 {@code null}（= 还不知道）；</li>
+     *   <li>已过期但<b>有值</b> → <b>先返回这个旧结论</b>，同时用
+     *       {@code putIfAbsent} + {@code replace(旧, 新)} 抢一个短 TTL 的补读窗口
+     *       （{@link #RANK_SENTINEL_TTL_MILLIS}）；抢到的那个线程排<b>一次</b>异步读，
+     *       抢不到的线程照样拿到旧结论；</li>
+     *   <li>只有<b>从未读到过</b>（{@code entry == null}，或 {@code value == null}
+     *       即冷启动 / 上次读失败）才返回 {@code null}（= 还不知道，渲染成
+     *       {@link #RANK_UNKNOWN} 空串）；</li>
      *   <li>异步读完成后用真结论 + 正常 TTL 覆写，下一次刷新自然拿到真值。</li>
      * </ol>
      *
+     * <p><b>为什么过期分支必须返回旧值，而不是像金币那样返回「未知」</b>：外层 30s
+     * 字符串缓存 {@link #cache} 是在本方法返回<b>之后</b>才写的，两层 TTL 的起点相差
+     * 一次解析（内层 T1、外层 T2 &gt; T1），于是外层<b>总比内层晚一点过期</b>。
+     * 内层如果在过期分支把已确认的 {@code "#5"} 换成 {@code null}，那么外层过期那次
+     * 重解析就会拿到空串，而 {@link #shouldCacheOuter} 又会因空串拒绝写外层 ——
+     * 结果就是计分板那一格<b>每 30 秒规律性空一次</b>（1 万玩家空 0.35s、5 万玩家空
+     * 2.5s，每个玩家每 30 秒一次），而不是只空一次。返回旧值把「过期」与「未知」拆开：
+     * 过期只是「可能不是最新」，未知才是「没有结论」。名次在计分板上 30s 陈旧无害，
+     * 而规律性空一格是玩家可见的故障。
+     *
      * <p><b>抢占用 {@code putIfAbsent} + {@code replace(旧, 新)}</b>，不是裸 {@code put}：
      * 并发下另一个线程可能刚好把<b>真结论</b>写进来，裸 put 会把它盖成「未知」，
-     * 凭空多一次空串展示。{@code replace} 只在「旧条目还是我看到的那个」时才生效。
+     * 凭空多一次空串展示。{@code replace} 只在「旧条目还是我看到的那个」时才生效，
+     * 因此并发下<b>只有一个</b>线程能排异步读。
      *
-     * <p><b>为什么代价可以接受</b>：一次 30s 周期内首个刷新会看到空串。这是刻意的交换 ——
-     * 空串是「还没有」的诚实表达，而同步查库换来的是主线程 350ms~2.5s 的停摆。
+     * <p><b>{@code claiming} 条目携带 stale 值而不是 {@code null}</b>：它就是那 10s 的
+     * 补读闸门，闸门内所有并发调用读到的都是这个条目。若写成 {@code null}，一次 2.5s
+     * 的慢读会被放大成 10s 的空串（闸门窗口有多长，空串就有多久）。
      *
      * @param playerId 目标玩家（非 null，由调用链保证）
      * @return {@code null} = 还不知道（应渲染空串）；{@code >0} = 名次；
@@ -800,21 +834,36 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
             // 命中窗口内：null = 上一轮读失败（退避未到），仍是「还不知道」。
             return entry.value;
         }
-        // 从未读过 / 已过期：抢占「在途」窗口（短 TTL 的未知条目）。
-        RankEntry claiming = new RankEntry(null, now + RANK_SENTINEL_TTL_MILLIS);
+        // 走到这里 = 从未读过 / 已过期。旧结论先留在手上 —— 它只是「不再是最新」，
+        // 丢掉它就等于把「已确认」降级成「未知」（本方法要修的那个每 30s 空一次）。
+        Integer stale = entry == null ? null : entry.value;
+        RankEntry claiming = new RankEntry(stale, now + RANK_SENTINEL_TTL_MILLIS);
         RankEntry prev = rankCache.putIfAbsent(playerId, claiming);
-        if (prev != null) {
-            if (now < prev.expiresAt) {
-                // 别人先一步占了窗口（或填了真结论）：不重复排队。
-                return prev.value;
-            }
-            // 已过期 → 本次抢到补读权。用 replace 防覆盖并发写入的真结论（见 javadoc）。
-            if (!rankCache.replace(playerId, prev, claiming)) {
-                return null; // 被别人抢先换了条目 —— 下一轮刷新再读
-            }
+        if (prev == null) {
+            // 我们是第一个：由本次调用负责排补读，返回手上这份旧结论（可能为 null = 冷启动）。
+            scheduleRankLoad(playerId, stale);
+            return stale;
         }
-        scheduleRankLoad(playerId);
-        return null;
+        if (now < prev.expiresAt) {
+            // 别人先一步占了窗口（或填了真结论）：不重复排队，直接给现在缓存里的结论。
+            return prev.value;
+        }
+        // prev 也过期了 → 本次抢到补读权。prev 是比 entry 更晚的一次读，非空就优先用它
+        // （「读到过」永远优于「没读到过」，方向不可反）。
+        Integer known = prev.value != null ? prev.value : stale;
+        RankEntry claim = new RankEntry(known, now + RANK_SENTINEL_TTL_MILLIS);
+        // 用 replace 防覆盖并发写入的真结论（见 javadoc）。
+        if (!rankCache.replace(playerId, prev, claim)) {
+            // 没抢到：别的线程刚好换了条目（多半是它刚补读回来的新结论）。用缓存里当前的
+            // 值；条目已被淘汰（trimToCap）或当前也是未知，则退回手上这份旧结论。
+            RankEntry current = rankCache.get(playerId);
+            if (current != null && current.value != null) {
+                return current.value;
+            }
+            return known;
+        }
+        scheduleRankLoad(playerId, known);
+        return known;
     }
 
     /**
@@ -834,12 +883,20 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
      * <p><b>绝不把失败折成「未上榜」</b>：{@code -1} / {@code 0} 是<b>已确认不在榜上</b>的
      * 结论（查过、确实没有），把「不知道」写成它就是编造事实。三态版
      * {@link PlayerDataStore.AuthoritativeRankLoad#readFailed()} 正是为此存在。
+     *
+     * @param playerId 目标玩家（非 null）
+     * @param stale    调用方手上已有的旧结论（{@code null} = 从未读到过）。只在<b>排不上
+     *                 异步任务</b>时用到 —— 那时既拿不到新值也不会再排下一次，把已知的
+     *                 旧结论丢掉换成「未知」是净损失（多空一格）。注意真正的<b>读失败</b>
+     *                 仍落 {@code null}（见 {@link #loadRankIntoCache}）：旧结论可以说是
+     *                 「旧」，但不能替一次失败的读背书。
      */
-    private void scheduleRankLoad(UUID playerId) {
+    private void scheduleRankLoad(UUID playerId, Integer stale) {
         if (!scheduleAsync(() -> loadRankIntoCache(playerId))) {
-            // 无调度器 / 调度器已关：保持未知，等退避后重试。
+            // 无调度器 / 调度器已关：等退避后重试，期间保持调用方手上那份结论
+            // （有旧值就给旧值，没有才落「未知」）—— 把已知的旧结论在这里丢掉是净损失。
             // 占位符解析绝不能因为「排不上任务」而抛给 PAPI 调用方。
-            rankCache.put(playerId, new RankEntry(null,
+            rankCache.put(playerId, new RankEntry(stale,
                     System.currentTimeMillis() + RANK_RETRY_TTL_MILLIS));
         }
     }

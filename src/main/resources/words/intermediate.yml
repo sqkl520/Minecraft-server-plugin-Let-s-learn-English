@@ -289,7 +289,7 @@ words:
     freq_rank: 257
 
   - english: "spend"
-    chinese: "花费（主语为人：花钱或花时间）"
+    chinese: "花费（用掉钱或时间；被动式也可用物作主语）"
     part_of_speech: "verb"
     phonetic: "/spend/"
     example_sentence: "All the money was spent on clothes."
