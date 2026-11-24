@@ -209,10 +209,10 @@ words:
     freq_rank: 383
 
   - english: "note"
-    chinese: "记录"
+    chinese: "记下；注意到"
     part_of_speech: "verb"
     phonetic: "/nəʊt/"
-    example_sentence: "The hotel is noted for its food."
+    example_sentence: "Please note the change in the schedule."
     synonyms: []
     antonyms: []
     difficulty_level: 4
@@ -409,8 +409,8 @@ words:
     freq_rank: 409
 
   - english: "full"
-    chinese: "全部"
-    part_of_speech: "noun"
+    chinese: "满的；全部的"
+    part_of_speech: "adjective"
     phonetic: "/fʊl/"
     example_sentence: "Our factories are working at full capacity."
     synonyms: []
@@ -439,7 +439,7 @@ words:
     freq_rank: 413
 
   - english: "add"
-    chinese: "增加"
+    chinese: "添加；增加"
     part_of_speech: "verb"
     phonetic: "/æd/"
     example_sentence: "I added his name to the list."
@@ -459,7 +459,7 @@ words:
     freq_rank: 415
 
   - english: "pass"
-    chinese: "经过"
+    chinese: "通过；经过"
     part_of_speech: "verb"
     phonetic: "/pæs/"
     example_sentence: "You are expected to pass the exam."
@@ -2217,7 +2217,7 @@ words:
 
 
   - english: "glance"
-    chinese: "瞥见"
+    chinese: "瞥一眼；扫视"
     part_of_speech: "verb"
     phonetic: "/ɡlɑːns/"
     example_sentence: "She glanced at the clock."
@@ -4218,7 +4218,7 @@ words:
 
 
   - english: "curb"
-    chinese: "控制"
+    chinese: "抑制；遏制"
     part_of_speech: "verb"
     phonetic: "/kɜːb/"
     example_sentence: "The city tries to curb traffic jams."

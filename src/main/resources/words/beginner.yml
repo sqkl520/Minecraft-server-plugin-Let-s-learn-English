@@ -1064,7 +1064,7 @@ words:
     freq_rank: 80
 
   - english: "find"
-    chinese: "发现"
+    chinese: "找到；发现"
     part_of_speech: "verb"
     phonetic: "/faɪnd/"
     example_sentence: "I will find you a good doctor."
@@ -1180,7 +1180,7 @@ words:
 
 
   - english: "right"
-    chinese: "正确的"
+    chinese: "正确的；合适的"
     part_of_speech: "adjective"
     phonetic: "/raɪt/"
     example_sentence: "You really don't have the right priorities!"
@@ -1345,7 +1345,7 @@ words:
     freq_rank: 107
 
   - english: "through"
-    chinese: "经过"
+    chinese: "穿过；由于（表示原因或手段）"
     part_of_speech: "preposition"
     phonetic: "/θruː/"
     example_sentence: "This has come about through several causes."
@@ -1365,7 +1365,7 @@ words:
     freq_rank: 109
 
   - english: "show"
-    chinese: "表示"
+    chinese: "给…看；出示"
     part_of_speech: "verb"
     phonetic: "/ʃəʊ/"
     example_sentence: "I wanted to show it to you."
@@ -1991,10 +1991,10 @@ words:
     freq_rank: 167
 
   - english: "case"
-    chinese: "情形"
+    chinese: "事例；案例"
     part_of_speech: "noun"
     phonetic: "/keɪs/"
-    example_sentence: "In any case, I'll call you tomorrow."
+    example_sentence: "This is a typical case of poor planning."
     synonyms: []
     antonyms: []
     difficulty_level: 2
@@ -3655,7 +3655,7 @@ words:
 
 
   - english: "determine"
-    chinese: "决定"
+    chinese: "确定；决定"
     part_of_speech: "verb"
     phonetic: "/dɪˈtɜː.mɪn/"
     example_sentence: "We must determine the date soon."

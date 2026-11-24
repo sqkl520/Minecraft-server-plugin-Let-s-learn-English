@@ -62,7 +62,7 @@ words:
     chinese: "然而"
     part_of_speech: "adverb"
     phonetic: "/ðəʊ/"
-    example_sentence: "Though he's not clever, he's a diligent worker."
+    example_sentence: "It was a hard job. I finished it, though."
     synonyms: []
     antonyms: []
     difficulty_level: 3
@@ -619,7 +619,7 @@ words:
     freq_rank: 297
 
   - english: "party"
-    chinese: "宴会"
+    chinese: "聚会；派对"
     part_of_speech: "noun"
     phonetic: "/ˈpɑːrtiː/"
     example_sentence: "You have to go to the party."
@@ -719,7 +719,7 @@ words:
     freq_rank: 313
 
   - english: "expect"
-    chinese: "预期"
+    chinese: "期望；预料"
     part_of_speech: "verb"
     phonetic: "/ɪˈkspekt/"
     example_sentence: "You are expecting too much of her."
@@ -919,7 +919,7 @@ words:
     freq_rank: 337
 
   - english: "matter"
-    chinese: "事件"
+    chinese: "事情"
     part_of_speech: "noun"
     phonetic: "/ˈmætə/"
     example_sentence: "You have no choice in this matter."
@@ -1019,7 +1019,7 @@ words:
     freq_rank: 349
 
   - english: "develop"
-    chinese: "发展"
+    chinese: "开发；发展"
     part_of_speech: "verb"
     phonetic: "/dɪˈveləp/"
     example_sentence: "Our country must develop its natural resources."
@@ -2857,7 +2857,7 @@ words:
 
 
   - english: "frantic"
-    chinese: "疯狂的"
+    chinese: "狂乱的；慌乱的"
     part_of_speech: "adjective"
     phonetic: "/ˈfræn.tɪk/"
     example_sentence: "We made a frantic search."
@@ -2924,7 +2924,7 @@ words:
 
 
   - english: "frustrate"
-    chinese: "使沮丧"
+    chinese: "使受挫；使恼火"
     part_of_speech: "verb"
     phonetic: "/frʌˈstreɪt/"
     example_sentence: "Delays frustrate every driver."
@@ -3163,7 +3163,7 @@ words:
 
 
   - english: "glimpse"
-    chinese: "瞥见"
+    chinese: "一瞥；一眼"
     part_of_speech: "noun"
     phonetic: "/ɡlɪmps/"
     example_sentence: "We caught a glimpse of the sea."
