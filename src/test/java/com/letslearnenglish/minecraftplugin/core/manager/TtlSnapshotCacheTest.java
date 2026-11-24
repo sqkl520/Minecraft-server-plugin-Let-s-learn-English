@@ -424,6 +424,114 @@ class TtlSnapshotCacheTest {
     }
 
     // ==================================================================
+    // 组 E —— 降级值（loader 正常返回、但自己标记为降级）走与异常相同的路径
+    // ==================================================================
+
+    /**
+     * 这一组的由来：统计面板的 5 条聚合各自把 {@code SQLException} 折成 {@code 0}，
+     * 于是 loader 会「成功地」交出一个全 0 快照。若缓存只认异常，库抖一下就会被冻成
+     * 「全服数据是 0」并持续整个 TTL —— 比改造前（只影响一次请求）更糟。
+     *
+     * <p>所以 {@code TtlSnapshotCache} 必须能通过 {@code degradedTester} 认出这种
+     * 「表面成功、实质失败」的值，并走<b>与抛异常完全相同</b>的路径。
+     */
+    @Nested
+    @DisplayName("组 E —— 降级值不发布、不推进时间戳、保留旧值")
+    class DegradedValueBehavesLikeFailure {
+
+        /** 用字符串 "DEGRADED" 当降级标记，避免为测试引入额外类型。 */
+        private TtlSnapshotCache<String> degradedCache(
+                java.util.function.Supplier<String> loader, Logger log) {
+            TtlSnapshotCache<String> c = new TtlSnapshotCache<>(
+                    loader, TimeUnit.MILLISECONDS.toNanos(1), log, "degraded",
+                    v -> "DEGRADED".equals(v));
+            created.add(c);
+            return c;
+        }
+
+        @Test
+        @DisplayName("降级值不得发布：后续 get 仍返回上一轮真值")
+        void degradedValueIsNotPublished() throws Exception {
+            AtomicInteger calls = new AtomicInteger();
+            TtlSnapshotCache<String> cache = degradedCache(
+                    () -> calls.incrementAndGet() == 1 ? "good" : "DEGRADED", logger);
+
+            assertEquals("good", cache.get(WAIT));
+            Thread.sleep(20);
+
+            assertEquals("good", cache.get(WAIT), "过期时先返回旧值");
+            awaitCallCount(calls, 2, 2000);
+            awaitRefreshIdle(cache, 2000);
+
+            assertEquals("good", cache.get(WAIT),
+                    "降级值被当成功值发布了 —— 这正是「库抖一下变成全服数据 0 并冻住整个 TTL」"
+                            + "的形态。降级必须走与异常完全相同的路径：不发布、保留旧值。");
+            assertEquals("good", cache.get(WAIT));
+        }
+
+        @Test
+        @DisplayName("降级不得推进时间戳：每次过期后的 get 都会重试")
+        void degradedValueDoesNotAdvanceTimestamp() throws Exception {
+            AtomicInteger calls = new AtomicInteger();
+            TtlSnapshotCache<String> cache = degradedCache(
+                    () -> calls.incrementAndGet() == 1 ? "good" : "DEGRADED", logger);
+
+            assertEquals("good", cache.get(WAIT));
+            Thread.sleep(20);
+
+            for (int i = 0; i < 3; i++) {
+                assertEquals("good", cache.get(WAIT));
+                awaitRefreshIdle(cache, 2000);
+            }
+            assertEquals(4, calls.get(),
+                    "降级不该推进时间戳。时间戳一旦推进，一次库抖动就会让面板在整整一个"
+                            + " TTL 内显示「全服数据是 0」——改造前只影响一次请求，缓存把它放大成"
+                            + " 2 分钟。实际 loader 调用 " + calls.get() + " 次（期望 4 次）。");
+        }
+
+        @Test
+        @DisplayName("冷启动就降级：get 返回 null（走既有 503 分支），且不入缓存")
+        void degradedOnColdStartYieldsNoValue() throws Exception {
+            TtlSnapshotCache<String> cache = degradedCache(() -> "DEGRADED", logger);
+
+            assertNull(cache.get(WAIT), "冷启动就降级时没有旧值可保留，必须给 null 让上层走 503");
+            awaitRefreshIdle(cache, 2000);
+            assertFalse(cache.hasValue(), "降级值不得进缓存");
+        }
+
+        @Test
+        @DisplayName("降级路径必须记 WARNING（否则服主只看到数字不动）")
+        void degradedPathLogsWarning() throws Exception {
+            CapturingHandler handler = new CapturingHandler();
+            Logger loudLogger = Logger.getLogger("TtlSnapshotCacheTest-degraded-" + System.nanoTime());
+            loudLogger.setUseParentHandlers(false);
+            loudLogger.addHandler(handler);
+
+            TtlSnapshotCache<String> cache = degradedCache(() -> "DEGRADED", loudLogger);
+            cache.get(WAIT);
+            awaitWarning(handler, 2000);
+
+            assertTrue(handler.hasAtLeast(Level.WARNING),
+                    "降级必须记 WARNING，否则服主只能看到「面板数字不动了」而查不到原因。日志："
+                            + handler.describe());
+        }
+
+        @Test
+        @DisplayName("反向对照：没传 degradedTester 的老构造器照常发布，证明上几条是判据起的作用")
+        void absentTesterKeepsLegacyBehavior() throws Exception {
+            TtlSnapshotCache<String> cache = newCache(
+                    () -> "DEGRADED", TimeUnit.MILLISECONDS.toNanos(1));
+
+            assertEquals("DEGRADED", cache.get(WAIT));
+            Thread.sleep(20);
+            awaitRefreshIdle(cache, 2000);
+            assertEquals("DEGRADED", cache.get(WAIT),
+                    "没传 degradedTester 时不知何为降级，只能照常发布 —— 这是老调用方的既有契约");
+            assertTrue(cache.hasValue(), "老构造器无判据，任何非 null 值都算成功");
+        }
+    }
+
+    // ==================================================================
     // 工具
     // ==================================================================
 

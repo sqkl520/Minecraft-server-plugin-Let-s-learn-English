@@ -77,14 +77,19 @@ public class StatisticsHttpServer {
     /**
      * {@code /api/stats} 的<b>聚合结果快照缓存</b>。
      *
-     * <p>存在的唯一理由：这 5 条查询在 5 万玩家库上合计 5.5 s，且<b>全程持</b>
+     * <p>存在的唯一理由：这 6 条查询在 5 万玩家库上合计 5.5 s，且<b>全程持</b>
      * {@code DatabaseManager} 的唯一连接锁 —— 而浏览器每 60 s 就拉一次。
      * 缓存把"每 60 秒算一次"变成"每 TTL 算一次"，卡顿从"周期性"变成"稀疏"。
      *
      * <p><b>语义不变</b>：缓存里存的就是 {@link #computeStatsSnapshot()} 原样算出的
-     * 5 个数字与 7 天曲线，不换口径、不做近似、不本地推算。
+     * 6 个数字与 7 天曲线，不换口径、不做近似、不本地推算。
      *（特别地：{@code totalWords} 仍是 {@code COUNT(DISTINCT word) FROM word_progress}
      * —— "被玩家答过的不同单词数"，<b>不是</b>词库总词数；换成读内存词库会改变面板含义。）
+     *
+     * <p><b>降级快照不入缓存</b>（R-TTL-3）：构造时传入 {@code StatsSnapshot::degraded}
+     * 作判据 —— 任一聚合读失败的快照会被 {@link TtlSnapshotCache} 当作「失败」丢弃，
+     * 并按既有契约保留上一轮真值、不推进时间戳。没有这条判据，一次库抖产生的
+     * 全 0 快照会被冻住整个 TTL（默认 120 s）。
      *
      * <p>缓存的并发/过期/失败语义全部在 {@link TtlSnapshotCache} 内，这里只负责
      * 提供 loader 与把快照摊平成 JSON。

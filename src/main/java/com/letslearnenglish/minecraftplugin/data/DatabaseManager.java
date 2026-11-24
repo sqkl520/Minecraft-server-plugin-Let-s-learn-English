@@ -3385,7 +3385,12 @@ public class DatabaseManager {
      * {@link #getLast7DaysStatsWithStatus()}。
      */
     public List<DailyStats> getLast7DaysStats() {
-        return getLast7DaysStatsWithStatus().days();
+        // 刻意包一层新的 ArrayList：原实现的契约是「返回一个调用方可自由处理的列表」，
+        // 而三态版的 record 做防御性复制后是不可变的。这里既不动 record 的复制
+        //（那是它自己的契约），也不把不可变列表直接漏给老调用方 —— 万一将来有人
+        // 对这个返回值 .sort() / .set()，在旧实现上能跑、在新实现上抛
+        // UnsupportedOperationException，属于签名没变但语义变了的隐性破坏。
+        return new ArrayList<>(getLast7DaysStatsWithStatus().days());
     }
 
     /**
