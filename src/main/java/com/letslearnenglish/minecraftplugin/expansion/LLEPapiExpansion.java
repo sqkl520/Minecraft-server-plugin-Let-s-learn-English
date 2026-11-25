@@ -30,16 +30,27 @@ import java.util.concurrent.ConcurrentHashMap;
  *   %lle_rank%           — rank text ("#1" or "未上榜"/"Unranked")
  *   %lle_words%          — total words attempted
  *   %lle_accuracy%       — accuracy percentage (e.g. "85.3%")
+ *   %lle_accuracy_raw%   — the same accuracy as a bare number (e.g. "85.3").
+ *                          The "%" is what makes Integer.parseInt / Double.parseDouble
+ *                          fail in AJLeaderboards / Autorank / ConditionalEvents, whose
+ *                          docs only require "a placeholder that returns a number".
  *   %lle_sessions%       — total learning sessions
  *   %lle_streak%         — current daily check-in streak (P3-03: sourced from
  *                          checkin_data.streak_count, not player_data)
  *   %lle_longest_streak% — longest combo streak
  *   %lle_achievements%   — "unlocked/total" (e.g. "3/22")
+ *   %lle_achievements_raw% — the unlocked count alone (e.g. "3"), without the
+ *                          "/22" suffix — same reason as {@code accuracy_raw}
  *   %lle_achievement_<id>% — "✓"/"✗" for one achievement (e.g.
  *                            %lle_achievement_duel_first_win%); unknown ids
  *                            fall back to the legacy null contract
  *   %lle_correct%        — total correct answers
  *   %lle_incorrect%      — total incorrect answers
+ *   %lle_duel_wins%      — duel wins as a bare integer ("" while unknown — see
+ *                          below; the wins figure comes from the duel_stats
+ *                          aggregate, which must never be read on the calling
+ *                          thread)
+ *   %lle_review_due%     — words due for review (currently always "" — see below)
  *   %lle_season%         — current season number, e.g. "3" ("" when the season
  *                          system is disabled or not started yet)
  *   %lle_season_days_left% — days left in the current season ("" when disabled)
@@ -156,7 +167,26 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
             // 「nor when the target player has hidden their results」）。
             // 注意 %lle_streak%（签到连击）刻意<b>不</b>入本集合：它衡量的是「有没有每天
             // 来」，不透露任何答题对错，与 C3 用例「签到连击不受这条门约束」同口径。
-            "longest_streak");
+            "longest_streak",
+            // R-48：两个 _raw 别名与它们的带符号原名是同<b>一份信息</b>，只是格式不同。
+            // 漏在这里 = 玩家关掉 showResults 后，他人在计分板上用 %lle_accuracy_raw% /
+            // %lle_achievements_raw% 照旧读到正确率与解锁进度 —— _raw 不是新数据源，
+            // 而是绕开隐私门的旁路。入集合的唯一判据是「信息内容」，不是「占位符名字」。
+            "accuracy_raw", "achievements_raw",
+            // R-48：%lle_duel_wins% 与 %lle_longest_streak% 同族 —— 它同样是答题成绩的
+            // 直接产物（赢了多少场是对局结果，不是「来没来」的活跃度），产品内先例见上
+            // 一段的 DuelStatsText：他人主页在 hideResults 时整块战绩行不渲染，
+            // 连胜行也不渲染。若这里不入集合，隐藏结果的玩家仍能被他人从计分板读到胜场数。
+            "duel_wins",
+            // R-48：%lle_review_due% 也入集合。判据沿用上面两条注释给出的那条线 ——
+            // 「是不是答题成绩/学习进度的产物」，而不是「占位符名字好不好听」。
+            // 待复习词数来自 word_progress 的复习种子（词 + 上次复习时间 + 复习次数），
+            // 它直接暴露「这个人学过多少个词、进度到哪」，与已在集合里的 words
+            // （累计答题词数）是同一族数据。它<b>不</b>属于 streak 那样的「有没有每天来」
+            // 活跃度指标 —— 签到天数完全不透露学习内容，待复习词数则几乎是学习档案的切片。
+            // 当前该占位符恒返回空串（见 REVIEW_DUE_UNKNOWN），入集合不改变今日行为；
+            // 但这条判据必须先落子，否则将来接上真实数据源时它就是一个静默的旁路。
+            "review_due");
 
     private final LetsLearnEnglish plugin;
 
@@ -203,6 +233,52 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
      * （见 {@link RankEntry} 的说明），所以缓存本身与视角/语言无关。
      */
     private final Map<UUID, RankEntry> rankCache = new ConcurrentHashMap<>();
+
+    /**
+     * R-48（性能）：{@code %lle_duel_wins%} 的独立值缓存 —— 与 {@link #rankCache}
+     * 同构（{@code ConcurrentHashMap} + 过期时刻 + 短窗口去重），换的只是值域。
+     *
+     * <p><b>为什么必须异步</b>：胜场来自 {@code DatabaseManager.getDuelStats}，它的
+     * javadoc 明写「同步阻塞读，禁止主线程调用」—— 里面是两条 COUNT 并抢
+     * {@code connectionLock}。而 PAPI 的 {@link #onRequest} 由计分板插件在<b>主线程</b>
+     * 求值，外层 30s 缓存又按玩家分键，于是「挂 20 人的计分板」= 每 30 秒 20 次主线程
+     * 查询，与会话结算/周期落盘抢同一把全局连接锁。这与 {@code rank} / {@code coins_earned}
+     * 是同一条失效形状，处置也必须同一条。
+     *
+     * <p>键只有 UUID：胜场是玩家级标量，与查看语言/视角无关（隐私门在上层已把
+     * 「非本人 + 目标隐藏结果」挡掉，走到这里不需要文案差异）。
+     */
+    private final Map<UUID, DuelWinsEntry> duelWinsCache = new ConcurrentHashMap<>();
+
+    /**
+     * R-48：{@link #duelWinsCache} 的条目上限，与 {@link #RANK_CACHE_MAX_ENTRIES} 同量级
+     * （键是玩家 UUID，不是「玩家 × 占位符 × 视角 × 语言」）。复用 {@link #trimToCap}。
+     *
+     * <p>两个 TTL 常量刻意定义在 {@code rank*} 那一组之后：它们的初值就是那两条常量本身
+     * （单一真相源，不是各自独立的魔数），Java 的 static 初始化按声明顺序执行，
+     * 前置引用会让它们被读成 0，于是「在途窗口」退化成一个已经过期的条目、
+     * 每次刷新都重排一次查询 —— 这正是本条路径要避免的形状。
+     */
+    private static final int DUEL_WINS_CACHE_MAX_ENTRIES = 2000;
+
+    /**
+     * R-48：{@code %lle_review_due%} 的恒定返回值 —— 空串。
+     *
+     * <p>这不是「暂时没实现所以先空着」的占位，而是<b>刻意选定的正确行为</b>，理由见
+     * {@link #resolveRequest} 里该 case 的注释。
+     * 将来若 {@code ReviewScheduler} 补上「只读缓存、miss 不触发载入」的访问器，
+     * 这里再改成走该访问器 —— 在那之前一个同步查库的实现在本类是不允许的。
+     */
+    private static final String REVIEW_DUE_UNKNOWN = "";
+
+    /**
+     * R-48：{@code %lle_duel_wins%} 的「还不知道」返回值 —— 空串，与
+     * {@link #RANK_UNKNOWN} / {@link #COINS_UNKNOWN} 同一条理由：{@code 0} 是「确实
+     * 一场没赢过」这个<b>已确认</b>结论，用 0 冒充「还没读到」等于在计分板上发布
+     * 一条编造的事实。单独开一个常量而不是复用 {@code RANK_UNKNOWN}：两者语义不同，
+     * 各自改名/改值时不希望互相牵连。
+     */
+    private static final String DUEL_WINS_UNKNOWN = "";
 
     /**
      * R-16：{@link #coinsCache} 的条目上限。与 {@link #CACHE_MAX_ENTRIES} 同理超限淘汰，
@@ -283,6 +359,18 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
     private static final long RANK_SENTINEL_TTL_MILLIS = 10_000L;
 
     /**
+     * R-48：{@code %lle_duel_wins%} 的「在途/未知」窗口（毫秒），复用名次的 10s。
+     *
+     * <p>之所以不取金币的 1s：{@code getDuelStats} 是两条 COUNT，在 MySQL 远程库慢时
+     * 可能超过 1 秒，1s 窗口会在首个读还没回来时被计分板的下一秒刷新再排一次同量级查询。
+     * 窗口必须覆盖一次读的耗时才叫去重（与 {@link #RANK_SENTINEL_TTL_MILLIS} 同理由）。
+     */
+    private static final long DUEL_WINS_SENTINEL_TTL_MILLIS = RANK_SENTINEL_TTL_MILLIS;
+
+    /** R-48：胜场读失败后的退避 TTL —— 与 {@link #RANK_RETRY_TTL_MILLIS} 同口径。 */
+    private static final long DUEL_WINS_RETRY_TTL_MILLIS = RANK_RETRY_TTL_MILLIS;
+
+    /**
      * R-47：{@link #rankCache} 的条目上限，取与 {@link #COINS_CACHE_MAX_ENTRIES} 相同的量级。
      *
      * <p>键是玩家 UUID（不是「玩家 × 占位符 × 视角 × 语言」），数量级由在线/近期玩家数决定，
@@ -324,6 +412,24 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
         final long expiresAt;
 
         RankEntry(Integer value, long expiresAt) {
+            this.value = value;
+            this.expiresAt = expiresAt;
+        }
+    }
+
+    /**
+     * R-48：{@code %lle_duel_wins%} 的值缓存条目 —— 结构同 {@link RankEntry}。
+     *
+     * <p>{@code value == null} 同时表达「还没读到」与「读失败」：两者在展示上都是空串，
+     * 区别只在 TTL（在途哨兵 vs 失败退避）。不引入第二套状态位 —— 同 {@link CoinsEntry}
+     * 的理由：三态用 {@code null} + 过期时刻已经足够，多一个布尔位只会有两处写它。
+     */
+    private static final class DuelWinsEntry {
+        /** {@code null} = 读失败或尚未读到（未知）；非 null = 已确认的胜场数。 */
+        final Integer value;
+        final long expiresAt;
+
+        DuelWinsEntry(Integer value, long expiresAt) {
             this.value = value;
             this.expiresAt = expiresAt;
         }
@@ -497,6 +603,14 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
      *       拿到结论后仍必须缓存：否则每次刷新都会重走 {@link #resolveRequest}，
      *       而它开头是一次 {@code loadProfileSettingsForDisplay}（隐私缓存 miss 时是
      *       同步 SELECT），正好抵消异步化的收益。</li>
+     *   <li>{@code duel_wins}（R-48）：与 {@code rank} 逐字同款 —— 暂态占位值是空串，
+     *       已确认的胜场数（含真实的 {@code "0"}）非空。判据复用同一条「是否为空串」，
+     *       因为「0 场」是一个<b>非空</b>的确定性结论，必须能够进缓存（否则零胜玩家
+     *       每次刷新都重走一次 resolveRequest）。</li>
+     *   <li>{@code review_due}（R-48）：<b>一律</b>不入外层缓存。它恒定返回空串
+     *       （见 {@link #REVIEW_DUE_UNKNOWN}），缓存它只是往 5000 条上限里塞无效条目，
+     *       还会让将来「接上真实数据源」的那次改动必须记得同步改本方法 ——
+     *       一个恒为空的结论没有缓存的必要。</li>
      * </ul>
      *
      * @param params   占位符参数名（非 null）
@@ -504,11 +618,11 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
      * @return {@code true} = 可以写入外层 30s 缓存
      */
     private static boolean shouldCacheOuter(@NotNull String params, @NotNull String resolved) {
-        if (params.equals("coins_earned")) {
+        if (params.equals("coins_earned") || params.equals("review_due")) {
             return false;
         }
-        if (params.equals("rank")) {
-            // 空串 = 还不知道（异步读在途/失败），不能冻 30s；非空 = 名次或「未上榜」，可缓存。
+        if (params.equals("rank") || params.equals("duel_wins")) {
+            // 空串 = 还不知道（异步读在途/失败），不能冻 30s；非空 = 已确认的结论，可缓存。
             return !resolved.isEmpty();
         }
         return true;
@@ -649,6 +763,39 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
                 int total = Achievement.values().length;
                 return unlocked + "/" + total;
             }
+            case "achievements_raw" -> {
+                // R-48：只发解锁数本身（"3"），不带 "/22" —— 与上方 achievements 同一份
+                // 信息、同一次读取，唯一的差别是格式。第三方排行榜插件要的是「能转成数字
+                // 的字符串」，"3/22" 会在 Integer.parseInt 上炸掉。两者必须读同一个来源，
+                // 否则会出现「计数占位符说 3/22、raw 说 4」这种自相矛盾。
+                return String.valueOf(plugin.getAchievementManager().getUnlockedCount(playerId));
+            }
+            case "duel_wins" -> {
+                // R-48（性能）：决斗胜场来自 duel_stats 的两条 COUNT 聚合
+                // （DatabaseManager.getDuelStats），是同步阻塞读，且它自己的 javadoc 明写
+                // 「禁止主线程调用」。而 PAPI 的 onRequest 正是跑在计分板插件的主线程上，
+                // 所以这里绝不能直连 —— 照 rank / coins 的既有范式走 getDuelWinsCached：
+                // 命中零 IO，未命中返回空串并在后台补读。
+                //
+                // 未命中返回空串而不是 0：0 是「确实一场没赢过」的<b>已确认结论</b>，
+                // 与 RANK_UNKNOWN / COINS_UNKNOWN 同口径 —— 计分板上宁可先空一格，
+                // 也不要发一个看起来可信的假 0。已确认的 0 胜则照常渲染成 "0"。
+                Integer wins = getDuelWinsCached(playerId);
+                return wins == null ? DUEL_WINS_UNKNOWN : String.valueOf(wins);
+            }
+            case "review_due" -> {
+                // R-48：待复习词数<b>刻意不返回数字</b>，恒为空串。原因是唯一现成的读取入口
+                // （ReviewScheduler.getDueReviewWords）不符合本类的两条不变量：
+                // ① 它 miss 时会读 word_progress（同步 SELECT，抢 connectionLock）——
+                //    正是「主线程不碰 DB」要禁的形状；
+                // ② 它是「读+写」而不是纯读：算出结果后会把 due 列表写回自己的 30s 缓存，
+                //    而 PAPI 是展示路径，不该顺手给别的模块灌缓存条目；
+                // ③ 玩家数据尚未载入时它会把「一张空表」算成「0 个待复习」，而 0 是一个
+                //    看起来可信的假数（与 COINS_UNKNOWN / RANK_UNKNOWN 同一条理由）。
+                // 在 ReviewScheduler 补出「只读缓存、miss 直接返回未知」的访问器之前，
+                // 这个占位符就诚实地空着 —— 空串在计分板上只是一个空位，不误导任何人。
+                return REVIEW_DUE_UNKNOWN;
+            }
             default -> {
                 // 落到下方 PlayerStats 族（score / words / accuracy / sessions /
                 // correct / incorrect）。switch 穷尽性由 isKnownParams 的固定集合保证。
@@ -682,6 +829,23 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
             case "sessions" -> String.valueOf(stats.getTotalSessions());
             case "correct" -> String.valueOf(stats.getTotalCorrect());
             case "incorrect" -> String.valueOf(stats.getTotalIncorrect());
+            case "accuracy_raw" -> {
+                // R-48：与 accuracy 逐位同源，只是去掉 "%" 后缀 —— 第三方排行榜
+                // （AJLeaderboards 的文档原话是「it just needs to have a PAPI placeholder
+                // that returns a number」）要的是能直接 Double.parseDouble 的字符串。
+                int total = stats.getTotalCorrect() + stats.getTotalIncorrect();
+                if (total == 0) {
+                    // 从没答过题 = 正确率无定义。给 "0.0" 而不是空串：这个占位符的消费者
+                    // 是数值型排行榜，空串会让它把该玩家整行丢掉；而 "0.0" 与
+                    // accuracy 的 "0.0%" 语义一致（同一份数据、同一套口径）。
+                    yield "0.0";
+                }
+                double acc = (double) stats.getTotalCorrect() / total * 100.0;
+                // R22-D11 的坑在 raw 上更严重：accuracy 漏了 Locale.ROOT 只是显示成
+                // "75,0%"，raw 漏了则会给第三方一个 "75,0" —— 那个字符串在任何 locale
+                // 下的 Double.parseDouble 都是 NumberFormatException，占位符直接失效。
+                yield String.format(java.util.Locale.ROOT, "%.1f", acc);
+            }
             default -> null; // 不可达：固定集合外的键已在 resolveCached 返回 null
         };
     }
@@ -993,6 +1157,123 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
     }
 
     /**
+     * R-48（性能）：{@code %lle_duel_wins%} 的缓存读取入口 —— <b>调用线程永不碰 DB</b>。
+     *
+     * <p>与 {@link #getRankCached} 同一套三态 + stale-while-revalidate：
+     * <ol>
+     *   <li>命中且未过期 → 直接返回结论（零 IO）；</li>
+     *   <li>已过期但<b>有值</b> → 先返回那个旧结论，同时用 {@code putIfAbsent} +
+     *       {@code replace(旧, 新)} 抢一个补读窗口（{@link #DUEL_WINS_SENTINEL_TTL_MILLIS}）；
+     *       抢到的那个线程排<b>一次</b>异步读；</li>
+     *   <li>只剩「从未读到过」才返回 {@code null}（= 还不知道，调用方渲染成
+     *       {@link #DUEL_WINS_UNKNOWN} 空串）。</li>
+     * </ol>
+     *
+     * <p><b>为什么过期分支也必须返回旧值</b>：与名次逐字同因 —— 外层 30s 字符串缓存
+     * {@link #cache} 是在本方法返回<b>之后</b>才写的，两层 TTL 的起点相差一次解析，
+     * 于是外层总比内层晚过期。内层在过期分支返回空串的话，外层那次重解析就拿不到结论，
+     * 而 {@link #shouldCacheOuter} 又会因空串拒绝写外层 —— 计分板那一格会每 30 秒
+     * 规律性空一次。胜场数在计分板上 30s 陈旧无害，规律性空一格才是可见故障。
+     *
+     * <p><b>并发抢占用 {@code replace(旧, 新)} 而不是裸 {@code put}</b>：另一个线程可能
+     * 刚好把真结论写进来，裸 put 会把它盖成「未知」，凭空多一次空串展示。
+     *
+     * @param playerId 目标玩家（非 null，由调用链保证）
+     * @return {@code null} = 还不知道（调用方渲染成空串）；非 null = 已确认的胜场数
+     */
+    private Integer getDuelWinsCached(UUID playerId) {
+        long now = System.currentTimeMillis();
+        DuelWinsEntry entry = duelWinsCache.get(playerId);
+        if (entry != null && now < entry.expiresAt) {
+            return entry.value;
+        }
+        // 走到这里 = 从未读过 / 已过期。旧结论留在手上：它只是「不再最新」，
+        // 丢掉它就等于把「已确认」降级成「未知」（同 getRankCached 的理由）。
+        Integer stale = entry == null ? null : entry.value;
+        DuelWinsEntry claiming = new DuelWinsEntry(stale, now + DUEL_WINS_SENTINEL_TTL_MILLIS);
+        DuelWinsEntry prev = duelWinsCache.putIfAbsent(playerId, claiming);
+        if (prev == null) {
+            scheduleDuelWinsLoad(playerId, stale);
+            return stale;
+        }
+        if (now < prev.expiresAt) {
+            // 别人先一步占了窗口（或填了真结论）：不重复排队，给现在缓存里的结论。
+            return prev.value;
+        }
+        // prev 也过期了 → 本次抢到补读权。「读到过」永远优于「没读到过」，方向不可反。
+        Integer known = prev.value != null ? prev.value : stale;
+        DuelWinsEntry claim = new DuelWinsEntry(known, now + DUEL_WINS_SENTINEL_TTL_MILLIS);
+        if (!duelWinsCache.replace(playerId, prev, claim)) {
+            // 没抢到：别的线程刚好换了条目（多半是它刚补读回来的新结论）。
+            DuelWinsEntry current = duelWinsCache.get(playerId);
+            if (current != null && current.value != null) {
+                return current.value;
+            }
+            return known;
+        }
+        scheduleDuelWinsLoad(playerId, known);
+        return known;
+    }
+
+    /**
+     * R-48：排一次胜场补读；排不上就落退避条目。
+     *
+     * <p>与 {@link #scheduleRankLoad} 同构，包括「排不上时保留手上那份旧结论」的理由：
+     * 那时既拿不到新值也不会再排下一次，把已知旧结论丢掉换「未知」是净损失。
+     *
+     * @param playerId 目标玩家（非 null）
+     * @param stale    调用方手上已有的旧结论（{@code null} = 从未读到过）
+     */
+    private void scheduleDuelWinsLoad(UUID playerId, Integer stale) {
+        if (!scheduleAsync(() -> loadDuelWinsIntoCache(playerId))) {
+            duelWinsCache.put(playerId, new DuelWinsEntry(stale,
+                    System.currentTimeMillis() + DUEL_WINS_RETRY_TTL_MILLIS));
+        }
+    }
+
+    /**
+     * R-48：异步任务本体 —— 读一次决斗胜场并写回 {@link #duelWinsCache}。
+     *
+     * <p>拆出来是为了让 {@link #scheduleAsync} 的 lambda 只有一行（理由见
+     * {@link #scheduleAsync} 的 javadoc：{@code SchedulerRejectionCatchTest} 的扫描窗口
+     * 要求守卫与派发紧邻）。
+     *
+     * <p><b>失败口径</b>：运行期异常（连接层重连失败等，由 {@code DatabaseManager.getConnection}
+     * 抛出、{@code getDuelStats} 不接）落 {@code value = null} + 退避 TTL，<b>不记 WARNING</b> ——
+     * {@code getDuelStats} 内部已在 {@code SQLException} 分支记过一次带堆栈的 WARNING，
+     * 这里再记一遍只会让同一故障在日志里出现两份。
+     *
+     * <p><b>已知残余风险（故意记在这里，不要当成已解决的问题）</b>：
+     * {@code getDuelStats} 的 {@code SQLException} 分支返回 {@code (0, 0)}，
+     * 与「确实一场没赢过」<b>逐字节同形</b>且<b>不抛异常</b> —— 所以本方法<b>无法</b>把
+     * 「查询失败」与「真的零胜」区分开，失败会被当作已确认的 0 缓存 30 秒。
+     * 这正是 R22-D2 在金币上修掉的那个形状（当时的处置是给 {@code DatabaseManager}
+     * 加三态变体 {@code getCoinsEarnedWithStatus}）。本占位符<b>不做</b>那个改造：
+     * 它需要动 {@code DatabaseManager}（本批次禁改的文件），且决斗胜场是低频展示数字，
+     * 与金币（动钱）的量级不同。正确的后续处置是照 {@code CoinsEarnedRead} 的形状补一个
+     * {@code DuelStatsRead(wins, losses, readFailed)}，届时本方法改调三态版并让
+     * {@code readFailed} 落 {@code null}。在这之前：错误方向是「显示 0 而不是空串」，
+     * 不是「显示一个玩家从未拥有过的高胜场」，故不构成发错奖励一类的后果。
+     */
+    private void loadDuelWinsIntoCache(UUID playerId) {
+        Integer value = null;
+        try {
+            DatabaseManager.DuelStats stats = plugin.getDatabaseManager().getDuelStats(playerId);
+            if (stats != null) {
+                value = stats.wins();
+            }
+        } catch (RuntimeException e) {
+            // 连接层运行期异常（重连失败等）：保持未知，等退避后重试。
+            value = null;
+        } finally {
+            long ttl = value != null ? RANK_CACHE_TTL_MILLIS : DUEL_WINS_RETRY_TTL_MILLIS;
+            maybeEvictDuelWins();
+            duelWinsCache.put(playerId, new DuelWinsEntry(value,
+                    System.currentTimeMillis() + ttl));
+        }
+    }
+
+    /**
      * R-16（隐私）：这个 params 是否属于「学习成绩」族 —— 即非本人查看时是否要
      * 叠加目标 {@code showResults} 门禁。
      *
@@ -1028,6 +1309,10 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
         return switch (params) {
             case "score", "coins_earned", "rank", "words", "accuracy", "sessions",
                     "streak", "longest_streak", "achievements", "correct", "incorrect",
+                    // R-48：第三方排行榜可用的纯数字别名 + 新增的两个占位符。
+                    // accuracy_raw / achievements_raw 与它们的带符号原名同源同门
+                    // （见 RESULTS_GATED）；duel_wins / review_due 见各自的 case 注释。
+                    "accuracy_raw", "achievements_raw", "duel_wins", "review_due",
                     // plan-season §2.5：三个赛季占位符（固定集合扩展，非动态 key）
                     "season", "season_days_left", "season_rank" -> true;
             default -> false;
@@ -1088,6 +1373,13 @@ public class LLEPapiExpansion extends PlaceholderExpansion implements Relational
      */
     private void maybeEvictRanks() {
         trimToCap(rankCache, RANK_CACHE_MAX_ENTRIES);
+    }
+
+    /**
+     * R-48：{@link #duelWinsCache} 超限时淘汰一批 —— 与 {@link #maybeEvictRanks()} 同范式。
+     */
+    private void maybeEvictDuelWins() {
+        trimToCap(duelWinsCache, DUEL_WINS_CACHE_MAX_ENTRIES);
     }
 
     /**

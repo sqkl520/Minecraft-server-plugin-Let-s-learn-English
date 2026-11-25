@@ -1,8 +1,11 @@
 package com.letslearnenglish.minecraftplugin.core.word;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.api.event.PlayerQuizCompleteEvent;
+import com.letslearnenglish.minecraftplugin.api.event.PlayerWordLearnedEvent;
 import com.letslearnenglish.minecraftplugin.config.ConfigManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import com.letslearnenglish.minecraftplugin.util.EventDispatch;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 
@@ -173,7 +176,12 @@ public class WordManagerImpl {
         // 无会话时调用亦安全——幂等清位，防 API 卡在 true）。
         playerDataStore.setPlayerInSession(playerId, false);
         if (session != null) {
-            playerDataStore.updateWordProgress(playerId, session.getResults());
+            // 本次结算里跨过掌握阈值的词（数据层算，事件由本层派发 —— 数据层不反向依赖事件总线）。
+            // 判空：契约上永不为 null，但这里是结算链的必经点，一个返回 null 的实现
+            // （mock / 未来的包装实现）不该让整局分数与掌握度都记不上。
+            Map<String, String> learnedNow =
+                    playerDataStore.updateWordProgress(playerId, session.getResults());
+            Map<String, String> newlyMastered = learnedNow != null ? learnedNow : Map.of();
             playerDataStore.getPlayerStats(playerId).addScore(session.getScore());
             // R-42：结算时增量同步内存榜（updateScore 语义为 merge-累加，此处传会话增量）。
             // 没有这一行，内存榜只在启动时 loadFromDB 快照一次，%lle_rank% 永远冻结在进服时刻。
@@ -209,6 +217,32 @@ public class WordManagerImpl {
                         reviewScheduler.seedReview(playerId, result.getWord().getEnglish());
                     }
                 }
+            }
+
+            // 对外事件（api.event）：会话结算完成之后派发。
+            //
+            // **放在 session != null 块内**：session 为 null 是 startSession/endSession 的
+            // 幂等清理路径（无活跃会话时的重复收尾），那里没有任何「一局」可播报 ——
+            // 发出去等于给外部插件一个全 0 的假会话。
+            //
+            // **放在结算逻辑之后**：掌握度/累计分/复习种子/内存榜都已落定，监听方读到的
+            // 是最终态。session 在 endSession 开头就被移出 activeSessions，但对象本身仍
+            // 保有本局数值，故这里各项 getter 拿到的仍是这一局的真实结果。
+            //
+            // 线程归属由 EventDispatch 收口（本方法的三条调用路径不保证都在主线程）。
+            EventDispatch.fire(plugin, new PlayerQuizCompleteEvent(
+                    playerId,
+                    session.getTotalCorrect(),
+                    session.getTotalIncorrect(),
+                    session.getScore(),
+                    session.getMode()));
+
+            // 单个词的「学会」事件：数据层把跨阈的词连同释义一起返回，这里只负责派发。
+            // 与「一局结束」的先后：先会话后单词 —— 外部插件若依赖「先收到会话再收到词」，
+            // 这个顺序是确定的。
+            for (Map.Entry<String, String> learned : newlyMastered.entrySet()) {
+                EventDispatch.fire(plugin, new PlayerWordLearnedEvent(
+                        playerId, learned.getKey(), learned.getValue()));
             }
         }
     }

@@ -4,6 +4,7 @@ import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
 import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager.ChallengeProgress;
 import com.letslearnenglish.minecraftplugin.core.DailyChallengeManager.WordChallengeProgress;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
+import com.letslearnenglish.minecraftplugin.core.achievement.Achievement;
 import com.letslearnenglish.minecraftplugin.core.ai.AIChatManager;
 import com.letslearnenglish.minecraftplugin.core.ai.ScenarioCodec;
 import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.LeaderboardEntry;
@@ -11,6 +12,8 @@ import com.letslearnenglish.minecraftplugin.core.progress.Leaderboard.RankingMod
 import com.letslearnenglish.minecraftplugin.core.season.SeasonManager;
 import com.letslearnenglish.minecraftplugin.core.word.WordModes;
 import com.letslearnenglish.minecraftplugin.data.DatabaseManager;
+import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
+import com.letslearnenglish.minecraftplugin.data.repository.PlayerDirectoryRepository;
 import com.letslearnenglish.minecraftplugin.gui.ChatHistoryGUI;
 import com.letslearnenglish.minecraftplugin.gui.ClassBoardGUI;
 import com.letslearnenglish.minecraftplugin.gui.EnglishSquareGUI;
@@ -83,6 +86,15 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player player)) {
+            // 控制台唯一的放行口：`/le stats <玩家名>`（纯文本战绩，见 handleTextStatsCommand）。
+            // 为什么只能在守卫**之前**插一个短路分支、而不是放宽守卫本身：这个
+            // player-only 判定是几十个子命令的共同保护（它们全都要 Player 对象去开 GUI /
+            // 写会话状态），一旦整体放开，控制台敲 `/le word` 就会在强转处炸。
+            // 这里只把「有目标参数的那一个子命令」放行，爆炸半径恰好是一行。
+            if (isTextStatsRequest(args)) {
+                handleTextStatsCommand(sender, args);
+                return true;
+            }
             sender.sendMessage(plugin.getMessageUtil().getMessage("general.player-only"));
             return true;
         }
@@ -122,7 +134,13 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
                 handleReviewCommand(player);
                 break;
             case "stats":
-                handleStatsCommand(player);
+                // 带目标玩家的 `/le stats <玩家名>` 走纯文本战绩（玩家互查用，与
+                // 控制台/QQ 侧同一条链路）；无参形态一字不动，仍是 ProfileGUI。
+                if (isTextStatsRequest(args)) {
+                    handleTextStatsCommand(player, args);
+                } else {
+                    handleStatsCommand(player);
+                }
                 break;
             case "square":
                 handleSquareCommand(player, args);
@@ -461,6 +479,208 @@ public class LearnCommand implements CommandExecutor, TabCompleter {
         plugin.getGuiNavigationManager().pushBack(player.getUniqueId(),
                 () -> new MainMenu(plugin).open(player));
         new ProfileGUI(plugin).open(player, player.getUniqueId());
+    }
+
+    /**
+     * `stats` 子命令是否走**纯文本**战绩分支：必须带目标玩家名。
+     *
+     * <p>无参的 `/le stats` 一字不动（仍是 {@link ProfileGUI}，见 {@link #handleStatsCommand}）——
+     * 那条路径服务于「玩家看自己」，与「查某个人的战绩」是两种诉求，不该互相污染。
+     */
+    private static boolean isTextStatsRequest(String[] args) {
+        return args != null && args.length >= 2 && "stats".equalsIgnoreCase(args[0]);
+    }
+
+    /**
+     * `/le stats &lt;玩家名&gt;` 的纯文本战绩查询 —— 控制台 / QQ 机器人 / 玩家互查共用一条链路。
+     *
+     * <p><b>为什么需要它</b>：无参形态开 GUI，而 GUI 对控制台毫无意义，也回传不了 QQ 群。
+     * 服主通过 HuHoBot 一类扩展以**控制台身份**执行命令并转发输出，所以这条路径必须
+     * ① 不为非玩家发送者开任何界面、② 输出里不带颜色码（QQ 侧显示 `§6` 是乱码）、
+     * ③ 不依赖 `{prefix}`。
+     *
+     * <p><b>线程</b>：`onCommand` 跑在主线程。这里的三次取数都可能落到 JDBC
+     * （`resolveUuidByName` 是 SELECT；`getPlayerStats` / `getUnlockedCount` /
+     * `loadProfileSettingsForDisplay` 缓存 miss 时各是一次主键查询），因此**全部**
+     * 挪进 `runTaskAsynchronously`，结果经 {@link #runTaskSafe} 回主线程渲染 ——
+     * 与 {@code handleChallengeCommand} / {@code handleClassCommand} 同一形状。
+     * 远程 MySQL 抖动时一次 `/le stats` 就能把主线程钉住 30 秒，而功能表现完全正常。
+     *
+     * <p><b>隐私门（与 PAPI 侧同一口径）</b>：非本人查看时叠两道，任一命中都只输出
+     * 「已隐藏」，且**不去读统计值**（不是取到再丢弃 —— 那种写法一旦被改错就会真泄露）：
+     * <ol>
+     *   <li>门禁 1 `showInSquare=false`：照 {@code LLEPapiExpansion.resolveRequest} 的
+     *       隐身者判定 —— 该开关的语义是「他人能不能看到我」，成绩同样属于「关于我」；</li>
+     *   <li>门禁 2 `showResults=false`：即 {@code LLEPapiExpansion.RESULTS_GATED} 那一族
+     *       （score / words / accuracy / sessions / correct / incorrect / achievements）。
+     *       本命令输出的六个字段**逐个**都在该集合内，所以整条命令受它约束，
+     *       而不是像 PAPI 那样按占位符逐键判。</li>
+     * </ol>
+     * 控制台（含 QQ 机器人）与目标**不同**于任何人的视角，但它是管理员/机器人通道，
+     * 刻意**不套**这两道门 —— 否则服主自己都查不了。判定只发生在「执行者是玩家」时。
+     */
+    private void handleTextStatsCommand(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            sendTextStatsKey(sender, StatsTextFormatter.KEY_USAGE);
+            return;
+        }
+        if (args.length > 2) {
+            // D7 同族：多余 token 不得静默丢弃。玩家从别处抄来 `/le stats Bob 7d`
+            // 会以为时间窗生效了，实际查的是全量 —— 宁可回一句用法。
+            sendTextStatsKey(sender, StatsTextFormatter.KEY_USAGE);
+            return;
+        }
+
+        // 子服总开关：控制台的短路分支排在 onCommand 的 player-only 守卫**之前**，
+        // 因此它绕过了那条路径上的 isFullyEnabled 判定。关闭态下 databaseManager /
+        // playerDataStore / achievementManager 一律为 null，必须在这里先拦一道。
+        if (!plugin.isFullyEnabled()) {
+            sendTextStatsKey(sender, "server.disabled");
+            return;
+        }
+
+        final String targetName = args[1];
+        // 在线玩家查名册（主线程专属 API，且零 IO）；在线名优先用规范大小写，
+        // 离线时回显调用方输入 —— 异步段里取不到 Bukkit 名册。
+        final Player online = Bukkit.getPlayerExact(targetName);
+        final UUID onlineId = (online != null) ? online.getUniqueId() : null;
+        final String displayName = (online != null) ? online.getName() : targetName;
+        // 查看者身份在主线程定好：控制台（含 QQ 机器人）没有 UUID ⇒ 非本人视角。
+        final UUID viewerId = (sender instanceof Player viewer) ? viewer.getUniqueId() : null;
+
+        try {
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                final UUID targetId;
+                try {
+                    if (onlineId != null) {
+                        targetId = onlineId;
+                    } else {
+                        // 离线查名唯一入口：player_data 的名字目录（player_name 有索引，
+                        // 见 DatabaseManager 的 Block C2）。
+                        // 刻意**不**走 Bukkit.getOfflinePlayer(name).hasPlayedBefore()：
+                        // 那是会阻塞的名册/网络查询，AdminCommandHandler 只在主线程用它。
+                        targetId = new PlayerDirectoryRepository(plugin.getDatabaseManager(),
+                                plugin.getLogger()).resolveUuidByName(targetName);
+                    }
+                } catch (RuntimeException e) {
+                    plugin.getLogger().log(java.util.logging.Level.WARNING,
+                            "Failed to resolve player for /le stats: " + targetName, e);
+                    runTaskSafe(() -> sendTextStatsKey(sender, StatsTextFormatter.KEY_LOAD_FAILED));
+                    return;
+                }
+
+                if (targetId == null) {
+                    runTaskSafe(() -> sendTextStatsKey(sender,
+                            StatsTextFormatter.KEY_PLAYER_NOT_FOUND, "player", targetName));
+                    return;
+                }
+
+                final PlayerDataStore store = plugin.getPlayerDataStore();
+                final boolean selfView = viewerId != null && viewerId.equals(targetId);
+                final StatsTextFormatter.StatsSnapshot snapshot;
+                try {
+                    // L-05/P1-1：展示路径用 loadProfileSettingsForDisplay（miss 时同步查一行，
+                    // 无行=新玩家→默认公开），不能用 getProfileSettingsReadOnly ——
+                    // 后者 miss 的 fail-closed 会把**所有离线玩家**判成「已隐藏」，
+                    // 与 PAPI 侧当年踩过的坑逐字相同。
+                    PlayerDataStore.ProfileSettings settings =
+                            store.loadProfileSettingsForDisplay(targetId);
+                    if (!selfView && (!settings.isShowInSquare() || !settings.isShowResults())) {
+                        // 隐私优先：不取任何统计值，直接回「已隐藏」（连「打过几题」都不透露）。
+                        // 用 renderHidden 而不是 render(null, true, ...)：后者的形参里还留着
+                        // 一个「战绩」，将来有人把真快照塞进去就会泄露 —— 类型上断开这条退路。
+                        runTaskSafe(() -> sendTextStatsLines(sender,
+                                StatsTextFormatter.renderHidden(displayName,
+                                        textStatsMessages(sender))));
+                        return;
+                    }
+
+                    PlayerDataStore.PlayerStats stats = store.getPlayerStats(targetId);
+                    // DC-01：读失败后补的空壳四字段全 0，把它当真值发出去就是「报了一个
+                    // 看起来很可信的假数」—— 宁可回一句取数失败。
+                    if (stats == null || store.isStatsUnloaded(targetId)) {
+                        runTaskSafe(() -> sendTextStatsKey(sender,
+                                StatsTextFormatter.KEY_LOAD_FAILED));
+                        return;
+                    }
+
+                    var achievements = plugin.getAchievementManager();
+                    // achievements 为 null 只可能是运行时已拆（上面 isFullyEnabled 已拦），
+                    // 这里只做防御：不解引用，宁可少一行成就数。
+                    int unlocked = (achievements != null)
+                            ? achievements.getUnlockedCount(targetId)
+                            : 0;
+                    snapshot = new StatsTextFormatter.StatsSnapshot(
+                            displayName,
+                            stats.getTotalScore(),
+                            stats.getTotalCorrect(),
+                            stats.getTotalIncorrect(),
+                            stats.getTotalSessions(),
+                            unlocked,
+                            Achievement.values().length);
+                } catch (RuntimeException e) {
+                    // 异步段不得直调 Bukkit API：切回主线程提示 + 记日志。
+                    plugin.getLogger().log(java.util.logging.Level.WARNING,
+                            "Failed to load /le stats data for " + targetId, e);
+                    runTaskSafe(() -> sendTextStatsKey(sender, StatsTextFormatter.KEY_LOAD_FAILED));
+                    return;
+                }
+
+                runTaskSafe(() -> {
+                    // 异步间隙玩家可能已下线（控制台不会）—— 渲染前复检，
+                    // 与 handleChallengeCommand / handleClassCommand 同一条守卫。
+                    if (sender instanceof Player p && !p.isOnline()) {
+                        return;
+                    }
+                    sendTextStatsLines(sender, StatsTextFormatter.render(
+                            snapshot, textStatsMessages(sender)));
+                });
+            });
+        } catch (IllegalPluginAccessException | IllegalStateException ignored) {
+            // 插件停用窗口（调度器已关闭）：放弃本次异步查询
+        }
+    }
+
+    /**
+     * 主线程发送一行 i18n 文案（语言按发送者解析）。
+     *
+     * <p><b>刻意不用 {@code MessageUtil.getSenderMessage}</b>：它对非玩家发送者**写死**
+     * {@code lang = "en"}，于是中文服的服主通过控制台/QQ 机器人查战绩时会拿到英文文案。
+     * 这里改用 {@code getMessage}（服务端默认语言，即 config.yml 的
+     * {@code general.language}）—— 控制台代表的正是「这台服」，不是某个玩家。
+     */
+    private void sendTextStatsKey(CommandSender sender, String key, String... placeholders) {
+        sender.sendMessage(statsText(sender, key, placeholders));
+    }
+
+    /** 主线程逐行发送（已在 {@link StatsTextFormatter} 渲染完成，此处零加工）。 */
+    private void sendTextStatsLines(CommandSender sender, List<String> lines) {
+        for (String line : lines) {
+            sender.sendMessage(line);
+        }
+    }
+
+    /**
+     * 战绩文案的取值函数：把 {@code MessageUtil} 适配成 {@link StatsTextFormatter}
+     * 需要的 {@code key → 文案}。
+     *
+     * <p>只在**主线程**调用（{@code runTaskSafe} 的回调里 / 命令入口），
+     * MessageUtil 要按语言挑一份 FileConfiguration，与命令层其余取文案的位置一致。
+     */
+    private java.util.function.Function<String, String> textStatsMessages(CommandSender sender) {
+        return key -> statsText(sender, key);
+    }
+
+    /**
+     * 单条文案取值的唯一实现：玩家走自己的语言，其他发送者走服务端默认语言。
+     *
+     * @see #sendTextStatsKey(CommandSender, String, String...) 中关于「为什么不用
+     *      getSenderMessage」的说明
+     */
+    private String statsText(CommandSender sender, String key, String... placeholders) {
+        return (sender instanceof Player p)
+                ? plugin.getMessageUtil().getPlayerMessage(p, key, placeholders)
+                : plugin.getMessageUtil().getMessage(key, placeholders);
     }
 
     /**

@@ -122,7 +122,7 @@ class I18nVersionGateTest {
 
     /**
      * 版本号 → 该版本 {@code messages/*.yml} 的<b>叶子键总数</b>（含 {@code config-version}
-     * 这个元数据叶子，与本类 {@link #leafKeys} 的口径一致：711 / 786 / 788 正是这几个数）。
+     * 这个元数据叶子，与本类 {@link #leafKeys} 的口径一致：711 / 786 / 788 / 799 正是这几个数）。
      *
      * <p>新增一行 = 一次语言文件变更的永久档案。加键后若忘了 bump 常量，
      * {@code LEAF_COUNTS.get(常量)} 取到的仍是旧数量，与实际数量不等 ⇒ 红。
@@ -153,8 +153,19 @@ class I18nVersionGateTest {
         // 27 → 28（D7 多余参数）：净增 2 个（word.usage + word.extra-arguments），删除 0 个。
         // 键数用真 YAML 解析数出来（788 = 788，zh/en 一致），不是 grep 数缩进行。
         LEAF_COUNTS.put(28, 788);
+        // 28 → 29（/le stats <玩家名> 的纯文本战绩）：净增 11 个
+        // （command.stats-text.* 共 11 条：header / score / correct / incorrect /
+        //  accuracy / sessions / achievements / hidden / player-not-found /
+        //  load-failed / usage），删除 0 个。799 = 799（zh/en 一致）。
+        LEAF_COUNTS.put(29, 799);
 
         SECTIONS_ADDED_IN.put(27, Set.of("diagnose"));
+        // 29 → 顶层新增 command: 整段（11 条 command.stats-text.*）。
+        // 必须登记在 SECTIONS_ADDED_IN 而**不是** KEYS_ADDED_IN：mergeMissing 对
+        // 「用户整段缺失」只走一次 `user.put(key, deepCopy(...)); stats.added++`，
+        // 不逐个下钻计数，所以日志里的 added 是 1 而不是 11。登记成 11 个键会让
+        // registeredBranchInsertionsSince 算出 11（差 10），与真实合并日志对不上。
+        SECTIONS_ADDED_IN.put(29, Set.of("command"));
 
         // 17 个散落在既有 section 里的新键。58 个 diagnose.* 由 SECTIONS_ADDED_IN 覆盖。
         KEYS_ADDED_IN.put(27, Set.of(
@@ -180,6 +191,13 @@ class I18nVersionGateTest {
         KEYS_ADDED_IN.put(28, Set.of(
                 "word.extra-arguments",
                 "word.usage"));
+
+        // 28 → 29 的 11 条 command.stats-text.* **不在这里登记**，见上方
+        // SECTIONS_ADDED_IN.put(29, Set.of("command")) 的注释。
+        // 这里曾有一版把它们逐个登记在 KEYS_ADDED_IN，注释还写着「用 SECTIONS_ADDED_IN
+        // 也能过」—— 那句话是错的：mergeMissing 对整段缺失只计 1 次，而本函数逐键计 11 次，
+        // 于是 releasedShapedFileIsUpgradedToCurrent 断言 31 而真实合并日志是 21，当场变红。
+        // 教训：新增顶层 section 时先确认 mergeMissing 的计数口径，别把「键数」当「插入次数」。
     }
 
     /**
@@ -219,7 +237,7 @@ class I18nVersionGateTest {
      * {@code I18nFullParityTest} 管）。这里断言两份各自等于本值，等于同时钉住了平价。
      */
     private static final String KEYSET_SHA256 =
-            "3fc5423905e9dab90ba8c7df0fddf69f7e04bca65f8c227867e16a53c9491180";
+            "50340c67ebf53031385234dae3d86b4cdec0b9e59e0027a06df0c5d53013898b";
 
     // ============================================================
     //  A. 闸门版本契约（lint）

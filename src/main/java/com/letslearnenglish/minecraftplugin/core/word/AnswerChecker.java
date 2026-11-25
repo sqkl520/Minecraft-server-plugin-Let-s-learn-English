@@ -551,8 +551,24 @@ public final class AnswerChecker {
     }
 
     /**
-     * 把例句中的目标词挖空（大小写不敏感全词匹配，保留原标点）。
-     * 例句缺失或不含目标词时回落为"_____"。
+     * 把例句中的目标词挖空（保留原标点与大小写外观）。
+     *
+     * <p>匹配口径：遍历 {@link WordInflection#formsOf} 给出的全部候选词形（原形 + 规则屈折
+     * + 不规则形），逐个做大小写不敏感的整词匹配，<b>第一个命中的替换成 {@code "_____"}</b>，
+     * 整句保留。所以 {@code work} 能挖掉 {@code "She works in a hospital."} 里的
+     * {@code works}，{@code mean} 能挖掉 {@code "…never meant to live forever."} 里的
+     * {@code meant}。
+     *
+     * <p>只认原形是接线前的实现，代价是 208/1357（15.3%）个词的例句匹配不上、整句被丢弃，
+     * fill_blank 只剩一个裸 {@code "_____"}，语法考点与语境全丢——玩家看到的是一道
+     * "没有任何线索的填空题"。候选词形的顺序即优先级（原形优先），见
+     * {@link WordInflection#formsOf} 的说明。
+     *
+     * <p>注意判分侧不受影响：{@link #check} 仍然只接受原形（见其 javadoc），
+     * 避免同族词混进 word_progress。这里只改挖空渲染。
+     *
+     * <p>兜底不变：word 为 null、例句缺失、或所有候选词形都没命中时，返回 {@code "_____"}
+     * （与接线前逐位一致）。
      */
     public static String blankSentence(Word word) {
         if (word == null) {
@@ -563,10 +579,15 @@ public final class AnswerChecker {
         if (sentence == null || sentence.isEmpty() || target == null || target.isEmpty()) {
             return "_____";
         }
-        Pattern pattern = Pattern.compile("(?i)\\b" + Pattern.quote(target) + "\\b");
-        Matcher matcher = pattern.matcher(sentence);
-        if (matcher.find()) {
-            return matcher.replaceAll("_____");
+        for (String form : WordInflection.formsOf(target)) {
+            // 逐形匹配，而不是把全部候选拼成一条 \b(?:A|B|…)\b 一次替换：union 分支会
+            // 把句子里<b>每一个</b>候选形都挖掉（同一句里出现 works 与 working 就成了两个空），
+            // 而挖空题只该有一个空位。逐形 + 先命中先返回，既只挖一处，也兑现了
+            // formsOf 的"原形优先"顺序。单个词形的多处出现仍全部替换 —— 与接线前同口径。
+            Matcher matcher = Pattern.compile("(?i)\\b" + Pattern.quote(form) + "\\b").matcher(sentence);
+            if (matcher.find()) {
+                return matcher.replaceAll("_____");
+            }
         }
         return "_____";
     }

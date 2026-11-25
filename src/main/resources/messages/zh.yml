@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 28
+config-version: 29
 
 prefix: "&8[&b英语学习&8] &f"
 
@@ -13,6 +13,29 @@ general:
   reload-success: "{prefix}&a配置已重新加载！"
   unknown-command: "{prefix}&c未知命令。输入 /le help 查看帮助。"
   error: "{prefix}&c错误: {message}"
+
+# ============================================================
+#  /le stats <玩家名> 的纯文本战绩（控制台 / QQ 机器人 / 玩家互查共用）
+#
+#  这一批文案是**唯一**不带颜色码、也不带 {prefix} 的一段，原因如下：
+#  服主用 QQ 机器人扩展以控制台身份执行本命令并把输出原文转发到群里，
+#  `§6` / `&6` 在那边是乱码字符，`{prefix}` 会白占一行且带一串方括号。
+#  因此这里只允许纯文本 + 中文标签，全角冒号保持与游戏内排版一致。
+#  改动前请确认 QQ 侧仍然可读（这是本段唯一的硬约束）。
+# ============================================================
+command:
+  stats-text:
+    header: "===== {player} 的学习战绩 ====="
+    score: "总学习分: {score}"
+    correct: "答对: {correct} 题"
+    incorrect: "答错: {incorrect} 题"
+    accuracy: "正确率: {accuracy}"
+    sessions: "学习次数: {sessions}"
+    achievements: "已解锁成就: {unlocked}/{total}"
+    hidden: "{player} 已关闭成绩公开，无法查看其战绩。"
+    player-not-found: "找不到玩家 {player}（从未加入过本服）。"
+    load-failed: "战绩读取失败，请稍后重试（数据层暂无可用数据）。"
+    usage: "用法: /le stats <玩家名>"
 
 # MC-2 模块开关统一回显（Wave 1）：9 个模块门关闭时命令/GUI 入口的通用提示
 module:

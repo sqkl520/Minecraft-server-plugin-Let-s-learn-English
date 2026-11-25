@@ -3,7 +3,7 @@
 #  Supports PlaceholderAPI variables and color codes
 # ============================================================
 
-config-version: 28
+config-version: 29
 
 prefix: "&8[&bEnglish&8] &f"
 
@@ -13,6 +13,29 @@ general:
   reload-success: "{prefix}&aConfiguration reloaded successfully!"
   unknown-command: "{prefix}&cUnknown command. Use /le help for help."
   error: "{prefix}&cError: {message}"
+
+# ============================================================
+#  Plain-text stats for `/le stats <player>` (console / QQ bots / player lookups).
+#
+#  This is the ONLY block with no colour codes and no {prefix}, on purpose:
+#  server owners run it from a QQ-bot extension as the console and forward the
+#  raw output to a group chat, where `§6` / `&6` render as mojibake and a
+#  {prefix} line would just waste a row with brackets. Plain text only.
+#  Keep it readable on both the game client and a chat bot when editing.
+# ============================================================
+command:
+  stats-text:
+    header: "===== Learning stats for {player} ====="
+    score: "Total score: {score}"
+    correct: "Correct: {correct}"
+    incorrect: "Wrong: {incorrect}"
+    accuracy: "Accuracy: {accuracy}"
+    sessions: "Sessions: {sessions}"
+    achievements: "Achievements unlocked: {unlocked}/{total}"
+    hidden: "{player} has hidden their results."
+    player-not-found: "Player {player} not found (never joined this server)."
+    load-failed: "Could not load stats right now; please retry later."
+    usage: "Usage: /le stats <player>"
 
 # MC-2 module gate unified message (Wave 1)
 module:

@@ -1561,8 +1561,7 @@ public class PlayerDataStore {
             masteryMap = wordMasteryCache.get(playerId);
         }
 
-        double threshold = plugin.getConfigManager().getMainConfig()
-                .getDouble("word-system.review.mastery-threshold", 0.85);
+        double threshold = masteryThreshold();
 
         Set<String> mastered = new HashSet<>();
         if (masteryMap != null) {
@@ -1639,8 +1638,21 @@ public class PlayerDataStore {
      * 回落 0 会覆盖 DB 非零值（复习调度被清零）。masteryMap 的创建点仅本方法与
      * loadPlayerData 两处（后者五 map 全填），故补两行后"凡 savePlayerData 可被触达
      * （masteryMap 非 null）的状态下 5 map 必同存"，覆盖窗口封死。
+     *
+     * <p><b>返回值：本次结算里「跨过掌握阈值」的词</b>（英文原词 → 中文释义）。
+     * 掌握度的<b>唯一</b>写入点是本方法的 {@code masteryMap.put}，而「是否已掌握」的
+     * 唯一读侧判据是 {@link #getMasteredWords}（{@code >= mastery-threshold}）——
+     * 于是「跨阈」这件事只有本方法算得出来。这里只负责<b>算出并返回</b>，事件由上层
+     * （{@code WordManagerImpl.endSession}）派发：数据层不该反向依赖对外事件总线。
+     *
+     * <p>跨阈判据是「结算前 &lt; 阈值 且 结算后 &gt;= 阈值」，不是「结算后 &gt;= 阈值」——
+     * 否则每次答对已掌握的词都要重复报一次（掌握度上限 1.0，后半边永远成立）。
+     * 掉下阈值、之后又跨回来会再报一次：语义上确实是「重新掌握」，故意保留。
+     *
+     * @return 跨阈词（保序：按 {@code results} 的迭代序）；无跨阈时为空 map，永不为 null
      */
-    public void updateWordProgress(UUID playerId, Map<String, LearningSession.WordResult> results) {
+    public Map<String, String> updateWordProgress(UUID playerId,
+                                                  Map<String, LearningSession.WordResult> results) {
         Map<String, Double> masteryMap = wordMasteryCache.computeIfAbsent(
                 playerId, k -> new ConcurrentHashMap<>());
         Map<String, Integer> correctMap = correctCountCache.computeIfAbsent(
@@ -1652,6 +1664,9 @@ public class PlayerDataStore {
 
         int sessionCorrect = 0;
         int sessionIncorrect = 0;
+
+        Map<String, String> newlyMastered = new LinkedHashMap<>();
+        double masteryThreshold = masteryThreshold();
 
         for (Map.Entry<String, LearningSession.WordResult> entry : results.entrySet()) {
             String word = entry.getKey().toLowerCase();
@@ -1674,6 +1689,15 @@ public class PlayerDataStore {
             }
 
             masteryMap.put(word, newMastery);
+            // 跨阈检测：本次结算前在阈值下、结算后到达阈值 → 「学会了一个词」。
+            // 用「< 阈值 → >= 阈值」而不是只看 newMastery >= threshold：否则每次答对已掌握的词
+            // 都要重复广播一次（掌握度上限 1.0，会永远满足后半边）。
+            // 掉下阈值再由后续会话跨回来会再触发一次 —— 语义上确实是「重新掌握」，故意保留。
+            if (currentMastery < masteryThreshold && newMastery >= masteryThreshold) {
+                String chinese = result.getWord() != null ? result.getWord().getChinese() : null;
+                newlyMastered.put(result.getWord() != null
+                        ? result.getWord().getEnglish() : word, chinese);
+            }
             // R7-A markWordDirty 点 1/7 + 2/7（同一处覆盖两个写入点）：
             //   1/7 = masteryMap.put(word, newMastery)（掌握度）
             //   2/7 = correctMap.merge / incorrectMap.merge（正确/错误计数）
@@ -1703,6 +1727,28 @@ public class PlayerDataStore {
         masteredWordsCache.remove(playerId);
 
         updatePlayerStats(playerId, sessionCorrect, sessionIncorrect);
+
+        return newlyMastered;
+    }
+
+    /**
+     * 掌握阈值（{@code word-system.review.mastery-threshold}，默认 0.85）。
+     *
+     * <p><b>为什么抽成一个方法</b>：这个值与 {@link #getMasteredWords} 里判定「已掌握」
+     * 用的是同一个键。<b>两处各读一次</b>而不是某一处缓存 —— 让「事件判据」与「抽词排除
+     * 判据」在<b>同一个时刻</b>读同一个键，reload 改阈值后两侧同 tick 生效；若缓存成字段，
+     * 两侧会在 reload 后短暂用不同阈值，事件说"学会了"而抽词仍把它算未掌握。</p>
+     *
+     * <p>配置或配置管理器缺失时回落默认 0.85（与 {@code getMasteredWords} 同口径）；
+     * {@code plugin} 为 null 只可能出现在测试替身场景，同样回落而不抛。</p>
+     */
+    private double masteryThreshold() {
+        if (plugin == null || plugin.getConfigManager() == null
+                || plugin.getConfigManager().getMainConfig() == null) {
+            return 0.85;
+        }
+        return plugin.getConfigManager().getMainConfig()
+                .getDouble("word-system.review.mastery-threshold", 0.85);
     }
 
     /**

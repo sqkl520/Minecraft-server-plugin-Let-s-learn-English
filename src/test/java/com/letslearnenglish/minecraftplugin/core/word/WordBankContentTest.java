@@ -11,7 +11,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -59,69 +58,6 @@ class WordBankContentTest {
     private static final Set<String> POS_ALLOWED = Set.of(
             "noun", "verb", "adjective", "adverb", "preposition",
             "pronoun", "conjunction", "determiner", "numeral", "interjection");
-
-    // 不规则变化：判定"例句含目标词"时不能只看规则屈折，否则 meant/told/left 会被误判
-    private static final Map<String, List<String>> IRREGULAR = new HashMap<>();
-    static {
-        IRREGULAR.put("mean", List.of("meant"));
-        IRREGULAR.put("tell", List.of("told"));
-        IRREGULAR.put("keep", List.of("kept"));
-        IRREGULAR.put("bring", List.of("brought"));
-        IRREGULAR.put("hold", List.of("held"));
-        IRREGULAR.put("lead", List.of("led"));
-        IRREGULAR.put("spend", List.of("spent"));
-        IRREGULAR.put("send", List.of("sent"));
-        IRREGULAR.put("forbid", List.of("forbidden"));
-        IRREGULAR.put("compel", List.of("compelled"));
-        IRREGULAR.put("dispel", List.of("dispelled"));
-        IRREGULAR.put("bad", List.of("worse", "worst"));
-        IRREGULAR.put("activity", List.of("activities"));
-        IRREGULAR.put("program", List.of("programming"));
-        IRREGULAR.put("feel", List.of("felt"));
-        IRREGULAR.put("get", List.of("got", "gotten"));
-        IRREGULAR.put("find", List.of("found"));
-        IRREGULAR.put("say", List.of("said"));
-        IRREGULAR.put("think", List.of("thought"));
-        IRREGULAR.put("come", List.of("came"));
-        IRREGULAR.put("go", List.of("went"));
-        IRREGULAR.put("see", List.of("saw", "seen"));
-        IRREGULAR.put("take", List.of("took", "taken"));
-        IRREGULAR.put("give", List.of("gave", "given"));
-        IRREGULAR.put("make", List.of("made"));
-        IRREGULAR.put("know", List.of("knew", "known"));
-        IRREGULAR.put("become", List.of("became"));
-        IRREGULAR.put("begin", List.of("began", "begun"));
-        IRREGULAR.put("run", List.of("ran"));
-        IRREGULAR.put("write", List.of("wrote", "written"));
-        IRREGULAR.put("speak", List.of("spoke", "spoken"));
-        IRREGULAR.put("break", List.of("broke", "broken"));
-        IRREGULAR.put("choose", List.of("chose", "chosen"));
-        IRREGULAR.put("drive", List.of("drove", "driven"));
-        IRREGULAR.put("eat", List.of("ate", "eaten"));
-        IRREGULAR.put("fall", List.of("fell", "fallen"));
-        IRREGULAR.put("forget", List.of("forgot", "forgotten"));
-        IRREGULAR.put("hear", List.of("heard"));
-        IRREGULAR.put("lose", List.of("lost"));
-        IRREGULAR.put("meet", List.of("met"));
-        IRREGULAR.put("pay", List.of("paid"));
-        IRREGULAR.put("rise", List.of("rose", "risen"));
-        IRREGULAR.put("sell", List.of("sold"));
-        IRREGULAR.put("sit", List.of("sat"));
-        IRREGULAR.put("sleep", List.of("slept"));
-        IRREGULAR.put("stand", List.of("stood"));
-        IRREGULAR.put("teach", List.of("taught"));
-        IRREGULAR.put("understand", List.of("understood"));
-        IRREGULAR.put("wear", List.of("wore", "worn"));
-        IRREGULAR.put("win", List.of("won"));
-        IRREGULAR.put("child", List.of("children"));
-        IRREGULAR.put("person", List.of("people"));
-        IRREGULAR.put("man", List.of("men"));
-        IRREGULAR.put("woman", List.of("women"));
-        IRREGULAR.put("foot", List.of("feet"));
-        IRREGULAR.put("tooth", List.of("teeth"));
-        IRREGULAR.put("life", List.of("lives"));
-        IRREGULAR.put("wife", List.of("wives"));
-    }
 
     private static final Pattern WORD_LINE = Pattern.compile("^\\s{2}-\\s+english:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
     private static final Pattern FIELD_LINE = Pattern.compile("^\\s{4}([a-z_]+):\\s*(.*)$");
@@ -229,36 +165,22 @@ class WordBankContentTest {
     /**
      * 例句是否真的包含目标词。
      *
-     * <p><b>短词必须只做精确匹配</b>（红队 F1）：{@code a} 的规则屈折会生成
-     * {@code a/as/ad/aes}，于是 {@code "As I was leaving…"} 能通过
-     * {@code \bas\b} 而句子里的「a」其实是 "As" 的首字母 —— 4 个最高频的
-     * 单字母/双字母功能词（a / I / be / it）本来最该被守住，却全部漏判。
-     * 长度 ≤ 2 时只认原形，不做任何屈折展开。
+     * <p><b>屈折规则来自生产侧</b> {@link WordInflection#formsOf}，本类不再自带一份。
+     * 原先这里有一份私有实现（含一份 58 条词元 / 75 个词形的 {@code IRREGULAR} 表），
+     * 而生产侧的 {@code AnswerChecker.blankSentence} 只认原形——于是测试断言"例句含目标词"
+     * 通过，玩家那边却因为挖不掉 {@code works} / {@code meant} 而看到裸 {@code "_____"}。
+     * 两边共用同一个 {@link WordInflection#formsOf}，这类"测试绿、生产丢语境"的分裂
+     * 不可能再悄悄出现：规则改一处，两边同时变。
+     *
+     * <p><b>短词只做精确匹配</b>由 {@link WordInflection#formsOf} 内部保证
+     * （长度 ≤ 2 只返回原形）。原因见 {@code SHORT_LEMMA_MAX_LENGTH} 的注释：{@code a}
+     * 的屈折会生成 {@code as}，让 {@code "As I was leaving…"} 通过
+     * {@code \bas\b}，于是 4 个最高频的单/双字母功能词（a / I / be / it）全部漏判。
      */
     private static boolean containsWord(String word, String sentence) {
-        String lw = word.toLowerCase();
         String lower = sentence.toLowerCase();
-
-        if (lw.length() <= 2) {
-            // 短词只认精确独立词形；不展开屈折，否则 a->as、it->its、be->bed 全部误判
-            return Pattern.compile("\\b" + Pattern.quote(lw) + "\\b").matcher(lower).find();
-        }
-
-        String stem = lw.endsWith("e") ? lw.substring(0, lw.length() - 1) : lw;
-        Set<String> forms = new HashSet<>();
-        forms.add(lw);
-        for (String suf : new String[] {"s", "es", "ed", "d", "ing"}) forms.add(stem + suf);
-        for (String suf : new String[] {"s", "ed", "ing"}) forms.add(lw + suf);
-        // 双写末辅音 + ed/ing：commit→committed、hug→hugged、cram→crammed、
-        // drag→dragged、grin→grinned。英语拼写规则，不覆盖会导致这 5 个词被误报。
-        if (lw.matches(".*[bcdfghjklmnpqrstvwxz]$")) {
-            String dbl = lw + lw.charAt(lw.length() - 1);
-            forms.add(dbl + "ed");
-            forms.add(dbl + "ing");
-        }
-        forms.addAll(IRREGULAR.getOrDefault(lw, List.of()));
-        for (String f : forms) {
-            if (Pattern.compile("\\b" + Pattern.quote(f) + "\\b").matcher(lower).find()) return true;
+        for (String form : WordInflection.formsOf(word)) {
+            if (Pattern.compile("\\b" + Pattern.quote(form) + "\\b").matcher(lower).find()) return true;
         }
         return false;
     }

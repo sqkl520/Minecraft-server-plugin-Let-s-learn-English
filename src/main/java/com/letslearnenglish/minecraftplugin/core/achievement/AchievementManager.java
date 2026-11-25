@@ -1,10 +1,12 @@
 package com.letslearnenglish.minecraftplugin.core.achievement;
 
 import com.letslearnenglish.minecraftplugin.LetsLearnEnglish;
+import com.letslearnenglish.minecraftplugin.api.event.PlayerAchievementUnlockEvent;
 import com.letslearnenglish.minecraftplugin.core.SoundManager;
 import com.letslearnenglish.minecraftplugin.core.social.SocialManager;
 import com.letslearnenglish.minecraftplugin.data.PlayerDataStore;
 import com.letslearnenglish.minecraftplugin.data.repository.AchievementRepository;
+import com.letslearnenglish.minecraftplugin.util.EventDispatch;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.title.Title;
@@ -338,6 +340,17 @@ public class AchievementManager {
                 // 插件停用窗口（调度器已关闭）：放弃本次通知，解锁记录已落库
             }
         }
+
+        // 对外事件（api.event）：只在这里 fire —— 上面所有「不是首次解锁」的路径都已
+        // 短路返回，所以事件与「真的解锁了一次」严格一一对应，重复调用不会重复广播。
+        //
+        // **刻意 fire 在写内存/写库之后**：取消它无法回滚已写入的 unlockedCache 与
+        // 已发出的 UPSERT（唯一并发闸门是上面 unlocked.add 的返回值，插在它之前会让并发
+        // 触发重复事件）。因此本事件不是 Cancellable —— 见 PlayerAchievementUnlockEvent
+        // 的 javadoc。线程归属由 EventDispatch 收口（本方法可从异步线程到达）。
+        PlayerAchievementUnlockEvent unlockEvent = new PlayerAchievementUnlockEvent(
+                playerId, achievement.getId(), achievement.getDisplayName("en"));
+        EventDispatch.fire(plugin, unlockEvent);
         return true;
     }
 
